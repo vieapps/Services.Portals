@@ -51,17 +51,6 @@ namespace net.vieapps.Services.Systems
 			this.LastUpdatedID = "";
 		}
 
-		#region IBusinessEntity properties
-		[JsonIgnore, BsonIgnore, Ignore]
-		public override string SystemID { get; set; }
-
-		[JsonIgnore, BsonIgnore, Ignore]
-		public override string RepositoryID { get; set; }
-
-		[JsonIgnore, BsonIgnore, Ignore]
-		public override string EntityID { get; set; }
-		#endregion
-
 		#region Properties
 		[Sortable(IndexName = "Management")]
 		public string OwnerID { get; set; }
@@ -124,6 +113,17 @@ namespace net.vieapps.Services.Systems
 
 		[Sortable(IndexName = "Statistics")]
 		public string LastUpdatedID { get; set; }
+		#endregion
+
+		#region IBusinessEntity properties
+		[JsonIgnore, BsonIgnore, Ignore]
+		public override string SystemID { get; set; }
+
+		[JsonIgnore, BsonIgnore, Ignore]
+		public override string RepositoryID { get; set; }
+
+		[JsonIgnore, BsonIgnore, Ignore]
+		public override string EntityID { get; set; }
 		#endregion
 
 		internal static Task<Organization> GetByAliasAsync(string alias)

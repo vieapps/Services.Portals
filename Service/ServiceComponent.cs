@@ -107,7 +107,7 @@ namespace net.vieapps.Services.Systems
 		public override async Task<JObject> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
 #if DEBUG
-			this.WriteInfo(requestInfo.CorrelationID, "Process the request\r\n==> Request:\r\n" + requestInfo.ToJson().ToString(Formatting.Indented), null, false);
+			this.WriteInfo(requestInfo.CorrelationID, "Process the request" + "\r\n" + "Request ==>" + "\r\n" + requestInfo.ToJson().ToString(Formatting.Indented));
 #endif
 			try
 			{
@@ -128,7 +128,7 @@ namespace net.vieapps.Services.Systems
 			}
 			catch (Exception ex)
 			{
-				this.WriteInfo(requestInfo.CorrelationID, "Error occurred while processing\r\n==> Request:\r\n" + requestInfo.ToJson().ToString(Formatting.Indented), ex);
+				this.WriteInfo(requestInfo.CorrelationID, "Error occurred while processing: " + ex.Message + " [" + ex.GetType().ToString() + "]", ex);
 				throw this.GetRuntimeException(requestInfo, ex);
 			} 
 		}
@@ -181,10 +181,17 @@ namespace net.vieapps.Services.Systems
 			var query = request.Get<string>("FilterBy.Query");
 
 			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Organization>();
+			if (requestInfo.Extra.ContainsKey("x-refer-section"))
+			{
+				if (filter == null)
+					filter = Filters<Organization>.Equals("ReferSection", requestInfo.Extra["x-refer-section"]);
+				else if (filter is FilterBys<Organization> && (filter as FilterBys<Organization>).Children.FirstOrDefault(e => (e as FilterBy<Organization>).Attribute.IsEquals("ReferSection")) == null)
+					(filter as FilterBys<Organization>).Children.Add(Filters<Organization>.Equals("ReferSection", requestInfo.Extra["x-refer-section"]));
+			}
 
 			var sort = request.Get<ExpandoObject>("SortBy", null)?.ToSortBy<Organization>();
 			if (sort == null && string.IsNullOrWhiteSpace(query))
-				sort = Sorts<Organization>.Descending("LastUpdated");
+				sort = Sorts<Organization>.Ascending("Title");
 
 			var pagination = request.Has("Pagination")
 				? request.Get<ExpandoObject>("Pagination").GetPagination()
@@ -258,9 +265,10 @@ namespace net.vieapps.Services.Systems
 		async Task<JObject> CreateOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// check permission
+			var isCreatedByOtherService = false;
 			var gotRights = await this.IsSystemAdministratorAsync(requestInfo);
 			if (!gotRights && requestInfo.Extra != null)
-				gotRights = requestInfo.Extra.ContainsKey("x-create") && requestInfo.Extra["x-create"].IsEquals(requestInfo.Session.SessionID.Encrypt());
+				gotRights = isCreatedByOtherService = requestInfo.Extra.ContainsKey("x-create") && requestInfo.Extra["x-create"].IsEquals(requestInfo.Session.SessionID.Encrypt());
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -286,14 +294,14 @@ namespace net.vieapps.Services.Systems
 			if (string.IsNullOrWhiteSpace(organization.OwnerID))
 				organization.OwnerID = requestInfo.Session.User.ID;
 
-			organization.Status = requestInfo.Extra.ContainsKey("x-create") && requestInfo.Extra["x-create"].IsEquals(requestInfo.Session.SessionID.Encrypt()) && requestInfo.Extra.ContainsKey("x-status")
+			organization.Status = isCreatedByOtherService && requestInfo.Extra.ContainsKey("x-status")
 				? requestInfo.Extra["x-status"].ToEnum<ApprovalStatus>()
 				: ApprovalStatus.Pending;
 
 			if (requestInfo.Extra.ContainsKey("x-refer"))
 			{
 				organization.ReferSection = requestInfo.Extra["x-refer-section"];
-				organization.ReferIDs = requestInfo.Extra["x-refer-ids"];
+				organization.ReferIDs = requestInfo.Extra.ContainsKey("x-refer-ids") ? requestInfo.Extra["x-refer-ids"] : "";
 			}
 
 			organization.Created = organization.LastUpdated = DateTime.Now;
@@ -336,7 +344,7 @@ namespace net.vieapps.Services.Systems
 			// check permission
 			var gotRights = await this.IsSystemAdministratorAsync(requestInfo);
 			if (!gotRights)
-				gotRights = requestInfo.Session.User.CanManage(organization.WorkingPrivileges);
+				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.CanManage(organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
