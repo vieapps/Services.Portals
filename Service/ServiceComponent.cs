@@ -253,7 +253,7 @@ namespace net.vieapps.Services.Systems
 #else
 				json = result.ToString(Formatting.None);
 #endif
-				await Utility.Cache.SetAbsoluteAsync(cacheKey + ":" + pageNumber.ToString() + "-json", json, Utility.CacheTime / 2);
+				await Utility.Cache.SetAsync(cacheKey + ":" + pageNumber.ToString() + "-json", json, Utility.CacheTime / 2);
 			}
 
 			// return the result

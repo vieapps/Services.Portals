@@ -36,7 +36,7 @@ namespace net.vieapps.Services.Systems
 			}
 		}
 
-		static Cache _Cache = new Cache("VIEApps-Services-Systems", "Sliding", Utility.CacheTime);
+		static Cache _Cache = new Cache("VIEApps-Services-Systems", Utility.CacheTime);
 
 		public static Cache Cache { get { return Utility._Cache; } }
 		#endregion
