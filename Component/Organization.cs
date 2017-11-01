@@ -58,13 +58,13 @@ namespace net.vieapps.Services.Systems
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), Sortable(IndexName = "Management")]
 		public ApprovalStatus Status { get; set; }
 
-		[Property(MaxLength = 100, NotNull = true), NotEmpty, Sortable(IndexName = "Management", UniqueIndexName = "Alias")]
+		[Property(MaxLength = 100, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias")]
 		public string Alias { get; set; }
 
 		[Property(MaxLength = 10), Sortable(IndexName = "Management")]
 		public string ExpiredDate { get; set; }
 
-		[Property(MaxLength = 250, NotNull = true), NotEmpty, Sortable(IndexName = "Title"), Searchable]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
 		public override string Title { get; set; }
 
 		[Property(MaxLength = 100)]
