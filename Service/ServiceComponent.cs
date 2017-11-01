@@ -19,7 +19,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Systems
 {
-	public class ServiceComponent : BaseService
+	public class ServiceComponent : ServiceBase
 	{
 
 		#region Start
