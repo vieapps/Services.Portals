@@ -22,92 +22,14 @@ namespace net.vieapps.Services.Systems
 	public class ServiceComponent : ServiceBase
 	{
 
-		#region Start
 		public ServiceComponent() { }
-
-		void WriteInfo(string correlationID, string info, Exception ex = null, bool writeLogs = true)
-		{
-			// prepare
-			var msg = string.IsNullOrWhiteSpace(info)
-				? ex?.Message ?? ""
-				: info;
-
-			// write to logs
-			if (writeLogs)
-				this.WriteLog(correlationID ?? UtilityService.NewUID, this.ServiceName, null, msg, ex);
-
-			// write to console
-			if (!Program.AsService)
-			{
-				Console.WriteLine(msg);
-				if (ex != null)
-					Console.WriteLine("-----------------------\r\n" + "==> [" + ex.GetType().GetTypeName(true) + "]: " + ex.Message + "\r\n" + ex.StackTrace + "\r\n-----------------------");
-				else
-					Console.WriteLine("~~~~~~~~~~~~~~~~~~~~>");
-			}
-		}
-
-		internal void Start(string[] args = null, System.Action nextAction = null, Func<Task> nextActionAsync = null)
-		{
-			// prepare
-			var correlationID = UtilityService.NewUID;
-
-			// initialize repository
-			try
-			{
-				this.WriteInfo(correlationID, "Initializing the repository");
-				RepositoryStarter.Initialize();
-			}
-			catch (Exception ex)
-			{
-				this.WriteInfo(correlationID, "Error occurred while initializing the repository", ex);
-			}
-
-			// start the service
-			Task.Run(async () =>
-			{
-				try
-				{
-					await this.StartAsync(
-						service => this.WriteInfo(correlationID, "The service is registered - PID: " + Process.GetCurrentProcess().Id.ToString()),
-						exception => this.WriteInfo(correlationID, "Error occurred while registering the service", exception)
-					);
-				}
-				catch (Exception ex)
-				{
-					this.WriteInfo(correlationID, "Error occurred while starting the service", ex);
-				}
-			})
-			.ContinueWith(async (task) =>
-			{
-				try
-				{
-					nextAction?.Invoke();
-				}
-				catch (Exception ex)
-				{
-					this.WriteInfo(correlationID, "Error occurred while running the next action (sync)", ex);
-				}
-				if (nextActionAsync != null)
-					try
-					{
-						await nextActionAsync().ConfigureAwait(false);
-					}
-					catch (Exception ex)
-					{
-						this.WriteInfo(correlationID, "Error occurred while running the next action (async)", ex);
-					}
-			})
-			.ConfigureAwait(false);
-		}
-		#endregion
 
 		public override string ServiceName { get { return "systems"; } }
 
 		public override async Task<JObject> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
 #if DEBUG
-			this.WriteInfo(requestInfo.CorrelationID, "Process the request" + "\r\n" + "Request ==>" + "\r\n" + requestInfo.ToJson().ToString(Formatting.Indented));
+			this.WriteLog(requestInfo.CorrelationID, "Process the request" + "\r\n" + "Request ==>" + "\r\n" + requestInfo.ToJson().ToString(Formatting.Indented));
 #endif
 			try
 			{
@@ -128,7 +50,7 @@ namespace net.vieapps.Services.Systems
 			}
 			catch (Exception ex)
 			{
-				this.WriteInfo(requestInfo.CorrelationID, "Error occurred while processing: " + ex.Message + " [" + ex.GetType().ToString() + "]", ex);
+				this.WriteLog(requestInfo.CorrelationID, "Error occurred while processing: " + ex.Message + " [" + ex.GetType().ToString() + "]", ex);
 				throw this.GetRuntimeException(requestInfo, ex);
 			} 
 		}
