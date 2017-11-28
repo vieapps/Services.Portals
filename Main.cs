@@ -21,8 +21,7 @@ namespace net.vieapps.Services.Systems
 {
 	public class ServiceComponent : ServiceBase
 	{
-
-		public ServiceComponent() { }
+		public ServiceComponent() : base() { }
 
 		public override string ServiceName { get { return "systems"; } }
 
@@ -36,10 +35,10 @@ namespace net.vieapps.Services.Systems
 				switch (requestInfo.ObjectName.ToLower())
 				{
 					case "organization":
-						return await this.ProcessOrganizationAsync(requestInfo, cancellationToken);
+						return await this.ProcessOrganizationAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 
 					case "site":
-						return await this.ProcessSiteAsync(requestInfo, cancellationToken);
+						return await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 				}
 
 				// unknown
@@ -93,7 +92,7 @@ namespace net.vieapps.Services.Systems
 			if (!await this.IsAuthorizedAsync(
 					requestInfo, Components.Security.Action.View, null,
 					(user, privileges) => this.GetPrivileges(user, privileges),
-					(role) => this.GetPrivilegeActions(role))
+					(role) => this.GetPrivilegeActions(role)).ConfigureAwait(false)
 				)
 				throw new AccessDeniedException();
 
@@ -127,7 +126,7 @@ namespace net.vieapps.Services.Systems
 				: "";
 
 			var json = !cacheKey.Equals("")
-				? await Utility.Cache.GetAsync<string>(cacheKey + ":" + pageNumber.ToString() + "-json")
+				? await Utility.Cache.GetAsync<string>(cacheKey + ":" + pageNumber.ToString() + "-json").ConfigureAwait(false)
 				: "";
 
 			if (!string.IsNullOrWhiteSpace(json))
@@ -140,8 +139,8 @@ namespace net.vieapps.Services.Systems
 
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Organization.CountAsync(filter, cacheKey + "-total", cancellationToken)
-					: await Organization.CountByQueryAsync(query, filter, cancellationToken);
+					? await Organization.CountAsync(filter, cacheKey + "-total", cancellationToken).ConfigureAwait(false)
+					: await Organization.CountByQueryAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			var pageSize = pagination.Item3;
 
@@ -152,8 +151,8 @@ namespace net.vieapps.Services.Systems
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, cacheKey + ":" + pageNumber.ToString(), cancellationToken)
-					: await Organization.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken)
+					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, cacheKey + ":" + pageNumber.ToString(), cancellationToken).ConfigureAwait(false)
+					: await Organization.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<Organization>();
 
 			// build result
@@ -175,7 +174,7 @@ namespace net.vieapps.Services.Systems
 #else
 				json = result.ToString(Formatting.None);
 #endif
-				await Utility.Cache.SetAsync(cacheKey + ":" + pageNumber.ToString() + "-json", json, Utility.CacheTime / 2);
+				await Utility.Cache.SetAsync(cacheKey + ":" + pageNumber.ToString() + "-json", json, Utility.CacheExpirationTime / 2).ConfigureAwait(false);
 			}
 
 			// return the result
@@ -188,7 +187,7 @@ namespace net.vieapps.Services.Systems
 		{
 			// check permission
 			var isCreatedByOtherService = false;
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo);
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (!gotRights && requestInfo.Extra != null)
 				gotRights = isCreatedByOtherService = requestInfo.Extra.ContainsKey("x-create") && requestInfo.Extra["x-create"].IsEquals(requestInfo.Session.SessionID.Encrypt());
 			if (!gotRights)
@@ -199,7 +198,7 @@ namespace net.vieapps.Services.Systems
 			var alias = info.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await Organization.GetByAliasAsync(alias);
+				var existing = await Organization.GetByAliasAsync(alias).ConfigureAwait(false);
 				if (existing != null)
 					throw new InformationExistedException("The alias (" + alias + ") is used by another organization");
 			}
@@ -230,7 +229,7 @@ namespace net.vieapps.Services.Systems
 			organization.CreatedID = organization.LastUpdatedID = requestInfo.Session.User.ID;
 
 			// create new
-			await Organization.CreateAsync(organization, cancellationToken);
+			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
 			return organization.ToJson();
 		}
 		#endregion
@@ -239,12 +238,12 @@ namespace net.vieapps.Services.Systems
 		async Task<JObject> GetOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// get the organization
-			var organization = await Organization.GetAsync<Organization>(requestInfo.GetObjectIdentity(), cancellationToken);
+			var organization = await Organization.GetAsync<Organization>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationNotFoundException();
 
 			// check permission
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo);
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (!gotRights)
 				gotRights = requestInfo.Session.User.CanView(organization.WorkingPrivileges);
 			if (!gotRights)
@@ -259,12 +258,12 @@ namespace net.vieapps.Services.Systems
 		async Task<JObject> UpdateOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// get the organization
-			var organization = await Organization.GetAsync<Organization>(requestInfo.GetObjectIdentity(), cancellationToken);
+			var organization = await Organization.GetAsync<Organization>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationNotFoundException();
 
 			// check permission
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo);
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (!gotRights)
 				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.CanManage(organization.WorkingPrivileges);
 			if (!gotRights)
@@ -276,7 +275,7 @@ namespace net.vieapps.Services.Systems
 			var alias = info.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await Organization.GetByAliasAsync(alias);
+				var existing = await Organization.GetByAliasAsync(alias).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(organization.ID))
 					throw new InformationExistedException("The alias (" + alias + ") is used by another organization");
 			}
@@ -289,13 +288,13 @@ namespace net.vieapps.Services.Systems
 			organization.LastUpdatedID = requestInfo.Session.User.ID;
 
 			// update
-			await Organization.UpdateAsync(organization, cancellationToken);
+			await Organization.UpdateAsync(organization, cancellationToken).ConfigureAwait(false);
 			return organization.ToJson();
 		}
 		#endregion
 
 		#region Delete an organization
-		async Task<JObject> DeleteOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		Task<JObject> DeleteOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			throw new MethodNotAllowedException(requestInfo.Verb);
 		}
@@ -325,7 +324,7 @@ namespace net.vieapps.Services.Systems
 			var id = requestInfo.GetObjectIdentity() ?? requestInfo.Session.User.ID;
 
 			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (requestInfo.Extra != null && requestInfo.Extra.ContainsKey("x-convert"))
 			{
 				if (!isSystemAdministrator)
@@ -348,7 +347,7 @@ namespace net.vieapps.Services.Systems
 				site.ID = id;
 
 			// update database
-			await Site.CreateAsync(site, cancellationToken);
+			await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 			return site.ToJson();
 		}
 		#endregion
@@ -360,14 +359,14 @@ namespace net.vieapps.Services.Systems
 			var id = requestInfo.GetObjectIdentity() ?? requestInfo.Session.User.ID;
 			var gotRights = this.IsAuthenticated(requestInfo) && requestInfo.Session.User.ID.IsEquals(id);
 			if (!gotRights)
-				gotRights = await this.IsSystemAdministratorAsync(requestInfo);
+				gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (!gotRights)
-				gotRights = await this.IsAuthorizedAsync(requestInfo, Components.Security.Action.View, null, this.GetPrivileges, this.GetPrivilegeActions);
+				gotRights = await this.IsAuthorizedAsync(requestInfo, Components.Security.Action.View, null, this.GetPrivileges, this.GetPrivilegeActions).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// get information
-			var site = await Site.GetAsync<Site>(id, cancellationToken);
+			var site = await Site.GetAsync<Site>(id, cancellationToken).ConfigureAwait(false);
 
 			// special: not found
 			if (site == null)
@@ -378,7 +377,7 @@ namespace net.vieapps.Services.Systems
 					{
 						ID = id
 					};
-					await Site.CreateAsync(site);
+					await Site.CreateAsync(site).ConfigureAwait(false);
 				}
 				else
 					throw new InformationNotFoundException();
@@ -396,14 +395,14 @@ namespace net.vieapps.Services.Systems
 			var id = requestInfo.GetObjectIdentity() ?? requestInfo.Session.User.ID;
 			var gotRights = this.IsAuthenticated(requestInfo) && requestInfo.Session.User.ID.IsEquals(id);
 			if (!gotRights)
-				gotRights = await this.IsSystemAdministratorAsync(requestInfo);
+				gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (!gotRights)
-				gotRights = await this.IsAuthorizedAsync(requestInfo, Components.Security.Action.Update, null, this.GetPrivileges, this.GetPrivilegeActions);
+				gotRights = await this.IsAuthorizedAsync(requestInfo, Components.Security.Action.Update, null, this.GetPrivileges, this.GetPrivilegeActions).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// get existing information
-			var site = await Site.GetAsync<Site>(id, cancellationToken);
+			var site = await Site.GetAsync<Site>(id, cancellationToken).ConfigureAwait(false);
 			if (site == null)
 				throw new InformationNotFoundException();
 
@@ -411,13 +410,13 @@ namespace net.vieapps.Services.Systems
 			site.CopyFrom(requestInfo.GetBodyJson());
 			site.ID = id;
 
-			await Site.UpdateAsync(site, cancellationToken);
+			await Site.UpdateAsync(site, cancellationToken).ConfigureAwait(false);
 			return site.ToJson();
 		}
 		#endregion
 
 		#region Delete a site of an organization
-		async Task<JObject> DeleteSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		Task<JObject> DeleteSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			throw new MethodNotAllowedException(requestInfo.Verb);
 		}

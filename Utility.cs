@@ -19,14 +19,14 @@ namespace net.vieapps.Services.Systems
 		#region Caching mechanism
 		static int _CacheTime = 0;
 
-		internal static int CacheTime
+		internal static int CacheExpirationTime
 		{
 			get
 			{
 				if (Utility._CacheTime < 1)
 					try
 					{
-						Utility._CacheTime = UtilityService.GetAppSetting("CacheTime", "30").CastAs<int>();
+						Utility._CacheTime = UtilityService.GetAppSetting("CacheExpirationTime", "30").CastAs<int>();
 					}
 					catch
 					{
@@ -36,7 +36,7 @@ namespace net.vieapps.Services.Systems
 			}
 		}
 
-		static Cache _Cache = new Cache("VIEApps-Services-Systems", Utility.CacheTime);
+		static Cache _Cache = new Cache("VIEApps-Services-Systems", Utility.CacheExpirationTime, UtilityService.GetAppSetting("CacheProvider"));
 
 		public static Cache Cache { get { return Utility._Cache; } }
 		#endregion
