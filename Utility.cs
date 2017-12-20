@@ -41,17 +41,17 @@ namespace net.vieapps.Services.Systems
 		public static Cache Cache { get { return Utility._Cache; } }
 		#endregion
 
-		static string _HttpFilesUri = null;
+		static string _FilesHttpUri = null;
 
-		static string HttpFilesUri
+		static string FilesHttpUri
 		{
 			get
 			{
-				if (string.IsNullOrWhiteSpace(Utility._HttpFilesUri))
-					Utility._HttpFilesUri = UtilityService.GetAppSetting("HttpFilesUri", "https://afs.vieapps.net");
-				while (Utility._HttpFilesUri.EndsWith("/"))
-					Utility._HttpFilesUri = Utility._HttpFilesUri.Left(Utility._HttpFilesUri.Length - 1);
-				return Utility._HttpFilesUri;
+				if (string.IsNullOrWhiteSpace(Utility._FilesHttpUri))
+					Utility._FilesHttpUri = UtilityService.GetAppSetting("FilesHttpUri", "https://afs.vieapps.net");
+				while (Utility._FilesHttpUri.EndsWith("/"))
+					Utility._FilesHttpUri = Utility._FilesHttpUri.Left(Utility._FilesHttpUri.Length - 1);
+				return Utility._FilesHttpUri;
 			}
 		}
 

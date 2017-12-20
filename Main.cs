@@ -49,7 +49,7 @@ namespace net.vieapps.Services.Systems
 			}
 			catch (Exception ex)
 			{
-				this.WriteLog(requestInfo.CorrelationID, "Error occurred while processing: " + ex.Message + " [" + ex.GetType().ToString() + "]", ex);
+				this.WriteLog(requestInfo.CorrelationID, $"Error occurred while processing; {ex.Message} [{ex.GetType().ToString()}]", ex);
 				throw this.GetRuntimeException(requestInfo, ex);
 			} 
 		}
