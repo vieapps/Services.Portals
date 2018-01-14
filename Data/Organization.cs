@@ -47,8 +47,8 @@ namespace net.vieapps.Services.Systems
 			this.InstructionSettings = null;
 			this.Created = DateTime.Now;
 			this.CreatedID = "";
-			this.LastUpdated = DateTime.Now;
-			this.LastUpdatedID = "";
+			this.LastModified = DateTime.Now;
+			this.LastModifiedID = "";
 		}
 
 		#region Properties
@@ -109,10 +109,10 @@ namespace net.vieapps.Services.Systems
 		public string CreatedID { get; set; }
 
 		[Sortable(IndexName = "Statistics")]
-		public DateTime LastUpdated { get; set; }
+		public DateTime LastModified { get; set; }
 
 		[Sortable(IndexName = "Statistics")]
-		public string LastUpdatedID { get; set; }
+		public string LastModifiedID { get; set; }
 		#endregion
 
 		#region IBusinessEntity properties

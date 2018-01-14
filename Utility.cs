@@ -3,8 +3,11 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using System.Xml.Serialization;
 
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using MongoDB.Bson.Serialization.Attributes;
 
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
@@ -61,5 +64,15 @@ namespace net.vieapps.Services.Systems
 
 	[Serializable]
 	[Repository(Title = "Systems", Description = "Information for managing the business system", ID = "00000000000000000000000000000001")]
-	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
+	public abstract class Repository<T> : RepositoryBase<T> where T : class
+	{
+		/// <summary>
+		/// Gets the name of the service that associates with this repository
+		/// </summary>
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public override string ServiceName
+		{
+			get { return "Systems"; }
+		}
+	}
 }

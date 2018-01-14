@@ -232,8 +232,8 @@ namespace net.vieapps.Services.Systems
 				organization.ReferIDs = requestInfo.Extra.ContainsKey("x-refer-ids") ? requestInfo.Extra["x-refer-ids"] : "";
 			}
 
-			organization.Created = organization.LastUpdated = DateTime.Now;
-			organization.CreatedID = organization.LastUpdatedID = requestInfo.Session.User.ID;
+			organization.Created = organization.LastModified = DateTime.Now;
+			organization.CreatedID = organization.LastModifiedID = requestInfo.Session.User.ID;
 
 			// create new
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
@@ -291,11 +291,11 @@ namespace net.vieapps.Services.Systems
 			organization.CopyFrom(info, "ID,OwnerID,Status,ReferSection,ReferIDs,Privileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
 			if (string.IsNullOrWhiteSpace(organization.Alias))
 				organization.Alias = oldAlias;
-			organization.LastUpdated = DateTime.Now;
-			organization.LastUpdatedID = requestInfo.Session.User.ID;
+			organization.LastModified = DateTime.Now;
+			organization.LastModifiedID = requestInfo.Session.User.ID;
 
 			// update
-			await Organization.UpdateAsync(organization, cancellationToken).ConfigureAwait(false);
+			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			return organization.ToJson();
 		}
 		#endregion
@@ -417,7 +417,7 @@ namespace net.vieapps.Services.Systems
 			site.CopyFrom(requestInfo.GetBodyJson());
 			site.ID = id;
 
-			await Site.UpdateAsync(site, cancellationToken).ConfigureAwait(false);
+			await Site.UpdateAsync(site, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			return site.ToJson();
 		}
 		#endregion
