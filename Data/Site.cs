@@ -15,7 +15,7 @@ using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.Systems
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "Sites", TableName = "T_Core_Sites", CacheStorageType = typeof(Utility), CacheStorageName = "Cache", Searchable = true,
+	[Entity(CollectionName = "Sites", TableName = "T_Core_Sites", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true,
 	Title = "Site", Description = "Information of a site in an organization", ID = "10000000000000000000000000000002")]
 	public class Site : Repository<Site>, IBusinessEntity
 	{

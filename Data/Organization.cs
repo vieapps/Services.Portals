@@ -20,7 +20,7 @@ using net.vieapps.Components.Security;
 namespace net.vieapps.Services.Systems
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "Organizations", TableName = "T_Core_Organizations", CacheStorageType = typeof(Utility), CacheStorageName = "Cache", Searchable = true, 
+	[Entity(CollectionName = "Organizations", TableName = "T_Core_Organizations", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, 
 	Title = "Organization", Description = "Information of an organization", ID = "10000000000000000000000000000001")]
 	public class Organization : Repository<Organization>, IBusinessEntity
 	{
