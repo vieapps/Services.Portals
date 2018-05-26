@@ -18,31 +18,7 @@ namespace net.vieapps.Services.Systems
 {
 	public static class Utility
 	{
-
-		#region Caching mechanism
-		static int _CacheTime = 0;
-
-		internal static int CacheExpirationTime
-		{
-			get
-			{
-				if (Utility._CacheTime < 1)
-					try
-					{
-						Utility._CacheTime = UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>();
-					}
-					catch
-					{
-						Utility._CacheTime = 30;
-					}
-				return Utility._CacheTime;
-			}
-		}
-
-		static Cache _Cache = new Cache("VIEApps-Services-Systems", Utility.CacheExpirationTime, UtilityService.GetAppSetting("Cache:Provider"));
-
-		public static Cache Cache { get { return Utility._Cache; } }
-		#endregion
+		public static Cache Cache { get; } = new Cache("VIEApps-Services-Systems", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Logger.GetLoggerFactory());
 
 		static string _FilesHttpUri = null;
 

@@ -23,20 +23,10 @@ namespace net.vieapps.Services.Systems
 	{
 		public ServiceComponent() : base() { }
 
-		public override string ServiceName { get { return "systems"; } }
+		public override string ServiceName { get { return "Systems"; } }
 
 		public override async Task<JObject> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
-			// track
-			var stopwatch = new Stopwatch();
-			stopwatch.Start();
-			var logs = new List<string>() { $"Begin process ({requestInfo.Verb}): {requestInfo.URI}" };
-#if DEBUG || REQUESTLOGS
-			logs.Add($"Request:\r\n{requestInfo.ToJson().ToString(Formatting.Indented)}");
-#endif
-			await this.WriteLogsAsync(requestInfo.CorrelationID, logs).ConfigureAwait(false);
-
-			// process
 			try
 			{
 				switch (requestInfo.ObjectName.ToLower())
@@ -46,22 +36,18 @@ namespace net.vieapps.Services.Systems
 
 					case "site":
 						return await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+
+					default:
+						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.URI}]");
 				}
-				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.URI}]");
 			}
 			catch (Exception ex)
 			{
-				await this.WriteLogAsync(requestInfo.CorrelationID, "Error occurred while processing", ex).ConfigureAwait(false);
 				throw this.GetRuntimeException(requestInfo, ex);
-			}
-			finally
-			{
-				stopwatch.Stop();
-				await this.WriteLogAsync(requestInfo.CorrelationID, $"End process - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 		}
 
-		protected override List<Privilege> GetPrivileges(User user, Privileges privileges)
+		protected override List<Privilege> GetPrivileges(IUser user, Privileges privileges)
 		{
 			var role = this.GetPrivilegeRole(user);
 			return "organization,site,desktop,role,module,content-type,expression".ToList()
@@ -133,7 +119,7 @@ namespace net.vieapps.Services.Systems
 				: "";
 
 			var json = !cacheKey.Equals("")
-				? await Utility.Cache.GetAsync<string>(cacheKey + ":" + pageNumber.ToString() + "-json").ConfigureAwait(false)
+				? await Utility.Cache.GetAsync<string>($"{cacheKey }{pageNumber}:json").ConfigureAwait(false)
 				: "";
 
 			if (!string.IsNullOrWhiteSpace(json))
@@ -146,7 +132,7 @@ namespace net.vieapps.Services.Systems
 
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Organization.CountAsync(filter, cacheKey + "-total", cancellationToken).ConfigureAwait(false)
+					? await Organization.CountAsync(filter, $"{cacheKey}total", cancellationToken).ConfigureAwait(false)
 					: await Organization.CountByQueryAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			var pageSize = pagination.Item3;
@@ -158,7 +144,7 @@ namespace net.vieapps.Services.Systems
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, cacheKey + ":" + pageNumber.ToString(), cancellationToken).ConfigureAwait(false)
+					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, $"{cacheKey}{pageNumber}", cancellationToken).ConfigureAwait(false)
 					: await Organization.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<Organization>();
 
@@ -181,7 +167,7 @@ namespace net.vieapps.Services.Systems
 #else
 				json = result.ToString(Formatting.None);
 #endif
-				await Utility.Cache.SetAsync(cacheKey + ":" + pageNumber.ToString() + "-json", json, Utility.CacheExpirationTime / 2).ConfigureAwait(false);
+				await Utility.Cache.SetAsync($"{cacheKey }{pageNumber}:json", json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
 			}
 
 			// return the result
@@ -214,7 +200,7 @@ namespace net.vieapps.Services.Systems
 			var organization = info.Copy<Organization>("Status,ReferSection,ReferIDs,Privileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
 
 			if (string.IsNullOrWhiteSpace(organization.ID) || !organization.ID.IsValidUUID())
-				organization.ID = UtilityService.NewUID;
+				organization.ID = UtilityService.NewUUID;
 
 			if (string.IsNullOrWhiteSpace(organization.Alias))
 				organization.Alias = organization.Title.GetANSIUri() + "-" + organization.ID;
