@@ -14,11 +14,11 @@ using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 #endregion
 
-namespace net.vieapps.Services.Systems
+namespace net.vieapps.Services.Portals
 {
 	public static class Utility
 	{
-		public static Cache Cache { get; } = new Cache("VIEApps-Services-Systems", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Logger.GetLoggerFactory());
+		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Logger.GetLoggerFactory());
 
 		static string _FilesHttpUri = null;
 
@@ -39,16 +39,13 @@ namespace net.vieapps.Services.Systems
 	//  --------------------------------------------------------------------------------------------
 
 	[Serializable]
-	[Repository(Title = "Systems", Description = "Information for managing the business system", ID = "00000000000000000000000000000001")]
+	[Repository(Title = "Portals", Description = "Information for managing the portals", ID = "00000000000000000000000000000001")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class
 	{
 		/// <summary>
 		/// Gets the name of the service that associates with this repository
 		/// </summary>
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public override string ServiceName
-		{
-			get { return "Systems"; }
-		}
+		public override string ServiceName => ServiceBase.ServiceComponent.ServiceName;
 	}
 }

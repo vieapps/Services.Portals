@@ -3,8 +3,8 @@
 	<PropertyGroup>
 		<TargetFramework>netstandard2.0</TargetFramework>
 		<AllowUnsafeBlocks>false</AllowUnsafeBlocks>
-		<AssemblyName>VIEApps.Services.Systems</AssemblyName>
-		<AssemblyTitle>VIEApps NGX Core Systems</AssemblyTitle>
+		<AssemblyName>VIEApps.Services.Portals</AssemblyName>
+		<AssemblyTitle>VIEApps NGX Portals</AssemblyTitle>
 		<Authors>VIEApps.net</Authors>
 		<Company>VIEApps.net</Company>
 		<Product>VIEApps NGX</Product>
@@ -30,7 +30,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\Base\VIEApps.Services.Base.csproj" />
+		<ProjectReference Include="..\..\Base\VIEApps.Services.Base.csproj" />
 	</ItemGroup>
 
 </Project>

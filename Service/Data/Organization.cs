@@ -17,7 +17,7 @@ using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 #endregion
 
-namespace net.vieapps.Services.Systems
+namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Organizations", TableName = "T_Core_Organizations", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, 

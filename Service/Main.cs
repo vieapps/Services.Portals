@@ -17,15 +17,15 @@ using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 #endregion
 
-namespace net.vieapps.Services.Systems
+namespace net.vieapps.Services.Portals
 {
 	public class ServiceComponent : ServiceBase
 	{
 		public ServiceComponent() : base() { }
 
-		public override string ServiceName { get { return "Systems"; } }
+		public override string ServiceName => "Portals";
 
-		public override async Task<JObject> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
+		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
 			try
 			{
