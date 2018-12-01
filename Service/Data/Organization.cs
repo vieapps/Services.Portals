@@ -24,77 +24,52 @@ namespace net.vieapps.Services.Portals
 	Title = "Organization", Description = "Information of an organization", ID = "10000000000000000000000000000001")]
 	public class Organization : Repository<Organization>, IBusinessEntity
 	{
-		public Organization() : base()
-		{
-			this.ID = "";
-			this.OwnerID = "";
-			this.Status = ApprovalStatus.Pending;
-			this.Alias = "";
-			this.ExpiredDate = "-";
-			this.Title = "";
-			this.SkinName = "";
-			this.HomeDesktopID = "";
-			this.SearchDesktopID = "";
-			this.FilesDomain = "";
-			this.FilesQuotes = 0;
-			this.RequiredOTP = false;
-			this.TrackDownloadFiles = false;
-			this.ReferSection = "";
-			this.ReferIDs = "";
-			this.SearchServer = 0;
-			this.OriginalPrivileges = new Privileges(true);
-			this.MessageSettings = null;
-			this.InstructionSettings = null;
-			this.Created = DateTime.Now;
-			this.CreatedID = "";
-			this.LastModified = DateTime.Now;
-			this.LastModifiedID = "";
-		}
+		public Organization() : base() { }
 
 		#region Properties
 		[Sortable(IndexName = "Management")]
-		public string OwnerID { get; set; }
+		public string OwnerID { get; set; } = "";
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), Sortable(IndexName = "Management")]
-		public ApprovalStatus Status { get; set; }
+		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
-		[Property(MaxLength = 100, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias")]
-		public string Alias { get; set; }
+		[Property(MaxLength = 100, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias"), FormControl(Label = "{{portals.controls.[name]}}")]
+		public string Alias { get; set; } = "";
 
 		[Property(MaxLength = 10), Sortable(IndexName = "Management")]
-		public string ExpiredDate { get; set; }
+		public string ExpiredDate { get; set; } = "-";
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
-		public override string Title { get; set; }
+		public override string Title { get; set; } = "";
 
 		[Property(MaxLength = 100)]
-		public string SkinName { get; set; }
+		public string SkinName { get; set; } = "";
 
-		public string HomeDesktopID { get; set; }
+		public string HomeDesktopID { get; set; } = "";
 
-		public string SearchDesktopID { get; set; }
+		public string SearchDesktopID { get; set; } = "";
 
-		public string FilesDomain { get; set; }
-
-		[Sortable(IndexName = "Management")]
-		public int FilesQuotes { get; set; }
+		public string FilesDomain { get; set; } = "";
 
 		[Sortable(IndexName = "Management")]
-		public bool RequiredOTP { get; set; }
+		public int FilesQuotes { get; set; } = 0;
 
 		[Sortable(IndexName = "Management")]
-		public bool TrackDownloadFiles { get; set; }
+		public bool RequiredOTP { get; set; } = false;
+
+		[Sortable(IndexName = "Management")]
+		public bool TrackDownloadFiles { get; set; } = false;
 
 		[Property(MaxLength = 100), Sortable(IndexName = "Refers")]
-		public string ReferSection { get; set; }
+		public string ReferSection { get; set; } = "";
 
 		[Property(MaxLength = 65), Sortable(IndexName = "Refers")]
-		public string ReferIDs { get; set; }
+		public string ReferIDs { get; set; } = "";
 
-		public int SearchServer { get; set; }
+		public int SearchServer { get; set; } = 0;
 
 		[AsJson]
-		public override Privileges OriginalPrivileges { get; set; }
+		public override Privileges OriginalPrivileges { get; set; } = new Privileges(true);
 
 		[Property(IsCLOB = true), AsJson]
 		public string MessageSettings { get; set; }
@@ -103,16 +78,16 @@ namespace net.vieapps.Services.Portals
 		public string InstructionSettings { get; set; }
 
 		[Sortable(IndexName = "Statistics")]
-		public DateTime Created { get; set; }
+		public DateTime Created { get; set; } = DateTime.Now;
 
 		[Sortable(IndexName = "Statistics")]
-		public string CreatedID { get; set; }
+		public string CreatedID { get; set; } = "";
 
 		[Sortable(IndexName = "Statistics")]
-		public DateTime LastModified { get; set; }
+		public DateTime LastModified { get; set; } = DateTime.Now;
 
 		[Sortable(IndexName = "Statistics")]
-		public string LastModifiedID { get; set; }
+		public string LastModifiedID { get; set; } = "";
 		#endregion
 
 		#region IBusinessEntity properties
@@ -126,12 +101,7 @@ namespace net.vieapps.Services.Portals
 		public override string EntityID { get; set; }
 		#endregion
 
-		internal static Task<Organization> GetByAliasAsync(string alias)
-		{
-			return string.IsNullOrWhiteSpace(alias)
-				? null
-				: Organization.GetAsync(Filters<Organization>.Equals("Alias", alias));
-		}
+		internal static Task<Organization> GetByAliasAsync(string alias) => string.IsNullOrWhiteSpace(alias) ? null : Organization.GetAsync(Filters<Organization>.Equals("Alias", alias));
 
 	}
 }

@@ -38,7 +38,7 @@ namespace net.vieapps.Services.Portals
 						return await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 
 					default:
-						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.URI}]");
+						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 				}
 			}
 			catch (Exception ex)
