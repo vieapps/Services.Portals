@@ -238,17 +238,17 @@ namespace net.vieapps.Services.Users
 		#region Helper: WAMP connections & real-time updaters
 		internal static void OpenWAMPChannels(int waitingTimes = 6789)
 		{
-			Global.Logger.LogInformation($"Attempting to connect to WAMP router [{WAMPConnections.GetRouterStrInfo()}]");
+			Global.Logger.LogDebug($"Attempting to connect to WAMP router [{new Uri(WAMPConnections.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.OpenWAMPChannels(
 				(sender, args) =>
 				{
-					Global.Logger.LogInformation($"Incoming channel to WAMP router is established - Session ID: {args.SessionId}");
+					Global.Logger.LogDebug($"Incoming channel to WAMP router is established - Session ID: {args.SessionId}");
 					WAMPConnections.IncomingChannel.Update(WAMPConnections.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)");
 					Global.InterCommunicateMessageUpdater?.Dispose();
 					Global.InterCommunicateMessageUpdater = WAMPConnections.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.files")
 						.Subscribe(
-							async (message) =>
+							async message =>
 							{
 								var correlationID = UtilityService.NewUUID;
 								try
@@ -271,20 +271,35 @@ namespace net.vieapps.Services.Users
 				},
 				(sender, args) =>
 				{
-					Global.Logger.LogInformation($"Outgoing channel to WAMP router is established - Session ID: {args.SessionId}");
+					Global.Logger.LogDebug($"Outgoing channel to WAMP router is established - Session ID: {args.SessionId}");
 					WAMPConnections.OutgoingChannel.Update(WAMPConnections.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)");
-					try
+					Task.Run(async () =>
 					{
-						Task.WaitAll(new[] { Global.InitializeLoggingServiceAsync(), Global.InitializeRTUServiceAsync() }, waitingTimes > 0 ? waitingTimes : 6789, Global.CancellationTokenSource.Token);
-						Global.Logger.LogInformation("Helper services are succesfully initialized");
-					}
-					catch (Exception ex)
-					{
-						Global.Logger.LogError($"Error occurred while initializing helper services: {ex.Message}", ex);
-					}
+						try
+						{
+							await Task.WhenAll(
+								Global.InitializeLoggingServiceAsync(),
+								Global.InitializeRTUServiceAsync()
+							).ConfigureAwait(false);
+							Global.Logger.LogInformation("Helper services are succesfully initialized");
+						}
+						catch (Exception ex)
+						{
+							Global.Logger.LogError($"Error occurred while initializing helper services: {ex.Message}", ex);
+						}
+					})
+					.ContinueWith(async task => await Global.RegisterServiceAsync().ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion)
+					.ConfigureAwait(false);
 				},
 				waitingTimes
 			);
+		}
+
+		internal static void CloseWAMPChannels(int waitingTimes = 1234)
+		{
+			Global.UnregisterService(waitingTimes);
+			Global.InterCommunicateMessageUpdater?.Dispose();
+			WAMPConnections.CloseChannels();
 		}
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message) => Task.CompletedTask;
