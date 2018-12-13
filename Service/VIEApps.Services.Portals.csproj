@@ -4,6 +4,7 @@
 		<TargetFramework>netstandard2.0</TargetFramework>
 		<RootNamespace>net.vieapps.Services.Portals</RootNamespace>
 		<AssemblyName>VIEApps.Services.Portals</AssemblyName>
+		<WarningLevel>3</WarningLevel>
 		<AssemblyTitle>VIEApps NGX Portals</AssemblyTitle>
 		<Authors>VIEApps.net</Authors>
 		<Company>VIEApps.net</Company>
@@ -14,18 +15,12 @@
 		<InformationalVersion>v10.2.netstandard-2+rev:2018.12.06-latest.components</InformationalVersion>
 	</PropertyGroup>
 
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-		<WarningLevel>3</WarningLevel>
-	</PropertyGroup>
-
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-		<WarningLevel>3</WarningLevel>
-	</PropertyGroup>
-
 	<ItemGroup>
 		<None Remove=".DS_Store" />
 		<None Remove=".gitattributes" />
 		<None Remove=".gitignore" />
+		<None Remove="LICENSE.md" />
+		<None Remove="README.md" />
 	</ItemGroup>
 
 	<ItemGroup>

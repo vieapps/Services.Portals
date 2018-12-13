@@ -4,7 +4,9 @@
 		<TargetFramework>netcoreapp2.2</TargetFramework>
 		<OutputType>Exe</OutputType>
 		<RootNamespace>net.vieapps.Services.Portals</RootNamespace>
+		<StartupObject>net.vieapps.Services.Portals.Startup</StartupObject>
 		<AssemblyName>VIEApps.Services.Portals.Http</AssemblyName>
+		<WarningLevel>3</WarningLevel>
 		<AssemblyTitle>VIEApps NGX Portals</AssemblyTitle>
 		<Authors>VIEApps.net</Authors>
 		<Company>VIEApps.net</Company>
@@ -13,14 +15,6 @@
 		<AssemblyVersion>10.2.1812.3</AssemblyVersion>
 		<FileVersion>10.2.1812.3</FileVersion>
 		<InformationalVersion>v10.2.netcore-2.2+rev:2018.12.06-latest.components</InformationalVersion>
-	</PropertyGroup>
-
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-		<WarningLevel>3</WarningLevel>
-	</PropertyGroup>
-
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-		<WarningLevel>3</WarningLevel>
 	</PropertyGroup>
 
 	<ItemGroup>

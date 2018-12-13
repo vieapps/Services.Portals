@@ -20,55 +20,59 @@ using net.vieapps.Components.Security;
 namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "Organizations", TableName = "T_Core_Organizations", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, 
+	[Entity(CollectionName = "Organizations", TableName = "T_Portals_Organizations", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, 
 	Title = "Organization", Description = "Information of an organization", ID = "10000000000000000000000000000001")]
 	public class Organization : Repository<Organization>, IBusinessEntity
 	{
 		public Organization() : base() { }
 
 		#region Properties
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string OwnerID { get; set; } = "";
 
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), Sortable(IndexName = "Management")]
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
-		[Property(MaxLength = 100, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias"), FormControl(Label = "{{portals.controls.[name]}}")]
+		[Property(MaxLength = 100, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string Alias { get; set; } = "";
 
-		[Property(MaxLength = 10), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 10), Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string ExpiredDate { get; set; } = "-";
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public override string Title { get; set; } = "";
 
-		[Property(MaxLength = 100)]
+		[Property(MaxLength = 100), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string SkinName { get; set; } = "";
 
+		[FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string HomeDesktopID { get; set; } = "";
 
+		[FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string SearchDesktopID { get; set; } = "";
 
+		[Property(MaxLength = 100), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string FilesDomain { get; set; } = "";
 
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public int FilesQuotes { get; set; } = 0;
 
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public bool RequiredOTP { get; set; } = false;
 
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public bool TrackDownloadFiles { get; set; } = false;
 
-		[Property(MaxLength = 100), Sortable(IndexName = "Refers")]
+		[Property(MaxLength = 100), Sortable(IndexName = "Refers"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string ReferSection { get; set; } = "";
 
-		[Property(MaxLength = 65), Sortable(IndexName = "Refers")]
+		[Property(MaxLength = 65), Sortable(IndexName = "Refers"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string ReferIDs { get; set; } = "";
 
+		[FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public int SearchServer { get; set; } = 0;
 
-		[AsJson]
+		[AsJson, FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public override Privileges OriginalPrivileges { get; set; } = new Privileges(true);
 
 		[Property(IsCLOB = true), AsJson]
@@ -77,16 +81,16 @@ namespace net.vieapps.Services.Portals
 		[Property(IsCLOB = true), AsJson]
 		public string InstructionSettings { get; set; }
 
-		[Sortable(IndexName = "Statistics")]
+		[Sortable(IndexName = "Statistics"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public DateTime Created { get; set; } = DateTime.Now;
 
-		[Sortable(IndexName = "Statistics")]
+		[Sortable(IndexName = "Statistics"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string CreatedID { get; set; } = "";
 
-		[Sortable(IndexName = "Statistics")]
+		[Sortable(IndexName = "Statistics"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public DateTime LastModified { get; set; } = DateTime.Now;
 
-		[Sortable(IndexName = "Statistics")]
+		[Sortable(IndexName = "Statistics"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string LastModifiedID { get; set; } = "";
 		#endregion
 
@@ -102,6 +106,5 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		internal static Task<Organization> GetByAliasAsync(string alias) => string.IsNullOrWhiteSpace(alias) ? null : Organization.GetAsync(Filters<Organization>.Equals("Alias", alias));
-
 	}
 }

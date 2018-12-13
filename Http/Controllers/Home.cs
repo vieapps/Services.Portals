@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 using net.vieapps.Components.Utility;
 #endregion
 
-namespace net.vieapps.Services.Users
+namespace net.vieapps.Services.Portals
 {
     public class HomeController : Controller
     {

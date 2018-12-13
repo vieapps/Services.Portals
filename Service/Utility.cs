@@ -1,12 +1,8 @@
 ﻿#region Related components
 using System;
-using System.IO;
-using System.Linq;
-using System.Collections.Generic;
 using System.Xml.Serialization;
 
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using MongoDB.Bson.Serialization.Attributes;
 
 using net.vieapps.Components.Utility;
@@ -22,29 +18,24 @@ namespace net.vieapps.Services.Portals
 
 		static string _FilesHttpUri = null;
 
-		static string FilesHttpUri
+		public static string FilesHttpUri
 		{
 			get
 			{
 				if (string.IsNullOrWhiteSpace(Utility._FilesHttpUri))
-					Utility._FilesHttpUri = UtilityService.GetAppSetting("HttpUri:Files", "https://afs.vieapps.net");
+					Utility._FilesHttpUri = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
 				while (Utility._FilesHttpUri.EndsWith("/"))
 					Utility._FilesHttpUri = Utility._FilesHttpUri.Left(Utility._FilesHttpUri.Length - 1);
 				return Utility._FilesHttpUri;
 			}
 		}
-
 	}
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Serializable]
-	[Repository(Title = "Portals", Description = "Information for managing the portals", ID = "00000000000000000000000000000001")]
+	[Serializable, Repository(Title = "Portals", Description = "Information for managing the portals", ID = "00000000000000000000000000000001")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class
 	{
-		/// <summary>
-		/// Gets the name of the service that associates with this repository
-		/// </summary>
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public override string ServiceName => ServiceBase.ServiceComponent.ServiceName;
 	}

@@ -21,8 +21,6 @@ namespace net.vieapps.Services.Portals
 {
 	public class ServiceComponent : ServiceBase
 	{
-		public ServiceComponent() : base() { }
-
 		public override string ServiceName => "Portals";
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))

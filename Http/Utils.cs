@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Http;
 using net.vieapps.Components.Utility;
 #endregion
 
-namespace net.vieapps.Services.Users
+namespace net.vieapps.Services.Portals
 {
 	public static class Utils
 	{

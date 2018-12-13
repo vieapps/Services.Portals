@@ -30,32 +30,36 @@ using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 #endregion
 
-namespace net.vieapps.Services.Users
+namespace net.vieapps.Services.Portals
 {
 	public class Startup
 	{
+		public static void Main(string[] args) => WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8026);
+
 		public Startup(IConfiguration configuration) => this.Configuration = configuration;
 
 		public IConfiguration Configuration { get; }
 
+		LogLevel LogLevel => this.Configuration.GetAppSetting("Logging/LogLevel/Default", UtilityService.GetAppSetting("Logs:Level", "Information")).ToEnum<LogLevel>();
+
 		public void ConfigureServices(IServiceCollection services)
 		{
 			// mandatory services
-			services.AddResponseCompression(options => options.EnableForHttps = true);
-			services.AddLogging(builder => builder.SetMinimumLevel(this.Configuration.GetAppSetting("Logging/LogLevel/Default", "Information").ToEnum<LogLevel>()));
-			services.AddCache(options => this.Configuration.GetSection("Cache").Bind(options));
-			services.AddHttpContextAccessor();
-
-			// session state
-			services.AddSession(options =>
-			{
-				options.IdleTimeout = TimeSpan.FromMinutes(30);
-				options.Cookie.Name = "VIEApps-Session";
-				options.Cookie.HttpOnly = true;
-			});
+			services
+				.AddResponseCompression(options => options.EnableForHttps = true)
+				.AddLogging(builder => builder.SetMinimumLevel(this.LogLevel))
+				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
+				.AddHttpContextAccessor()
+				.AddSession(options =>
+				{
+					options.IdleTimeout = TimeSpan.FromMinutes(30);
+					options.Cookie.Name = "VIEApps-Session";
+					options.Cookie.HttpOnly = true;
+				});
 
 			// authentication
-			services.AddAuthentication(options => options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme)
+			services
+				.AddAuthentication(options => options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme)
 				.AddCookie(options =>
 				{
 					options.Cookie.Name = "VIEApps-Auth";
@@ -63,7 +67,10 @@ namespace net.vieapps.Services.Users
 					options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
 					options.SlidingExpiration = true;
 				});
-			services.AddDataProtection()
+
+			// data protection
+			services
+				.AddDataProtection()
 				.SetDefaultKeyLifetime(TimeSpan.FromDays(7))
 				.SetApplicationName("VIEApps-NGX")
 				.UseCryptographicAlgorithms(new AuthenticatedEncryptorConfiguration
