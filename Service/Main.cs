@@ -25,23 +25,36 @@ namespace net.vieapps.Services.Portals
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default(CancellationToken))
 		{
+			var stopwatch = Stopwatch.StartNew();
+			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
 			try
 			{
+				JToken json = null;
 				switch (requestInfo.ObjectName.ToLower())
 				{
 					case "organization":
-						return await this.ProcessOrganizationAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						json = await this.ProcessOrganizationAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
 
 					case "site":
-						return await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						json = await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 				}
+				stopwatch.Stop();
+				this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
+				if (this.IsDebugResultsEnabled)
+					this.WriteLogs(requestInfo,
+						$"- Request: {requestInfo.ToJson().ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}" + "\r\n" +
+						$"- Response: {json?.ToString(this.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}"
+					);
+				return json;
 			}
 			catch (Exception ex)
 			{
-				throw this.GetRuntimeException(requestInfo, ex);
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
 			}
 		}
 
@@ -131,7 +144,7 @@ namespace net.vieapps.Services.Portals
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
 					? await Organization.CountAsync(filter, $"{cacheKey}total", cancellationToken).ConfigureAwait(false)
-					: await Organization.CountByQueryAsync(query, filter, cancellationToken).ConfigureAwait(false);
+					: await Organization.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			var pageSize = pagination.Item3;
 

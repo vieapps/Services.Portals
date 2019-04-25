@@ -240,13 +240,13 @@ namespace net.vieapps.Services.Portals
 		{
 			Global.Logger.LogDebug($"Attempting to connect to WAMP router [{new Uri(WAMPConnections.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.OpenWAMPChannels(
-				(sender, args) =>
+				(sender, arguments) =>
 				{
-					Global.Logger.LogDebug($"Incoming channel to WAMP router is established - Session ID: {args.SessionId}");
+					Global.Logger.LogDebug($"Incoming channel to WAMP router is established - Session ID: {arguments.SessionId}");
 					WAMPConnections.IncomingChannel.Update(WAMPConnections.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)");
-					Global.InterCommunicateMessageUpdater?.Dispose();
-					Global.InterCommunicateMessageUpdater = WAMPConnections.IncomingChannel.RealmProxy.Services
-						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.files")
+					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
+					Global.PrimaryInterCommunicateMessageUpdater = WAMPConnections.IncomingChannel.RealmProxy.Services
+						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.portals")
 						.Subscribe(
 							async message =>
 							{
@@ -258,20 +258,47 @@ namespace net.vieapps.Services.Portals
 										await Global.WriteLogsAsync(Global.Logger, "RTU",
 											$"Successfully process an inter-communicate message" + "\r\n" +
 											$"- Type: {message?.Type}" + "\r\n" +
-											$"- Message: {message?.Data?.ToString(Global.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}"
+											$"- Message: {message?.Data?.ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}"
 										, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 								}
 							},
-							exception => Global.WriteLogs(Global.Logger, "RTU", $"{exception.Message}", exception)
+							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
+						);
+					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
+					Global.SecondaryInterCommunicateMessageUpdater = WAMPConnections.IncomingChannel.RealmProxy.Services
+						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.apigateway")
+						.Subscribe(
+							async message =>
+							{
+								if (message.Type.IsEquals("Service#RequestInfo"))
+								{
+									var correlationID = UtilityService.NewUUID;
+									try
+									{
+										await Global.UpdateServiceInfoAsync().ConfigureAwait(false);
+										if (Global.IsDebugResultsEnabled)
+											await Global.WriteLogsAsync(Global.Logger, "RTU",
+												$"Successfully process an inter-communicate message" + "\r\n" +
+												$"- Type: {message?.Type}" + "\r\n" +
+												$"- Message: {message?.Data?.ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}"
+											, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+									}
+									catch (Exception ex)
+									{
+										await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+									}
+								}
+							},
+							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
 						);
 				},
-				(sender, args) =>
+				(sender, arguments) =>
 				{
-					Global.Logger.LogDebug($"Outgoing channel to WAMP router is established - Session ID: {args.SessionId}");
+					Global.Logger.LogDebug($"Outgoing channel to WAMP router is established - Session ID: {arguments.SessionId}");
 					WAMPConnections.OutgoingChannel.Update(WAMPConnections.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)");
 					Task.Run(async () =>
 					{
@@ -298,7 +325,8 @@ namespace net.vieapps.Services.Portals
 		internal static void CloseWAMPChannels(int waitingTimes = 1234)
 		{
 			Global.UnregisterService(waitingTimes);
-			Global.InterCommunicateMessageUpdater?.Dispose();
+			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
+			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 			WAMPConnections.CloseChannels();
 		}
 

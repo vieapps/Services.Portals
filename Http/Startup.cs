@@ -95,7 +95,7 @@ namespace net.vieapps.Services.Portals
 			var path = UtilityService.GetAppSetting("Path:Logs");
 			if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
 			{
-				path = Path.Combine(path, "{Date}" + $"_{Global.ServiceName.ToLower()}.http.txt");
+				path = Path.Combine(path, "{Date}" + $"_{Global.ServiceName.ToLower()}.http.all.txt");
 				loggerFactory.AddFile(path, logLevel);
 			}
 			else
@@ -164,7 +164,7 @@ namespace net.vieapps.Services.Portals
 			{
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
 
-				Global.InterCommunicateMessageUpdater?.Dispose();
+				Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 				WAMPConnections.CloseChannels();
 
 				Global.RSA.Dispose();
