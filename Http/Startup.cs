@@ -141,7 +141,7 @@ namespace net.vieapps.Services.Portals
 			appLifetime.ApplicationStarted.Register(() =>
 			{
 				Global.Logger.LogInformation($"Listening URI: {UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8026")}");
-				Global.Logger.LogInformation($"WAMP router URI: {WAMPConnections.GetRouterStrInfo()}");
+				Global.Logger.LogInformation($"API Gateway Router: {RouterConnections.GetRouterStrInfo()}");
 				Global.Logger.LogInformation($"API Gateway HTTP service URI: {UtilityService.GetAppSetting("HttpUri:APIs")}");
 				Global.Logger.LogInformation($"Files HTTP service URI: {UtilityService.GetAppSetting("HttpUri:Files")}");
 				Global.Logger.LogInformation($"Portals HTTP service URI: {UtilityService.GetAppSetting("HttpUri:Portals")}");
@@ -165,7 +165,7 @@ namespace net.vieapps.Services.Portals
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
 
 				Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-				WAMPConnections.CloseChannels();
+				RouterConnections.CloseChannels();
 
 				Global.RSA.Dispose();
 				Global.CancellationTokenSource.Cancel();
