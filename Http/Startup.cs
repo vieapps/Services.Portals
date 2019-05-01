@@ -141,7 +141,7 @@ namespace net.vieapps.Services.Portals
 			appLifetime.ApplicationStarted.Register(() =>
 			{
 				Global.Logger.LogInformation($"Listening URI: {UtilityService.GetAppSetting("HttpUri:Listen", "http://0.0.0.0:8026")}");
-				Global.Logger.LogInformation($"API Gateway Router: {RouterConnections.GetRouterStrInfo()}");
+				Global.Logger.LogInformation($"API Gateway Router: {Router.GetRouterStrInfo()}");
 				Global.Logger.LogInformation($"API Gateway HTTP service URI: {UtilityService.GetAppSetting("HttpUri:APIs")}");
 				Global.Logger.LogInformation($"Files HTTP service URI: {UtilityService.GetAppSetting("HttpUri:Files")}");
 				Global.Logger.LogInformation($"Portals HTTP service URI: {UtilityService.GetAppSetting("HttpUri:Portals")}");
@@ -153,6 +153,7 @@ namespace net.vieapps.Services.Portals
 				Global.Logger.LogInformation($"Static files path: {UtilityService.GetAppSetting("Path:StaticFiles")}");
 				Global.Logger.LogInformation($"Static segments: {Global.StaticSegments.ToString(", ")}");
 				Global.Logger.LogInformation($"Show debugs: {Global.IsDebugLogEnabled} - Show results: {Global.IsDebugResultsEnabled} - Show stacks: {Global.IsDebugStacksEnabled}");
+				Global.Logger.LogInformation($"Request body limit: {UtilityService.GetAppSetting("Limits:Body", "10")} MB");
 
 				stopwatch.Stop();
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - PID: {Process.GetCurrentProcess().Id} - Execution times: {stopwatch.GetElapsedTimes()}");
@@ -165,7 +166,7 @@ namespace net.vieapps.Services.Portals
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
 
 				Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-				RouterConnections.CloseChannels();
+				Router.CloseChannels();
 
 				Global.RSA.Dispose();
 				Global.CancellationTokenSource.Cancel();

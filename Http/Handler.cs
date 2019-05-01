@@ -238,14 +238,14 @@ namespace net.vieapps.Services.Portals
 		#region Helper: WAMP connections & real-time updaters
 		internal static void OpenWAMPChannels(int waitingTimes = 6789)
 		{
-			Global.Logger.LogDebug($"Attempting to connect to WAMP router [{new Uri(RouterConnections.GetRouterStrInfo()).GetResolvedURI()}]");
+			Global.Logger.LogDebug($"Attempting to connect to WAMP router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.OpenRouterChannels(
 				(sender, arguments) =>
 				{
 					Global.Logger.LogDebug($"Incoming channel to WAMP router is established - Session ID: {arguments.SessionId}");
-					RouterConnections.IncomingChannel.Update(RouterConnections.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)");
+					Task.Run(() => Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)")).ConfigureAwait(false);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-					Global.PrimaryInterCommunicateMessageUpdater = RouterConnections.IncomingChannel.RealmProxy.Services
+					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.portals")
 						.Subscribe(
 							async message =>
@@ -269,7 +269,7 @@ namespace net.vieapps.Services.Portals
 							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Global.SecondaryInterCommunicateMessageUpdater = RouterConnections.IncomingChannel.RealmProxy.Services
+					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("net.vieapps.rtu.communicate.messages.apigateway")
 						.Subscribe(
 							async message =>
@@ -299,9 +299,9 @@ namespace net.vieapps.Services.Portals
 				(sender, arguments) =>
 				{
 					Global.Logger.LogDebug($"Outgoing channel to WAMP router is established - Session ID: {arguments.SessionId}");
-					RouterConnections.OutgoingChannel.Update(RouterConnections.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)");
 					Task.Run(async () =>
 					{
+						await Router.OutgoingChannel.UpdateAsync(Router.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
 						try
 						{
 							await Task.WhenAll(
@@ -324,10 +324,10 @@ namespace net.vieapps.Services.Portals
 
 		internal static void CloseWAMPChannels(int waitingTimes = 1234)
 		{
-			Global.UnregisterService(waitingTimes);
+			Global.UnregisterService(null, waitingTimes);
 			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-			RouterConnections.CloseChannels();
+			Router.CloseChannels();
 		}
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message) => Task.CompletedTask;
