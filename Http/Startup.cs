@@ -125,7 +125,7 @@ namespace net.vieapps.Services.Portals
 			};
 
 			// prepare WAMP connections
-			Handler.OpenWAMPChannels();
+			Handler.Connect();
 
 			// middleware
 			app.UseForwardedHeaders(new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto });
@@ -166,7 +166,7 @@ namespace net.vieapps.Services.Portals
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
 
 				Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-				Router.CloseChannels();
+				Handler.Disconnect();
 
 				Global.RSA.Dispose();
 				Global.CancellationTokenSource.Cancel();

@@ -35,6 +35,8 @@ namespace net.vieapps.Services.Portals
 
 		RequestDelegate Next { get; }
 
+		string LoadBalancingHealthCheckUrl => UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
+
 		public Handler(RequestDelegate next) => this.Next = next;
 
 		public async Task Invoke(HttpContext context)
@@ -44,7 +46,7 @@ namespace net.vieapps.Services.Portals
 			var requestPath = requestUri.GetRequestPathSegments(true).First();
 
 			// load balancing health check
-			if (context.Request.Path.Value.IsEquals("/load-balancing-health-check"))
+			if (context.Request.Path.Value.IsEquals(this.LoadBalancingHealthCheckUrl))
 				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 
 			// request to favicon.ico file
@@ -236,10 +238,10 @@ namespace net.vieapps.Services.Portals
 		}
 
 		#region Helper: WAMP connections & real-time updaters
-		internal static void OpenWAMPChannels(int waitingTimes = 6789)
+		internal static void Connect(int waitingTimes = 6789)
 		{
 			Global.Logger.LogDebug($"Attempting to connect to WAMP router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
-			Global.OpenRouterChannels(
+			Global.Connect(
 				(sender, arguments) =>
 				{
 					Global.Logger.LogDebug($"Incoming channel to WAMP router is established - Session ID: {arguments.SessionId}");
@@ -322,12 +324,12 @@ namespace net.vieapps.Services.Portals
 			);
 		}
 
-		internal static void CloseWAMPChannels(int waitingTimes = 1234)
+		internal static void Disconnect(int waitingTimes = 1234)
 		{
 			Global.UnregisterService(null, waitingTimes);
 			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-			Router.CloseChannels();
+			Global.Disconnect();
 		}
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message) => Task.CompletedTask;

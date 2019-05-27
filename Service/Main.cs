@@ -58,14 +58,6 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		protected override List<Privilege> GetPrivileges(IUser user, Privileges privileges)
-		{
-			var role = this.GetPrivilegeRole(user);
-			return "organization,site,desktop,role,module,content-type,expression".ToList()
-				.Select(o => new Privilege(this.ServiceName, o, null, role))
-				.ToList();
-		}
-
 		Task<JObject> ProcessOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			switch (requestInfo.Verb)
@@ -93,11 +85,7 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> SearchOrganizationsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// check permissions
-			if (!await this.IsAuthorizedAsync(
-					requestInfo, Components.Security.Action.View, null,
-					(user, privileges) => this.GetPrivileges(user, privileges),
-					(role) => this.GetPrivilegeActions(role)).ConfigureAwait(false)
-				)
+			if (!await this.IsAuthorizedAsync(requestInfo, "organization", Components.Security.Action.View, cancellationToken).ConfigureAwait(false))
 				throw new AccessDeniedException();
 
 			// prepare
@@ -249,7 +237,7 @@ namespace net.vieapps.Services.Portals
 			// check permission
 			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (!gotRights)
-				gotRights = requestInfo.Session.User.CanView(organization.WorkingPrivileges);
+				gotRights = await this.IsAuthorizedAsync(requestInfo, organization, Components.Security.Action.View).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -269,7 +257,7 @@ namespace net.vieapps.Services.Portals
 			// check permission
 			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (!gotRights)
-				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.CanManage(organization.WorkingPrivileges);
+				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || await this.IsAuthorizedAsync(requestInfo, organization, Components.Security.Action.Full).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -365,7 +353,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (!gotRights)
-				gotRights = await this.IsAuthorizedAsync(requestInfo, Components.Security.Action.View, null, this.GetPrivileges, this.GetPrivilegeActions).ConfigureAwait(false);
+				gotRights = await this.IsAuthorizedAsync(requestInfo, "site", Components.Security.Action.View, cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -397,13 +385,13 @@ namespace net.vieapps.Services.Portals
 		{
 			// check permissions
 			var id = requestInfo.GetObjectIdentity() ?? requestInfo.Session.User.ID;
-			var gotRights = this.IsAuthenticated(requestInfo) && requestInfo.Session.User.ID.IsEquals(id);
-			if (!gotRights)
-				gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
-			if (!gotRights)
-				gotRights = await this.IsAuthorizedAsync(requestInfo, Components.Security.Action.Update, null, this.GetPrivileges, this.GetPrivilegeActions).ConfigureAwait(false);
-			if (!gotRights)
-				throw new AccessDeniedException();
+			//var gotRights = this.IsAuthenticated(requestInfo) && requestInfo.Session.User.ID.IsEquals(id);
+			//if (!gotRights)
+			//	gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
+			//if (!gotRights)
+			//	gotRights = await this.IsAuthorizedAsync(requestInfo, Components.Security.Action.Update, null, this.GetPrivileges, this.GetPrivilegeActions).ConfigureAwait(false);
+			//if (!gotRights)
+			//	throw new AccessDeniedException();
 
 			// get existing information
 			var site = await Site.GetAsync<Site>(id, cancellationToken).ConfigureAwait(false);
