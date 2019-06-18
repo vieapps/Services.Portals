@@ -12,7 +12,7 @@
 		<Copyright>© 2019 VIEApps.net</Copyright>
 		<AssemblyVersion>10.2.1905.2</AssemblyVersion>
 		<FileVersion>10.2.1905.2</FileVersion>
-		<InformationalVersion>v10.2.netstandard-2+rev:2019.05.07-packages</InformationalVersion>
+		<InformationalVersion>v10.2.netstandard-2+rev:2019.06.12-latest.components</InformationalVersion>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -24,7 +24,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <PackageReference Include="VIEApps.Services.Base" Version="10.2.1906.1" />
+	  <PackageReference Include="VIEApps.Services.Base" Version="10.2.1906.2" />
 	</ItemGroup>
 
 </Project>
