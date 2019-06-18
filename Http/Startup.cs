@@ -7,7 +7,6 @@ using System.Text;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
-
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Hosting;
@@ -18,14 +17,12 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
-
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Caching.Distributed;
-
 using Newtonsoft.Json;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 #endregion
@@ -92,7 +89,7 @@ namespace net.vieapps.Services.Portals
 			services.AddMvc();
 		}
 
-		public void Configure(IApplicationBuilder appBuilder, IHostingEnvironment environment, IApplicationLifetime appLifetime)
+		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
 		{
 			// settings
 			var stopwatch = Stopwatch.StartNew();
