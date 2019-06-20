@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Authentication;
@@ -17,10 +16,13 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
+using Microsoft.AspNetCore.Hosting;
+#if !NETCOREAPP2_2
 using Microsoft.Extensions.Hosting;
+#endif
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using net.vieapps.Components.Utility;
@@ -65,6 +67,20 @@ namespace net.vieapps.Services.Portals
 					options.SlidingExpiration = true;
 				});
 
+			// authentication with proxy/load balancer
+			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
+				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
+#if !NETCOREAPP2_2
+			else
+			{
+				var certificateHeader = "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseAzure"))
+					? "X-ARR-ClientCert"
+					: UtilityService.GetAppSetting("Proxy:X-Forwarded-Certificate");
+				if (!string.IsNullOrWhiteSpace(certificateHeader))
+					services.AddCertificateForwarding(options => options.CertificateHeader = certificateHeader);
+			}
+#endif
+
 			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
 			var dataProtection = services.AddDataProtection()
 				.SetDefaultKeyLifetime(TimeSpan.FromDays(7))
@@ -89,7 +105,11 @@ namespace net.vieapps.Services.Portals
 			services.AddMvc();
 		}
 
+#if NETCOREAPP2_2
+		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
+#else
 		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
+#endif
 		{
 			// settings
 			var stopwatch = Stopwatch.StartNew();
@@ -141,6 +161,9 @@ namespace net.vieapps.Services.Portals
 				.UseResponseCompression()
 				.UseCache()
 				.UseSession()
+#if !NETCOREAPP2_2
+				.UseCertificateForwarding()
+#endif
 				.UseAuthentication()
 				.UseMiddleware<Handler>()
 				.UseMvc(routes => routes.MapRoute("default", "{controller=Home}/{action=Index}/{id?}"));
