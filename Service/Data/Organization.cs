@@ -43,7 +43,7 @@ namespace net.vieapps.Services.Portals
 		public override string Title { get; set; } = "";
 
 		[Property(MaxLength = 100), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
-		public string SkinName { get; set; } = "";
+		public string Theme { get; set; } = "default";
 
 		[FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string HomeDesktopID { get; set; } = "";
@@ -58,7 +58,7 @@ namespace net.vieapps.Services.Portals
 		public int FilesQuotes { get; set; } = 0;
 
 		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
-		public bool RequiredOTP { get; set; } = false;
+		public bool Required2FA { get; set; } = false;
 
 		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public bool TrackDownloadFiles { get; set; } = false;
@@ -105,6 +105,7 @@ namespace net.vieapps.Services.Portals
 		public override string EntityID { get; set; }
 		#endregion
 
-		internal static Task<Organization> GetByAliasAsync(string alias) => string.IsNullOrWhiteSpace(alias) ? null : Organization.GetAsync(Filters<Organization>.Equals("Alias", alias));
+		internal static Task<Organization> GetByAliasAsync(string alias)
+			=> string.IsNullOrWhiteSpace(alias) ? null : Organization.GetAsync(Filters<Organization>.Equals("Alias", alias));
 	}
 }

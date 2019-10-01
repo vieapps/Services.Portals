@@ -17,9 +17,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
 using Microsoft.AspNetCore.Hosting;
-#if !NETCOREAPP2_2
 using Microsoft.Extensions.Hosting;
-#endif
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -105,11 +103,7 @@ namespace net.vieapps.Services.Portals
 			services.AddMvc();
 		}
 
-#if NETCOREAPP2_2
-		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
-#else
 		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
-#endif
 		{
 			// settings
 			var stopwatch = Stopwatch.StartNew();
