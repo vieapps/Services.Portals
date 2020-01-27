@@ -12,7 +12,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	public static class Utility
+	public static partial class Utility
 	{
 		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Logger.GetLoggerFactory());
 
@@ -23,9 +23,11 @@ namespace net.vieapps.Services.Portals
 			get
 			{
 				if (string.IsNullOrWhiteSpace(Utility._FilesHttpUri))
+				{
 					Utility._FilesHttpUri = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
-				while (Utility._FilesHttpUri.EndsWith("/"))
-					Utility._FilesHttpUri = Utility._FilesHttpUri.Left(Utility._FilesHttpUri.Length - 1);
+					while (Utility._FilesHttpUri.EndsWith("/"))
+						Utility._FilesHttpUri = Utility._FilesHttpUri.Left(Utility._FilesHttpUri.Length - 1);
+				}
 				return Utility._FilesHttpUri;
 			}
 		}
@@ -33,7 +35,7 @@ namespace net.vieapps.Services.Portals
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Serializable, Repository(Title = "Portals", Description = "Information for managing the portals", ID = "00000000000000000000000000000001")]
+	[Serializable, Repository(ID = "00000000000000000000000000000001", Title = "Portals", Description = "Managing core information of portals and related")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class
 	{
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]

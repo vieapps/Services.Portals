@@ -1,6 +1,11 @@
 ﻿#region Related components
 using System;
+using System.Linq;
 using System.Diagnostics;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Xml.Serialization;
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
@@ -15,102 +20,104 @@ using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "Sites", TableName = "T_Core_Sites", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true,
-	Title = "Site", Description = "Information of a site in an organization", ID = "10000000000000000000000000000002")]
-	public class Site : Repository<Site>, IBusinessEntity
+	[Entity(CollectionName = "Sites", TableName = "T_Portals_Sites", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
+	public class Site : Repository<Site>, IBusinessEntity, IPortalObject
 	{
 		public Site() : base()
-		{
-			this.ID = "";
-			this.Status = ApprovalStatus.Pending;
-			this.SystemID = "";
-			this.PrimaryDomain = "company.com";
-			this.SubDomain = "*";
-			this.Title = "";
-			this.SkinName = "";
-			this.HomeDesktopID = "";
-			this.SearchDesktopID = "";
-			this.DisplaySettings = null;
-			this.MessageSettings = null;
-			this.InstructionSettings = null;
-			this.SEOSettings = null;
-			this.Created = DateTime.Now;
-			this.CreatedID = "";
-			this.LastModified = DateTime.Now;
-			this.LastModifiedID = "";
-		}
-
-		#region IBusinessEntity properties
-		[JsonIgnore, BsonIgnore, Ignore]
-		public override string RepositoryID { get; set; }
-
-		[JsonIgnore, BsonIgnore, Ignore]
-		public override string EntityID { get; set; }
-
-		[JsonIgnore, BsonIgnore, Ignore]
-		public override Privileges OriginalPrivileges { get; set; }
-		#endregion
+			=> this.ID = "";
 
 		#region Properties
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), Sortable(IndexName = "Management")]
-		public ApprovalStatus Status { get; set; }
-
-		[Property(MaxLength = 250), Sortable(IndexName = "Title"), Searchable]
-		public override string Title { get; set; }
-
-		[Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
 		public override string SystemID { get; set; }
 
-		[Property(MaxLength = 100), Sortable(UniqueIndexName ="Domains"), Searchable]
-		public string PrimaryDomain { get; set; }
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), Sortable(IndexName = "Management"), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
-		[Property(MaxLength = 20), Sortable(UniqueIndexName = "Domains")]
-		public string SubDomain { get; set; }
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		public override string Title { get; set; } = "";
 
+		[FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		public string Description { get; set; }
+
+		[Property(MaxLength = 100), Sortable(UniqueIndexName ="Domains"), Searchable, FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		public string PrimaryDomain { get; set; } = "company.com";
+
+		[Property(MaxLength = 20), Sortable(UniqueIndexName = "Domains"), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		public string SubDomain { get; set; } = "*";
+
+		[Property(MaxLength = 1000), FormControl(Label = "{{portals.sites.controls.[name]}}")]
 		public string OtherDomains { get; set; }
 
-		[Property(MaxLength = 100), Sortable(IndexName = "Management")]
-		public string SkinName { get; set; }
+		[Property(MaxLength = 5), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		public string Language { get; set; } = "vi-VN";
 
+		[Property(MaxLength = 100), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		public string Theme { get; set; }
+
+		[Property(MaxLength = 32), FormControl(Label = "{{portals.sites.controls.[name]}}")]
 		public string HomeDesktopID { get; set; }
 
+		[Property(MaxLength = 32), FormControl(Label = "{{portals.sites.controls.[name]}}")]
 		public string SearchDesktopID { get; set; }
 
-		[Property(IsCLOB = true), AsJson]
-		public string DisplaySettings { get; set; }
+		[XmlIgnore, Property(IsCLOB = true), FormControl(Excluded = true)]
+		public string OtherSettings { get; set; }
 
-		[Property(IsCLOB = true), AsJson]
-		public string MessageSettings { get; set; }
+		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
+		public DateTime Created { get; set; } = DateTime.Now;
 
-		[Property(IsCLOB = true), AsJson]
-		public string InstructionSettings { get; set; }
+		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
+		public string CreatedID { get; set; } = "";
 
-		[Property(IsCLOB = true), AsJson]
-		public string SEOSettings { get; set; }
+		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
+		public DateTime LastModified { get; set; } = DateTime.Now;
 
-		[Sortable(IndexName = "Management")]
-		public DateTime Created { get; set; }
-
-		[Sortable(IndexName = "Management")]
-		public string CreatedID { get; set; }
-
-		[Sortable(IndexName = "Management")]
-		public DateTime LastModified { get; set; }
-
-		[Sortable(IndexName = "Management")]
-		public string LastModifiedID { get; set; }
-
-		[JsonIgnore, BsonIgnore, Ignore]
-		public override IBusinessEntity Parent
-		{
-			get
-			{
-				return string.IsNullOrWhiteSpace(this.SystemID)
-					? null
-					: Organization.Get<Organization>(this.SystemID);
-			}
-		}
+		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
+		public string LastModifiedID { get; set; } = "";
 		#endregion
 
+		#region Other properties of IBusinessEntity & IPortalObject
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		IBusinessEntity IBusinessEntity.Parent => this.Organization;
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public override string RepositoryID { get; set; }
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public override string EntityID { get; set; }
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public override Privileges OriginalPrivileges { get; set; }
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public override Privileges WorkingPrivileges => this.Organization?.WorkingPrivileges;
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public string OrganizationID => this.SystemID;
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public string ModuleID => this.RepositoryID;
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public string ContentTypeID => this.EntityID;
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		IPortalObject IPortalObject.Parent => this.Organization;
+		#endregion
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public Desktop HomeDesktop => Desktop.GetByID(this.HomeDesktopID) ?? this.Organization?.HomeDesktop;
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public Desktop SearchDesktop => Desktop.GetByID(this.SearchDesktopID) ?? this.Organization?.SearchDesktop;
+
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public Organization Organization => Organization.GetByID(this.OrganizationID);
+
+		public static Site GetByID(string id)
+			=> Site.Get<Site>(id);
+
+		public static Task<Site> GetByIDAsync(string id, CancellationToken cancellationToken = default)
+			=> Site.GetAsync<Site>(id, cancellationToken);
 	}
 }
