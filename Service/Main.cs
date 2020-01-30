@@ -190,7 +190,7 @@ namespace net.vieapps.Services.Portals
 			var alias = info.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await Organization.GetByAliasAsync(alias).ConfigureAwait(false);
+				var existing = await Utility.GetOrganizationByAliasAsync(alias, cancellationToken).ConfigureAwait(false);
 				if (existing != null)
 					throw new InformationExistedException("The alias (" + alias + ") is used by another organization");
 			}
@@ -210,12 +210,6 @@ namespace net.vieapps.Services.Portals
 			organization.Status = isCreatedByOtherService && requestInfo.Extra.ContainsKey("x-status")
 				? requestInfo.Extra["x-status"].ToEnum<ApprovalStatus>()
 				: ApprovalStatus.Pending;
-
-			if (requestInfo.Extra.ContainsKey("x-refer"))
-			{
-				organization.ReferSection = requestInfo.Extra["x-refer-section"];
-				organization.ReferIDs = requestInfo.Extra.ContainsKey("x-refer-ids") ? requestInfo.Extra["x-refer-ids"] : "";
-			}
 
 			organization.Created = organization.LastModified = DateTime.Now;
 			organization.CreatedID = organization.LastModifiedID = requestInfo.Session.User.ID;
@@ -237,7 +231,7 @@ namespace net.vieapps.Services.Portals
 			// check permission
 			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (!gotRights)
-				gotRights = await this.IsAuthorizedAsync(requestInfo, organization, Components.Security.Action.View).ConfigureAwait(false);
+				gotRights = await this.IsAuthorizedAsync(requestInfo, organization.ID, Components.Security.Action.View).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -250,14 +244,14 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> UpdateOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// get the organization
-			var organization = await Organization.GetAsync<Organization>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var organization = await Utility.GetOrganizationByIDAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationNotFoundException();
 
 			// check permission
 			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
 			if (!gotRights)
-				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || await this.IsAuthorizedAsync(requestInfo, organization, Components.Security.Action.Full).ConfigureAwait(false);
+				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || await this.IsAuthorizedAsync(requestInfo, organization.ID, Components.Security.Action.Full).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -267,7 +261,7 @@ namespace net.vieapps.Services.Portals
 			var alias = info.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await Organization.GetByAliasAsync(alias).ConfigureAwait(false);
+				var existing = await Utility.GetOrganizationByAliasAsync(alias, cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(organization.ID))
 					throw new InformationExistedException("The alias (" + alias + ") is used by another organization");
 			}

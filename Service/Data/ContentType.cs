@@ -13,6 +13,7 @@ using Newtonsoft.Json.Converters;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
+using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 #endregion
@@ -21,17 +22,10 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "ContentTypes", TableName = "T_Portals_ContentTypes", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
-	public class ContentType : Repository<ContentType>, IRepositoryEntity, IBusinessEntity, IPortalObject
+	public sealed class ContentType : Repository<ContentType>, IPortalContentType
 	{
 		public ContentType() : base()
 			=> this.ID = "";
-
-		#region Properties
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
-		public override string SystemID { get; set; }
-
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
-		public override string RepositoryID { get; set; }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.contenttypes.controls.[name]}}")]
 		public override string Title { get; set; } = "";
@@ -68,23 +62,18 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; } = "";
-		#endregion
 
-		#region Other properties of IRepositoryEntity, IBusinessEntity & IPortalObject
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		IBusinessEntity IBusinessEntity.Parent => this.Module;
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
+		public override string SystemID { get; set; }
+
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
+		public override string RepositoryID { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public override string EntityID { get; set; }
 
-		[JsonIgnore, XmlIgnore, AsString, FormControl(Excluded = true)]
-		public List<ExtendedPropertyDefinition> ExtendedPropertyDefinitions { get; }
-
-		[JsonIgnore, XmlIgnore, AsString, FormControl(Excluded = true)]
-		public ExtendedUIDefinition ExtendedUIDefinition { get; }
-
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public EntityDefinition Definition => RepositoryMediator.GetEntityDefinition<ContentType>();
+		IPortalObject IPortalObject.Parent => this.Module;
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public string OrganizationID => this.SystemID;
@@ -92,26 +81,25 @@ namespace net.vieapps.Services.Portals
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public string ModuleID => this.RepositoryID;
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public string ContentTypeID => this.EntityID;
+		[JsonIgnore, XmlIgnore, AsString, FormControl(Excluded = true)]
+		public List<ExtendedPropertyDefinition> ExtendedPropertyDefinitions { get; }
+
+		[JsonIgnore, XmlIgnore, AsString, FormControl(Excluded = true)]
+		public ExtendedUIDefinition ExtendedUIDefinition { get; }
+
+		[XmlIgnore]
+		public string DefinitionType { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		IPortalObject IPortalObject.Parent => this.Module;
-		#endregion
+		public EntityDefinition Definition => RepositoryMediator.GetEntityDefinition(AssemblyLoader.GetType(this.DefinitionType), true);
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Desktop Desktop => Desktop.GetByID(this.DesktopID) ?? this.Module?.Desktop;
+		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Module Module => Module.GetByID(this.ModuleID);
+		public Module Module => Utility.GetModuleByID(this.ModuleID);
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Organization Organization => Organization.GetByID(this.OrganizationID);
-
-		public static ContentType GetByID(string id)
-			=> ContentType.Get<ContentType>(id);
-
-		public static Task<ContentType> GetByIDAsync(string id, CancellationToken cancellationToken = default)
-			=> ContentType.GetAsync<ContentType>(id, cancellationToken);
+		public Desktop Desktop => Utility.GetDesktopByID(this.DesktopID) ?? this.Module?.Desktop;
 	}
 }

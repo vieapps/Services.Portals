@@ -21,20 +21,10 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Desktops", TableName = "T_Portals_Desktops", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
-	public class Desktop : Repository<Desktop>, IBusinessEntity, IPortalObject, INestedObject
+	public sealed class Desktop : Repository<Desktop>, INestedObject
 	{
 		public Desktop() : base()
 			=> this.ID = "";
-
-		#region Properties
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias"), FormControl(Hidden = true)]
-		public override string SystemID { get; set; }
-
-		[Property(MaxLength = 32), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
-		public string ParentID { get; set; }
-
-		[Sortable(IndexName = "Management"), FormControl(Hidden = true)]
-		public int OrderIndex { get; set; } = 0;
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.desktops.controls.[name]}}")]
 		public override string Title { get; set; } = "";
@@ -44,9 +34,6 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 250), FormControl(Label = "{{portals.desktops.controls.[name]}}")]
 		public string Aliases { get; set; }
-
-		[Property(MaxLength = 100), Sortable(UniqueIndexName ="Domains"), Searchable, FormControl(Label = "{{portals.desktops.controls.[name]}}")]
-		public string PrimaryDomain { get; set; } = "company.com";
 
 		[Property(MaxLength = 5), FormControl(Label = "{{portals.desktops.controls.[name]}}")]
 		public string Language { get; set; }
@@ -74,11 +61,15 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; } = "";
-		#endregion
 
-		#region Other properties of IBusinessEntity, IPortalObject & INestedObject
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		IBusinessEntity IBusinessEntity.Parent => this.ParentDesktop ?? this.Organization as IBusinessEntity;
+		[Property(MaxLength = 32), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
+		public string ParentID { get; set; }
+
+		[Sortable(IndexName = "Management"), FormControl(Hidden = true)]
+		public int OrderIndex { get; set; } = 0;
+
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias"), FormControl(Hidden = true)]
+		public override string SystemID { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public override string RepositoryID { get; set; }
@@ -90,53 +81,40 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.SystemID;
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public string ModuleID => this.RepositoryID;
-
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public string ContentTypeID => this.EntityID;
-
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		IPortalObject IPortalObject.Parent => this.ParentDesktop ?? this.Organization as IPortalObject;
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public string FullTitle => this.Title;
+		public string FullTitle
+		{
+			get
+			{
+				var parent = this.ParentDesktop;
+				return (parent == null ? "" : $"{parent.FullTitle} > ") + this.Title;
+			}
+		}
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		INestedObject INestedObject.Parent => this.ParentDesktop;
 
-		public List<INestedObject> Children => Desktop.FindByParentID(this.SystemID, this.ID).Select(desktop => desktop as INestedObject).ToList();
-		#endregion
+		public List<INestedObject> Children => this.GetChildren().Select(desktop => desktop as INestedObject).ToList();
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Organization Organization => Organization.GetByID(this.OrganizationID);
+		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Desktop ParentDesktop => Desktop.GetByID(this.ParentID);
+		public Desktop ParentDesktop => Utility.GetDesktopByID(this.ParentID);
 
-		public static Desktop GetByID(string id)
-			=> Desktop.Get<Desktop>(id);
+		List<string> _childIDs = null;
 
-		public static Task<Desktop> GetByIDAsync(string id, CancellationToken cancellationToken = default)
-			=> Desktop.GetAsync<Desktop>(id, cancellationToken);
-
-		public static Desktop GetByAlias(string systemID, string alias)
-			=> string.IsNullOrWhiteSpace(alias)
-				? null
-				: Desktop.Get(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null);
-
-		public static Task<Desktop> GetByAliasAsync(string systemID, string alias, CancellationToken cancellationToken = default)
-			=> string.IsNullOrWhiteSpace(alias)
-				? Task.FromResult<Desktop>(null)
-				: Desktop.GetAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null, cancellationToken);
-
-		public static List<Desktop> FindByParentID(string systemID, string parentID)
-			=> string.IsNullOrWhiteSpace(parentID)
-				? new List<Desktop>()
-				: Desktop.Find(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Desktop>.IsNull("ParentID") : Filters<Desktop>.Equals("ParentID", parentID)), Sorts<Desktop>.Ascending("OrderIndex"), 0, 1, $"desktops:{systemID.ToLower().Trim()}{(string.IsNullOrWhiteSpace(parentID) ? "" : $":{parentID.ToLower().Trim()}")}");
-
-		public static Task<List<Desktop>> FindByParentIDAsync(string systemID, string parentID, CancellationToken cancellationToken = default)
-			=> string.IsNullOrWhiteSpace(parentID)
-				? Task.FromResult(new List<Desktop>())
-				: Desktop.FindAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Desktop>.IsNull("ParentID") : Filters<Desktop>.Equals("ParentID", parentID)), Sorts<Desktop>.Ascending("OrderIndex"), 0, 1, $"desktops:{systemID.ToLower().Trim()}{(string.IsNullOrWhiteSpace(parentID) ? "" : $":{parentID.ToLower().Trim()}")}", cancellationToken);
+		public List<Desktop> GetChildren()
+		{
+			if (this._childIDs == null)
+			{
+				var desktops = Utility.GetDesktopsByParentID(this.SystemID, this.ID);
+				this._childIDs = desktops.Select(desktop => desktop.ID).ToList();
+				return desktops;
+			}
+			return this._childIDs.Select(id => Utility.GetDesktopByID(id)).ToList();
+		}
 	}
 }

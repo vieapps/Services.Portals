@@ -8,7 +8,6 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Authentication;
@@ -100,9 +99,6 @@ namespace net.vieapps.Services.Portals
 				});
 			if ("true".IsEquals(UtilityService.GetAppSetting("DataProtection:DisableAutomaticKeyGeneration")))
 				dataProtection.DisableAutomaticKeyGeneration();
-
-			// MVC
-			services.AddMvc();
 		}
 
 #if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
@@ -165,8 +161,7 @@ namespace net.vieapps.Services.Portals
 				.UseCertificateForwarding()
 #endif
 				.UseAuthentication()
-				.UseMiddleware<Handler>()
-				.UseMvc(routes => routes.MapRoute("default", "{controller=Home}/{action=Index}/{id?}"));
+				.UseMiddleware<Handler>();
 
 			// on started
 			appLifetime.ApplicationStarted.Register(() =>

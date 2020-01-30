@@ -3,45 +3,31 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using net.vieapps.Components.Security;
+using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.Portals
 {
 	/// <summary>
-	/// Presents a business object of a portal
+	/// Presents an object of a portal
 	/// </summary>
 	public interface IPortalObject
 	{
 		/// <summary>
-		/// Gets the identity
-		/// </summary>
-		string ID { get; }
-
-		/// <summary>
-		/// Gets the title
+		/// Gets the title of this object
 		/// </summary>
 		string Title { get; }
 
 		/// <summary>
-		/// Gets the identity of an organization that the object is belong to
+		/// Gets the identity of this object
+		/// </summary>
+		string ID { get; }
+
+		/// <summary>
+		/// Gets the identity of an organization that this object is belong to
 		/// </summary>
 		string OrganizationID { get; }
 
 		/// <summary>
-		/// Gets the identity of a business module that the object is belong to
-		/// </summary>
-		string ModuleID { get; }
-
-		/// <summary>
-		/// Gets the identity of a business content-type that the object is belong to
-		/// </summary>
-		string ContentTypeID { get; }
-
-		/// <summary>
-		/// Gets or sets the collection of extended properties
-		/// </summary>
-		Dictionary<string, object> ExtendedProperties { get; set; }
-
-		/// <summary>
-		/// Gets the portal object that marks as parent of this object
+		/// Gets the object that marks as parent of this object
 		/// </summary>
 		IPortalObject Parent { get; }
 
@@ -56,7 +42,7 @@ namespace net.vieapps.Services.Portals
 		Privileges WorkingPrivileges { get; }
 
 		/// <summary>
-		/// Gets the time when object is created
+		/// Gets the time when this object is created
 		/// </summary>
 		DateTime Created { get; }
 
@@ -66,7 +52,7 @@ namespace net.vieapps.Services.Portals
 		string CreatedID { get; }
 
 		/// <summary>
-		/// Gets the time when object is modified at the last-time
+		/// Gets the last time when this object is modified
 		/// </summary>
 		DateTime LastModified { get; }
 
@@ -79,7 +65,56 @@ namespace net.vieapps.Services.Portals
 	//  -----------------------------------------------------------
 
 	/// <summary>
-	/// Presents a nested object of a portal
+	/// Presents a business module of a portal
+	/// </summary>
+	public interface IPortalModule : IPortalObject, IRepository
+	{
+		/// <summary>
+		/// Gets the type name of the module definition (means the type name of a repository)
+		/// </summary>
+		string DefinitionType { get; }
+	}
+
+	//  --------------------------------------------------------------------------------------------
+
+	/// <summary>
+	/// Presents a business content-type of a portal
+	/// </summary>
+	public interface IPortalContentType : IPortalObject, IRepositoryEntity
+	{
+		/// <summary>
+		/// Gets the type name of the content-type definition (means the type name of a repository entity)
+		/// </summary>
+		string DefinitionType { get; }
+
+		/// <summary>
+		/// Gets the identity of a module that this object is belong to
+		/// </summary>
+		string ModuleID { get; }
+	}
+
+	//  -----------------------------------------------------------
+
+	/// <summary>
+	/// Presents a business object of a portal
+	/// </summary>
+	public interface IBusinessObject : IPortalObject, IBusinessEntity
+	{
+		/// <summary>
+		/// Gets the identity of a business module that the object is belong to
+		/// </summary>
+		string ModuleID { get; }
+
+		/// <summary>
+		/// Gets the identity of a business content-type that the object is belong to
+		/// </summary>
+		string ContentTypeID { get; }
+	}
+
+	//  -----------------------------------------------------------
+
+	/// <summary>
+	/// Presents a nested object (means an object that can contain itself) of a portal
 	/// </summary>
 	public interface INestedObject : IPortalObject
 	{
@@ -94,7 +129,7 @@ namespace net.vieapps.Services.Portals
 		int OrderIndex { get; set; }
 
 		/// <summary>
-		/// Gets the full title for displaying.
+		/// Gets the full title for displaying
 		/// </summary>
 		string FullTitle { get; }
 

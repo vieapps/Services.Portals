@@ -23,12 +23,14 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Organizations", TableName = "T_Portals_Organizations", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
-	public sealed class Organization : Repository<Organization>, IBusinessEntity, IPortalObject
+	public sealed class Organization : Repository<Organization>, IPortalObject
 	{
 		public Organization() : base()
-			=> this.ID = "";
+		{
+			this.ID = "";
+			this.OriginalPrivileges = new Privileges(true);
+		}
 
-		#region Properties
 		[Property(MaxLength = 32), Sortable(IndexName = "Management"), FormControl(Excluded = true)]
 		public string OwnerID { get; set; }
 
@@ -65,17 +67,8 @@ namespace net.vieapps.Services.Portals
 		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public bool TrackDownloadFiles { get; set; } = false;
 
-		[XmlIgnore, Property(IsCLOB = true), FormControl(Excluded = true)]
+		[JsonIgnore, XmlIgnore, Property(IsCLOB = true), FormControl(Excluded = true)]
 		public string OtherSettings { get; set; }
-
-		[Property(MaxLength = 100), Sortable(IndexName = "Refers"), FormControl(Excluded = true)]
-		public string ReferSection { get; set; } = "";
-
-		[Property(MaxLength = 65), Sortable(IndexName = "Refers"), FormControl(Excluded = true)]
-		public string ReferIDs { get; set; } = "";
-
-		[JsonIgnore, XmlIgnore, AsJson, FormControl(Excluded = true)]
-		public override Privileges OriginalPrivileges { get; set; } = new Privileges(true);
 
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
 		public DateTime Created { get; set; } = DateTime.Now;
@@ -88,11 +81,6 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; } = "";
-		#endregion
-
-		#region Other properties of IBusinessEntity & IPortalObject
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		IBusinessEntity IBusinessEntity.Parent => null;
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public override string SystemID { get; set; }
@@ -104,41 +92,24 @@ namespace net.vieapps.Services.Portals
 		public override string EntityID { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public override Privileges WorkingPrivileges => this.OriginalPrivileges ?? new Privileges(true);
-
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public string OrganizationID => this.ID;
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		IPortalObject IPortalObject.Parent => null;
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public string ModuleID => this.RepositoryID;
+		public override Privileges WorkingPrivileges => this.OriginalPrivileges ?? new Privileges(true);
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public string ContentTypeID => this.EntityID;
-		#endregion
+		public List<Site> Sites => Utility.Sites.Values.Where(site => site.SystemID.IsEquals(this.ID)).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ToList();
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Desktop HomeDesktop => Desktop.GetByID(this.HomeDesktopID);
+		public Site DefaultSite => this.Sites.FirstOrDefault();
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Desktop SearchDesktop => Desktop.GetByID(this.SearchDesktopID);
+		public Desktop HomeDesktop => Utility.GetDesktopByID(this.HomeDesktopID) ?? Utility.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
 
-		public static Organization GetByID(string id)
-			=> Organization.Get<Organization>(id);
-
-		public static Task<Organization> GetByIDAsync(string id, CancellationToken cancellationToken = default)
-			=> Organization.GetAsync<Organization>(id, cancellationToken);
-
-		public static Organization GetByAlias(string alias)
-			=> string.IsNullOrWhiteSpace(alias)
-				? null
-				: Organization.Get(Filters<Organization>.Equals("Alias", alias), null, null);
-
-		public static Task<Organization> GetByAliasAsync(string alias, CancellationToken cancellationToken = default)
-			=> string.IsNullOrWhiteSpace(alias)
-				? Task.FromResult<Organization>(null)
-				: Organization.GetAsync(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken);
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public Desktop SearchDesktop => Utility.GetDesktopByID(this.SearchDesktopID) ?? Utility.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
 	}
 }

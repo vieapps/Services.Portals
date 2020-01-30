@@ -21,14 +21,10 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Sites", TableName = "T_Portals_Sites", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
-	public class Site : Repository<Site>, IBusinessEntity, IPortalObject
+	public sealed class Site : Repository<Site>, IPortalObject
 	{
 		public Site() : base()
 			=> this.ID = "";
-
-		#region Properties
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
-		public override string SystemID { get; set; }
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), Sortable(IndexName = "Management"), FormControl(Label = "{{portals.sites.controls.[name]}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
@@ -74,11 +70,9 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; } = "";
-		#endregion
 
-		#region Other properties of IBusinessEntity & IPortalObject
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		IBusinessEntity IBusinessEntity.Parent => this.Organization;
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
+		public override string SystemID { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public override string RepositoryID { get; set; }
@@ -96,28 +90,15 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.SystemID;
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public string ModuleID => this.RepositoryID;
-
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public string ContentTypeID => this.EntityID;
-
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		IPortalObject IPortalObject.Parent => this.Organization;
-		#endregion
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Desktop HomeDesktop => Desktop.GetByID(this.HomeDesktopID) ?? this.Organization?.HomeDesktop;
+		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Desktop SearchDesktop => Desktop.GetByID(this.SearchDesktopID) ?? this.Organization?.SearchDesktop;
+		public Desktop HomeDesktop => Utility.GetDesktopByID(this.HomeDesktopID) ?? this.Organization?.HomeDesktop;
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Organization Organization => Organization.GetByID(this.OrganizationID);
-
-		public static Site GetByID(string id)
-			=> Site.Get<Site>(id);
-
-		public static Task<Site> GetByIDAsync(string id, CancellationToken cancellationToken = default)
-			=> Site.GetAsync<Site>(id, cancellationToken);
+		public Desktop SearchDesktop => Utility.GetDesktopByID(this.SearchDesktopID) ?? this.Organization?.SearchDesktop;
 	}
 }

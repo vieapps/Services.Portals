@@ -13,6 +13,7 @@ using Newtonsoft.Json.Converters;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
+using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 #endregion
@@ -21,14 +22,10 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Modules", TableName = "T_Portals_Modules", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
-	public class Module : Repository<Module>, IRepository, IBusinessEntity, IPortalObject
+	public sealed class Module : Repository<Module>, IPortalModule
 	{
 		public Module() : base()
 			=> this.ID = "";
-
-		#region Properties
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
-		public override string SystemID { get; set; }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.modules.controls.[name]}}")]
 		public override string Title { get; set; } = "";
@@ -53,11 +50,9 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; } = "";
-		#endregion
 
-		#region Other properties of IRepository, IBusinessEntity & IPortalObject
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		IBusinessEntity IBusinessEntity.Parent => this.Organization;
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
+		public override string SystemID { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public override string RepositoryID { get; set; }
@@ -66,31 +61,21 @@ namespace net.vieapps.Services.Portals
 		public override string EntityID { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public RepositoryDefinition Definition => RepositoryMediator.GetEntityDefinition<Module>().RepositoryDefinition;
-
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		public string OrganizationID => this.SystemID;
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public string ModuleID => this.RepositoryID;
-
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public string ContentTypeID => this.EntityID;
-
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
 		IPortalObject IPortalObject.Parent => this.Organization;
-		#endregion
+
+		[XmlIgnore]
+		public string DefinitionType { get; set; }
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Desktop Desktop => Desktop.GetByID(this.DesktopID) ?? this.Organization?.HomeDesktop;
+		public RepositoryDefinition Definition => RepositoryMediator.GetRepositoryDefinition(AssemblyLoader.GetType(this.DefinitionType), true);
 
 		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Organization Organization => Organization.GetByID(this.OrganizationID);
+		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
 
-		public static Module GetByID(string id)
-			=> Module.Get<Module>(id);
-
-		public static Task<Module> GetByIDAsync(string id, CancellationToken cancellationToken = default)
-			=> Module.GetAsync<Module>(id, cancellationToken);
+		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		public Desktop Desktop => Utility.GetDesktopByID(this.DesktopID) ?? this.Organization?.HomeDesktop;
 	}
 }

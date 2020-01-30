@@ -12,7 +12,7 @@ using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Portals
 {
-	public static class Utils
+	public static partial class Utils
 	{
 		public static string CurrentLanguage
 		{
