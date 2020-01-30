@@ -48,7 +48,7 @@ namespace net.vieapps.Services.Portals
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), FormControl(Label = "{{portals.contenttypes.controls.[name]}}")]
 		public ApprovalStatus DefaultCommentStatus { get; set; } = ApprovalStatus.Pending;
 
-		[XmlIgnore, Property(IsCLOB = true), FormControl(Excluded = true)]
+		[Property(IsCLOB = true), FormControl(Excluded = true), XmlIgnore]
 		public string OtherSettings { get; set; }
 
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
@@ -69,37 +69,37 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
 		public override string RepositoryID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string EntityID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		IPortalObject IPortalObject.Parent => this.Module;
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string ModuleID => this.RepositoryID;
 
-		[JsonIgnore, XmlIgnore, AsString, FormControl(Excluded = true)]
+		[AsJson, FormControl(Excluded = true), JsonIgnore, XmlIgnore]
 		public List<ExtendedPropertyDefinition> ExtendedPropertyDefinitions { get; }
 
-		[JsonIgnore, XmlIgnore, AsString, FormControl(Excluded = true)]
+		[AsJson, FormControl(Excluded = true), JsonIgnore, XmlIgnore]
 		public ExtendedUIDefinition ExtendedUIDefinition { get; }
 
 		[XmlIgnore]
 		public string DefinitionType { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public EntityDefinition Definition => RepositoryMediator.GetEntityDefinition(AssemblyLoader.GetType(this.DefinitionType), true);
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Module Module => Utility.GetModuleByID(this.ModuleID);
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop Desktop => Utility.GetDesktopByID(this.DesktopID) ?? this.Module?.Desktop;
 	}
 }

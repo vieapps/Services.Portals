@@ -41,13 +41,13 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 100), FormControl(Label = "{{portals.desktops.controls.[name]}}")]
 		public string Theme { get; set; }
 
-		[XmlIgnore, Property(IsCLOB = true), FormControl(Excluded = true)]
+		[Property(IsCLOB = true), FormControl(Excluded = true), XmlIgnore]
 		public string Templates { get; set; }
 
 		[Property(MaxLength = 32), FormControl(Label = "{{portals.desktops.controls.[name]}}")]
 		public string MainPortletID { get; set; }
 
-		[XmlIgnore, Property(IsCLOB = true), FormControl(Excluded = true)]
+		[Property(IsCLOB = true), FormControl(Excluded = true), XmlIgnore]
 		public string OtherSettings { get; set; }
 
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
@@ -71,19 +71,19 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias"), FormControl(Hidden = true)]
 		public override string SystemID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string RepositoryID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string EntityID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		IPortalObject IPortalObject.Parent => this.ParentDesktop ?? this.Organization as IPortalObject;
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string FullTitle
 		{
 			get
@@ -93,28 +93,28 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		INestedObject INestedObject.Parent => this.ParentDesktop;
 
 		public List<INestedObject> Children => this.GetChildren().Select(desktop => desktop as INestedObject).ToList();
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop ParentDesktop => Utility.GetDesktopByID(this.ParentID);
 
-		List<string> _childIDs = null;
+		internal List<string> ChildrenIDs { get; set; }
 
 		public List<Desktop> GetChildren()
 		{
-			if (this._childIDs == null)
+			if (this.ChildrenIDs == null)
 			{
 				var desktops = Utility.GetDesktopsByParentID(this.SystemID, this.ID);
-				this._childIDs = desktops.Select(desktop => desktop.ID).ToList();
+				this.ChildrenIDs = desktops.Select(desktop => desktop.ID).ToList();
 				return desktops;
 			}
-			return this._childIDs.Select(id => Utility.GetDesktopByID(id)).ToList();
+			return this.ChildrenIDs.Select(id => Utility.GetDesktopByID(id)).ToList();
 		}
 	}
 }

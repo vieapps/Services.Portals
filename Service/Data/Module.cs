@@ -36,7 +36,7 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 32), FormControl(Label = "{{portals.modules.controls.[name]}}")]
 		public string DesktopID { get; set; }
 
-		[XmlIgnore, Property(IsCLOB = true), FormControl(Excluded = true)]
+		[Property(IsCLOB = true), FormControl(Excluded = true), XmlIgnore]
 		public string OtherSettings { get; set; }
 
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
@@ -54,28 +54,28 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Hidden = true)]
 		public override string SystemID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string RepositoryID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string EntityID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		IPortalObject IPortalObject.Parent => this.Organization;
 
 		[XmlIgnore]
 		public string DefinitionType { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public RepositoryDefinition Definition => RepositoryMediator.GetRepositoryDefinition(AssemblyLoader.GetType(this.DefinitionType), true);
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop Desktop => Utility.GetDesktopByID(this.DesktopID) ?? this.Organization?.HomeDesktop;
 	}
 }

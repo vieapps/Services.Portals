@@ -250,6 +250,13 @@ namespace net.vieapps.Services.Portals
 					Utility.DesktopsByAlias.Remove($"{old.SystemID}:{old.Alias}");
 					if (!string.IsNullOrWhiteSpace(old.Aliases))
 						old.Aliases.Replace(";", ",").ToList().ForEach(alias => Utility.DesktopsByAlias.Remove($"{old.SystemID}:{alias}"));
+					if (old.ParentID != desktop.ParentID)
+					{
+						if (old.ParentDesktop != null)
+							old.ParentDesktop.ChildrenIDs = null;
+						if (desktop.ParentDesktop != null)
+							desktop.ParentDesktop.ChildrenIDs = null;
+					}
 				}
 				Utility.Desktops[desktop.ID] = desktop;
 				Utility.DesktopsByAlias[$"{desktop.SystemID}:{desktop.Alias}"] = desktop;
@@ -328,10 +335,10 @@ namespace net.vieapps.Services.Portals
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Serializable, Repository(ID = "00000000000000000000000000000001", Title = "Portals", Description = "Managing core information of portals and related")]
+	[Serializable, Repository(ID = "00000000000000000000000000000001", Title = "Portals", Description = "Managing core information of portals and related", Directory = "Portals")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class
 	{
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string ServiceName => ServiceBase.ServiceComponent.ServiceName;
 	}
 }

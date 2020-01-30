@@ -46,7 +46,7 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public override string Title { get; set; } = "";
 
-		[FormControl(Label = "{{portals.organizations.controls.[name]}}")]
+		[Property(MaxLength = 250), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string Description { get; set; }
 
 		[Property(MaxLength = 100), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
@@ -67,7 +67,7 @@ namespace net.vieapps.Services.Portals
 		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public bool TrackDownloadFiles { get; set; } = false;
 
-		[JsonIgnore, XmlIgnore, Property(IsCLOB = true), FormControl(Excluded = true)]
+		[Property(IsCLOB = true), FormControl(Excluded = true), JsonIgnore, XmlIgnore]
 		public string OtherSettings { get; set; }
 
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
@@ -82,34 +82,37 @@ namespace net.vieapps.Services.Portals
 		[Sortable(IndexName = "Audits"), FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; } = "";
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string SystemID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string RepositoryID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string EntityID { get; set; }
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.ID;
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		IPortalObject IPortalObject.Parent => null;
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override Privileges WorkingPrivileges => this.OriginalPrivileges ?? new Privileges(true);
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public List<Site> Sites => Utility.Sites.Values.Where(site => site.SystemID.IsEquals(this.ID)).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ToList();
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Site DefaultSite => this.Sites.FirstOrDefault();
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Desktop HomeDesktop => Utility.GetDesktopByID(this.HomeDesktopID) ?? Utility.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public Desktop DefaultDesktop => Utility.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
 
-		[JsonIgnore, XmlIgnore, BsonIgnore, Ignore]
-		public Desktop SearchDesktop => Utility.GetDesktopByID(this.SearchDesktopID) ?? Utility.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public Desktop HomeDesktop => Utility.GetDesktopByID(this.HomeDesktopID) ?? this.DefaultDesktop;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public Desktop SearchDesktop => Utility.GetDesktopByID(this.SearchDesktopID) ?? this.DefaultDesktop;
 	}
 }
