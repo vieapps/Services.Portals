@@ -7,16 +7,13 @@
 		<WarningLevel>3</WarningLevel>
 		<DocumentationFile>bin/$(Configuration)/$(TargetFramework)/VIEApps.Services.Portals.Abstractions.xml</DocumentationFile>
 		<AssemblyTitle>VIEApps NGX Portals Abstractions</AssemblyTitle>
-		<AssemblyVersion>10.3.2001.4</AssemblyVersion>
-		<FileVersion>10.3.2001.4</FileVersion>
-		<InformationalVersion>10.3@$(TargetFramework)-build:2020.01.20+multiple.targets+helpers</InformationalVersion>
-		<Version>10.3.2001.4</Version>
-		<Title>VIEApps NGX Portals Service Abstractions</Title>
-		<Description>The abstractions for portal service in the VIEApps NGX</Description>
 		<Authors>VIEApps.net</Authors>
 		<Company>VIEApps.net</Company>
 		<Product>VIEApps NGX</Product>
 		<Copyright>© 2020 VIEApps.net</Copyright>
+		<AssemblyVersion>10.3$(ReleaseVersion)</AssemblyVersion>
+		<FileVersion>10.3$(ReleaseVersion)</FileVersion>
+		<InformationalVersion>10.3@$(TargetFramework)-$(ReleaseRevision)</InformationalVersion>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -24,7 +21,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <PackageReference Include="VIEApps.Components.Repository" Version="10.3.2001.4" />
+	  <PackageReference Include="VIEApps.Components.Repository" Version="10.3.2002.1" />
 	</ItemGroup>
 
 </Project>
