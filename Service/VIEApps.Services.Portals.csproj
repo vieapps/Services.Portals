@@ -28,8 +28,8 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="VIEApps.Components.Utility.AssemblyLoader" Version="10.3.2002.1" />
-		<PackageReference Include="VIEApps.Services.Base" Version="10.3.2002.1" />
+		<PackageReference Include="VIEApps.Components.Utility.AssemblyLoader" Version="10.3.2002.2" />
+		<PackageReference Include="VIEApps.Services.Base" Version="10.3.2002.2" />
 	</ItemGroup>
 
 	<ItemGroup>
