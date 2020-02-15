@@ -81,7 +81,7 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		IPortalObject IPortalObject.Parent => this.ParentDesktop ?? this.Organization as IPortalObject;
+		public new IPortalObject Parent => this.ParentDesktop ?? this.Organization as IPortalObject;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string FullTitle

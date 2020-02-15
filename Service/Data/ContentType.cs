@@ -73,7 +73,7 @@ namespace net.vieapps.Services.Portals
 		public override string EntityID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		IPortalObject IPortalObject.Parent => this.Module;
+		public new IPortalObject Parent => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;

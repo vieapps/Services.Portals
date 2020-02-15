@@ -40,6 +40,34 @@ namespace net.vieapps.Services.Portals
 						json = await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
+					case "definitions":
+						switch (requestInfo.GetObjectIdentity())
+						{
+							case "organization":
+								json = this.GenerateFormControls<Organization>();
+								break;
+
+							case "module":
+								json = this.GenerateFormControls<Module>();
+								break;
+
+							case "contenttype":
+								json = this.GenerateFormControls<ContentType>();
+								break;
+
+							case "site":
+								json = this.GenerateFormControls<Site>();
+								break;
+
+							case "desktop":
+								json = this.GenerateFormControls<Desktop>();
+								break;
+
+							default:
+								throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+						}
+						break;
+
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 				}
@@ -196,7 +224,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// prepare
-			var organization = info.Copy<Organization>("Status,ReferSection,ReferIDs,Privileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+			var organization = info.Copy<Organization>("Status,Privileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
 
 			if (string.IsNullOrWhiteSpace(organization.ID) || !organization.ID.IsValidUUID())
 				organization.ID = UtilityService.NewUUID;

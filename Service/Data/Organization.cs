@@ -31,6 +31,12 @@ namespace net.vieapps.Services.Portals
 			this.OriginalPrivileges = new Privileges(true);
 		}
 
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.organizations.controls.[name]}}")]
+		public override string Title { get; set; } = "";
+
+		[Property(MaxLength = 250), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
+		public string Description { get; set; }
+
 		[Property(MaxLength = 32), Sortable(IndexName = "Management"), FormControl(Excluded = true)]
 		public string OwnerID { get; set; }
 
@@ -43,11 +49,14 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 10, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string ExpiredDate { get; set; } = "-";
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.organizations.controls.[name]}}")]
-		public override string Title { get; set; } = "";
+		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
+		public long FilesQuotes { get; set; } = 0;
 
-		[Property(MaxLength = 250), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
-		public string Description { get; set; }
+		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
+		public bool Required2FA { get; set; } = false;
+
+		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
+		public bool TrackDownloadFiles { get; set; } = false;
 
 		[Property(MaxLength = 100), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string Theme { get; set; } = "default";
@@ -57,15 +66,6 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 32), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
 		public string SearchDesktopID { get; set; }
-
-		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
-		public long FilesQuotes { get; set; } = 0;
-
-		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
-		public bool Required2FA { get; set; } = false;
-
-		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name]}}")]
-		public bool TrackDownloadFiles { get; set; } = false;
 
 		[Property(IsCLOB = true), FormControl(Excluded = true), JsonIgnore, XmlIgnore]
 		public string OtherSettings { get; set; }
@@ -95,7 +95,7 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.ID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		IPortalObject IPortalObject.Parent => null;
+		public new IPortalObject Parent => null;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override Privileges WorkingPrivileges => this.OriginalPrivileges ?? new Privileges(true);

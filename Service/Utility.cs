@@ -21,10 +21,33 @@ namespace net.vieapps.Services.Portals
 	{
 
 		#region Caching & URIs
+		/// <summary>
+		/// Gets the cache storage
+		/// </summary>
 		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Logger.GetLoggerFactory());
 
-		static string _FilesHttpUri = null;
+		static string _APIsHttpUri, _FilesHttpUri, _PortalsHttpUri, _PassportsHttpUri;
 
+		/// <summary>
+		/// Gets the URI of the public APIS
+		/// </summary>
+		public static string APIsHttpUri
+		{
+			get
+			{
+				if (string.IsNullOrWhiteSpace(Utility._APIsHttpUri))
+				{
+					Utility._APIsHttpUri = UtilityService.GetAppSetting("HttpUri:APIs", "https://apis.vieapps.net");
+					while (Utility._APIsHttpUri.EndsWith("/"))
+						Utility._APIsHttpUri = Utility._APIsHttpUri.Left(Utility._APIsHttpUri.Length - 1);
+				}
+				return Utility._APIsHttpUri;
+			}
+		}
+
+		/// <summary>
+		/// Gets the URI of the Files HTTP service
+		/// </summary>
 		public static string FilesHttpUri
 		{
 			get
@@ -36,6 +59,40 @@ namespace net.vieapps.Services.Portals
 						Utility._FilesHttpUri = Utility._FilesHttpUri.Left(Utility._FilesHttpUri.Length - 1);
 				}
 				return Utility._FilesHttpUri;
+			}
+		}
+
+		/// <summary>
+		/// Gets the URI of the Portals HTTP service
+		/// </summary>
+		public static string PortalsHttpUri
+		{
+			get
+			{
+				if (string.IsNullOrWhiteSpace(Utility._PortalsHttpUri))
+				{
+					Utility._PortalsHttpUri = UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
+					while (Utility._PortalsHttpUri.EndsWith("/"))
+						Utility._PortalsHttpUri = Utility._PortalsHttpUri.Left(Utility._PortalsHttpUri.Length - 1);
+				}
+				return Utility._PortalsHttpUri;
+			}
+		}
+
+		/// <summary>
+		/// Gets the URI of the Passports HTTP service
+		/// </summary>
+		public static string PassportsHttpUri
+		{
+			get
+			{
+				if (string.IsNullOrWhiteSpace(Utility._PassportsHttpUri))
+				{
+					Utility._PassportsHttpUri = UtilityService.GetAppSetting("HttpUri:Passports", "https://id.vieapps.net");
+					while (Utility._PassportsHttpUri.EndsWith("/"))
+						Utility._PassportsHttpUri = Utility._PassportsHttpUri.Left(Utility._PassportsHttpUri.Length - 1);
+				}
+				return Utility._PassportsHttpUri;
 			}
 		}
 		#endregion

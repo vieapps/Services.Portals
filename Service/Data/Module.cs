@@ -64,7 +64,7 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		IPortalObject IPortalObject.Parent => this.Organization;
+		public new IPortalObject Parent => this.Organization;
 
 		[XmlIgnore]
 		public string DefinitionType { get; set; }

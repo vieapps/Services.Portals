@@ -8,15 +8,17 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Hosting;
-#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+#if !NETCOREAPP2_1
+using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.Extensions.Hosting;
 #endif
 using Microsoft.Extensions.Logging;
@@ -51,25 +53,43 @@ namespace net.vieapps.Services.Portals
 				.AddSession(options =>
 				{
 					options.IdleTimeout = TimeSpan.FromMinutes(30);
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:SessionCookie", "VIEApps-Session");
+					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Session", "VIEApps-Session");
 					options.Cookie.HttpOnly = true;
+					options.Cookie.SameSite = SameSiteMode.Lax;
 				});
 
 			// authentication
 			services
-				.AddAuthentication(options => options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme)
+				.AddAuthentication(options =>
+				{
+					options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+#if !NETCOREAPP2_1
+					options.RequireAuthenticatedSignIn = false;
+#endif
+				})
 				.AddCookie(options =>
 				{
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:AuthenticationCookie", "VIEApps-Auth");
+					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Authentication", "VIEApps-Auth");
 					options.Cookie.HttpOnly = true;
-					options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
+					options.Cookie.SameSite = SameSiteMode.Lax;
 					options.SlidingExpiration = true;
+					options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
 				});
 
-			// authentication with proxy/load balancer
+			// config cookies
+#if !NETCOREAPP2_1
+			services.Configure<CookiePolicyOptions>(options =>
+			{
+				options.MinimumSameSitePolicy = SameSiteMode.Lax;
+				options.HttpOnly = HttpOnlyPolicy.Always;
+			});
+#endif
+
+			// config authentication with proxy/load balancer
 			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
-#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+
+#if !NETCOREAPP2_1
 			else
 			{
 				var certificateHeader = "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseAzure"))
@@ -101,11 +121,16 @@ namespace net.vieapps.Services.Portals
 				dataProtection.DisableAutomaticKeyGeneration();
 		}
 
-#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
-		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
+		public void Configure(
+			IApplicationBuilder appBuilder,
+#if !NETCOREAPP2_1
+			IHostApplicationLifetime appLifetime,
+			IWebHostEnvironment environment
 #else
-		public void Configure(IApplicationBuilder appBuilder, IApplicationLifetime appLifetime, IHostingEnvironment environment)
+			IApplicationLifetime appLifetime,
+			IHostingEnvironment environment
 #endif
+		)
 		{
 			// settings
 			var stopwatch = Stopwatch.StartNew();
@@ -118,7 +143,7 @@ namespace net.vieapps.Services.Portals
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
 			if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
 			{
-				logPath = Path.Combine(logPath, "{Date}" + $"_{Global.ServiceName.ToLower()}.http.all.txt");
+				logPath = Path.Combine(logPath, "{Hour}" + $"_{Global.ServiceName.ToLower()}.http.all.txt");
 				loggerFactory.AddFile(logPath, this.LogLevel);
 			}
 			else
@@ -157,8 +182,9 @@ namespace net.vieapps.Services.Portals
 				.UseResponseCompression()
 				.UseCache()
 				.UseSession()
-#if !NETCOREAPP2_0 && !NETCOREAPP2_1 && !NETCOREAPP2_2
+#if !NETCOREAPP2_1
 				.UseCertificateForwarding()
+				.UseCookiePolicy()
 #endif
 				.UseAuthentication()
 				.UseMiddleware<Handler>();

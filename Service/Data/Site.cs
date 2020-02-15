@@ -90,7 +90,7 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		IPortalObject IPortalObject.Parent => this.Organization;
+		public new IPortalObject Parent => this.Organization;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);

@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
 	<PropertyGroup>
-		<TargetFrameworks>netcoreapp2.0;netcoreapp2.1;netcoreapp2.2;netcoreapp3.0;netcoreapp3.1</TargetFrameworks>
+		<TargetFrameworks>netcoreapp2.1;netcoreapp3.1</TargetFrameworks>
 		<OutputType>Exe</OutputType>
 		<WarningLevel>3</WarningLevel>
 		<RootNamespace>net.vieapps.Services.Portals</RootNamespace>
@@ -20,6 +20,7 @@
 	<ItemGroup>
 		<None Remove=".DS_Store" />
 		<None Include="$(ProjectDir)_assets\**" CopyToOutputDirectory="PreserveNewest" LinkBase="_assets\" />
+		<None Include="$(ProjectDir)_themes\**" CopyToOutputDirectory="PreserveNewest" LinkBase="_themes\" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -33,7 +34,7 @@
 		<PackageReference Include="Microsoft.AspNetCore.ResponseCompression" Version="2.2.0" />
 		<PackageReference Include="Microsoft.AspNetCore.Session" Version="2.2.0" />
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="3.1.1" />
-		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.3.2002.2" />
+		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.3.2002.3" />
 	</ItemGroup>
 
 </Project>
