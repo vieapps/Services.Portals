@@ -40,7 +40,7 @@ namespace net.vieapps.Services.Portals
 
 		public IConfiguration Configuration { get; }
 
-		LogLevel LogLevel => this.Configuration.GetAppSetting("Logging/LogLevel/Default", UtilityService.GetAppSetting("Logs:Level", "Information")).ToEnum<LogLevel>();
+		LogLevel LogLevel => this.Configuration.GetAppSetting("Logging/LogLevel/Default", UtilityService.GetAppSetting("Logs:Level", "Information")).TryToEnum(out LogLevel logLevel) ? logLevel : LogLevel.Information;
 
 		public void ConfigureServices(IServiceCollection services)
 		{
