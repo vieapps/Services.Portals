@@ -33,7 +33,7 @@
 		<PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="3.1.2" />
 		<PackageReference Include="Microsoft.AspNetCore.ResponseCompression" Version="2.2.0" />
 		<PackageReference Include="Microsoft.AspNetCore.Session" Version="2.2.0" />
-		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.3.2002.6" />
+		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.3.2002.7" />
 	</ItemGroup>
 
 </Project>
