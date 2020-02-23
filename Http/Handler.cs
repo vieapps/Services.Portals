@@ -281,7 +281,7 @@ namespace net.vieapps.Services.Portals
 									var correlationID = UtilityService.NewUUID;
 									try
 									{
-										await Global.UpdateServiceInfoAsync().ConfigureAwait(false);
+										await Global.SendServiceInfoAsync().ConfigureAwait(false);
 										if (Global.IsDebugResultsEnabled)
 											await Global.WriteLogsAsync(Global.Logger, "RTU",
 												$"Successfully process an inter-communicate message" + "\r\n" +
