@@ -121,6 +121,16 @@ namespace net.vieapps.Services.Portals
 				});
 			if ("true".IsEquals(UtilityService.GetAppSetting("DataProtection:DisableAutomaticKeyGeneration")))
 				dataProtection.DisableAutomaticKeyGeneration();
+
+#if !NETCOREAPP2_1
+			// config options of IIS server (for working with InProcess hosting model)
+			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISInProcess")))
+				services.Configure<IISServerOptions>(options =>
+				{
+					options.AllowSynchronousIO = true;
+					options.MaxRequestBodySize = 1024 * 1024 * (Int32.TryParse(UtilityService.GetAppSetting("Limits:Body"), out var limitSize) ? limitSize : 10);
+				});
+#endif
 		}
 
 		public void Configure(
