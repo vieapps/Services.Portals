@@ -26,34 +26,34 @@ namespace net.vieapps.Services.Portals
 		public Site() : base()
 			=> this.ID = "";
 
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), Sortable(IndexName = "Management"), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), Sortable(IndexName = "Management"), FormControl(Label = "{{portals.sites.controls.[name]}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.sites.controls.[name]}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public override string Title { get; set; } = "";
 
-		[FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		[FormControl(Label = "{{portals.sites.controls.[name]}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string Description { get; set; }
 
-		[Property(MaxLength = 100), Sortable(UniqueIndexName ="Domains"), Searchable, FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		[Property(MaxLength = 100), Sortable(UniqueIndexName ="Domains"), Searchable, FormControl(Label = "{{portals.sites.controls.[name]}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string PrimaryDomain { get; set; } = "company.com";
 
-		[Property(MaxLength = 20), Sortable(UniqueIndexName = "Domains"), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		[Property(MaxLength = 20), Sortable(UniqueIndexName = "Domains"), FormControl(Label = "{{portals.sites.controls.[name]}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string SubDomain { get; set; } = "*";
 
-		[Property(MaxLength = 1000), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		[Property(MaxLength = 1000), FormControl(Label = "{{portals.sites.controls.[name]}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string OtherDomains { get; set; }
 
-		[Property(MaxLength = 5), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		[Property(MaxLength = 5), FormControl(Label = "{{portals.sites.controls.[name]}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string Language { get; set; } = "vi-VN";
 
-		[Property(MaxLength = 100), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		[Property(MaxLength = 100), FormControl(Label = "{{portals.sites.controls.[name]}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string Theme { get; set; }
 
-		[Property(MaxLength = 32), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		[Property(MaxLength = 32), FormControl(Label = "{{portals.sites.controls.[name]}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string HomeDesktopID { get; set; }
 
-		[Property(MaxLength = 32), FormControl(Label = "{{portals.sites.controls.[name]}}")]
+		[Property(MaxLength = 32), FormControl(Label = "{{portals.sites.controls.[name]}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string SearchDesktopID { get; set; }
 
 		[Property(IsCLOB = true), FormControl(Excluded = true), XmlIgnore]

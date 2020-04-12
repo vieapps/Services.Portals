@@ -27,13 +27,13 @@ namespace net.vieapps.Services.Portals
 		public Module() : base()
 			=> this.ID = "";
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.modules.controls.[name]}}")]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.modules.controls.[name]}}", PlaceHolder = "{{portals.modules.controls.[name].placeholder}}", Description = "{{portals.modules.controls.[name].description}}")]
 		public override string Title { get; set; } = "";
 
-		[FormControl(Label = "{{portals.modules.controls.[name]}}")]
+		[FormControl(Label = "{{portals.modules.controls.[name]}}", PlaceHolder = "{{portals.modules.controls.[name].placeholder}}", Description = "{{portals.modules.controls.[name].description}}")]
 		public string Description { get; set; }
 
-		[Property(MaxLength = 32), FormControl(Label = "{{portals.modules.controls.[name]}}")]
+		[Property(MaxLength = 32), FormControl(Label = "{{portals.modules.controls.[name]}}", PlaceHolder = "{{portals.modules.controls.[name].placeholder}}", Description = "{{portals.modules.controls.[name].description}}")]
 		public string DesktopID { get; set; }
 
 		[Property(IsCLOB = true), FormControl(Excluded = true), XmlIgnore]

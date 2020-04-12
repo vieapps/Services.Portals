@@ -1,17 +1,16 @@
 ﻿#region Related components
 using System;
+using System.IO;
+using System.Text;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Dynamic;
-using System.IO;
-using System.Text;
-
+using System.ComponentModel;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -43,6 +42,16 @@ namespace net.vieapps.Services.Portals
 					case "definitions":
 						switch (requestInfo.GetObjectIdentity())
 						{
+							case "social":
+							case "socials":
+								json = UtilityService.GetAppSetting("Portals:Socials", "Facebook,Twitter").ToArray().ToJArray();
+								break;
+
+							case "tracking":
+							case "trackings":
+								json = UtilityService.GetAppSetting("Portals:Trackings", "GoogleAnalytics,FacebookPixel").ToArray().ToJArray();
+								break;
+
 							case "organization":
 								json = this.GenerateFormControls<Organization>();
 								break;
@@ -142,7 +151,7 @@ namespace net.vieapps.Services.Portals
 
 			// check cache
 			var cacheKey = string.IsNullOrWhiteSpace(query)
-				? this.GetCacheKey<Organization>(filter, sort)
+				? this.GetCacheKey(filter, sort)
 				: "";
 
 			var json = !cacheKey.Equals("")
@@ -206,11 +215,9 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> CreateOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// check permission
-			var isCreatedByOtherService = false;
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
-			if (!gotRights && requestInfo.Extra != null)
-				gotRights = isCreatedByOtherService = requestInfo.Extra.ContainsKey("x-create") && requestInfo.Extra["x-create"].IsEquals(requestInfo.Session.SessionID.Encrypt());
-			if (!gotRights)
+			var isCreatedByOtherService = requestInfo.Extra != null && requestInfo.Extra.TryGetValue("x-create", out var xcreate) && xcreate.IsEquals(requestInfo.Session.SessionID.Encrypt());
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
+			if (!isSystemAdministrator && !isCreatedByOtherService)
 				throw new AccessDeniedException();
 
 			// check the exising the the alias
@@ -224,26 +231,38 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// prepare
-			var organization = info.Copy<Organization>("Status,Privileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+			var organization = info.Copy<Organization>("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
 
-			if (string.IsNullOrWhiteSpace(organization.ID) || !organization.ID.IsValidUUID())
-				organization.ID = UtilityService.NewUUID;
+			organization.ID = string.IsNullOrWhiteSpace(organization.ID) || !organization.ID.IsValidUUID() ? UtilityService.NewUUID : organization.ID;
+			organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? organization.Title.GetANSIUri() + organization.ID : organization.Alias;
+			organization.OwnerID = string.IsNullOrWhiteSpace(organization.OwnerID) || !organization.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : organization.OwnerID;
 
-			if (string.IsNullOrWhiteSpace(organization.Alias))
-				organization.Alias = organization.Title.GetANSIUri() + "-" + organization.ID;
+			organization.Status = isSystemAdministrator
+				? info.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
+				: isCreatedByOtherService 
+					? requestInfo.Extra.TryGetValue("x-status", out var xstatus) && xstatus.TryToEnum(out ApprovalStatus statusByOtherService) ? statusByOtherService : ApprovalStatus.Pending
+					 : ApprovalStatus.Pending;
 
-			if (string.IsNullOrWhiteSpace(organization.OwnerID))
-				organization.OwnerID = requestInfo.Session.User.ID;
+			organization.Instructions = Organization.GetInstructions(info.Get<ExpandoObject>("Instructions"));
+			organization.NormalizeSettings();
 
-			organization.Status = isCreatedByOtherService && requestInfo.Extra.ContainsKey("x-status")
-				? requestInfo.Extra["x-status"].ToEnum<ApprovalStatus>()
-				: ApprovalStatus.Pending;
+			organization.OriginalPrivileges =(isSystemAdministrator ? info.Get<Privileges>("OriginalPrivileges") : null) ?? new Privileges(true);
 
 			organization.Created = organization.LastModified = DateTime.Now;
 			organization.CreatedID = organization.LastModifiedID = requestInfo.Session.User.ID;
 
 			// create new
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
+
+			// send update message
+			await this.SendUpdateMessageAsync(new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#{organization.GetTypeName(true)}#Create",
+				DeviceID = "*",
+				ExcludedDeviceID = requestInfo.Session.DeviceID,
+				Data = organization.ToJson()
+			}, cancellationToken).ConfigureAwait(false);
+
 			return organization.ToJson();
 		}
 		#endregion
@@ -277,9 +296,8 @@ namespace net.vieapps.Services.Portals
 				throw new InformationNotFoundException();
 
 			// check permission
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
-			if (!gotRights)
-				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || await this.IsAuthorizedAsync(requestInfo, organization.ID, Components.Security.Action.Full).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator  || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || await this.IsAuthorizedAsync(requestInfo, organization.ID, Components.Security.Action.Full).ConfigureAwait(false);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -291,18 +309,35 @@ namespace net.vieapps.Services.Portals
 			{
 				var existing = await Utility.GetOrganizationByAliasAsync(alias, cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(organization.ID))
-					throw new InformationExistedException("The alias (" + alias + ") is used by another organization");
+					throw new InformationExistedException($"The alias ({alias}) is used by another organization");
 			}
 
 			// prepare
-			organization.CopyFrom(info, "ID,OwnerID,Status,ReferSection,ReferIDs,Privileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
-			if (string.IsNullOrWhiteSpace(organization.Alias))
-				organization.Alias = oldAlias;
+			organization.CopyFrom(info, "ID,OwnerID,Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+
+			organization.OwnerID = isSystemAdministrator ? info.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
+			organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias;
+
+			organization.Instructions = Organization.GetInstructions(info.Get<ExpandoObject>("Instructions"));
+			organization.NormalizeSettings();
+
+			organization.OriginalPrivileges = info.Get("OriginalPrivileges", new Privileges(true));
+
 			organization.LastModified = DateTime.Now;
 			organization.LastModifiedID = requestInfo.Session.User.ID;
 
 			// update
 			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
+			// send update message
+			await this.SendUpdateMessageAsync(new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#{organization.GetTypeName(true)}#Update",
+				DeviceID = "*",
+				ExcludedDeviceID = requestInfo.Session.DeviceID,
+				Data = organization.ToJson()
+			}, cancellationToken).ConfigureAwait(false);
+
 			return organization.ToJson();
 		}
 		#endregion

@@ -27,25 +27,25 @@ namespace net.vieapps.Services.Portals
 		public ContentType() : base()
 			=> this.ID = "";
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.contenttypes.controls.[name]}}")]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.contenttypes.controls.[name]}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public override string Title { get; set; } = "";
 
-		[FormControl(Label = "{{portals.contenttypes.controls.[name]}}")]
+		[FormControl(Label = "{{portals.contenttypes.controls.[name]}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public string Description { get; set; }
 
-		[Property(MaxLength = 32), FormControl(Label = "{{portals.contenttypes.controls.[name]}}")]
+		[Property(MaxLength = 32), FormControl(Label = "{{portals.contenttypes.controls.[name]}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public string DesktopID { get; set; }
 
-		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.contenttypes.controls.[name]}}")]
+		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.contenttypes.controls.[name]}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public bool CreateNewVersionWhenUpdated { get; set; } = true;
 
-		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.contenttypes.controls.[name]}}")]
+		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.contenttypes.controls.[name]}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public bool AllowComments { get; set; } = false;
 
-		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.contenttypes.controls.[name]}}")]
+		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.contenttypes.controls.[name]}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public bool UseSocialNetworkComments { get; set; } = false;
 
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), FormControl(Label = "{{portals.contenttypes.controls.[name]}}")]
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), FormControl(Label = "{{portals.contenttypes.controls.[name]}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public ApprovalStatus DefaultCommentStatus { get; set; } = ApprovalStatus.Pending;
 
 		[Property(IsCLOB = true), FormControl(Excluded = true), XmlIgnore]

@@ -392,7 +392,7 @@ namespace net.vieapps.Services.Portals
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Serializable, Repository(ID = "00000000000000000000000000000001", Title = "Portals", Description = "Managing core information of portals and related", Directory = "Portals")]
+	[Serializable, Repository(ID = "00000000000000000000000000000001", Title = "Portals", Description = "Managing core information of portals and related services", Directory = "Portals")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class
 	{
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]

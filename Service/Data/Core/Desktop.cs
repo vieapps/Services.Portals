@@ -26,25 +26,25 @@ namespace net.vieapps.Services.Portals
 		public Desktop() : base()
 			=> this.ID = "";
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.desktops.controls.[name]}}")]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.desktops.controls.[name]}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public override string Title { get; set; } = "";
 
-		[Property(MaxLength = 100, NotNull = true, NotEmpty = true), Sortable(UniqueIndexName = "Alias"), Searchable, FormControl(Label = "{{portals.desktops.controls.[name]}}")]
+		[Property(MaxLength = 100, NotNull = true, NotEmpty = true), Sortable(UniqueIndexName = "Alias"), Searchable, FormControl(Label = "{{portals.desktops.controls.[name]}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string Alias { get; set; } = "";
 
-		[Property(MaxLength = 250), FormControl(Label = "{{portals.desktops.controls.[name]}}")]
+		[Property(MaxLength = 250), FormControl(Label = "{{portals.desktops.controls.[name]}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string Aliases { get; set; }
 
-		[Property(MaxLength = 5), FormControl(Label = "{{portals.desktops.controls.[name]}}")]
+		[Property(MaxLength = 5), FormControl(Label = "{{portals.desktops.controls.[name]}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string Language { get; set; }
 
-		[Property(MaxLength = 100), FormControl(Label = "{{portals.desktops.controls.[name]}}")]
+		[Property(MaxLength = 100), FormControl(Label = "{{portals.desktops.controls.[name]}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string Theme { get; set; }
 
 		[Property(IsCLOB = true), FormControl(Excluded = true), XmlIgnore]
 		public string Templates { get; set; }
 
-		[Property(MaxLength = 32), FormControl(Label = "{{portals.desktops.controls.[name]}}")]
+		[Property(MaxLength = 32), FormControl(Label = "{{portals.desktops.controls.[name]}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string MainPortletID { get; set; }
 
 		[Property(IsCLOB = true), FormControl(Excluded = true), XmlIgnore]

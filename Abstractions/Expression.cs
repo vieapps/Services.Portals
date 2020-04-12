@@ -11,17 +11,17 @@ namespace net.vieapps.Services.Portals
 	public interface IPortalExpression : IPortalObject
 	{
 		/// <summary>
-		/// Gets the type name of the content-type definition (means the type name of a repository entity)
-		/// </summary>
-		string DefinitionType { get; }
-
-		/// <summary>
-		/// Gets the identity of a module that this object is belong to
+		/// Gets the identity of a module that this object is related to
 		/// </summary>
 		string ModuleID { get; }
 
 		/// <summary>
-		/// Gets the identity of a business content-type that the object is belong to
+		/// Gets the type name of the content-type definition what the object is related to
+		/// </summary>
+		string ContentTypeDefinition { get; }
+
+		/// <summary>
+		/// Gets the identity of a business content-type that the object is related to
 		/// </summary>
 		string ContentTypeID { get; }
 
