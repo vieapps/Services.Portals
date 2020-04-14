@@ -63,9 +63,9 @@ namespace net.vieapps.Services.Portals
 		public string SearchDesktopID { get; set; }
 
 		[NonSerialized]
-		private JObject _settings = new JObject();
+		JObject _settings;
 
-		private string _otherSettings;
+		string _otherSettings;
 
 		[Property(IsCLOB = true), FormControl(Excluded = true), JsonIgnore, XmlIgnore]
 		public string OtherSettings
@@ -75,7 +75,7 @@ namespace net.vieapps.Services.Portals
 			{
 				this._otherSettings = value;
 				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this._otherSettings) ? "{}" : this._otherSettings);
-				this.OnPropertyChanged(this, new PropertyChangedEventArgs("OtherSettings"));
+				this.NotifyPropertyChanged();
 			}
 		}
 
@@ -173,6 +173,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (name.IsEquals("OtherSettings"))
 			{
+				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
 				this.Notifications = this._settings["Notifications"]?.FromJson<Settings.Notifications>() ?? new Settings.Notifications();
 				this.Instructions = Organization.GetInstructions(this._settings["Instructions"]?.ToExpandoObject());
 				this.Socials = this._settings["Socials"]?.FromJson<List<string>>() ?? new List<string>();
@@ -185,7 +186,7 @@ namespace net.vieapps.Services.Portals
 			}
 			else if (Organization.SettingProperties.ToHashSet().Contains(name))
 			{
-				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this._otherSettings) ? "{}" : this._otherSettings);
+				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
 				this._settings[name] = this.GetProperty(name)?.ToJson();
 			}
 		}
