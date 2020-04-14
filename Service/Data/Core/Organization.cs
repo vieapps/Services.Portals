@@ -198,7 +198,7 @@ namespace net.vieapps.Services.Portals
 			this.RefreshUrls.Normalize();
 			this.RefreshUrls.Normalize();
 			this.EmailSettings.Normalize();
-			this._settings = this._settings ?? new JObject();
+			this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
 			Organization.SettingProperties.ForEach(name => this._settings[name] = this.GetProperty(name)?.ToJson());
 			this._otherSettings = this._settings.ToString(Formatting.None);
 		}
