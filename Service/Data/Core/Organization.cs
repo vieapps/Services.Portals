@@ -26,40 +26,52 @@ namespace net.vieapps.Services.Portals
 		public Organization() : base()
 			=> this.OriginalPrivileges = new Privileges(true);
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable, FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public override string Title { get; set; } = "";
 
-		[Property(MaxLength = 250), FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Property(MaxLength = 250)]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string Description { get; set; }
 
-		[Property(MaxLength = 32), Sortable(IndexName = "Management"), FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Property(MaxLength = 32), Sortable(IndexName = "Management")]
+		[FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string OwnerID { get; set; }
 
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String), Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String), Sortable(IndexName = "Management")]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
-		[Property(MaxLength = 100, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias"), FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Property(MaxLength = 100, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias")]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string Alias { get; set; } = "";
 
-		[Property(MaxLength = 10, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Property(MaxLength = 10, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string ExpiredDate { get; set; } = "-";
 
-		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public long FilesQuotes { get; set; } = 0;
 
-		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public bool Required2FA { get; set; } = false;
 
-		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public bool TrackDownloadFiles { get; set; } = false;
 
-		[Property(MaxLength = 100), FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Property(MaxLength = 100)]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string Theme { get; set; } = "default";
 
-		[Property(MaxLength = 32), FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Property(MaxLength = 32)]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string HomeDesktopID { get; set; }
 
-		[Property(MaxLength = 32), FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Property(MaxLength = 32)]
+		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string SearchDesktopID { get; set; }
 
 		[NonSerialized]
@@ -67,7 +79,9 @@ namespace net.vieapps.Services.Portals
 
 		string _otherSettings;
 
-		[Property(IsCLOB = true), FormControl(Excluded = true), JsonIgnore, XmlIgnore]
+		[Property(IsCLOB = true)]
+		[JsonIgnore, XmlIgnore]
+		[FormControl(Excluded = true)]
 		public string OtherSettings
 		{
 			get => this._otherSettings;
@@ -79,16 +93,20 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		[Sortable(IndexName = "Audits"), FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Sortable(IndexName = "Audits")]
+		[FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public DateTime Created { get; set; } = DateTime.Now;
 
-		[Sortable(IndexName = "Audits"), FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Sortable(IndexName = "Audits")]
+		[FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string CreatedID { get; set; } = "";
 
-		[Sortable(IndexName = "Audits"), FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Sortable(IndexName = "Audits")]
+		[FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public DateTime LastModified { get; set; } = DateTime.Now;
 
-		[Sortable(IndexName = "Audits"), FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Sortable(IndexName = "Audits")]
+		[FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string LastModifiedID { get; set; } = "";
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -202,6 +220,5 @@ namespace net.vieapps.Services.Portals
 			Organization.SettingProperties.ForEach(name => this._settings[name] = this.GetProperty(name)?.ToJson());
 			this._otherSettings = this._settings.ToString(Formatting.None);
 		}
-
 	}
 }

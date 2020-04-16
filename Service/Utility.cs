@@ -157,6 +157,43 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
+		#region Roles 
+		internal static ConcurrentDictionary<string, Role> Roles { get; } = new ConcurrentDictionary<string, Role>(StringComparer.OrdinalIgnoreCase);
+
+		internal static Role UpdateRole(Role role)
+		{
+			if (role != null)
+				Utility.Roles[role.ID] = role;
+			return role;
+		}
+
+		internal static Role GetRoleByID(string id, bool force = false)
+			=> !force && !string.IsNullOrWhiteSpace(id) && Utility.Roles.ContainsKey(id)
+				? Utility.Roles[id]
+				: Utility.UpdateRole(Role.Get<Role>(id));
+
+		internal static async Task<Role> GetRoleByIDAsync(string id, CancellationToken cancellationToken = default, bool force = false)
+			=> !force && !string.IsNullOrWhiteSpace(id) && Utility.Roles.ContainsKey(id)
+				? Utility.Roles[id]
+				: Utility.UpdateRole(await Role.GetAsync<Role>(id, cancellationToken).ConfigureAwait(false));
+
+		internal static IFilterBy<Role> GetRolesFilter(string systemID, string parentID)
+			=> Filters<Role>.And(Filters<Role>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Role>.IsNull("ParentID") : Filters<Role>.Equals("ParentID", parentID));
+
+		internal static string GetRolesCacheKey(string systemID, string parentID)
+			=> $"roles:{systemID.ToLower().Trim()}{(string.IsNullOrWhiteSpace(parentID) ? "" : $":{parentID.ToLower().Trim()}")}";
+
+		internal static List<Role> GetRolesByParentID(string systemID, string parentID)
+			=> string.IsNullOrWhiteSpace(systemID)
+				? new List<Role>()
+				: Role.Find(Utility.GetRolesFilter(systemID, parentID), Sorts<Role>.Ascending("Title"), 0, 1, Utility.GetRolesCacheKey(systemID, parentID));
+
+		internal static Task<List<Role>> GetRolesByParentIDAsync(string systemID, string parentID, CancellationToken cancellationToken = default)
+			=> string.IsNullOrWhiteSpace(systemID)
+				? Task.FromResult(new List<Role>())
+				: Role.FindAsync(Utility.GetRolesFilter(systemID, parentID), Sorts<Role>.Ascending("Title"), 0, 1, Utility.GetRolesCacheKey(systemID, parentID), cancellationToken);
+		#endregion
+
 		#region Modules 
 		internal static ConcurrentDictionary<string, Module> Modules { get; } = new ConcurrentDictionary<string, Module>(StringComparer.OrdinalIgnoreCase);
 

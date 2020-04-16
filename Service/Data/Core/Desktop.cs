@@ -6,15 +6,12 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
-
-using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
-
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using net.vieapps.Components.Utility;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -112,6 +109,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var desktops = Utility.GetDesktopsByParentID(this.SystemID, this.ID);
 				this.ChildrenIDs = desktops.Select(desktop => desktop.ID).ToList();
+				this.NotifyPropertyChanged("ChildrenIDs");
 				return desktops;
 			}
 			return this.ChildrenIDs.Select(id => Utility.GetDesktopByID(id)).ToList();

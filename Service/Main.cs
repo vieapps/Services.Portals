@@ -35,6 +35,10 @@ namespace net.vieapps.Services.Portals
 						json = await this.ProcessOrganizationAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
+					case "role":
+						json = await this.ProcessRoleAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
+
 					case "site":
 						json = await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
@@ -56,11 +60,16 @@ namespace net.vieapps.Services.Portals
 								json = this.GenerateFormControls<Organization>();
 								break;
 
+							case "role":
+								json = this.GenerateFormControls<Role>();
+								break;
+
 							case "module":
 								json = this.GenerateFormControls<Module>();
 								break;
 
 							case "contenttype":
+							case "content-type":
 								json = this.GenerateFormControls<ContentType>();
 								break;
 
@@ -121,23 +130,12 @@ namespace net.vieapps.Services.Portals
 		#region Search organizations
 		async Task<JObject> SearchOrganizationsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			// check permissions
-			if (!await this.IsAuthorizedAsync(requestInfo, "organization", Components.Security.Action.View, cancellationToken).ConfigureAwait(false))
-				throw new AccessDeniedException();
-
 			// prepare
 			var request = requestInfo.GetRequestExpando();
 
 			var query = request.Get<string>("FilterBy.Query");
 
-			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Organization>();
-			if (requestInfo.Extra.ContainsKey("x-refer-section"))
-			{
-				if (filter == null)
-					filter = Filters<Organization>.Equals("ReferSection", requestInfo.Extra["x-refer-section"]);
-				else if (filter is FilterBys<Organization> && (filter as FilterBys<Organization>).Children.FirstOrDefault(e => (e as FilterBy<Organization>).Attribute.IsEquals("ReferSection")) == null)
-					(filter as FilterBys<Organization>).Children.Add(Filters<Organization>.Equals("ReferSection", requestInfo.Extra["x-refer-section"]));
-			}
+			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Organization>() ?? Filters<Organization>.And();
 
 			var sort = request.Get<ExpandoObject>("SortBy", null)?.ToSortBy<Organization>();
 			if (sort == null && string.IsNullOrWhiteSpace(query))
@@ -147,15 +145,17 @@ namespace net.vieapps.Services.Portals
 				? request.Get<ExpandoObject>("Pagination").GetPagination()
 				: new Tuple<long, int, int, int>(-1, 0, 20, 1);
 
+			var pageSize = pagination.Item3;
 			var pageNumber = pagination.Item4;
 
-			// check cache
-			var cacheKey = string.IsNullOrWhiteSpace(query)
-				? this.GetCacheKey(filter, sort)
-				: "";
+			// check permissions
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			if (!gotRights)
+				throw new AccessDeniedException();
 
-			var json = !cacheKey.Equals("")
-				? await Utility.Cache.GetAsync<string>($"{cacheKey }{pageNumber}:json").ConfigureAwait(false)
+			// process cache
+			var json = string.IsNullOrWhiteSpace(query)
+				? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageNumber, pageSize), cancellationToken).ConfigureAwait(false)
 				: "";
 
 			if (!string.IsNullOrWhiteSpace(json))
@@ -168,19 +168,17 @@ namespace net.vieapps.Services.Portals
 
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Organization.CountAsync(filter, $"{cacheKey}total", cancellationToken).ConfigureAwait(false)
+					? await Organization.CountAsync(filter, this.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Organization.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
-			var pageSize = pagination.Item3;
-
-			var totalPages = (new Tuple<long, int>(totalRecords, pageSize)).GetTotalPages();
+			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, $"{cacheKey}{pageNumber}", cancellationToken).ConfigureAwait(false)
+					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageNumber, pageSize), cancellationToken).ConfigureAwait(false)
 					: await Organization.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<Organization>();
 
@@ -196,14 +194,14 @@ namespace net.vieapps.Services.Portals
 			};
 
 			// update cache
-			if (!cacheKey.Equals(""))
+			if (string.IsNullOrWhiteSpace(query))
 			{
 #if DEBUG
 				json = result.ToString(Formatting.Indented);
 #else
 				json = result.ToString(Formatting.None);
 #endif
-				await Utility.Cache.SetAsync($"{cacheKey }{pageNumber}:json", json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
+				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageNumber, pageSize), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
 			}
 
 			// return the result
@@ -216,7 +214,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// check permission
 			var isCreatedByOtherService = requestInfo.Extra != null && requestInfo.Extra.TryGetValue("x-create", out var xcreate) && xcreate.IsEquals(requestInfo.Session.SessionID.Encrypt());
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			if (!isSystemAdministrator && !isCreatedByOtherService)
 				throw new AccessDeniedException();
 
@@ -253,6 +251,7 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
+			await Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(null, Sorts<Organization>.Ascending("Title")), cancellationToken).ConfigureAwait(false);
 
 			// send update message
 			await this.SendUpdateMessageAsync(new UpdateMessage
@@ -276,9 +275,8 @@ namespace net.vieapps.Services.Portals
 				throw new InformationNotFoundException();
 
 			// check permission
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
-			if (!gotRights)
-				gotRights = await this.IsAuthorizedAsync(requestInfo, organization.ID, Components.Security.Action.View).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsAdministrator(organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -296,8 +294,8 @@ namespace net.vieapps.Services.Portals
 				throw new InformationNotFoundException();
 
 			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator  || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || await this.IsAuthorizedAsync(requestInfo, organization.ID, Components.Security.Action.Full).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsAdministrator(organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -328,6 +326,7 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(null, Sorts<Organization>.Ascending("Title")), cancellationToken).ConfigureAwait(false);
 
 			// send update message
 			await this.SendUpdateMessageAsync(new UpdateMessage
@@ -344,6 +343,259 @@ namespace net.vieapps.Services.Portals
 
 		#region Delete an organization
 		Task<JObject> DeleteOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			throw new MethodNotAllowedException(requestInfo.Verb);
+		}
+		#endregion
+
+		Task<JObject> ProcessRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			switch (requestInfo.Verb)
+			{
+				case "GET":
+					if ("search".IsEquals(requestInfo.GetObjectIdentity()))
+						return this.SearchRolesAsync(requestInfo, cancellationToken);
+					else
+						return this.GetRoleAsync(requestInfo, cancellationToken);
+
+				case "POST":
+					return this.CreateRoleAsync(requestInfo, cancellationToken);
+
+				case "PUT":
+					return this.UpdateRoleAsync(requestInfo, cancellationToken);
+
+				case "DELETE":
+					return this.DeleteRoleAsync(requestInfo, cancellationToken);
+			}
+
+			return Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
+		}
+
+		#region Search roles
+		async Task<JObject> SearchRolesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// prepare
+			var request = requestInfo.GetRequestExpando();
+
+			var query = request.Get<string>("FilterBy.Query");
+
+			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Role>() ?? Filters<Role>.And();
+			if (filter is FilterBys<Role> && (filter as FilterBys<Role>).Children.FirstOrDefault(exp => (exp as FilterBy<Role>).Attribute.IsEquals("ParentID")) == null)
+				(filter as FilterBys<Role>).Children.Add(Filters<Role>.IsNull("ParentID"));
+
+			var sort = request.Get<ExpandoObject>("SortBy", null)?.ToSortBy<Role>();
+			if (string.IsNullOrWhiteSpace(query))
+				sort = sort ?? Sorts<Role>.Ascending("Title");
+			else if (filter is FilterBys<Role>)
+			{
+				var index = (filter as FilterBys<Role>).Children.FindIndex(exp => (exp as FilterBy<Role>).Attribute.IsEquals("ParentID"));
+				if (index > -1)
+					(filter as FilterBys<Role>).Children.RemoveAt(index);
+			}
+
+			var pagination = request.Has("Pagination")
+				? request.Get<ExpandoObject>("Pagination").GetPagination()
+				: new Tuple<long, int, int, int>(-1, 0, 20, 1);
+
+			var pageSize = pagination.Item3;
+			var pageNumber = pagination.Item4;
+
+			// get organization
+			var organizationID = filter != null && filter is FilterBys<Role>
+				? ((filter as FilterBys<Role>).Children.FirstOrDefault(exp => (exp as FilterBy<Role>).Attribute.IsEquals("SystemID")) as FilterBy<Role>)?.Value as string
+				: null;
+			var organization = await Utility.GetOrganizationByIDAsync(organizationID, cancellationToken).ConfigureAwait(false);
+			if (organization == null)
+				throw new InformationExistedException("The organization is invalid");
+
+			// check permission
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsViewer(organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// process cache
+			var json = string.IsNullOrWhiteSpace(query)
+				? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageNumber, pageSize), cancellationToken).ConfigureAwait(false)
+				: "";
+
+			if (!string.IsNullOrWhiteSpace(json))
+				return JObject.Parse(json);
+
+			// prepare pagination
+			var totalRecords = pagination.Item1 > -1
+				? pagination.Item1
+				: -1;
+
+			if (totalRecords < 0)
+				totalRecords = string.IsNullOrWhiteSpace(query)
+					? await Role.CountAsync(filter, this.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					: await Role.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
+
+			var totalPages = (new Tuple<long, int>(totalRecords, pageSize)).GetTotalPages();
+			if (totalPages > 0 && pageNumber > totalPages)
+				pageNumber = totalPages;
+
+			// search
+			var objects = totalRecords > 0
+				? string.IsNullOrWhiteSpace(query)
+					? await Role.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageNumber, pageSize), cancellationToken).ConfigureAwait(false)
+					: await Role.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
+				: new List<Role>();
+
+			// build result
+			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
+
+			var result = new JObject()
+			{
+				{ "FilterBy", filter.ToClientJson(query) },
+				{ "SortBy", sort?.ToClientJson() },
+				{ "Pagination", pagination.GetPagination() },
+				{ "Objects", objects.ToJsonArray() }
+			};
+
+			// update cache
+			if (string.IsNullOrWhiteSpace(query))
+			{
+#if DEBUG
+				json = result.ToString(Formatting.Indented);
+#else
+				json = result.ToString(Formatting.None);
+#endif
+				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageNumber, pageSize), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
+			}
+
+			// return the result
+			return result;
+		}
+		#endregion
+
+		#region Create an role
+		async Task<JObject> CreateRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// prepare
+			var info = requestInfo.GetBodyExpando();
+			var organizationID = info.Get<string>("SystemID");
+			var organization = await Utility.GetOrganizationByIDAsync(organizationID, cancellationToken).ConfigureAwait(false);
+			if (organization == null)
+				throw new InformationExistedException("The organization is invalid");
+
+			// check permission
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// create new
+			var role = info.Copy<Role>("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+
+			role.ID = string.IsNullOrWhiteSpace(role.ID) || !role.ID.IsValidUUID() ? UtilityService.NewUUID : role.ID;
+			role.ParentID = role.ParentRole != null ? role.ParentID : null;
+			role.SystemID = organization.ID;
+			role.Created = role.LastModified = DateTime.Now;
+			role.CreatedID = role.LastModifiedID = requestInfo.Session.User.ID;
+
+			await Role.CreateAsync(role, cancellationToken).ConfigureAwait(false);
+			await Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken).ConfigureAwait(false);
+			Utility.UpdateRole(role);
+			if (role.ParentRole != null)
+			{
+				role.ParentRole.ChildrenIDs.Add(role.ID);
+				Utility.UpdateRole(role.ParentRole);
+			}
+
+			// send update message
+			await this.SendUpdateMessageAsync(new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Create",
+				DeviceID = "*",
+				ExcludedDeviceID = requestInfo.Session.DeviceID,
+				Data = role.ToJson()
+			}, cancellationToken).ConfigureAwait(false);
+
+			return role.ToJson();
+		}
+		#endregion
+
+		#region Get a role
+		async Task<JObject> GetRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// get the role
+			var role = await Role.GetAsync<Role>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			if (role == null)
+				throw new InformationNotFoundException();
+
+			// check permission
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
+			if (!gotRights)
+				gotRights = await this.IsAuthorizedAsync(requestInfo, role.ID, Components.Security.Action.View).ConfigureAwait(false);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// response
+			return role.ToJson();
+		}
+		#endregion
+
+		#region Update a role
+		async Task<JObject> UpdateRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// prepare
+			var role = await Utility.GetRoleByIDAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			if (role == null)
+				throw new InformationNotFoundException();
+			else if (role.Organization == null)
+				throw new InformationExistedException("The organization is invalid");
+
+			// check permission
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(role.Organization.OwnerID) || requestInfo.Session.User.IsModerator(role.Organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// update
+			var info = requestInfo.GetBodyExpando();
+			var oldParentID = role.ParentID;
+
+			role.CopyFrom(info, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+			role.LastModified = DateTime.Now;
+			role.LastModifiedID = requestInfo.Session.User.ID;
+
+			await Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken).ConfigureAwait(false);
+			Utility.UpdateRole(role);
+			if (role.ParentRole != null)
+			{
+				role.ParentRole.ChildrenIDs.Add(role.ID);
+				Utility.UpdateRole(role.ParentRole);
+				await Utility.Cache.SetAsync(role.ParentRole, cancellationToken).ConfigureAwait(false);
+			}
+			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(role.ParentID))
+			{
+				var parentRole = await Utility.GetRoleByIDAsync(oldParentID, cancellationToken).ConfigureAwait(false);
+				if (parentRole != null)
+				{
+					parentRole.ChildrenIDs.Remove(role.ID);
+					Utility.UpdateRole(parentRole);
+					await Utility.Cache.SetAsync(parentRole, cancellationToken).ConfigureAwait(false);
+				}
+			}
+
+			// send update message
+			await this.SendUpdateMessageAsync(new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
+				DeviceID = "*",
+				ExcludedDeviceID = requestInfo.Session.DeviceID,
+				Data = role.ToJson()
+			}, cancellationToken).ConfigureAwait(false);
+
+			return role.ToJson();
+		}
+		#endregion
+
+		#region Delete an role
+		Task<JObject> DeleteRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			throw new MethodNotAllowedException(requestInfo.Verb);
 		}
