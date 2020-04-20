@@ -71,7 +71,16 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public Role ParentRole => Utility.GetRoleByID(this.ParentID);
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public new IPortalObject Parent => this.ParentRole ?? this.Organization as IPortalObject;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		INestedObject INestedObject.Parent => this.ParentRole;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string FullTitle
@@ -83,31 +92,55 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		INestedObject INestedObject.Parent => this.ParentRole;
+		internal List<string> _childrenIDs;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<INestedObject> Children => this.GetChildren().Select(role => role as INestedObject).ToList();
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Role ParentRole => Utility.GetRoleByID(this.ParentID);
-
-		[Ignore, BsonIgnore][FormControl(Excluded = true)]
-		internal List<string> ChildrenIDs { get; set; }
-
-		public List<Role> GetChildren()
+		internal List<Role> GetChildren(bool notifyPropertyChanged = true)
 		{
-			if (this.ChildrenIDs == null)
+			if (this._childrenIDs == null)
 			{
 				var roles = Utility.GetRolesByParentID(this.SystemID, this.ID);
-				this.ChildrenIDs = roles.Select(role => role.ID).ToList();
-				this.NotifyPropertyChanged("ChildrenIDs");
+				this._childrenIDs = roles.Select(role => role.ID).ToList();
+				if (notifyPropertyChanged)
+					this.NotifyPropertyChanged("ChildrenIDs");
 				return roles;
 			}
-			return this.ChildrenIDs.Select(id => Utility.GetRoleByID(id)).ToList();
+			return this._childrenIDs.Select(id => Utility.GetRoleByID(id)).ToList();
+		}
+
+		internal async Task<List<Role>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+		{
+			if (this._childrenIDs == null)
+			{
+				var roles = await Utility.GetRolesByParentIDAsync(this.SystemID, this.ID, cancellationToken).ConfigureAwait(false);
+				this._childrenIDs = roles.Select(role => role.ID).ToList();
+				if (notifyPropertyChanged)
+					this.NotifyPropertyChanged("ChildrenIDs");
+				return roles;
+			}
+			return this._childrenIDs.Select(id => Utility.GetRoleByID(id)).ToList();
+		}
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<Role> Children => this.GetChildren();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		List<INestedObject> INestedObject.Children => this.Children.Select(role => role as INestedObject).ToList();
+
+		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
+			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
+
+		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+			=> base.ToJson(addTypeOfExtendedProperties, json =>
+			{
+				if (addChildren && json != null)
+					json["Children"] = (this.GetChildren() ?? new List<Role>()).ToJArray(role => role?.ToJson(true, false));
+				onPreCompleted?.Invoke(json);
+			});
+
+		public override void ProcessPropertyChanged(string name)
+		{
+			if (name.IsEquals("ChildrenIDs"))
+				Utility.Cache.Set(this);
 		}
 	}
 }

@@ -102,7 +102,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, Organization> OrganizationsByAlias { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
 
-		internal static Organization UpdateOrganization(Organization organization, bool clear = false)
+		internal static Organization UpdateOrganization(Organization organization, bool clear = false, bool updateCache = false)
 		{
 			if (organization != null)
 			{
@@ -110,21 +110,34 @@ namespace net.vieapps.Services.Portals
 					Utility.OrganizationsByAlias.Remove(old.Alias);
 				Utility.Organizations[organization.ID] = organization;
 				Utility.OrganizationsByAlias[organization.Alias] = organization;
+				if (updateCache)
+					Utility.Cache.Set(organization);
 			}
 			return organization;
 		}
 
-		internal static Organization GetOrganizationByID(string id, bool force = false)
+		internal static async Task<Organization> UpdateOrganizationAsync(Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		{
+			if (organization != null)
+			{
+				Utility.UpdateOrganization(organization, clear);
+				if (updateCache)
+					await Utility.Cache.SetAsync(organization, cancellationToken).ConfigureAwait(false);
+			}
+			return organization;
+		}
+
+		internal static Organization GetOrganizationByID(string id, bool force = false, bool fetchRepository = true)
 			=> !force && !string.IsNullOrWhiteSpace(id) && Utility.Organizations.ContainsKey(id)
 				? Utility.Organizations[id]
-				: Utility.UpdateOrganization(Organization.Get<Organization>(id));
+				: fetchRepository
+					? Utility.UpdateOrganization(Organization.Get<Organization>(id))
+					: null;
 
 		internal static async Task<Organization> GetOrganizationByIDAsync(string id, CancellationToken cancellationToken = default, bool force = false)
-			=> !force && !string.IsNullOrWhiteSpace(id) && Utility.Organizations.ContainsKey(id)
-				? Utility.Organizations[id]
-				: Utility.UpdateOrganization(await Organization.GetAsync<Organization>(id, cancellationToken).ConfigureAwait(false));
+			=> Utility.GetOrganizationByID(id, force, false) ?? await Utility.UpdateOrganizationAsync(await Organization.GetAsync<Organization>(id, cancellationToken).ConfigureAwait(false), false, true, cancellationToken).ConfigureAwait(false);
 
-		internal static Organization GetOrganizationByAlias(string alias, bool force = false)
+		internal static Organization GetOrganizationByAlias(string alias, bool force = false, bool fetchRepository = true)
 		{
 			var organization = !force && !string.IsNullOrWhiteSpace(alias) && Utility.OrganizationsByAlias.ContainsKey(alias)
 				? Utility.OrganizationsByAlias[alias]
@@ -137,61 +150,176 @@ namespace net.vieapps.Services.Portals
 					Utility.UpdateOrganization(organization);
 			}
 
-			return organization ?? Utility.UpdateOrganization(Organization.Get<Organization>(Filters<Organization>.Equals("Alias", alias), null, null));
+			return organization ?? (fetchRepository ? Utility.UpdateOrganization(Organization.Get<Organization>(Filters<Organization>.Equals("Alias", alias), null, null)) : null);
 		}
 
 		internal static async Task<Organization> GetOrganizationByAliasAsync(string alias, CancellationToken cancellationToken = default, bool force = false)
-		{
-			var organization = !force && !string.IsNullOrWhiteSpace(alias) && Utility.OrganizationsByAlias.ContainsKey(alias)
-				? Utility.OrganizationsByAlias[alias]
-				: null;
-
-			if (organization == null && !force && !string.IsNullOrWhiteSpace(alias))
-			{
-				organization = Utility.Organizations.Values.FirstOrDefault(org => org.Alias.IsEquals(alias));
-				if (organization != null)
-					Utility.UpdateOrganization(organization);
-			}
-
-			return organization ?? Utility.UpdateOrganization(await Organization.GetAsync<Organization>(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false));
-		}
+			=> Utility.GetOrganizationByAlias(alias, force, false) ?? await Utility.UpdateOrganizationAsync(await Organization.GetAsync<Organization>(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 		#endregion
 
 		#region Roles 
 		internal static ConcurrentDictionary<string, Role> Roles { get; } = new ConcurrentDictionary<string, Role>(StringComparer.OrdinalIgnoreCase);
 
-		internal static Role UpdateRole(Role role)
+		internal static Role UpdateRole(Role role, bool updateCache = false)
 		{
 			if (role != null)
+			{
 				Utility.Roles[role.ID] = role;
+				if (updateCache)
+					Utility.Cache.Set(role);
+			}
 			return role;
 		}
 
-		internal static Role GetRoleByID(string id, bool force = false)
+		internal static async Task<Role> UpdateRoleAsync(Role role, bool updateCache = false, CancellationToken cancellationToken = default)
+		{
+			if (role != null)
+			{
+				Utility.UpdateRole(role);
+				if (updateCache)
+					await Utility.Cache.SetAsync(role, cancellationToken).ConfigureAwait(false);
+			}
+			return role;
+		}
+
+		internal static Role GetRoleByID(string id, bool force = false, bool fetchRepository = true)
 			=> !force && !string.IsNullOrWhiteSpace(id) && Utility.Roles.ContainsKey(id)
 				? Utility.Roles[id]
-				: Utility.UpdateRole(Role.Get<Role>(id));
+				: fetchRepository
+					? Utility.UpdateRole(Role.Get<Role>(id))
+					: null;
 
 		internal static async Task<Role> GetRoleByIDAsync(string id, CancellationToken cancellationToken = default, bool force = false)
-			=> !force && !string.IsNullOrWhiteSpace(id) && Utility.Roles.ContainsKey(id)
-				? Utility.Roles[id]
-				: Utility.UpdateRole(await Role.GetAsync<Role>(id, cancellationToken).ConfigureAwait(false));
+			=> Utility.GetRoleByID(id, force, false) ?? await Utility.UpdateRoleAsync(await Role.GetAsync<Role>(id, cancellationToken).ConfigureAwait(false), true, cancellationToken).ConfigureAwait(false);
 
 		internal static IFilterBy<Role> GetRolesFilter(string systemID, string parentID)
 			=> Filters<Role>.And(Filters<Role>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Role>.IsNull("ParentID") : Filters<Role>.Equals("ParentID", parentID));
 
-		internal static string GetRolesCacheKey(string systemID, string parentID)
-			=> $"roles:{systemID.ToLower().Trim()}{(string.IsNullOrWhiteSpace(parentID) ? "" : $":{parentID.ToLower().Trim()}")}";
+		internal static List<Role> GetRolesByParentID(string systemID, string parentID, bool updateCache = true)
+		{
+			if (string.IsNullOrWhiteSpace(systemID))
+				return new List<Role>();
+			var filter = Utility.GetRolesFilter(systemID, parentID);
+			var sort = Sorts<Role>.Ascending("Title");
+			var roles = Role.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
+			roles.ForEach(role => Utility.UpdateRole(role, updateCache));
+			return roles;
+		}
 
-		internal static List<Role> GetRolesByParentID(string systemID, string parentID)
-			=> string.IsNullOrWhiteSpace(systemID)
-				? new List<Role>()
-				: Role.Find(Utility.GetRolesFilter(systemID, parentID), Sorts<Role>.Ascending("Title"), 0, 1, Utility.GetRolesCacheKey(systemID, parentID));
+		internal static async Task<List<Role>> GetRolesByParentIDAsync(string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
+		{
+			if (string.IsNullOrWhiteSpace(systemID))
+				return new List<Role>();
+			var filter = Utility.GetRolesFilter(systemID, parentID);
+			var sort = Sorts<Role>.Ascending("Title");
+			var roles = await Role.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
+			await roles.ForEachAsync((role, token) => Utility.UpdateRoleAsync(role, updateCache, token), cancellationToken).ConfigureAwait(false);
+			return roles;
+		}
+		#endregion
 
-		internal static Task<List<Role>> GetRolesByParentIDAsync(string systemID, string parentID, CancellationToken cancellationToken = default)
-			=> string.IsNullOrWhiteSpace(systemID)
-				? Task.FromResult(new List<Role>())
-				: Role.FindAsync(Utility.GetRolesFilter(systemID, parentID), Sorts<Role>.Ascending("Title"), 0, 1, Utility.GetRolesCacheKey(systemID, parentID), cancellationToken);
+		#region Desktops
+		internal static ConcurrentDictionary<string, Desktop> Desktops { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
+
+		internal static ConcurrentDictionary<string, Desktop> DesktopsByAlias { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
+
+		internal static Desktop UpdateDesktop(Desktop desktop, bool clear = false, bool updateCache = false)
+		{
+			if (desktop != null)
+			{
+				if (clear && Utility.Desktops.TryGetValue(desktop.ID, out var old) && old != null)
+				{
+					Utility.DesktopsByAlias.Remove($"{old.SystemID}:{old.Alias}");
+					if (!string.IsNullOrWhiteSpace(old.Aliases))
+						old.Aliases.Replace(";", ",").ToList().ForEach(alias => Utility.DesktopsByAlias.Remove($"{old.SystemID}:{alias}"));
+					if (old.ParentID != desktop.ParentID)
+					{
+						if (old.ParentDesktop != null)
+							old.ParentDesktop._childrenIDs = null;
+						if (desktop.ParentDesktop != null)
+							desktop.ParentDesktop._childrenIDs = null;
+					}
+				}
+				Utility.Desktops[desktop.ID] = desktop;
+				Utility.DesktopsByAlias[$"{desktop.SystemID}:{desktop.Alias}"] = desktop;
+				if (!string.IsNullOrWhiteSpace(desktop.Aliases))
+					desktop.Aliases.Replace(";", ",").ToList().ForEach(alias => Utility.DesktopsByAlias.TryAdd($"{desktop.SystemID}:{alias}", desktop));
+				if (updateCache)
+					Utility.Cache.Set(desktop);
+			}
+			return desktop;
+		}
+
+		internal static async Task<Desktop> UpdateDesktopAsync(Desktop desktop, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		{
+			if (desktop != null)
+			{
+				Utility.UpdateDesktop(desktop, clear);
+				if (updateCache)
+					await Utility.Cache.SetAsync(desktop, cancellationToken).ConfigureAwait(false);
+			}
+			return desktop;
+		}
+
+		internal static Desktop GetDesktopByID(string id, bool force = false, bool fetchRepository = true)
+			=> !force && !string.IsNullOrWhiteSpace(id) && Utility.Desktops.ContainsKey(id)
+				? Utility.Desktops[id]
+				: fetchRepository
+					? Utility.UpdateDesktop(Desktop.Get<Desktop>(id))
+					: null;
+
+		internal static async Task<Desktop> GetDesktopByIDAsync(string id, CancellationToken cancellationToken = default, bool force = false)
+			=> Utility.GetDesktopByID(id, force, false) ?? await Utility.UpdateDesktopAsync(await Desktop.GetAsync<Desktop>(id, cancellationToken).ConfigureAwait(false), false, true, cancellationToken).ConfigureAwait(false);
+
+		internal static Desktop GetDesktopByAlias(string systemID, string alias, bool force = false, bool fetchRepository = true)
+		{
+			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias))
+				return null;
+
+			var desktop = !force && Utility.DesktopsByAlias.ContainsKey($"{systemID}:{alias}")
+				? Utility.DesktopsByAlias[$"{systemID}:{alias}"]
+				: null;
+
+			if (desktop == null && !force)
+			{
+				desktop = Utility.Desktops.FirstOrDefault(kvp => kvp.Value.SystemID.IsEquals(systemID) && kvp.Value.Alias.IsEquals(alias)).Value;
+				if (desktop != null)
+					Utility.UpdateDesktop(desktop);
+			}
+
+			return desktop ?? (fetchRepository ? Utility.UpdateDesktop(Desktop.Get<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null)) : null);
+		}
+
+		internal static async Task<Desktop> GetDesktopByAliasAsync(string systemID, string alias, CancellationToken cancellationToken = default, bool force = false)
+			=> Utility.GetDesktopByAlias(systemID, alias, force, false) ?? await Utility.UpdateDesktopAsync(await Desktop.GetAsync<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null, cancellationToken).ConfigureAwait(false), false, true, cancellationToken).ConfigureAwait(false);
+
+		internal static IFilterBy<Desktop> GetDesktopsFilter(string systemID, string parentID)
+			=> Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Desktop>.IsNull("ParentID") : Filters<Desktop>.Equals("ParentID", parentID));
+
+		internal static string GetDesktopsCacheKey(string systemID, string parentID, int pageSize = 0, int pageNumber = 1)
+			=> $"{Extensions.GetCacheKey(Extensions.GetCacheKey<Desktop>(), pageSize, pageNumber)}:sp:{systemID.ToLower().Trim()}{(string.IsNullOrWhiteSpace(parentID) ? "" : $":{parentID.ToLower().Trim()}")}";
+
+		internal static List<Desktop> GetDesktopsByParentID(string systemID, string parentID, bool updateCache = true)
+		{
+			if (string.IsNullOrWhiteSpace(systemID))
+				return new List<Desktop>();
+			var filter = Utility.GetDesktopsFilter(systemID, parentID);
+			var sort = Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title");
+			var desktops = Desktop.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
+			desktops.ForEach(desktop => Utility.UpdateDesktop(desktop, false, updateCache));
+			return desktops;
+		}
+
+		internal static async Task<List<Desktop>> GetDesktopsByParentIDAsync(string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
+		{
+			if (string.IsNullOrWhiteSpace(systemID))
+				return new List<Desktop>();
+			var filter = Utility.GetDesktopsFilter(systemID, parentID);
+			var sort = Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title");
+			var desktops = await Desktop.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
+			await desktops.ForEachAsync((desktop, token) => Utility.UpdateDesktopAsync(desktop, false, updateCache, token), cancellationToken).ConfigureAwait(false);
+			return desktops;
+		}
 		#endregion
 
 		#region Modules 
@@ -328,101 +456,6 @@ namespace net.vieapps.Services.Portals
 
 			return site;
 		}
-		#endregion
-
-		#region Desktops
-		internal static ConcurrentDictionary<string, Desktop> Desktops { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
-
-		internal static ConcurrentDictionary<string, Desktop> DesktopsByAlias { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
-
-		internal static Desktop UpdateDesktop(Desktop desktop, bool clear = false)
-		{
-			if (desktop != null)
-			{
-				if (clear && Utility.Desktops.TryGetValue(desktop.ID, out var old) && old != null)
-				{
-					Utility.DesktopsByAlias.Remove($"{old.SystemID}:{old.Alias}");
-					if (!string.IsNullOrWhiteSpace(old.Aliases))
-						old.Aliases.Replace(";", ",").ToList().ForEach(alias => Utility.DesktopsByAlias.Remove($"{old.SystemID}:{alias}"));
-					if (old.ParentID != desktop.ParentID)
-					{
-						if (old.ParentDesktop != null)
-							old.ParentDesktop.ChildrenIDs = null;
-						if (desktop.ParentDesktop != null)
-							desktop.ParentDesktop.ChildrenIDs = null;
-					}
-				}
-				Utility.Desktops[desktop.ID] = desktop;
-				Utility.DesktopsByAlias[$"{desktop.SystemID}:{desktop.Alias}"] = desktop;
-				if (!string.IsNullOrWhiteSpace(desktop.Aliases))
-					desktop.Aliases.Replace(";", ",").ToList().ForEach(alias => Utility.DesktopsByAlias.TryAdd($"{desktop.SystemID}:{alias}", desktop));
-			}
-			return desktop;
-		}
-
-		internal static Desktop GetDesktopByID(string id, bool force = false)
-			=> !force && !string.IsNullOrWhiteSpace(id) && Utility.Desktops.ContainsKey(id)
-				? Utility.Desktops[id]
-				: Utility.UpdateDesktop(Desktop.Get<Desktop>(id));
-
-		internal static async Task<Desktop> GetDesktopByIDAsync(string id, CancellationToken cancellationToken = default, bool force = false)
-			=> !force && !string.IsNullOrWhiteSpace(id) && Utility.Desktops.ContainsKey(id)
-				? Utility.Desktops[id]
-				: Utility.UpdateDesktop(await Desktop.GetAsync<Desktop>(id, cancellationToken).ConfigureAwait(false));
-
-		internal static Desktop GetDesktopByAlias(string systemID, string alias, bool force = false)
-		{
-			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias))
-				return null;
-
-			var desktop = !force && Utility.DesktopsByAlias.ContainsKey($"{systemID}:{alias}")
-				? Utility.DesktopsByAlias[$"{systemID}:{alias}"]
-				: null;
-
-			if (desktop == null && !force)
-			{
-				desktop = Utility.Desktops.FirstOrDefault(kvp => kvp.Value.SystemID.IsEquals(systemID) && kvp.Value.Alias.IsEquals(alias)).Value;
-				if (desktop != null)
-					Utility.UpdateDesktop(desktop);
-			}
-
-			return desktop ?? Utility.UpdateDesktop(Desktop.Get<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null));
-		}
-
-		internal static async Task<Desktop> GetDesktopByAliasAsync(string systemID, string alias, CancellationToken cancellationToken = default, bool force = false)
-		{
-			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias))
-				return null;
-
-			var desktop = !force && Utility.DesktopsByAlias.ContainsKey($"{systemID}:{alias}")
-				? Utility.DesktopsByAlias[$"{systemID}:{alias}"]
-				: null;
-
-			if (desktop == null && !force)
-			{
-				desktop = Utility.Desktops.FirstOrDefault(kvp => kvp.Value.SystemID.IsEquals(systemID) && kvp.Value.Alias.IsEquals(alias)).Value;
-				if (desktop != null)
-					Utility.UpdateDesktop(desktop);
-			}
-
-			return desktop ?? Utility.UpdateDesktop(await Desktop.GetAsync<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null, cancellationToken).ConfigureAwait(false));
-		}
-
-		internal static IFilterBy<Desktop> GetDesktopsFilter(string systemID, string parentID)
-			=> Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Desktop>.IsNull("ParentID") : Filters<Desktop>.Equals("ParentID", parentID));
-
-		internal static string GetDesktopsCacheKey(string systemID, string parentID)
-			=> $"desktops:{systemID.ToLower().Trim()}{(string.IsNullOrWhiteSpace(parentID) ? "" : $":{parentID.ToLower().Trim()}")}";
-
-		internal static List<Desktop> GetDesktopsByParentID(string systemID, string parentID)
-			=> string.IsNullOrWhiteSpace(systemID)
-				? new List<Desktop>()
-				: Desktop.Find(Utility.GetDesktopsFilter(systemID, parentID), Sorts<Desktop>.Ascending("OrderIndex"), 0, 1, Utility.GetDesktopsCacheKey(systemID, parentID));
-
-		internal static Task<List<Desktop>> GetDesktopsByParentIDAsync(string systemID, string parentID, CancellationToken cancellationToken = default)
-			=> string.IsNullOrWhiteSpace(systemID)
-				? Task.FromResult(new List<Desktop>())
-				: Desktop.FindAsync(Utility.GetDesktopsFilter(systemID, parentID), Sorts<Desktop>.Ascending("OrderIndex"), 0, 1, Utility.GetDesktopsCacheKey(systemID, parentID), cancellationToken);
 		#endregion
 
 	}

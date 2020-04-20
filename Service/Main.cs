@@ -39,6 +39,10 @@ namespace net.vieapps.Services.Portals
 						json = await this.ProcessRoleAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
+					case "desktop":
+						json = await this.ProcessDesktopAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
+
 					case "site":
 						json = await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
@@ -64,6 +68,10 @@ namespace net.vieapps.Services.Portals
 								json = this.GenerateFormControls<Role>();
 								break;
 
+							case "desktop":
+								json = this.GenerateFormControls<Desktop>();
+								break;
+
 							case "module":
 								json = this.GenerateFormControls<Module>();
 								break;
@@ -75,10 +83,6 @@ namespace net.vieapps.Services.Portals
 
 							case "site":
 								json = this.GenerateFormControls<Site>();
-								break;
-
-							case "desktop":
-								json = this.GenerateFormControls<Desktop>();
 								break;
 
 							default:
@@ -109,10 +113,9 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb)
 			{
 				case "GET":
-					if ("search".IsEquals(requestInfo.GetObjectIdentity()))
-						return this.SearchOrganizationsAsync(requestInfo, cancellationToken);
-					else
-						return this.GetOrganizationAsync(requestInfo, cancellationToken);
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? this.SearchOrganizationsAsync(requestInfo, cancellationToken)
+						: this.GetOrganizationAsync(requestInfo, cancellationToken);
 
 				case "POST":
 					return this.CreateOrganizationAsync(requestInfo, cancellationToken);
@@ -155,7 +158,7 @@ namespace net.vieapps.Services.Portals
 
 			// process cache
 			var json = string.IsNullOrWhiteSpace(query)
-				? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageNumber, pageSize), cancellationToken).ConfigureAwait(false)
+				? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 				: "";
 
 			if (!string.IsNullOrWhiteSpace(json))
@@ -178,7 +181,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageNumber, pageSize), cancellationToken).ConfigureAwait(false)
+					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Organization.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<Organization>();
 
@@ -201,7 +204,7 @@ namespace net.vieapps.Services.Portals
 #else
 				json = result.ToString(Formatting.None);
 #endif
-				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageNumber, pageSize), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
+				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
 			}
 
 			// return the result
@@ -353,10 +356,9 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb)
 			{
 				case "GET":
-					if ("search".IsEquals(requestInfo.GetObjectIdentity()))
-						return this.SearchRolesAsync(requestInfo, cancellationToken);
-					else
-						return this.GetRoleAsync(requestInfo, cancellationToken);
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? this.SearchRolesAsync(requestInfo, cancellationToken)
+						: this.GetRoleAsync(requestInfo, cancellationToken);
 
 				case "POST":
 					return this.CreateRoleAsync(requestInfo, cancellationToken);
@@ -416,7 +418,7 @@ namespace net.vieapps.Services.Portals
 
 			// process cache
 			var json = string.IsNullOrWhiteSpace(query)
-				? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageNumber, pageSize), cancellationToken).ConfigureAwait(false)
+				? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 				: "";
 
 			if (!string.IsNullOrWhiteSpace(json))
@@ -439,7 +441,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Role.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageNumber, pageSize), cancellationToken).ConfigureAwait(false)
+					? await Role.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Role.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<Role>();
 
@@ -462,7 +464,7 @@ namespace net.vieapps.Services.Portals
 #else
 				json = result.ToString(Formatting.None);
 #endif
-				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageNumber, pageSize), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
+				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
 			}
 
 			// return the result
@@ -470,7 +472,7 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		#region Create an role
+		#region Create a role
 		async Task<JObject> CreateRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
@@ -478,7 +480,7 @@ namespace net.vieapps.Services.Portals
 			var organizationID = info.Get<string>("SystemID");
 			var organization = await Utility.GetOrganizationByIDAsync(organizationID, cancellationToken).ConfigureAwait(false);
 			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
+				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
@@ -490,50 +492,88 @@ namespace net.vieapps.Services.Portals
 			var role = info.Copy<Role>("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
 
 			role.ID = string.IsNullOrWhiteSpace(role.ID) || !role.ID.IsValidUUID() ? UtilityService.NewUUID : role.ID;
-			role.ParentID = role.ParentRole != null ? role.ParentID : null;
 			role.SystemID = organization.ID;
+			role.ParentID = role.ParentRole != null ? role.ParentID : null;
+			role._childrenIDs = new List<string>();
 			role.Created = role.LastModified = DateTime.Now;
 			role.CreatedID = role.LastModifiedID = requestInfo.Session.User.ID;
+			role._childrenIDs = new List<string>();
 
-			await Role.CreateAsync(role, cancellationToken).ConfigureAwait(false);
-			await Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken).ConfigureAwait(false);
-			Utility.UpdateRole(role);
+			await Task.WhenAll(
+				Role.CreateAsync(role, cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
+				Utility.UpdateRoleAsync(role)
+			).ConfigureAwait(false);
+
+			// update parent
+			List<UpdateMessage> updateMessages = new List<UpdateMessage>();
+
 			if (role.ParentRole != null)
 			{
-				role.ParentRole.ChildrenIDs.Add(role.ID);
-				Utility.UpdateRole(role.ParentRole);
+				await role.ParentRole.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				role.ParentRole._childrenIDs.Add(role.ID);
+				await Utility.UpdateRoleAsync(role.ParentRole, true).ConfigureAwait(false);
+
+				updateMessages.Add(new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
+					DeviceID = "*",
+					Data = role.ParentRole.ToJson(true, false)
+				});
 			}
 
-			// send update message
-			await this.SendUpdateMessageAsync(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Create",
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID,
-				Data = role.ToJson()
-			}, cancellationToken).ConfigureAwait(false);
+			// send update message and response
+			var response = role.ToJson(true, false);
 
-			return role.ToJson();
+			if (role.ParentRole == null)
+				updateMessages.Add(new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
+					DeviceID = "*",
+					ExcludedDeviceID = requestInfo.Session.DeviceID,
+					Data = response
+				});
+
+			await updateMessages.ForEachAsync((updateMessage, token) => this.SendUpdateMessageAsync(updateMessage, token), cancellationToken, true, false).ConfigureAwait(false);
+			return response;
 		}
 		#endregion
 
 		#region Get a role
 		async Task<JObject> GetRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			// get the role
-			var role = await Role.GetAsync<Role>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			// prepare
+			var role = await Utility.GetRoleByIDAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
 			if (role == null)
 				throw new InformationNotFoundException();
+			else if (role.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
-			if (!gotRights)
-				gotRights = await this.IsAuthorizedAsync(requestInfo, role.ID, Components.Security.Action.View).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(role.Organization.OwnerID) || requestInfo.Session.User.IsViewer(role.Organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// response
-			return role.ToJson();
+			// prepare the response
+			if (role._childrenIDs == null)
+			{
+				await role.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await Utility.UpdateRoleAsync(role, true).ConfigureAwait(false);
+			}
+
+			var response = role.ToJson(true, false);
+
+			// send update message and response
+			await this.SendUpdateMessageAsync(new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
+				DeviceID = "*",
+				ExcludedDeviceID = requestInfo.Session.DeviceID,
+				Data = response
+			}, cancellationToken).ConfigureAwait(false);
+
+			return response;
 		}
 		#endregion
 
@@ -541,11 +581,12 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> UpdateRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var role = await Utility.GetRoleByIDAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var roleID = requestInfo.GetObjectIdentity();
+			var role = await Utility.GetRoleByIDAsync(roleID, cancellationToken).ConfigureAwait(false);
 			if (role == null)
 				throw new InformationNotFoundException();
 			else if (role.Organization == null)
-				throw new InformationExistedException("The organization is invalid");
+				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
@@ -554,50 +595,541 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// update
-			var info = requestInfo.GetBodyExpando();
 			var oldParentID = role.ParentID;
+			var info = requestInfo.GetBodyExpando();
 
 			role.CopyFrom(info, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
 			role.LastModified = DateTime.Now;
 			role.LastModifiedID = requestInfo.Session.User.ID;
+			await role.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 
-			await Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken).ConfigureAwait(false);
-			Utility.UpdateRole(role);
-			if (role.ParentRole != null)
+			await Task.WhenAll(
+				Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken),
+				Utility.UpdateRoleAsync(role)
+			).ConfigureAwait(false);
+
+			await Task.WhenAll(
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, oldParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
+			).ConfigureAwait(false);
+
+			// update parent
+			List<UpdateMessage> updateMessages = new List<UpdateMessage>();
+
+			if (role.ParentRole != null && !role.ParentID.IsEquals(oldParentID))
 			{
-				role.ParentRole.ChildrenIDs.Add(role.ID);
-				Utility.UpdateRole(role.ParentRole);
-				await Utility.Cache.SetAsync(role.ParentRole, cancellationToken).ConfigureAwait(false);
+				await role.ParentRole.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				role.ParentRole._childrenIDs.Add(role.ID);
+				await Utility.UpdateRoleAsync(role.ParentRole, true).ConfigureAwait(false);
+
+				updateMessages.Add(new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
+					DeviceID = "*",
+					Data = role.ParentRole.ToJson(true, false)
+				});
 			}
+
 			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(role.ParentID))
 			{
 				var parentRole = await Utility.GetRoleByIDAsync(oldParentID, cancellationToken).ConfigureAwait(false);
 				if (parentRole != null)
 				{
-					parentRole.ChildrenIDs.Remove(role.ID);
-					Utility.UpdateRole(parentRole);
-					await Utility.Cache.SetAsync(parentRole, cancellationToken).ConfigureAwait(false);
+					await parentRole.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+					parentRole._childrenIDs.Remove(role.ID);
+					await Utility.UpdateRoleAsync(parentRole, true).ConfigureAwait(false);
+
+					updateMessages.Add(new UpdateMessage
+					{
+						Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
+						DeviceID = "*",
+						Data = parentRole.ToJson(true, false)
+					});
 				}
 			}
 
-			// send update message
-			await this.SendUpdateMessageAsync(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID,
-				Data = role.ToJson()
-			}, cancellationToken).ConfigureAwait(false);
+			// send update message and response
+			var response = role.ToJson(true, false);
 
-			return role.ToJson();
+			if (string.IsNullOrWhiteSpace(oldParentID) && role.ParentRole == null)
+				updateMessages.Add(new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
+					DeviceID = "*",
+					ExcludedDeviceID = requestInfo.Session.DeviceID,
+					Data = response
+				});
+
+			await updateMessages.ForEachAsync((updateMessage, token) => this.SendUpdateMessageAsync(updateMessage, token), cancellationToken, true, false).ConfigureAwait(false);
+			return response;
 		}
 		#endregion
 
-		#region Delete an role
-		Task<JObject> DeleteRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		#region Delete a role
+		async Task<JObject> DeleteRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			throw new MethodNotAllowedException(requestInfo.Verb);
+			// prepare
+			var role = await Role.GetAsync<Role>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			if (role == null)
+				throw new InformationNotFoundException();
+
+			var organization = await Utility.GetOrganizationByIDAsync(role.SystemID, cancellationToken).ConfigureAwait(false);
+			if (organization == null)
+				throw new InformationExistedException("The organization is invalid");
+
+			// check permission
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// delete
+			List<UpdateMessage> updateMessages = new List<UpdateMessage>();
+			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
+
+			await (await role.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
+			{
+				if (updateChildren)
+				{
+					child.ParentID = null;
+					child.LastModified = DateTime.Now;
+					child.LastModifiedID = requestInfo.Session.User.ID;
+					await Role.UpdateAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false);
+					Utility.UpdateRole(child);
+					updateMessages.Add(new UpdateMessage
+					{
+						Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
+						DeviceID = "*",
+						Data = child.ToJson(true, false)
+					});
+				}
+				else
+					updateMessages = updateMessages.Concat(await this.DeleteChildRoleAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false)).ToList();
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll(
+				updateChildren ? Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, null), Sorts<Role>.Ascending("Title")), cancellationToken) : Task.CompletedTask,
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
+			).ConfigureAwait(false);
+			Utility.Roles.Remove(role.ID);
+
+			var response = role.ToJson();
+			updateMessages.Add(new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Delete",
+				DeviceID = "*",
+				Data = response
+			});
+
+			await updateMessages.ForEachAsync((updateMessage, token) => this.SendUpdateMessageAsync(updateMessage, token), cancellationToken, true, false).ConfigureAwait(false);
+			return response;
+		}
+
+		async Task<List<UpdateMessage>> DeleteChildRoleAsync(Role role, string userID, CancellationToken cancellationToken)
+		{
+			List<UpdateMessage> updateMessages = new List<UpdateMessage>();
+			await (await role.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) => await this.DeleteChildRoleAsync(child, userID, token).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
+			await Role.DeleteAsync<Role>(role.ID, userID, cancellationToken).ConfigureAwait(false);
+			Utility.Roles.Remove(role.ID);
+			updateMessages.Add(new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Delete",
+				DeviceID = "*",
+				Data = role.ToJson()
+			});
+			return updateMessages;
+		}
+		#endregion
+
+		Task<JObject> ProcessDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			switch (requestInfo.Verb)
+			{
+				case "GET":
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? this.SearchDesktopsAsync(requestInfo, cancellationToken)
+						: this.GetDesktopAsync(requestInfo, cancellationToken);
+
+				case "POST":
+					return this.CreateDesktopAsync(requestInfo, cancellationToken);
+
+				case "PUT":
+					return this.UpdateDesktopAsync(requestInfo, cancellationToken);
+
+				case "DELETE":
+					return this.DeleteDesktopAsync(requestInfo, cancellationToken);
+			}
+
+			return Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
+		}
+
+		#region Search desktops
+		async Task<JObject> SearchDesktopsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// prepare
+			var request = requestInfo.GetRequestExpando();
+
+			var query = request.Get<string>("FilterBy.Query");
+
+			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Desktop>() ?? Filters<Desktop>.And();
+			if (filter is FilterBys<Desktop> && (filter as FilterBys<Desktop>).Children.FirstOrDefault(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("ParentID")) == null)
+				(filter as FilterBys<Desktop>).Children.Add(Filters<Desktop>.IsNull("ParentID"));
+
+			var sort = request.Get<ExpandoObject>("SortBy", null)?.ToSortBy<Desktop>();
+			if (string.IsNullOrWhiteSpace(query))
+				sort = sort ?? Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title");
+			else if (filter is FilterBys<Desktop>)
+			{
+				var index = (filter as FilterBys<Desktop>).Children.FindIndex(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("ParentID"));
+				if (index > -1)
+					(filter as FilterBys<Desktop>).Children.RemoveAt(index);
+			}
+
+			var pagination = request.Has("Pagination")
+				? request.Get<ExpandoObject>("Pagination").GetPagination()
+				: new Tuple<long, int, int, int>(-1, 0, 20, 1);
+
+			var pageSize = pagination.Item3;
+			var pageNumber = pagination.Item4;
+
+			// get organization
+			var organizationID = filter != null && filter is FilterBys<Desktop>
+				? ((filter as FilterBys<Desktop>).Children.FirstOrDefault(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("SystemID")) as FilterBy<Desktop>)?.Value as string
+				: null;
+			var organization = await Utility.GetOrganizationByIDAsync(organizationID, cancellationToken).ConfigureAwait(false);
+			if (organization == null)
+				throw new InformationExistedException("The organization is invalid");
+
+			// check permission
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsViewer(organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// process cache
+			var json = string.IsNullOrWhiteSpace(query)
+				? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+				: "";
+
+			if (!string.IsNullOrWhiteSpace(json))
+				return JObject.Parse(json);
+
+			// prepare pagination
+			var totalRecords = pagination.Item1 > -1
+				? pagination.Item1
+				: -1;
+
+			if (totalRecords < 0)
+				totalRecords = string.IsNullOrWhiteSpace(query)
+					? await Desktop.CountAsync(filter, this.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					: await Desktop.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
+
+			var totalPages = (new Tuple<long, int>(totalRecords, pageSize)).GetTotalPages();
+			if (totalPages > 0 && pageNumber > totalPages)
+				pageNumber = totalPages;
+
+			// search
+			var objects = totalRecords > 0
+				? string.IsNullOrWhiteSpace(query)
+					? await Desktop.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					: await Desktop.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
+				: new List<Desktop>();
+
+			// build result
+			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
+
+			var result = new JObject()
+			{
+				{ "FilterBy", filter.ToClientJson(query) },
+				{ "SortBy", sort?.ToClientJson() },
+				{ "Pagination", pagination.GetPagination() },
+				{ "Objects", objects.ToJsonArray() }
+			};
+
+			// update cache
+			if (string.IsNullOrWhiteSpace(query))
+			{
+#if DEBUG
+				json = result.ToString(Formatting.Indented);
+#else
+				json = result.ToString(Formatting.None);
+#endif
+				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
+			}
+
+			// return the result
+			return result;
+		}
+		#endregion
+
+		#region Create a desktop
+		async Task<JObject> CreateDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// prepare
+			var info = requestInfo.GetBodyExpando();
+			var organizationID = info.Get<string>("SystemID");
+			var organization = await Utility.GetOrganizationByIDAsync(organizationID, cancellationToken).ConfigureAwait(false);
+			if (organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			// check permission
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// create new
+			var desktop = info.Copy<Desktop>("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+
+			desktop.ID = string.IsNullOrWhiteSpace(desktop.ID) || !desktop.ID.IsValidUUID() ? UtilityService.NewUUID : desktop.ID;
+			desktop.SystemID = organization.ID;
+			desktop.ParentID = desktop.ParentDesktop != null ? desktop.ParentID : null;
+			desktop._childrenIDs = new List<string>();
+			desktop.Created = desktop.LastModified = DateTime.Now;
+			desktop.CreatedID = desktop.LastModifiedID = requestInfo.Session.User.ID;
+			desktop._childrenIDs = new List<string>();
+
+			await Task.WhenAll(
+				Desktop.CreateAsync(desktop, cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken),
+				Utility.UpdateDesktopAsync(desktop)
+			).ConfigureAwait(false);
+
+			// update parent
+			List<UpdateMessage> updateMessages = new List<UpdateMessage>();
+
+			if (desktop.ParentDesktop != null)
+			{
+				await desktop.ParentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
+				await Utility.UpdateDesktopAsync(desktop.ParentDesktop, true).ConfigureAwait(false);
+
+				updateMessages.Add(new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Update",
+					DeviceID = "*",
+					Data = desktop.ParentDesktop.ToJson(true, false)
+				});
+			}
+
+			// send update message and response
+			var response = desktop.ToJson(true, false);
+
+			if (desktop.ParentDesktop == null)
+				updateMessages.Add(new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Update",
+					DeviceID = "*",
+					ExcludedDeviceID = requestInfo.Session.DeviceID,
+					Data = response
+				});
+
+			await updateMessages.ForEachAsync((updateMessage, token) => this.SendUpdateMessageAsync(updateMessage, token), cancellationToken, true, false).ConfigureAwait(false);
+			return response;
+		}
+		#endregion
+
+		#region Get a desktop
+		async Task<JObject> GetDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// prepare
+			var desktop = await Utility.GetDesktopByIDAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			if (desktop == null)
+				throw new InformationNotFoundException();
+			else if (desktop.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			// check permission
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop.Organization.OwnerID) || requestInfo.Session.User.IsViewer(desktop.Organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// prepare the response
+			if (desktop._childrenIDs == null)
+			{
+				await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await Utility.UpdateDesktopAsync(desktop, true).ConfigureAwait(false);
+			}
+
+			var response = desktop.ToJson(true, false);
+
+			// send update message and response
+			await this.SendUpdateMessageAsync(new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Update",
+				DeviceID = "*",
+				ExcludedDeviceID = requestInfo.Session.DeviceID,
+				Data = response
+			}, cancellationToken).ConfigureAwait(false);
+
+			return response;
+		}
+		#endregion
+
+		#region Update a desktop
+		async Task<JObject> UpdateDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// prepare
+			var desktopID = requestInfo.GetObjectIdentity();
+			var desktop = await Utility.GetDesktopByIDAsync(desktopID, cancellationToken).ConfigureAwait(false);
+			if (desktop == null)
+				throw new InformationNotFoundException();
+			else if (desktop.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			// check permission
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop.Organization.OwnerID) || requestInfo.Session.User.IsModerator(desktop.Organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// update
+			var oldParentID = desktop.ParentID;
+			var info = requestInfo.GetBodyExpando();
+
+			desktop.CopyFrom(info, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+			desktop.LastModified = DateTime.Now;
+			desktop.LastModifiedID = requestInfo.Session.User.ID;
+			await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+
+			await Task.WhenAll(
+				Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken),
+				Utility.UpdateDesktopAsync(desktop)
+			).ConfigureAwait(false);
+
+			await Task.WhenAll(
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, oldParentID), Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken)
+			).ConfigureAwait(false);
+
+			// update parent
+			List<UpdateMessage> updateMessages = new List<UpdateMessage>();
+
+			if (desktop.ParentDesktop != null && !desktop.ParentID.IsEquals(oldParentID))
+			{
+				await desktop.ParentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
+				await Utility.UpdateDesktopAsync(desktop.ParentDesktop, true).ConfigureAwait(false);
+
+				updateMessages.Add(new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Update",
+					DeviceID = "*",
+					Data = desktop.ParentDesktop.ToJson(true, false)
+				});
+			}
+
+			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(desktop.ParentID))
+			{
+				var parentDesktop = await Utility.GetDesktopByIDAsync(oldParentID, cancellationToken).ConfigureAwait(false);
+				if (parentDesktop != null)
+				{
+					await parentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+					parentDesktop._childrenIDs.Remove(desktop.ID);
+					await Utility.UpdateDesktopAsync(parentDesktop, true).ConfigureAwait(false);
+
+					updateMessages.Add(new UpdateMessage
+					{
+						Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Update",
+						DeviceID = "*",
+						Data = parentDesktop.ToJson(true, false)
+					});
+				}
+			}
+
+			// send update message and response
+			var response = desktop.ToJson(true, false);
+
+			if (string.IsNullOrWhiteSpace(oldParentID) && desktop.ParentDesktop == null)
+				updateMessages.Add(new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Update",
+					DeviceID = "*",
+					ExcludedDeviceID = requestInfo.Session.DeviceID,
+					Data = response
+				});
+
+			await updateMessages.ForEachAsync((updateMessage, token) => this.SendUpdateMessageAsync(updateMessage, token), cancellationToken, true, false).ConfigureAwait(false);
+			return response;
+		}
+		#endregion
+
+		#region Delete a desktop
+		async Task<JObject> DeleteDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// prepare
+			var desktop = await Desktop.GetAsync<Desktop>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			if (desktop == null)
+				throw new InformationNotFoundException();
+
+			var organization = await Utility.GetOrganizationByIDAsync(desktop.SystemID, cancellationToken).ConfigureAwait(false);
+			if (organization == null)
+				throw new InformationExistedException("The organization is invalid");
+
+			// check permission
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// delete
+			List<UpdateMessage> updateMessages = new List<UpdateMessage>();
+			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
+
+			await (await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
+			{
+				if (updateChildren)
+				{
+					child.ParentID = null;
+					child.LastModified = DateTime.Now;
+					child.LastModifiedID = requestInfo.Session.User.ID;
+					await Desktop.UpdateAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false);
+					Utility.UpdateDesktop(child);
+					updateMessages.Add(new UpdateMessage
+					{
+						Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Update",
+						DeviceID = "*",
+						Data = child.ToJson(true, false)
+					});
+				}
+				else
+					updateMessages = updateMessages.Concat(await this.DeleteChildDesktopAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false)).ToList();
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll(
+				updateChildren ? Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, null), Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken) : Task.CompletedTask,
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken)
+			).ConfigureAwait(false);
+			Utility.Desktops.Remove(desktop.ID);
+
+			var response = desktop.ToJson();
+			updateMessages.Add(new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Delete",
+				DeviceID = "*",
+				Data = response
+			});
+
+			await updateMessages.ForEachAsync((updateMessage, token) => this.SendUpdateMessageAsync(updateMessage, token), cancellationToken, true, false).ConfigureAwait(false);
+			return response;
+		}
+
+		async Task<List<UpdateMessage>> DeleteChildDesktopAsync(Desktop desktop, string userID, CancellationToken cancellationToken)
+		{
+			List<UpdateMessage> updateMessages = new List<UpdateMessage>();
+			await (await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) => await this.DeleteChildDesktopAsync(child, userID, token).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
+			await Desktop.DeleteAsync<Desktop>(desktop.ID, userID, cancellationToken).ConfigureAwait(false);
+			Utility.Desktops.Remove(desktop.ID);
+			updateMessages.Add(new UpdateMessage
+			{
+				Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Delete",
+				DeviceID = "*",
+				Data = desktop.ToJson()
+			});
+			return updateMessages;
 		}
 		#endregion
 
