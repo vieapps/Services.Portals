@@ -23,41 +23,45 @@ namespace net.vieapps.Services.Portals
 	{
 		public Role() : base() { }
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
+		[Property(MaxLength = 32)]
+		[Sortable(IndexName = "Management")]
+		[FormControl(ControlType = "Lookup", Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
+		public string ParentID { get; set; }
+
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public override string Title { get; set; } = "";
 
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public string Description { get; set; }
 
-		[Property(MaxLength = 32), Sortable(IndexName = "Management")]
-		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
-		public string ParentID { get; set; }
-
-		[AsMapping, Sortable(IndexName = "Members")]
+		[AsMapping]
+		[Sortable(IndexName = "Members")]
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public List<string> UserIDs { get; set; } = new List<string>();
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true, Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
+		[FormControl(Hidden = true)]
 		public DateTime Created { get; set; } = DateTime.Now;
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true, Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
+		[FormControl(Hidden = true)]
 		public string CreatedID { get; set; } = "";
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true, Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
+		[FormControl(Hidden = true)]
 		public DateTime LastModified { get; set; } = DateTime.Now;
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true, Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
+		[FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; } = "";
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public int OrderIndex { get; set; } = 0;
+		public int OrderIndex { get; set; }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
 		public override string SystemID { get; set; }
 
@@ -94,11 +98,11 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _childrenIDs;
 
-		internal List<Role> GetChildren(bool notifyPropertyChanged = true)
+		internal List<Role> GetChildren(bool notifyPropertyChanged = true, List<Role> roles = null)
 		{
 			if (this._childrenIDs == null)
 			{
-				var roles = Utility.GetRolesByParentID(this.SystemID, this.ID);
+				roles = roles ?? Utility.GetRolesByParentID(this.SystemID, this.ID);
 				this._childrenIDs = roles.Select(role => role.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("ChildrenIDs");
@@ -108,17 +112,9 @@ namespace net.vieapps.Services.Portals
 		}
 
 		internal async Task<List<Role>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
-		{
-			if (this._childrenIDs == null)
-			{
-				var roles = await Utility.GetRolesByParentIDAsync(this.SystemID, this.ID, cancellationToken).ConfigureAwait(false);
-				this._childrenIDs = roles.Select(role => role.ID).ToList();
-				if (notifyPropertyChanged)
-					this.NotifyPropertyChanged("ChildrenIDs");
-				return roles;
-			}
-			return this._childrenIDs.Select(id => Utility.GetRoleByID(id)).ToList();
-		}
+			=> this._childrenIDs == null
+				? this.GetChildren(notifyPropertyChanged, await Utility.GetRolesByParentIDAsync(this.SystemID, this.ID, cancellationToken).ConfigureAwait(false))
+				: this._childrenIDs.Select(id => Utility.GetRoleByID(id)).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public List<Role> Children => this.GetChildren();

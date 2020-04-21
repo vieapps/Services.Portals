@@ -232,7 +232,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// prepare
-			var organization = info.Copy<Organization>("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+			var organization = info.Copy<Organization>("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
 			organization.ID = string.IsNullOrWhiteSpace(organization.ID) || !organization.ID.IsValidUUID() ? UtilityService.NewUUID : organization.ID;
 			organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? organization.Title.GetANSIUri() + organization.ID : organization.Alias;
@@ -314,7 +314,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// prepare
-			organization.CopyFrom(info, "ID,OwnerID,Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+			organization.CopyFrom(info, "ID,OwnerID,Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
 			organization.OwnerID = isSystemAdministrator ? info.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
 			organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias;
@@ -489,12 +489,11 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// create new
-			var role = info.Copy<Role>("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+			var role = info.Copy<Role>("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
 			role.ID = string.IsNullOrWhiteSpace(role.ID) || !role.ID.IsValidUUID() ? UtilityService.NewUUID : role.ID;
 			role.SystemID = organization.ID;
 			role.ParentID = role.ParentRole != null ? role.ParentID : null;
-			role._childrenIDs = new List<string>();
 			role.Created = role.LastModified = DateTime.Now;
 			role.CreatedID = role.LastModifiedID = requestInfo.Session.User.ID;
 			role._childrenIDs = new List<string>();
@@ -502,7 +501,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll(
 				Role.CreateAsync(role, cancellationToken),
 				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
-				Utility.UpdateRoleAsync(role)
+				Utility.UpdateRoleAsync(role, false, cancellationToken)
 			).ConfigureAwait(false);
 
 			// update parent
@@ -559,7 +558,7 @@ namespace net.vieapps.Services.Portals
 			if (role._childrenIDs == null)
 			{
 				await role.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				await Utility.UpdateRoleAsync(role, true).ConfigureAwait(false);
+				await Utility.UpdateRoleAsync(role, true, cancellationToken).ConfigureAwait(false);
 			}
 
 			var response = role.ToJson(true, false);
@@ -598,14 +597,14 @@ namespace net.vieapps.Services.Portals
 			var oldParentID = role.ParentID;
 			var info = requestInfo.GetBodyExpando();
 
-			role.CopyFrom(info, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+			role.CopyFrom(info, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 			role.LastModified = DateTime.Now;
 			role.LastModifiedID = requestInfo.Session.User.ID;
 			await role.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 
 			await Task.WhenAll(
 				Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken),
-				Utility.UpdateRoleAsync(role)
+				Utility.UpdateRoleAsync(role, false, cancellationToken)
 			).ConfigureAwait(false);
 
 			await Task.WhenAll(
@@ -729,9 +728,16 @@ namespace net.vieapps.Services.Portals
 		async Task<List<UpdateMessage>> DeleteChildRoleAsync(Role role, string userID, CancellationToken cancellationToken)
 		{
 			List<UpdateMessage> updateMessages = new List<UpdateMessage>();
-			await (await role.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) => await this.DeleteChildRoleAsync(child, userID, token).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
+
+			var children = await role.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			await children.ForEachAsync(async (child, token) =>
+			{
+				updateMessages = updateMessages.Concat(await this.DeleteChildRoleAsync(child, userID, token).ConfigureAwait(false)).ToList();
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
 			await Role.DeleteAsync<Role>(role.ID, userID, cancellationToken).ConfigureAwait(false);
 			Utility.Roles.Remove(role.ID);
+
 			updateMessages.Add(new UpdateMessage
 			{
 				Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Delete",
@@ -778,7 +784,7 @@ namespace net.vieapps.Services.Portals
 
 			var sort = request.Get<ExpandoObject>("SortBy", null)?.ToSortBy<Desktop>();
 			if (string.IsNullOrWhiteSpace(query))
-				sort = sort ?? Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title");
+				sort = sort ?? Sorts<Desktop>.Ascending("Title");
 			else if (filter is FilterBys<Desktop>)
 			{
 				var index = (filter as FilterBys<Desktop>).Children.FindIndex(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("ParentID"));
@@ -880,20 +886,19 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// create new
-			var desktop = info.Copy<Desktop>("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+			var desktop = info.Copy<Desktop>("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
 			desktop.ID = string.IsNullOrWhiteSpace(desktop.ID) || !desktop.ID.IsValidUUID() ? UtilityService.NewUUID : desktop.ID;
 			desktop.SystemID = organization.ID;
 			desktop.ParentID = desktop.ParentDesktop != null ? desktop.ParentID : null;
-			desktop._childrenIDs = new List<string>();
 			desktop.Created = desktop.LastModified = DateTime.Now;
 			desktop.CreatedID = desktop.LastModifiedID = requestInfo.Session.User.ID;
 			desktop._childrenIDs = new List<string>();
 
 			await Task.WhenAll(
 				Desktop.CreateAsync(desktop, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken),
-				Utility.UpdateDesktopAsync(desktop)
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken),
+				Utility.UpdateDesktopAsync(desktop, false, false, cancellationToken)
 			).ConfigureAwait(false);
 
 			// update parent
@@ -903,7 +908,7 @@ namespace net.vieapps.Services.Portals
 			{
 				await desktop.ParentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
-				await Utility.UpdateDesktopAsync(desktop.ParentDesktop, true).ConfigureAwait(false);
+				await Utility.UpdateDesktopAsync(desktop.ParentDesktop, false, true, cancellationToken).ConfigureAwait(false);
 
 				updateMessages.Add(new UpdateMessage
 				{
@@ -950,7 +955,7 @@ namespace net.vieapps.Services.Portals
 			if (desktop._childrenIDs == null)
 			{
 				await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				await Utility.UpdateDesktopAsync(desktop, true).ConfigureAwait(false);
+				await Utility.UpdateDesktopAsync(desktop, false, true, cancellationToken).ConfigureAwait(false);
 			}
 
 			var response = desktop.ToJson(true, false);
@@ -989,19 +994,19 @@ namespace net.vieapps.Services.Portals
 			var oldParentID = desktop.ParentID;
 			var info = requestInfo.GetBodyExpando();
 
-			desktop.CopyFrom(info, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastUpdated,LastUpdatedID".ToHashSet());
+			desktop.CopyFrom(info, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 			desktop.LastModified = DateTime.Now;
 			desktop.LastModifiedID = requestInfo.Session.User.ID;
 			await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 
 			await Task.WhenAll(
 				Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken),
-				Utility.UpdateDesktopAsync(desktop)
+				Utility.UpdateDesktopAsync(desktop, false, false, cancellationToken)
 			).ConfigureAwait(false);
 
 			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, oldParentID), Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken)
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, oldParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken)
 			).ConfigureAwait(false);
 
 			// update parent
@@ -1011,7 +1016,7 @@ namespace net.vieapps.Services.Portals
 			{
 				await desktop.ParentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
-				await Utility.UpdateDesktopAsync(desktop.ParentDesktop, true).ConfigureAwait(false);
+				await Utility.UpdateDesktopAsync(desktop.ParentDesktop, false, true, cancellationToken).ConfigureAwait(false);
 
 				updateMessages.Add(new UpdateMessage
 				{
@@ -1028,7 +1033,7 @@ namespace net.vieapps.Services.Portals
 				{
 					await parentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 					parentDesktop._childrenIDs.Remove(desktop.ID);
-					await Utility.UpdateDesktopAsync(parentDesktop, true).ConfigureAwait(false);
+					await Utility.UpdateDesktopAsync(parentDesktop, false, true, cancellationToken).ConfigureAwait(false);
 
 					updateMessages.Add(new UpdateMessage
 					{
@@ -1100,8 +1105,8 @@ namespace net.vieapps.Services.Portals
 
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
-				updateChildren ? Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, null), Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken) : Task.CompletedTask,
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken)
+				updateChildren ? Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, null), Sorts<Desktop>.Ascending("Title")), cancellationToken) : Task.CompletedTask,
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken)
 			).ConfigureAwait(false);
 			Utility.Desktops.Remove(desktop.ID);
 
@@ -1120,9 +1125,16 @@ namespace net.vieapps.Services.Portals
 		async Task<List<UpdateMessage>> DeleteChildDesktopAsync(Desktop desktop, string userID, CancellationToken cancellationToken)
 		{
 			List<UpdateMessage> updateMessages = new List<UpdateMessage>();
-			await (await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) => await this.DeleteChildDesktopAsync(child, userID, token).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
+
+			var children = await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			await children.ForEachAsync(async (child, token) =>
+			{
+				updateMessages = updateMessages.Concat(await this.DeleteChildDesktopAsync(child, userID, token).ConfigureAwait(false)).ToList();
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, userID, cancellationToken).ConfigureAwait(false);
 			Utility.Desktops.Remove(desktop.ID);
+
 			updateMessages.Add(new UpdateMessage
 			{
 				Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Delete",

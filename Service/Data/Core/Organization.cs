@@ -26,7 +26,8 @@ namespace net.vieapps.Services.Portals
 		public Organization() : base()
 			=> this.OriginalPrivileges = new Privileges(true);
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public override string Title { get; set; } = "";
 
@@ -34,19 +35,23 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string Description { get; set; }
 
-		[Property(MaxLength = 32), Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Property(MaxLength = 32)]
+		[Sortable(IndexName = "Management")]
+		[FormControl(ControlType = "Lookup", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string OwnerID { get; set; }
 
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String), Sortable(IndexName = "Management")]
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
-		[Property(MaxLength = 100, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias")]
+		[Property(MaxLength = 100, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management", UniqueIndexName = "Alias")]
 		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string Alias { get; set; } = "";
 
-		[Property(MaxLength = 10, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 10, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string ExpiredDate { get; set; } = "-";
 
@@ -94,19 +99,19 @@ namespace net.vieapps.Services.Portals
 		}
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Hidden = true)]
 		public DateTime Created { get; set; } = DateTime.Now;
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Hidden = true)]
 		public string CreatedID { get; set; } = "";
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Hidden = true)]
 		public DateTime LastModified { get; set; } = DateTime.Now;
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true, Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; } = "";
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -187,6 +192,18 @@ namespace net.vieapps.Services.Portals
 			return instructions;
 		}
 
+		internal void NormalizeSettings()
+		{
+			this.Notifications.Emails.Normalize();
+			this.Notifications.WebHooks.Normalize();
+			this.RefreshUrls.Normalize();
+			this.RefreshUrls.Normalize();
+			this.EmailSettings.Normalize();
+			this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
+			Organization.SettingProperties.ForEach(name => this._settings[name] = this.GetProperty(name)?.ToJson());
+			this._otherSettings = this._settings.ToString(Formatting.None);
+		}
+
 		public override void ProcessPropertyChanged(string name)
 		{
 			if (name.IsEquals("OtherSettings"))
@@ -207,18 +224,6 @@ namespace net.vieapps.Services.Portals
 				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
 				this._settings[name] = this.GetProperty(name)?.ToJson();
 			}
-		}
-
-		internal void NormalizeSettings()
-		{
-			this.Notifications.Emails.Normalize();
-			this.Notifications.WebHooks.Normalize();
-			this.RefreshUrls.Normalize();
-			this.RefreshUrls.Normalize();
-			this.EmailSettings.Normalize();
-			this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
-			Organization.SettingProperties.ForEach(name => this._settings[name] = this.GetProperty(name)?.ToJson());
-			this._otherSettings = this._settings.ToString(Formatting.None);
 		}
 	}
 }
