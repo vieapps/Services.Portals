@@ -222,37 +222,30 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// check the exising the the alias
-			var info = requestInfo.GetBodyExpando();
-			var alias = info.Get<string>("Alias");
+			var requestBody = requestInfo.GetBodyExpando();
+			var alias = requestBody.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await Utility.GetOrganizationByAliasAsync(alias.NormalizeAlias(false), cancellationToken).ConfigureAwait(false);
+				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 				if (existing != null)
 					throw new InformationExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 			}
 
-			// prepare
-			var organization = info.Copy<Organization>("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
-
-			organization.ID = string.IsNullOrWhiteSpace(organization.ID) || !organization.ID.IsValidUUID() ? UtilityService.NewUUID : organization.ID;
-			organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? organization.Title.NormalizeAlias(false) + organization.ID : organization.Alias.NormalizeAlias(false);
-			organization.OwnerID = string.IsNullOrWhiteSpace(organization.OwnerID) || !organization.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : organization.OwnerID;
-
-			organization.Status = isSystemAdministrator
-				? info.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
-				: isCreatedByOtherService 
-					? requestInfo.Extra.TryGetValue("x-status", out var xstatus) && xstatus.TryToEnum(out ApprovalStatus statusByOtherService) ? statusByOtherService : ApprovalStatus.Pending
-					 : ApprovalStatus.Pending;
-
-			organization.Instructions = Organization.GetInstructions(info.Get<ExpandoObject>("Instructions"));
-			organization.NormalizeSettings();
-
-			organization.OriginalPrivileges =(isSystemAdministrator ? info.Get<Privileges>("OriginalPrivileges") : null) ?? new Privileges(true);
-
-			organization.Created = organization.LastModified = DateTime.Now;
-			organization.CreatedID = organization.LastModifiedID = requestInfo.Session.User.ID;
-
 			// create new
+			var organization = requestBody.CreateOrganizationInstance("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", org =>
+			{
+				org.ID = string.IsNullOrWhiteSpace(org.ID) || !org.ID.IsValidUUID() ? UtilityService.NewUUID : org.ID;
+				org.Alias = string.IsNullOrWhiteSpace(org.Alias) ? org.Title.NormalizeAlias(false) + org.ID : org.Alias.NormalizeAlias(false);
+				org.OwnerID = string.IsNullOrWhiteSpace(org.OwnerID) || !org.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : org.OwnerID;
+				org.Status = isSystemAdministrator
+					? requestBody.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
+					: isCreatedByOtherService 
+						? requestInfo.Extra.TryGetValue("x-status", out var xstatus) && xstatus.TryToEnum(out ApprovalStatus statusByOtherService) ? statusByOtherService : ApprovalStatus.Pending
+						 : ApprovalStatus.Pending;
+				org.OriginalPrivileges =(isSystemAdministrator ? requestBody.Get<Privileges>("OriginalPrivileges") : null) ?? new Privileges(true);
+				org.Created = org.LastModified = DateTime.Now;
+				org.CreatedID = org.LastModifiedID = requestInfo.Session.User.ID;
+			});
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(null, Sorts<Organization>.Ascending("Title")), cancellationToken).ConfigureAwait(false);
 
@@ -273,7 +266,7 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> GetOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// get the organization
-			var organization = await Organization.GetAsync<Organization>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var organization = await (requestInfo.GetObjectIdentity() ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationNotFoundException();
 
@@ -292,7 +285,7 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> UpdateOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// get the organization
-			var organization = await Utility.GetOrganizationByIDAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var organization = await (requestInfo.GetObjectIdentity() ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationNotFoundException();
 
@@ -303,31 +296,25 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// check the exising the the alias
-			var info = requestInfo.GetBodyExpando();
+			var requestBody = requestInfo.GetBodyExpando();
 			var oldAlias = organization.Alias;
-			var alias = info.Get<string>("Alias");
+			var alias = requestBody.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await Utility.GetOrganizationByAliasAsync(alias.NormalizeAlias(false), cancellationToken).ConfigureAwait(false);
+				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(organization.ID))
 					throw new InformationExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 			}
 
-			// prepare
-			organization.CopyFrom(info, "ID,OwnerID,Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
-
-			organization.OwnerID = isSystemAdministrator ? info.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
-			organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias.NormalizeAlias(false);
-
-			organization.Instructions = Organization.GetInstructions(info.Get<ExpandoObject>("Instructions"));
-			organization.NormalizeSettings();
-
-			organization.OriginalPrivileges = info.Get("OriginalPrivileges", new Privileges(true));
-
-			organization.LastModified = DateTime.Now;
-			organization.LastModifiedID = requestInfo.Session.User.ID;
-
 			// update
+			organization.UpdateOrganizationInstance(requestBody, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
+			{
+				organization.OwnerID = isSystemAdministrator ? requestBody.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
+				organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias.NormalizeAlias(false);
+				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
+				organization.LastModified = DateTime.Now;
+				organization.LastModifiedID = requestInfo.Session.User.ID;
+			});
 			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(null, Sorts<Organization>.Ascending("Title")), cancellationToken).ConfigureAwait(false);
 
@@ -406,7 +393,7 @@ namespace net.vieapps.Services.Portals
 			var organizationID = filter != null && filter is FilterBys<Role>
 				? ((filter as FilterBys<Role>).Children.FirstOrDefault(exp => (exp as FilterBy<Role>).Attribute.IsEquals("SystemID")) as FilterBy<Role>)?.Value as string
 				: null;
-			var organization = await Utility.GetOrganizationByIDAsync(organizationID, cancellationToken).ConfigureAwait(false);
+			var organization = organizationID != null ? await organizationID.GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) : null;
 			if (organization == null)
 				throw new InformationExistedException("The organization is invalid");
 
@@ -477,8 +464,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var info = requestInfo.GetBodyExpando();
-			var organizationID = info.Get<string>("SystemID");
-			var organization = await Utility.GetOrganizationByIDAsync(organizationID, cancellationToken).ConfigureAwait(false);
+			var organization = await info.Get<string>("SystemID").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
@@ -500,8 +486,8 @@ namespace net.vieapps.Services.Portals
 
 			await Task.WhenAll(
 				Role.CreateAsync(role, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
-				Utility.UpdateRoleAsync(role, false, cancellationToken)
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
+				role.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
 
 			// update parent
@@ -511,7 +497,7 @@ namespace net.vieapps.Services.Portals
 			{
 				await role.ParentRole.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				role.ParentRole._childrenIDs.Add(role.ID);
-				await Utility.UpdateRoleAsync(role.ParentRole, true).ConfigureAwait(false);
+				await role.ParentRole.SetAsync(true).ConfigureAwait(false);
 
 				updateMessages.Add(new UpdateMessage
 				{
@@ -542,7 +528,7 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> GetRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var role = await Utility.GetRoleByIDAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (role == null)
 				throw new InformationNotFoundException();
 			else if (role.Organization == null)
@@ -558,7 +544,7 @@ namespace net.vieapps.Services.Portals
 			if (role._childrenIDs == null)
 			{
 				await role.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				await Utility.UpdateRoleAsync(role, true, cancellationToken).ConfigureAwait(false);
+				await role.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 
 			var response = role.ToJson(true, false);
@@ -580,8 +566,7 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> UpdateRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var roleID = requestInfo.GetObjectIdentity();
-			var role = await Utility.GetRoleByIDAsync(roleID, cancellationToken).ConfigureAwait(false);
+			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (role == null)
 				throw new InformationNotFoundException();
 			else if (role.Organization == null)
@@ -604,12 +589,12 @@ namespace net.vieapps.Services.Portals
 
 			await Task.WhenAll(
 				Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken),
-				Utility.UpdateRoleAsync(role, false, cancellationToken)
+				role.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
 
 			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, oldParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(oldParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
 			).ConfigureAwait(false);
 
 			// update parent
@@ -619,7 +604,7 @@ namespace net.vieapps.Services.Portals
 			{
 				await role.ParentRole.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				role.ParentRole._childrenIDs.Add(role.ID);
-				await Utility.UpdateRoleAsync(role.ParentRole, true).ConfigureAwait(false);
+				await role.ParentRole.SetAsync(true).ConfigureAwait(false);
 
 				updateMessages.Add(new UpdateMessage
 				{
@@ -631,12 +616,12 @@ namespace net.vieapps.Services.Portals
 
 			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(role.ParentID))
 			{
-				var parentRole = await Utility.GetRoleByIDAsync(oldParentID, cancellationToken).ConfigureAwait(false);
+				var parentRole = await oldParentID.GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (parentRole != null)
 				{
 					await parentRole.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 					parentRole._childrenIDs.Remove(role.ID);
-					await Utility.UpdateRoleAsync(parentRole, true).ConfigureAwait(false);
+					await parentRole.SetAsync(true, cancellationToken).ConfigureAwait(false);
 
 					updateMessages.Add(new UpdateMessage
 					{
@@ -668,17 +653,15 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> DeleteRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var role = await Role.GetAsync<Role>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (role == null)
 				throw new InformationNotFoundException();
-
-			var organization = await Utility.GetOrganizationByIDAsync(role.SystemID, cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
+			else if (role.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(role.Organization.OwnerID) || requestInfo.Session.User.IsModerator(role.Organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -694,7 +677,7 @@ namespace net.vieapps.Services.Portals
 					child.LastModified = DateTime.Now;
 					child.LastModifiedID = requestInfo.Session.User.ID;
 					await Role.UpdateAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false);
-					Utility.UpdateRole(child);
+					child.Set();
 					updateMessages.Add(new UpdateMessage
 					{
 						Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
@@ -708,10 +691,10 @@ namespace net.vieapps.Services.Portals
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
-				updateChildren ? Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, null), Sorts<Role>.Ascending("Title")), cancellationToken) : Task.CompletedTask,
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
+				updateChildren ? Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(null), Sorts<Role>.Ascending("Title")), cancellationToken) : Task.CompletedTask,
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
 			).ConfigureAwait(false);
-			Utility.Roles.Remove(role.ID);
+			role.Remove();
 
 			var response = role.ToJson();
 			updateMessages.Add(new UpdateMessage
@@ -736,7 +719,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, userID, cancellationToken).ConfigureAwait(false);
-			Utility.Roles.Remove(role.ID);
+			role.Remove();
 
 			updateMessages.Add(new UpdateMessage
 			{
@@ -803,7 +786,7 @@ namespace net.vieapps.Services.Portals
 			var organizationID = filter != null && filter is FilterBys<Desktop>
 				? ((filter as FilterBys<Desktop>).Children.FirstOrDefault(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("SystemID")) as FilterBy<Desktop>)?.Value as string
 				: null;
-			var organization = await Utility.GetOrganizationByIDAsync(organizationID, cancellationToken).ConfigureAwait(false);
+			var organization = await organizationID.GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationExistedException("The organization is invalid");
 
@@ -873,9 +856,8 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> CreateDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var info = requestInfo.GetBodyExpando();
-			var organizationID = info.Get<string>("SystemID");
-			var organization = await Utility.GetOrganizationByIDAsync(organizationID, cancellationToken).ConfigureAwait(false);
+			var requestBody = requestInfo.GetBodyExpando();
+			var organization = await requestBody.Get("SystemID", "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
@@ -886,37 +868,27 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// check alias
-			var alias = info.Get<string>("Alias");
+			var alias = requestBody.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await Utility.GetDesktopByAliasAsync(organization.ID, alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+				var existing = await organization.ID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
 				if (existing != null)
 					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
 			}
 
 			// create new
-			var desktop = info.Copy<Desktop>("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
-			desktop.ID = string.IsNullOrWhiteSpace(desktop.ID) || !desktop.ID.IsValidUUID() ? UtilityService.NewUUID : desktop.ID;
-			desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
-			desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.ToList(";", true, true).Select(a => a.NormalizeAlias()).Where(a => !a.IsEquals(desktop.Alias)).Join(";");
-
-			desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
-			"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
-			{
-				var value = info.Get<string>($"SEOSettings.{name}");
-				desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
-			});
-
+			var desktop = requestBody.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID");
 			desktop.SystemID = organization.ID;
 			desktop.ParentID = desktop.ParentDesktop != null ? desktop.ParentID : null;
+			desktop.ID = string.IsNullOrWhiteSpace(desktop.ID) || !desktop.ID.IsValidUUID() ? UtilityService.NewUUID : desktop.ID;
 			desktop.Created = desktop.LastModified = DateTime.Now;
 			desktop.CreatedID = desktop.LastModifiedID = requestInfo.Session.User.ID;
 			desktop._childrenIDs = new List<string>();
 
 			await Task.WhenAll(
 				Desktop.CreateAsync(desktop, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken),
-				Utility.UpdateDesktopAsync(desktop, false, false, cancellationToken)
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken),
+				desktop.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
 
 			// update parent
@@ -926,7 +898,7 @@ namespace net.vieapps.Services.Portals
 			{
 				await desktop.ParentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
-				await Utility.UpdateDesktopAsync(desktop.ParentDesktop, false, true, cancellationToken).ConfigureAwait(false);
+				await desktop.ParentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
 				updateMessages.Add(new UpdateMessage
 				{
@@ -957,7 +929,7 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> GetDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var desktop = await Utility.GetDesktopByIDAsync(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var desktop = await (requestInfo.GetObjectIdentity() ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (desktop == null)
 				throw new InformationNotFoundException();
 			else if (desktop.Organization == null)
@@ -973,7 +945,7 @@ namespace net.vieapps.Services.Portals
 			if (desktop._childrenIDs == null)
 			{
 				await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				await Utility.UpdateDesktopAsync(desktop, false, true, cancellationToken).ConfigureAwait(false);
+				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
 			var response = desktop.ToJson(true, false);
@@ -995,8 +967,7 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> UpdateDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var desktopID = requestInfo.GetObjectIdentity();
-			var desktop = await Utility.GetDesktopByIDAsync(desktopID, cancellationToken).ConfigureAwait(false);
+			var desktop = await (requestInfo.GetObjectIdentity() ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (desktop == null)
 				throw new InformationNotFoundException();
 			else if (desktop.Organization == null)
@@ -1009,42 +980,31 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// update
-			var info = requestInfo.GetBodyExpando();
+			var requestBody = requestInfo.GetBodyExpando();
 			var oldParentID = desktop.ParentID;
 
 			var oldAlias = desktop.Alias;
-			var alias = info.Get<string>("Alias");
+			var alias = requestBody.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await Utility.GetDesktopByAliasAsync(desktop.SystemID, alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+				var existing = await desktop.SystemID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(desktop.ID))
 					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
 			}
 
-			desktop.CopyFrom(info, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
-
-			desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? oldAlias : desktop.Alias.NormalizeAlias();
-			desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.ToList(";", true, true).Select(a => a.NormalizeAlias()).Where(a => !a.IsEquals(desktop.Alias)).Join(";");
-
-			desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
-			"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
-			{
-				var value = info.Get<string>($"SEOSettings.{name}");
-				desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
-			});
-
+			desktop.UpdateDesktopInstance(requestBody, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID");
 			desktop.LastModified = DateTime.Now;
 			desktop.LastModifiedID = requestInfo.Session.User.ID;
 			await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 
 			await Task.WhenAll(
 				Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken),
-				Utility.UpdateDesktopAsync(desktop, false, false, cancellationToken)
+				desktop.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
 
 			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, oldParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken)
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(oldParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken)
 			).ConfigureAwait(false);
 
 			// update parent
@@ -1054,7 +1014,7 @@ namespace net.vieapps.Services.Portals
 			{
 				await desktop.ParentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
-				await Utility.UpdateDesktopAsync(desktop.ParentDesktop, false, true, cancellationToken).ConfigureAwait(false);
+				await desktop.ParentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
 				updateMessages.Add(new UpdateMessage
 				{
@@ -1066,12 +1026,12 @@ namespace net.vieapps.Services.Portals
 
 			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(desktop.ParentID))
 			{
-				var parentDesktop = await Utility.GetDesktopByIDAsync(oldParentID, cancellationToken).ConfigureAwait(false);
+				var parentDesktop = await oldParentID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (parentDesktop != null)
 				{
 					await parentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 					parentDesktop._childrenIDs.Remove(desktop.ID);
-					await Utility.UpdateDesktopAsync(parentDesktop, false, true, cancellationToken).ConfigureAwait(false);
+					await parentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
 					updateMessages.Add(new UpdateMessage
 					{
@@ -1103,17 +1063,15 @@ namespace net.vieapps.Services.Portals
 		async Task<JObject> DeleteDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var desktop = await Desktop.GetAsync<Desktop>(requestInfo.GetObjectIdentity(), cancellationToken).ConfigureAwait(false);
+			var desktop = await (requestInfo.GetObjectIdentity() ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (desktop == null)
 				throw new InformationNotFoundException();
-
-			var organization = await Utility.GetOrganizationByIDAsync(desktop.SystemID, cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
+			else if (desktop.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop.Organization.OwnerID) || requestInfo.Session.User.IsModerator(desktop.Organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -1129,7 +1087,7 @@ namespace net.vieapps.Services.Portals
 					child.LastModified = DateTime.Now;
 					child.LastModifiedID = requestInfo.Session.User.ID;
 					await Desktop.UpdateAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false);
-					Utility.UpdateDesktop(child);
+					child.Set();
 					updateMessages.Add(new UpdateMessage
 					{
 						Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Update",
@@ -1143,10 +1101,10 @@ namespace net.vieapps.Services.Portals
 
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
-				updateChildren ? Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, null), Sorts<Desktop>.Ascending("Title")), cancellationToken) : Task.CompletedTask,
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Utility.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken)
+				updateChildren ? Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(null), Sorts<Desktop>.Ascending("Title")), cancellationToken) : Task.CompletedTask,
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken)
 			).ConfigureAwait(false);
-			Utility.Desktops.Remove(desktop.ID);
+			desktop.Remove();
 
 			var response = desktop.ToJson();
 			updateMessages.Add(new UpdateMessage
@@ -1171,7 +1129,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, userID, cancellationToken).ConfigureAwait(false);
-			Utility.Desktops.Remove(desktop.ID);
+			desktop.Remove();
 
 			updateMessages.Add(new UpdateMessage
 			{

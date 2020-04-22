@@ -3,16 +3,13 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
-
-using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -73,9 +70,34 @@ namespace net.vieapps.Services.Portals
 		public RepositoryDefinition Definition => RepositoryMediator.GetRepositoryDefinition(AssemblyLoader.GetType(this.DefinitionType), true);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
+		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop Desktop => Utility.GetDesktopByID(this.DesktopID) ?? this.Organization?.HomeDesktop;
+		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.Organization?.HomeDesktop;
+	}
+
+	internal static class ModuleExtensions
+	{
+		internal static ConcurrentDictionary<string, Module> Modules { get; } = new ConcurrentDictionary<string, Module>(StringComparer.OrdinalIgnoreCase);
+
+		internal static Module UpdateModule(this Module module)
+		{
+			if (module != null)
+				ModuleExtensions.Modules[module.ID] = module;
+			return module;
+		}
+
+		internal static Module GetModuleByID(this string id, bool force = false, bool fetchRepository = true)
+			=> !force && !string.IsNullOrWhiteSpace(id) && ModuleExtensions.Modules.ContainsKey(id)
+				? ModuleExtensions.Modules[id]
+				: fetchRepository && !string.IsNullOrWhiteSpace(id)
+					? Module.Get<Module>(id)?.UpdateModule()
+					: null;
+
+		internal static async Task<Module> GetModuleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
+		{
+			var module = (id ?? "").GetModuleByID(force, false) ?? await Module.GetAsync<Module>(id, cancellationToken).ConfigureAwait(false);
+			return module?.UpdateModule();
+		}
 	}
 }

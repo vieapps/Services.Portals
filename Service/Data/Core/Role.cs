@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
@@ -75,10 +76,10 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
+		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Role ParentRole => Utility.GetRoleByID(this.ParentID);
+		public Role ParentRole => (this.ParentID ?? "").GetRoleByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public new IPortalObject Parent => this.ParentRole ?? this.Organization as IPortalObject;
@@ -102,19 +103,19 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._childrenIDs == null)
 			{
-				roles = roles ?? Utility.GetRolesByParentID(this.SystemID, this.ID);
+				roles = roles ?? this.SystemID.GetRolesByParentID(this.ID);
 				this._childrenIDs = roles.Select(role => role.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("ChildrenIDs");
 				return roles;
 			}
-			return this._childrenIDs.Select(id => Utility.GetRoleByID(id)).ToList();
+			return this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 		}
 
 		internal async Task<List<Role>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
-				? this.GetChildren(notifyPropertyChanged, await Utility.GetRolesByParentIDAsync(this.SystemID, this.ID, cancellationToken).ConfigureAwait(false))
-				: this._childrenIDs.Select(id => Utility.GetRoleByID(id)).ToList();
+				? this.GetChildren(notifyPropertyChanged, await this.SystemID.GetRolesByParentIDAsync(this.ID, cancellationToken).ConfigureAwait(false))
+				: this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public List<Role> Children => this.GetChildren();
@@ -129,7 +130,7 @@ namespace net.vieapps.Services.Portals
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				if (addChildren && json != null)
-					json["Children"] = (this.GetChildren() ?? new List<Role>()).ToJArray(role => role?.ToJson(true, false));
+					json["Children"] = (this.GetChildren() ?? new List<Role>()).Select(role => role?.ToJson(true, false)).Where(role => role != null).ToJArray();
 				onPreCompleted?.Invoke(json);
 			});
 
@@ -137,6 +138,73 @@ namespace net.vieapps.Services.Portals
 		{
 			if (name.IsEquals("ChildrenIDs"))
 				Utility.Cache.Set(this);
+		}
+	}
+
+	internal static class RoleExtensions
+	{
+		internal static ConcurrentDictionary<string, Role> Roles { get; } = new ConcurrentDictionary<string, Role>(StringComparer.OrdinalIgnoreCase);
+
+		internal static Role Set(this Role role, bool updateCache = false)
+		{
+			if (role != null)
+			{
+				RoleExtensions.Roles[role.ID] = role;
+				if (updateCache)
+					Utility.Cache.Set(role);
+			}
+			return role;
+		}
+
+		internal static async Task<Role> SetAsync(this Role role, bool updateCache = false, CancellationToken cancellationToken = default)
+		{
+			role?.Set();
+			await (updateCache && role != null ? Utility.Cache.SetAsync(role, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			return role;
+		}
+
+		internal static Role Remove(this Role role)
+			=> (role?.ID ?? "").RemoveRole();
+
+		internal static Role RemoveRole(this string id)
+			=> !string.IsNullOrWhiteSpace(id) && RoleExtensions.Roles.TryRemove(id, out var role) ? role : null;
+
+		internal static Role GetRoleByID(this string id, bool force = false, bool fetchRepository = true)
+			=> !force && !string.IsNullOrWhiteSpace(id) && RoleExtensions.Roles.ContainsKey(id)
+				? RoleExtensions.Roles[id]
+				: fetchRepository && !string.IsNullOrWhiteSpace(id)
+					? Role.Get<Role>(id)?.Set()
+					: null;
+
+		internal static async Task<Role> GetRoleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
+		{
+			var role = (id ?? "").GetRoleByID(force, false) ?? await Role.GetAsync<Role>(id, cancellationToken).ConfigureAwait(false);
+			return role != null ? await role.SetAsync(false, cancellationToken).ConfigureAwait(false) : null;
+		}
+
+		internal static IFilterBy<Role> GetRolesFilter(this string systemID, string parentID)
+			=> Filters<Role>.And(Filters<Role>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Role>.IsNull("ParentID") : Filters<Role>.Equals("ParentID", parentID));
+
+		internal static List<Role> GetRolesByParentID(this string systemID, string parentID, bool updateCache = true)
+		{
+			if (string.IsNullOrWhiteSpace(systemID))
+				return new List<Role>();
+			var filter = systemID.GetRolesFilter(parentID);
+			var sort = Sorts<Role>.Ascending("Title");
+			var roles = Role.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
+			roles.ForEach(role => role.Set(updateCache));
+			return roles;
+		}
+
+		internal static async Task<List<Role>> GetRolesByParentIDAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
+		{
+			if (string.IsNullOrWhiteSpace(systemID))
+				return new List<Role>();
+			var filter = systemID.GetRolesFilter(parentID);
+			var sort = Sorts<Role>.Ascending("Title");
+			var roles = await Role.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
+			await roles.ForEachAsync((role, token) => role.SetAsync(updateCache, token), cancellationToken).ConfigureAwait(false);
+			return roles;
 		}
 	}
 }

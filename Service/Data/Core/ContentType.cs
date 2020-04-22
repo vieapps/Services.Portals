@@ -3,16 +3,13 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
-
-using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -45,7 +42,7 @@ namespace net.vieapps.Services.Portals
 		[Sortable(IndexName = "Management"), FormControl(Label = "{{portals.contenttypes.controls.[name]}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public bool UseSocialNetworkComments { get; set; } = false;
 
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String), FormControl(Label = "{{portals.contenttypes.controls.[name]}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String), FormControl(Label = "{{portals.contenttypes.controls.[name]}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public ApprovalStatus DefaultCommentStatus { get; set; } = ApprovalStatus.Pending;
 
 		[Property(IsCLOB = true), FormControl(Excluded = true), XmlIgnore]
@@ -94,12 +91,37 @@ namespace net.vieapps.Services.Portals
 		public EntityDefinition Definition => RepositoryMediator.GetEntityDefinition(AssemblyLoader.GetType(this.DefinitionType), true);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Organization Organization => Utility.GetOrganizationByID(this.OrganizationID);
+		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Module Module => Utility.GetModuleByID(this.ModuleID);
+		public Module Module => (this.ModuleID ?? "").GetModuleByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop Desktop => Utility.GetDesktopByID(this.DesktopID) ?? this.Module?.Desktop;
+		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.Module?.Desktop;
+	}
+
+	internal static class ContentTypeExtensions
+	{
+		internal static ConcurrentDictionary<string, ContentType> ContentTypes { get; } = new ConcurrentDictionary<string, ContentType>(StringComparer.OrdinalIgnoreCase);
+
+		internal static ContentType UpdateContentType(this ContentType contentType)
+		{
+			if (contentType != null)
+				ContentTypeExtensions.ContentTypes[contentType.ID] = contentType;
+			return contentType;
+		}
+
+		internal static ContentType GetContentTypeByID(this string id, bool force = false, bool fetchRepository = true)
+			=> !force && !string.IsNullOrWhiteSpace(id) && ContentTypeExtensions.ContentTypes.ContainsKey(id)
+				? ContentTypeExtensions.ContentTypes[id]
+				: fetchRepository && !string.IsNullOrWhiteSpace(id)
+					? ContentType.Get<ContentType>(id).UpdateContentType()
+					: null;
+
+		internal static async Task<ContentType> GetContentTypeByIDAsync(string id, CancellationToken cancellationToken = default, bool force = false)
+		{
+			var contentType = (id ?? "").GetContentTypeByID(force, false) ?? await ContentType.GetAsync<ContentType>(id, cancellationToken).ConfigureAwait(false);
+			return contentType?.UpdateContentType();
+		}
 	}
 }

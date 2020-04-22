@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
@@ -133,19 +134,19 @@ namespace net.vieapps.Services.Portals
 		public override Privileges WorkingPrivileges => this.OriginalPrivileges ?? new Privileges(true);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<Site> Sites => Utility.Sites.Values.Where(site => site.SystemID.IsEquals(this.ID)).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ToList();
+		public List<Site> Sites => SiteExtensions.Sites.Values.Where(site => site.SystemID.IsEquals(this.ID)).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Site DefaultSite => this.Sites.FirstOrDefault();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop DefaultDesktop => Utility.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
+		public Desktop DefaultDesktop => DesktopExtensions.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop HomeDesktop => Utility.GetDesktopByID(this.HomeDesktopID) ?? this.DefaultDesktop;
+		public Desktop HomeDesktop => (this.HomeDesktopID ?? "").GetDesktopByID() ?? this.DefaultDesktop;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop SearchDesktop => Utility.GetDesktopByID(this.SearchDesktopID) ?? this.DefaultDesktop;
+		public Desktop SearchDesktop => (this.SearchDesktopID ?? "").GetDesktopByID() ?? this.DefaultDesktop;
 
 		[Ignore, BsonIgnore]
 		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
@@ -174,9 +175,50 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
+		internal void NormalizeSettings()
+		{
+			this.Notifications.Emails.Normalize();
+			this.Notifications.WebHooks.Normalize();
+			this.RefreshUrls.Normalize();
+			this.RefreshUrls.Normalize();
+			this.EmailSettings.Normalize();
+			this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
+			OrganizationExtensions.SettingProperties.ForEach(name => this._settings[name] = this.GetProperty(name)?.ToJson());
+			this._otherSettings = this._settings.ToString(Formatting.None);
+		}
+
+		public override void ProcessPropertyChanged(string name)
+		{
+			if (name.IsEquals("OtherSettings"))
+			{
+				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
+				this.Notifications = this._settings["Notifications"]?.FromJson<Settings.Notifications>() ?? new Settings.Notifications();
+				this.Instructions = this._settings["Instructions"]?.ToExpandoObject().GetInstructions();
+				this.Socials = this._settings["Socials"]?.FromJson<List<string>>() ?? new List<string>();
+				this.Trackings = this._settings["Trackings"]?.FromJson<Dictionary<string, string>>() ?? new Dictionary<string, string>();
+				this.MetaTags = this._settings["MetaTags"]?.FromJson<string>();
+				this.Scripts = this._settings["Scripts"]?.FromJson<string>();
+				this.RefreshUrls = this._settings["RefreshUrls"]?.FromJson<Settings.RefreshUrls>() ?? new Settings.RefreshUrls();
+				this.RedirectUrls = this._settings["RedirectUrls"]?.FromJson<Settings.RedirectUrls>() ?? new Settings.RedirectUrls();
+				this.EmailSettings = this._settings["EmailSettings"]?.FromJson<Settings.Email>() ?? new Settings.Email();
+			}
+			else if (OrganizationExtensions.SettingProperties.ToHashSet().Contains(name))
+			{
+				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
+				this._settings[name] = this.GetProperty(name)?.ToJson();
+			}
+		}
+	}
+
+	internal static class OrganizationExtensions
+	{
+		internal static ConcurrentDictionary<string, Organization> Organizations { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
+
+		internal static ConcurrentDictionary<string, Organization> OrganizationsByAlias { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
+
 		internal static List<string> SettingProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,Scripts,RefreshUrls,RedirectUrls,EmailSettings".ToList();
 
-		internal static Dictionary<string, Dictionary<string, Settings.Instruction>> GetInstructions(ExpandoObject rawInstructions)
+		internal static Dictionary<string, Dictionary<string, Settings.Instruction>> GetInstructions(this ExpandoObject rawInstructions)
 		{
 			var instructions = new Dictionary<string, Dictionary<string, Settings.Instruction>>();
 			rawInstructions?.ForEach(rawInstruction =>
@@ -192,38 +234,90 @@ namespace net.vieapps.Services.Portals
 			return instructions;
 		}
 
-		internal void NormalizeSettings()
+		internal static Organization CreateOrganizationInstance(this ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
+			=> requestBody.Copy<Organization>(excluded?.ToHashSet(), organization =>
+			{
+				organization.Instructions = requestBody.Get<ExpandoObject>("Instructions").GetInstructions();
+				organization.NormalizeSettings();
+				onCompleted?.Invoke(organization);
+			});
+
+		internal static Organization UpdateOrganizationInstance(this Organization organization, ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
 		{
-			this.Notifications.Emails.Normalize();
-			this.Notifications.WebHooks.Normalize();
-			this.RefreshUrls.Normalize();
-			this.RefreshUrls.Normalize();
-			this.EmailSettings.Normalize();
-			this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
-			Organization.SettingProperties.ForEach(name => this._settings[name] = this.GetProperty(name)?.ToJson());
-			this._otherSettings = this._settings.ToString(Formatting.None);
+			organization.CopyFrom(requestBody, excluded?.ToHashSet());
+			organization.Instructions = requestBody.Get<ExpandoObject>("Instructions").GetInstructions();
+			organization.NormalizeSettings();
+			onCompleted?.Invoke(organization);
+			return organization;
 		}
 
-		public override void ProcessPropertyChanged(string name)
+		internal static Organization Set(this Organization organization, bool clear = false, bool updateCache = false)
 		{
-			if (name.IsEquals("OtherSettings"))
+			if (organization != null)
 			{
-				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
-				this.Notifications = this._settings["Notifications"]?.FromJson<Settings.Notifications>() ?? new Settings.Notifications();
-				this.Instructions = Organization.GetInstructions(this._settings["Instructions"]?.ToExpandoObject());
-				this.Socials = this._settings["Socials"]?.FromJson<List<string>>() ?? new List<string>();
-				this.Trackings = this._settings["Trackings"]?.FromJson<Dictionary<string, string>>() ?? new Dictionary<string, string>();
-				this.MetaTags = this._settings["MetaTags"]?.FromJson<string>();
-				this.Scripts = this._settings["Scripts"]?.FromJson<string>();
-				this.RefreshUrls = this._settings["RefreshUrls"]?.FromJson<Settings.RefreshUrls>() ?? new Settings.RefreshUrls();
-				this.RedirectUrls = this._settings["RedirectUrls"]?.FromJson<Settings.RedirectUrls>() ?? new Settings.RedirectUrls();
-				this.EmailSettings = this._settings["EmailSettings"]?.FromJson<Settings.Email>() ?? new Settings.Email();
+				if (clear && OrganizationExtensions.Organizations.TryGetValue(organization.ID, out var old) && old != null)
+					OrganizationExtensions.OrganizationsByAlias.Remove(old.Alias);
+				OrganizationExtensions.Organizations[organization.ID] = organization;
+				OrganizationExtensions.OrganizationsByAlias[organization.Alias] = organization;
+				if (updateCache)
+					Utility.Cache.Set(organization);
 			}
-			else if (Organization.SettingProperties.ToHashSet().Contains(name))
+			return organization;
+		}
+
+		internal static Organization Remove(this Organization organization)
+			=> (organization?.ID ?? "").RemoveOrganization();
+
+		internal static Organization RemoveOrganization(this string id)
+		{
+			if (string.IsNullOrWhiteSpace(id))
+				return null;
+			if (OrganizationExtensions.Organizations.TryRemove(id, out var organization) && organization != null)
+				OrganizationExtensions.OrganizationsByAlias.Remove(organization.Alias);
+			return organization;
+		}
+
+		internal static async Task<Organization> SetAsync(this Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		{
+			organization?.Set(clear);
+			await (updateCache && organization != null ? Utility.Cache.SetAsync(organization, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			return organization;
+		}
+
+		internal static Organization GetOrganizationByID(this string id, bool force = false, bool fetchRepository = true)
+			=> !force && !string.IsNullOrWhiteSpace(id) && OrganizationExtensions.Organizations.ContainsKey(id)
+				? OrganizationExtensions.Organizations[id]
+				: fetchRepository && !string.IsNullOrWhiteSpace(id)
+					? Organization.Get<Organization>(id)?.Set()
+					: null;
+
+		internal static async Task<Organization> GetOrganizationByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
+		{
+			var organization = id.GetOrganizationByID(force, false) ?? await Organization.GetAsync<Organization>(id, cancellationToken).ConfigureAwait(false);
+			return organization != null ? await organization.SetAsync(false, false, cancellationToken).ConfigureAwait(false) : null;
+		}
+
+		internal static Organization GetOrganizationByAlias(this string alias, bool force = false, bool fetchRepository = true)
+		{
+			var organization = !force && !string.IsNullOrWhiteSpace(alias) && OrganizationExtensions.OrganizationsByAlias.ContainsKey(alias)
+				? OrganizationExtensions.OrganizationsByAlias[alias]
+				: null;
+
+			if (organization == null && !force && !string.IsNullOrWhiteSpace(alias))
 			{
-				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
-				this._settings[name] = this.GetProperty(name)?.ToJson();
+				organization = OrganizationExtensions.Organizations.Values.FirstOrDefault(org => org.Alias.IsEquals(alias));
+				organization?.Set();
 			}
+
+			return organization ?? (fetchRepository && !string.IsNullOrWhiteSpace(alias) ? Organization.Get<Organization>(Filters<Organization>.Equals("Alias", alias), null, null)?.Set() : null);
+		}
+
+		internal static async Task<Organization> GetOrganizationByAliasAsync(this string alias, CancellationToken cancellationToken = default, bool force = false)
+		{
+			var organization = string.IsNullOrWhiteSpace(alias)
+				? null
+				: alias.GetOrganizationByAlias(force, false) ?? await Organization.GetAsync<Organization>(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false);
+			return organization != null ? await organization.SetAsync(false, false, cancellationToken).ConfigureAwait(false) : null;
 		}
 	}
 }
