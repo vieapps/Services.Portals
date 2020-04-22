@@ -95,6 +95,16 @@ namespace net.vieapps.Services.Portals
 				return Utility._PassportsHttpUri;
 			}
 		}
+
+		public static string NormalizeAlias(this string alias, bool allowMinusSymbols = true)
+		{
+			alias = alias.GetANSIUri();
+			while (alias.StartsWith("-") || alias.StartsWith("_"))
+				alias = alias.Right(alias.Length - 1);
+			while (alias.EndsWith("-") || alias.EndsWith("_"))
+				alias = alias.Left(alias.Length - 1);
+			return allowMinusSymbols ? alias : alias.Replace("-", "");
+		}
 		#endregion
 
 		#region Organizations
@@ -231,7 +241,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Utility.DesktopsByAlias.Remove($"{old.SystemID}:{old.Alias}");
 					if (!string.IsNullOrWhiteSpace(old.Aliases))
-						old.Aliases.Replace(";", ",").ToList().ForEach(alias => Utility.DesktopsByAlias.Remove($"{old.SystemID}:{alias}"));
+						old.Aliases.Replace(",", ";").ToList(";").ForEach(alias => Utility.DesktopsByAlias.Remove($"{old.SystemID}:{alias}"));
 					if (old.ParentID != desktop.ParentID)
 					{
 						if (old.ParentDesktop != null)
@@ -243,7 +253,7 @@ namespace net.vieapps.Services.Portals
 				Utility.Desktops[desktop.ID] = desktop;
 				Utility.DesktopsByAlias[$"{desktop.SystemID}:{desktop.Alias}"] = desktop;
 				if (!string.IsNullOrWhiteSpace(desktop.Aliases))
-					desktop.Aliases.Replace(";", ",").ToList().ForEach(alias => Utility.DesktopsByAlias.TryAdd($"{desktop.SystemID}:{alias}", desktop));
+					desktop.Aliases.Replace(",", ";").ToList(";").ForEach(alias => Utility.DesktopsByAlias.TryAdd($"{desktop.SystemID}:{alias}", desktop));
 				if (updateCache)
 					Utility.Cache.Set(desktop);
 			}
@@ -304,7 +314,7 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Desktop>();
 			var filter = Utility.GetDesktopsFilter(systemID, parentID);
-			var sort = Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title");
+			var sort = Sorts<Desktop>.Ascending("Title");
 			var desktops = Desktop.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
 			desktops.ForEach(desktop => Utility.UpdateDesktop(desktop, false, updateCache));
 			return desktops;
@@ -315,7 +325,7 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Desktop>();
 			var filter = Utility.GetDesktopsFilter(systemID, parentID);
-			var sort = Sorts<Desktop>.Ascending("OrderIndex").ThenByAscending("Title");
+			var sort = Sorts<Desktop>.Ascending("Title");
 			var desktops = await Desktop.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
 			await desktops.ForEachAsync((desktop, token) => Utility.UpdateDesktopAsync(desktop, false, updateCache, token), cancellationToken).ConfigureAwait(false);
 			return desktops;

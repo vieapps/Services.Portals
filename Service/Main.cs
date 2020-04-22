@@ -226,16 +226,16 @@ namespace net.vieapps.Services.Portals
 			var alias = info.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await Utility.GetOrganizationByAliasAsync(alias, cancellationToken).ConfigureAwait(false);
+				var existing = await Utility.GetOrganizationByAliasAsync(alias.NormalizeAlias(false), cancellationToken).ConfigureAwait(false);
 				if (existing != null)
-					throw new InformationExistedException("The alias (" + alias + ") is used by another organization");
+					throw new InformationExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 			}
 
 			// prepare
 			var organization = info.Copy<Organization>("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
 			organization.ID = string.IsNullOrWhiteSpace(organization.ID) || !organization.ID.IsValidUUID() ? UtilityService.NewUUID : organization.ID;
-			organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? organization.Title.GetANSIUri() + organization.ID : organization.Alias;
+			organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? organization.Title.NormalizeAlias(false) + organization.ID : organization.Alias.NormalizeAlias(false);
 			organization.OwnerID = string.IsNullOrWhiteSpace(organization.OwnerID) || !organization.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : organization.OwnerID;
 
 			organization.Status = isSystemAdministrator
@@ -308,16 +308,16 @@ namespace net.vieapps.Services.Portals
 			var alias = info.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await Utility.GetOrganizationByAliasAsync(alias, cancellationToken).ConfigureAwait(false);
+				var existing = await Utility.GetOrganizationByAliasAsync(alias.NormalizeAlias(false), cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(organization.ID))
-					throw new InformationExistedException($"The alias ({alias}) is used by another organization");
+					throw new InformationExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 			}
 
 			// prepare
 			organization.CopyFrom(info, "ID,OwnerID,Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
 
 			organization.OwnerID = isSystemAdministrator ? info.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
-			organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias;
+			organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias.NormalizeAlias(false);
 
 			organization.Instructions = Organization.GetInstructions(info.Get<ExpandoObject>("Instructions"));
 			organization.NormalizeSettings();
@@ -885,10 +885,28 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// check alias
+			var alias = info.Get<string>("Alias");
+			if (!string.IsNullOrWhiteSpace(alias))
+			{
+				var existing = await Utility.GetDesktopByAliasAsync(organization.ID, alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+				if (existing != null)
+					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
+			}
+
 			// create new
 			var desktop = info.Copy<Desktop>("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
-
 			desktop.ID = string.IsNullOrWhiteSpace(desktop.ID) || !desktop.ID.IsValidUUID() ? UtilityService.NewUUID : desktop.ID;
+			desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
+			desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.ToList(";", true, true).Select(a => a.NormalizeAlias()).Where(a => !a.IsEquals(desktop.Alias)).Join(";");
+
+			desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
+			"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
+			{
+				var value = info.Get<string>($"SEOSettings.{name}");
+				desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
+			});
+
 			desktop.SystemID = organization.ID;
 			desktop.ParentID = desktop.ParentDesktop != null ? desktop.ParentID : null;
 			desktop.Created = desktop.LastModified = DateTime.Now;
@@ -991,10 +1009,30 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// update
-			var oldParentID = desktop.ParentID;
 			var info = requestInfo.GetBodyExpando();
+			var oldParentID = desktop.ParentID;
+
+			var oldAlias = desktop.Alias;
+			var alias = info.Get<string>("Alias");
+			if (!string.IsNullOrWhiteSpace(alias))
+			{
+				var existing = await Utility.GetDesktopByAliasAsync(desktop.SystemID, alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+				if (existing != null && !existing.ID.Equals(desktop.ID))
+					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
+			}
 
 			desktop.CopyFrom(info, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet());
+
+			desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? oldAlias : desktop.Alias.NormalizeAlias();
+			desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.ToList(";", true, true).Select(a => a.NormalizeAlias()).Where(a => !a.IsEquals(desktop.Alias)).Join(";");
+
+			desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
+			"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
+			{
+				var value = info.Get<string>($"SEOSettings.{name}");
+				desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
+			});
+
 			desktop.LastModified = DateTime.Now;
 			desktop.LastModifiedID = requestInfo.Session.User.ID;
 			await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
