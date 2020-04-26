@@ -2,14 +2,6 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Xml.Serialization;
-
-using Newtonsoft.Json;
-using MongoDB.Bson.Serialization.Attributes;
-
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
@@ -24,93 +16,63 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Logger.GetLoggerFactory());
 
-		static string _APIsHttpUri, _FilesHttpUri, _PortalsHttpUri, _PassportsHttpUri;
+		/// <summary>
+		/// Gets the collection of module definition
+		/// </summary>
+		public static List<ModuleDefinition> ModuleDefinitions { get; } = new List<ModuleDefinition>();
+
+		/// <summary>
+		/// Gets the collection of not recognized aliases
+		/// </summary>
+		public static HashSet<string> NotRecognizedAliases { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 		/// <summary>
 		/// Gets the URI of the public APIS
 		/// </summary>
-		public static string APIsHttpUri
-		{
-			get
-			{
-				if (string.IsNullOrWhiteSpace(Utility._APIsHttpUri))
-				{
-					Utility._APIsHttpUri = UtilityService.GetAppSetting("HttpUri:APIs", "https://apis.vieapps.net");
-					while (Utility._APIsHttpUri.EndsWith("/"))
-						Utility._APIsHttpUri = Utility._APIsHttpUri.Left(Utility._APIsHttpUri.Length - 1);
-				}
-				return Utility._APIsHttpUri;
-			}
-		}
+		public static string APIsHttpURI { get; internal set; }
 
 		/// <summary>
 		/// Gets the URI of the Files HTTP service
 		/// </summary>
-		public static string FilesHttpUri
-		{
-			get
-			{
-				if (string.IsNullOrWhiteSpace(Utility._FilesHttpUri))
-				{
-					Utility._FilesHttpUri = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
-					while (Utility._FilesHttpUri.EndsWith("/"))
-						Utility._FilesHttpUri = Utility._FilesHttpUri.Left(Utility._FilesHttpUri.Length - 1);
-				}
-				return Utility._FilesHttpUri;
-			}
-		}
+		public static string FilesHttpURI { get; internal set; }
 
 		/// <summary>
 		/// Gets the URI of the Portals HTTP service
 		/// </summary>
-		public static string PortalsHttpUri
-		{
-			get
-			{
-				if (string.IsNullOrWhiteSpace(Utility._PortalsHttpUri))
-				{
-					Utility._PortalsHttpUri = UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
-					while (Utility._PortalsHttpUri.EndsWith("/"))
-						Utility._PortalsHttpUri = Utility._PortalsHttpUri.Left(Utility._PortalsHttpUri.Length - 1);
-				}
-				return Utility._PortalsHttpUri;
-			}
-		}
+		public static string PortalsHttpURI { get; internal set; }
 
 		/// <summary>
 		/// Gets the URI of the Passports HTTP service
 		/// </summary>
-		public static string PassportsHttpUri
-		{
-			get
-			{
-				if (string.IsNullOrWhiteSpace(Utility._PassportsHttpUri))
-				{
-					Utility._PassportsHttpUri = UtilityService.GetAppSetting("HttpUri:Passports", "https://id.vieapps.net");
-					while (Utility._PassportsHttpUri.EndsWith("/"))
-						Utility._PassportsHttpUri = Utility._PassportsHttpUri.Left(Utility._PassportsHttpUri.Length - 1);
-				}
-				return Utility._PassportsHttpUri;
-			}
-		}
+		public static string PassportsHttpURI { get; internal set; }
 
+		/// <summary>
+		/// Gets the default site
+		/// </summary>
+		public static Site DefaultSite { get; internal set; }
+
+		/// <summary>
+		/// Gets the path to the directory that contains all data files of portals (css, images, scripts, templates)
+		/// </summary>
+		public static string DataFilesDirectory { get; internal set; }
+
+		/// <summary>
+		/// Normalizes an alias
+		/// </summary>
+		/// <param name="alias"></param>
+		/// <param name="allowMinusSymbols"></param>
+		/// <returns></returns>
 		public static string NormalizeAlias(this string alias, bool allowMinusSymbols = true)
-		{
-			alias = alias.GetANSIUri();
-			while (alias.StartsWith("-") || alias.StartsWith("_"))
-				alias = alias.Right(alias.Length - 1);
-			while (alias.EndsWith("-") || alias.EndsWith("_"))
-				alias = alias.Left(alias.Length - 1);
-			return allowMinusSymbols ? alias : alias.Replace("-", "");
-		}
+			=> allowMinusSymbols ? alias.GetANSIUri() : alias.GetANSIUri().Replace("-", "");
 	}
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Serializable, Repository(ID = "00000000000000000000000000000001", Title = "Portals", Description = "Managing core information of portals and related services", Directory = "Portals")]
+	[Serializable]
+	[Repository(ID = "00000000000000000000000000000001", Title = "CMS", Description = "Provide services of the CMS module", Directory = "CMS")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class
 	{
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, Newtonsoft.Json.JsonIgnore, MongoDB.Bson.Serialization.Attributes.BsonIgnore, System.Xml.Serialization.XmlIgnore]
 		public override string ServiceName => ServiceBase.ServiceComponent.ServiceName;
 	}
 }

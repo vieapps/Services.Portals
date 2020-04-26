@@ -29,72 +29,72 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title"), Searchable]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public override string Title { get; set; } = "";
 
-		[Property(MaxLength = 250)]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[Property(MaxLength = 250), Searchable]
+		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string Description { get; set; }
 
 		[Property(MaxLength = 32)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(ControlType = "Lookup", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "Lookup", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string OwnerID { get; set; }
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
 		[Property(MaxLength = 100, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management", UniqueIndexName = "Alias")]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string Alias { get; set; } = "";
 
 		[Property(MaxLength = 10, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string ExpiredDate { get; set; } = "-";
 
 		[Sortable(IndexName = "Management")]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public long FilesQuotes { get; set; } = 0;
 
 		[Sortable(IndexName = "Management")]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public bool Required2FA { get; set; } = false;
 
 		[Sortable(IndexName = "Management")]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public bool TrackDownloadFiles { get; set; } = false;
 
 		[Property(MaxLength = 100)]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string Theme { get; set; } = "default";
 
 		[Property(MaxLength = 32)]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string HomeDesktopID { get; set; }
 
 		[Property(MaxLength = 32)]
-		[FormControl(Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string SearchDesktopID { get; set; }
 
 		[NonSerialized]
-		JObject _settings;
+		JObject _json;
 
-		string _otherSettings;
+		string _extras;
 
 		[Property(IsCLOB = true)]
 		[JsonIgnore, XmlIgnore]
 		[FormControl(Excluded = true)]
-		public string OtherSettings
+		public string Extras
 		{
-			get => this._otherSettings;
+			get => this._extras;
 			set
 			{
-				this._otherSettings = value;
-				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this._otherSettings) ? "{}" : this._otherSettings);
+				this._extras = value;
+				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this._extras) ? "{}" : this._extras);
 				this.NotifyPropertyChanged();
 			}
 		}
@@ -175,50 +175,50 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
-		internal void NormalizeSettings()
+		internal void NormalizeExtras()
 		{
 			this.Notifications.Emails.Normalize();
 			this.Notifications.WebHooks.Normalize();
 			this.RefreshUrls.Normalize();
 			this.RefreshUrls.Normalize();
 			this.EmailSettings.Normalize();
-			this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
-			OrganizationExtensions.SettingProperties.ForEach(name => this._settings[name] = this.GetProperty(name)?.ToJson());
-			this._otherSettings = this._settings.ToString(Formatting.None);
+			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
+			OrganizationExtensions.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
+			this._extras = this._json.ToString(Formatting.None);
 		}
 
 		public override void ProcessPropertyChanged(string name)
 		{
-			if (name.IsEquals("OtherSettings"))
+			if (name.IsEquals("Extras"))
 			{
-				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
-				this.Notifications = this._settings["Notifications"]?.FromJson<Settings.Notifications>() ?? new Settings.Notifications();
-				this.Instructions = this._settings["Instructions"]?.ToExpandoObject().GetInstructions();
-				this.Socials = this._settings["Socials"]?.FromJson<List<string>>() ?? new List<string>();
-				this.Trackings = this._settings["Trackings"]?.FromJson<Dictionary<string, string>>() ?? new Dictionary<string, string>();
-				this.MetaTags = this._settings["MetaTags"]?.FromJson<string>();
-				this.Scripts = this._settings["Scripts"]?.FromJson<string>();
-				this.RefreshUrls = this._settings["RefreshUrls"]?.FromJson<Settings.RefreshUrls>() ?? new Settings.RefreshUrls();
-				this.RedirectUrls = this._settings["RedirectUrls"]?.FromJson<Settings.RedirectUrls>() ?? new Settings.RedirectUrls();
-				this.EmailSettings = this._settings["EmailSettings"]?.FromJson<Settings.Email>() ?? new Settings.Email();
+				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
+				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>() ?? new Settings.Notifications();
+				this.Instructions = this._json["Instructions"]?.ToExpandoObject().GetOrganizationInstructions();
+				this.Socials = this._json["Socials"]?.FromJson<List<string>>() ?? new List<string>();
+				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>() ?? new Dictionary<string, string>();
+				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
+				this.Scripts = this._json["Scripts"]?.FromJson<string>();
+				this.RefreshUrls = this._json["RefreshUrls"]?.FromJson<Settings.RefreshUrls>() ?? new Settings.RefreshUrls();
+				this.RedirectUrls = this._json["RedirectUrls"]?.FromJson<Settings.RedirectUrls>() ?? new Settings.RedirectUrls();
+				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>() ?? new Settings.Email();
 			}
-			else if (OrganizationExtensions.SettingProperties.ToHashSet().Contains(name))
+			else if (OrganizationExtensions.ExtraProperties.Contains(name))
 			{
-				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
-				this._settings[name] = this.GetProperty(name)?.ToJson();
+				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
+				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 		}
 	}
 
 	internal static class OrganizationExtensions
 	{
-		internal static ConcurrentDictionary<string, Organization> Organizations { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
+		public static ConcurrentDictionary<string, Organization> Organizations { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
 
-		internal static ConcurrentDictionary<string, Organization> OrganizationsByAlias { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
+		public static ConcurrentDictionary<string, Organization> OrganizationsByAlias { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
 
-		internal static List<string> SettingProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,Scripts,RefreshUrls,RedirectUrls,EmailSettings".ToList();
+		public static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,Scripts,RefreshUrls,RedirectUrls,EmailSettings".ToHashSet();
 
-		internal static Dictionary<string, Dictionary<string, Settings.Instruction>> GetInstructions(this ExpandoObject rawInstructions)
+		public static Dictionary<string, Dictionary<string, Settings.Instruction>> GetOrganizationInstructions(this ExpandoObject rawInstructions)
 		{
 			var instructions = new Dictionary<string, Dictionary<string, Settings.Instruction>>();
 			rawInstructions?.ForEach(rawInstruction =>
@@ -234,90 +234,94 @@ namespace net.vieapps.Services.Portals
 			return instructions;
 		}
 
-		internal static Organization CreateOrganizationInstance(this ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
+		public static Organization CreateOrganizationInstance(this ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
 			=> requestBody.Copy<Organization>(excluded?.ToHashSet(), organization =>
 			{
-				organization.Instructions = requestBody.Get<ExpandoObject>("Instructions").GetInstructions();
-				organization.NormalizeSettings();
+				organization.Instructions = requestBody.Get<ExpandoObject>("Instructions").GetOrganizationInstructions();
 				onCompleted?.Invoke(organization);
 			});
 
-		internal static Organization UpdateOrganizationInstance(this Organization organization, ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
+		public static Organization UpdateOrganizationInstance(this Organization organization, ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
 		{
 			organization.CopyFrom(requestBody, excluded?.ToHashSet());
-			organization.Instructions = requestBody.Get<ExpandoObject>("Instructions").GetInstructions();
-			organization.NormalizeSettings();
+			organization.Instructions = requestBody.Get<ExpandoObject>("Instructions").GetOrganizationInstructions();
 			onCompleted?.Invoke(organization);
 			return organization;
 		}
 
-		internal static Organization Set(this Organization organization, bool clear = false, bool updateCache = false)
+		public static Organization Set(this Organization organization, bool clear = false, bool updateCache = false)
 		{
 			if (organization != null)
 			{
-				if (clear && OrganizationExtensions.Organizations.TryGetValue(organization.ID, out var old) && old != null)
-					OrganizationExtensions.OrganizationsByAlias.Remove(old.Alias);
+				if (clear)
+					organization.Remove();
+
 				OrganizationExtensions.Organizations[organization.ID] = organization;
 				OrganizationExtensions.OrganizationsByAlias[organization.Alias] = organization;
+				Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
+
 				if (updateCache)
 					Utility.Cache.Set(organization);
 			}
 			return organization;
 		}
 
-		internal static Organization Remove(this Organization organization)
-			=> (organization?.ID ?? "").RemoveOrganization();
-
-		internal static Organization RemoveOrganization(this string id)
-		{
-			if (string.IsNullOrWhiteSpace(id))
-				return null;
-			if (OrganizationExtensions.Organizations.TryRemove(id, out var organization) && organization != null)
-				OrganizationExtensions.OrganizationsByAlias.Remove(organization.Alias);
-			return organization;
-		}
-
-		internal static async Task<Organization> SetAsync(this Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		public static async Task<Organization> SetAsync(this Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			organization?.Set(clear);
 			await (updateCache && organization != null ? Utility.Cache.SetAsync(organization, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return organization;
 		}
 
-		internal static Organization GetOrganizationByID(this string id, bool force = false, bool fetchRepository = true)
+		public static Organization Remove(this Organization organization)
+			=> (organization?.ID ?? "").RemoveOrganization();
+
+		public static Organization RemoveOrganization(this string id)
+		{
+			if (string.IsNullOrWhiteSpace(id) || !OrganizationExtensions.Organizations.TryRemove(id, out var organization) || organization == null)
+				return null;
+			OrganizationExtensions.OrganizationsByAlias.Remove(organization.Alias);
+			return organization;
+		}
+
+		public static Organization GetOrganizationByID(this string id, bool force = false, bool fetchRepository = true)
 			=> !force && !string.IsNullOrWhiteSpace(id) && OrganizationExtensions.Organizations.ContainsKey(id)
 				? OrganizationExtensions.Organizations[id]
 				: fetchRepository && !string.IsNullOrWhiteSpace(id)
 					? Organization.Get<Organization>(id)?.Set()
 					: null;
 
-		internal static async Task<Organization> GetOrganizationByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-		{
-			var organization = id.GetOrganizationByID(force, false) ?? await Organization.GetAsync<Organization>(id, cancellationToken).ConfigureAwait(false);
-			return organization != null ? await organization.SetAsync(false, false, cancellationToken).ConfigureAwait(false) : null;
-		}
+		public static async Task<Organization> GetOrganizationByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
+			=> (id ?? "").GetOrganizationByID(force, false) ?? (await Organization.GetAsync<Organization>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
-		internal static Organization GetOrganizationByAlias(this string alias, bool force = false, bool fetchRepository = true)
+		public static Organization GetOrganizationByAlias(this string alias, bool fetchRepository = true)
 		{
-			var organization = !force && !string.IsNullOrWhiteSpace(alias) && OrganizationExtensions.OrganizationsByAlias.ContainsKey(alias)
+			if (string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Organization:{alias}"))
+				return null;
+
+			var organization = OrganizationExtensions.OrganizationsByAlias.ContainsKey(alias)
 				? OrganizationExtensions.OrganizationsByAlias[alias]
 				: null;
 
-			if (organization == null && !force && !string.IsNullOrWhiteSpace(alias))
+			if (organization == null && fetchRepository)
 			{
-				organization = OrganizationExtensions.Organizations.Values.FirstOrDefault(org => org.Alias.IsEquals(alias));
-				organization?.Set();
+				organization = Organization.Get<Organization>(Filters<Organization>.Equals("Alias", alias), null, null)?.Set();
+				if (organization == null)
+					Utility.NotRecognizedAliases.Add($"Organization:{alias}");
 			}
 
-			return organization ?? (fetchRepository && !string.IsNullOrWhiteSpace(alias) ? Organization.Get<Organization>(Filters<Organization>.Equals("Alias", alias), null, null)?.Set() : null);
+			return organization;
 		}
 
-		internal static async Task<Organization> GetOrganizationByAliasAsync(this string alias, CancellationToken cancellationToken = default, bool force = false)
+		public static async Task<Organization> GetOrganizationByAliasAsync(this string alias, CancellationToken cancellationToken = default)
 		{
-			var organization = string.IsNullOrWhiteSpace(alias)
-				? null
-				: alias.GetOrganizationByAlias(force, false) ?? await Organization.GetAsync<Organization>(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false);
-			return organization != null ? await organization.SetAsync(false, false, cancellationToken).ConfigureAwait(false) : null;
+			if (string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Organization:{alias}"))
+				return null;
+
+			var organization = alias.GetOrganizationByAlias(false) ?? (await Organization.GetAsync<Organization>(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false))?.Set();
+			if (organization == null)
+				Utility.NotRecognizedAliases.Add($"Organization:{alias}");
+			return organization;
 		}
 	}
 }

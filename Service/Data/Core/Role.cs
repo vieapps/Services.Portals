@@ -7,6 +7,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
+using System.Dynamic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using MongoDB.Bson.Serialization.Attributes;
@@ -34,6 +35,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public override string Title { get; set; } = "";
 
+		[Searchable]
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public string Description { get; set; }
 
@@ -58,9 +60,6 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; } = "";
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public int OrderIndex { get; set; }
-
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
@@ -71,6 +70,15 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string EntityID { get; set; }
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public override Privileges OriginalPrivileges { get; set; }
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public override Privileges WorkingPrivileges => this.Organization?.WorkingPrivileges;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public int OrderIndex { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
@@ -99,22 +107,21 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _childrenIDs;
 
-		internal List<Role> GetChildren(bool notifyPropertyChanged = true, List<Role> roles = null)
+		internal List<Role> GetChildren(List<Role> roles = null)
 		{
 			if (this._childrenIDs == null)
 			{
 				roles = roles ?? this.SystemID.GetRolesByParentID(this.ID);
 				this._childrenIDs = roles.Select(role => role.ID).ToList();
-				if (notifyPropertyChanged)
-					this.NotifyPropertyChanged("ChildrenIDs");
+				this.NotifyPropertyChanged("ChildrenIDs");
 				return roles;
 			}
 			return this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 		}
 
-		internal async Task<List<Role>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+		internal async Task<List<Role>> GetChildrenAsync(CancellationToken cancellationToken = default)
 			=> this._childrenIDs == null
-				? this.GetChildren(notifyPropertyChanged, await this.SystemID.GetRolesByParentIDAsync(this.ID, cancellationToken).ConfigureAwait(false))
+				? this.GetChildren(await this.SystemID.GetRolesByParentIDAsync(this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -133,17 +140,20 @@ namespace net.vieapps.Services.Portals
 					json["Children"] = (this.GetChildren() ?? new List<Role>()).Select(role => role?.ToJson(true, false)).Where(role => role != null).ToJArray();
 				onPreCompleted?.Invoke(json);
 			});
-
-		public override void ProcessPropertyChanged(string name)
-		{
-			if (name.IsEquals("ChildrenIDs"))
-				Utility.Cache.Set(this);
-		}
 	}
 
 	internal static class RoleExtensions
 	{
 		internal static ConcurrentDictionary<string, Role> Roles { get; } = new ConcurrentDictionary<string, Role>(StringComparer.OrdinalIgnoreCase);
+
+		internal static Role CreateRoleInstance(this ExpandoObject requestBody, string excluded = null, Action<Role> onCompleted = null)
+			=> requestBody.Copy<Role>(excluded?.ToHashSet(), onCompleted);
+
+		internal static Role UpdateRoleInstance(this Role role, ExpandoObject requestBody, string excluded = null, Action<Role> onCompleted = null)
+		{
+			role.CopyFrom(requestBody, excluded?.ToHashSet(), onCompleted);
+			return role;
+		}
 
 		internal static Role Set(this Role role, bool updateCache = false)
 		{
@@ -177,10 +187,7 @@ namespace net.vieapps.Services.Portals
 					: null;
 
 		internal static async Task<Role> GetRoleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-		{
-			var role = (id ?? "").GetRoleByID(force, false) ?? await Role.GetAsync<Role>(id, cancellationToken).ConfigureAwait(false);
-			return role != null ? await role.SetAsync(false, cancellationToken).ConfigureAwait(false) : null;
-		}
+			=> (id ?? "").GetRoleByID(force, false) ?? (await Role.GetAsync<Role>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
 		internal static IFilterBy<Role> GetRolesFilter(this string systemID, string parentID)
 			=> Filters<Role>.And(Filters<Role>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Role>.IsNull("ParentID") : Filters<Role>.Equals("ParentID", parentID));

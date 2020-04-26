@@ -66,6 +66,10 @@ namespace net.vieapps.Services.Portals
 		public string IconURI { get; set; }
 
 		[Ignore, BsonIgnore]
+		[FormControl(Segment = "display", ControlType = "Lookup", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
+		public string CoverURI { get; set; }
+
+		[Ignore, BsonIgnore]
 		[FormControl(Segment = "display", ControlType = "TextArea", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string MetaTags { get; set; }
 
@@ -73,7 +77,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "display", ControlType = "TextArea", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string Scripts { get; set; }
 
-		[Property(MaxLength = 32)]
+		[Ignore, BsonIgnore]
 		[FormControl(Segment = "seo", ControlType = "Select", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string MainPortletID { get; set; }
 
@@ -82,20 +86,20 @@ namespace net.vieapps.Services.Portals
 		public Settings.SEO SEOSettings { get; set; }
 
 		[NonSerialized]
-		JObject _settings;
+		JObject _json;
 
-		string _otherSettings;
+		string _extras;
 
 		[Property(IsCLOB = true)]
 		[JsonIgnore, XmlIgnore]
 		[FormControl(Excluded = true)]
-		public string OtherSettings
+		public string Extras
 		{
-			get => this._otherSettings;
+			get => this._extras;
 			set
 			{
-				this._otherSettings = value;
-				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this._otherSettings) ? "{}" : this._otherSettings);
+				this._extras = value;
+				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this._extras) ? "{}" : this._extras);
 				this.NotifyPropertyChanged();
 			}
 		}
@@ -122,13 +126,19 @@ namespace net.vieapps.Services.Portals
 		public override string SystemID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public int OrderIndex { get; set; }
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string RepositoryID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string EntityID { get; set; }
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public override Privileges OriginalPrivileges { get; set; }
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public override Privileges WorkingPrivileges => this.Organization?.WorkingPrivileges;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public int OrderIndex { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
@@ -192,47 +202,51 @@ namespace net.vieapps.Services.Portals
 				onPreCompleted?.Invoke(json);
 			});
 
-		internal void NormalizeSettings()
+		internal void NormalizeExtras()
 		{
-			this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
-			DesktopExtensions.SettingProperties.ForEach(name => this._settings[name] = this.GetProperty(name)?.ToJson());
-			this._otherSettings = this._settings.ToString(Formatting.None);
+			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
+			DesktopExtensions.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
+			this._extras = this._json.ToString(Formatting.None);
 		}
 
 		public override void ProcessPropertyChanged(string name)
 		{
 			if (name.IsEquals("ChildrenIDs"))
 				Utility.Cache.Set(this);
-			else if (name.IsEquals("OtherSettings"))
+			else if (name.IsEquals("Extras"))
 			{
-				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
-				this.UISettings = this._settings["UISettings"]?.FromJson<Settings.UI>() ?? new Settings.UI();
-				this.IconURI = this._settings["IconURI"]?.FromJson<string>();
-				this.MetaTags = this._settings["MetaTags"]?.FromJson<string>();
-				this.Scripts = this._settings["Scripts"]?.FromJson<string>();
-				this.SEOSettings = this._settings["SEOSettings"]?.FromJson<Settings.SEO>() ?? new Settings.SEO();
+				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
+				this.UISettings = this._json["UISettings"]?.FromJson<Settings.UI>() ?? new Settings.UI();
+				this.IconURI = this._json["IconURI"]?.FromJson<string>();
+				this.CoverURI = this._json["CoverURI"]?.FromJson<string>();
+				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
+				this.Scripts = this._json["Scripts"]?.FromJson<string>();
+				this.MainPortletID = this._json["MainPortletID"]?.FromJson<string>();
+				this.SEOSettings = this._json["SEOSettings"]?.FromJson<Settings.SEO>() ?? new Settings.SEO();
 			}
-			else if (DesktopExtensions.SettingProperties.ToHashSet().Contains(name))
+			else if (DesktopExtensions.ExtraProperties.Contains(name))
 			{
-				this._settings = this._settings ?? JObject.Parse(string.IsNullOrWhiteSpace(this.OtherSettings) ? "{}" : this.OtherSettings);
-				this._settings[name] = this.GetProperty(name)?.ToJson();
+				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
+				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 		}
 	}
 
-	internal static class DesktopExtensions
+	public static class DesktopExtensions
 	{
-		internal static ConcurrentDictionary<string, Desktop> Desktops { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
+		public static ConcurrentDictionary<string, Desktop> Desktops { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
 
-		internal static ConcurrentDictionary<string, Desktop> DesktopsByAlias { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
+		public static ConcurrentDictionary<string, Desktop> DesktopsByAlias { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
 
-		internal static List<string> SettingProperties { get; } = "UISettings,IconURI,MetaTags,Scripts,SEOSettings".ToList();
+		public static HashSet<string> ExtraProperties { get; } = "UISettings,IconURI,CoverURI,MetaTags,Scripts,MainPortletID,SEOSettings".ToHashSet();
 
-		internal static Desktop CreateDesktopInstance(this ExpandoObject requestBody, string excluded = null, Action<Desktop> onCompleted = null)
+		public static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Thumbnails,ThumbnailBigs,ThumbnailBigPngs").ToLower().ToHashSet();
+
+		public static Desktop CreateDesktopInstance(this ExpandoObject requestBody, string excluded = null, Action<Desktop> onCompleted = null)
 			=> requestBody.Copy<Desktop>(excluded?.ToHashSet(), desktop =>
 			{
 				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
-				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.ToList(";", true, true).Select(alias => alias.NormalizeAlias()).Where(alias => !alias.IsEquals(desktop.Alias)).Join(";");
+				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToList(";", true, true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopExtensions.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
 				desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
 				"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
 				{
@@ -242,11 +256,11 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(desktop);
 			});
 
-		internal static Desktop UpdateDesktopInstance(this Desktop desktop, ExpandoObject requestBody, string excluded = null, Action<Desktop> onCompleted = null)
+		public static Desktop UpdateDesktopInstance(this Desktop desktop, ExpandoObject requestBody, string excluded = null, Action<Desktop> onCompleted = null)
 		{
 			desktop.CopyFrom(requestBody, excluded?.ToHashSet());
 			desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
-			desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.ToList(";", true, true).Select(alias => alias.NormalizeAlias()).Where(alias => !alias.IsEquals(desktop.Alias)).Join(";");
+			desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToList(";", true, true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopExtensions.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
 			desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
 			"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
 			{
@@ -257,7 +271,7 @@ namespace net.vieapps.Services.Portals
 			return desktop;
 		}
 
-		internal static Desktop Set(this Desktop desktop, bool clear = false, bool updateCache = false)
+		public static Desktop Set(this Desktop desktop, bool clear = false, bool updateCache = false)
 		{
 			if (desktop != null)
 			{
@@ -272,68 +286,91 @@ namespace net.vieapps.Services.Portals
 							desktop.ParentDesktop._childrenIDs = null;
 					}
 				}
+
 				DesktopExtensions.Desktops[desktop.ID] = desktop;
 				DesktopExtensions.DesktopsByAlias[$"{desktop.SystemID}:{desktop.Alias}"] = desktop;
+				Utility.NotRecognizedAliases.Remove($"Desktop:{desktop.SystemID}:{desktop.Alias}");
+
 				if (!string.IsNullOrWhiteSpace(desktop.Aliases))
-					desktop.Aliases.Replace(",", ";").ToList(";").ForEach(alias => DesktopExtensions.DesktopsByAlias.TryAdd($"{desktop.SystemID}:{alias}", desktop));
+					desktop.Aliases.ToList(";").ForEach(alias =>
+					{
+						if (DesktopExtensions.DesktopsByAlias.TryAdd($"{desktop.SystemID}:{alias}", desktop))
+							Utility.NotRecognizedAliases.Remove($"Desktop:{desktop.SystemID}:{alias}");
+					});
+
 				if (updateCache)
 					Utility.Cache.Set(desktop);
 			}
 			return desktop;
 		}
 
-		internal static async Task<Desktop> SetAsync(this Desktop desktop, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		public static async Task<Desktop> SetAsync(this Desktop desktop, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			desktop?.Set(clear);
 			await (updateCache && desktop != null ? Utility.Cache.SetAsync(desktop, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return desktop;
 		}
 
-		internal static Desktop Remove(this Desktop desktop)
+		public static Desktop Remove(this Desktop desktop)
 			=> (desktop?.ID ?? "").RemoveDesktop();
 
-		internal static Desktop RemoveDesktop(this string id)
+		public static Desktop RemoveDesktop(this string id)
 		{
 			if (!string.IsNullOrWhiteSpace(id) && DesktopExtensions.Desktops.TryRemove(id, out var desktop) && desktop != null)
 			{
 				DesktopExtensions.Desktops.Remove(desktop.ID);
 				DesktopExtensions.DesktopsByAlias.Remove($"{desktop.SystemID}:{desktop.Alias}");
 				if (!string.IsNullOrWhiteSpace(desktop.Aliases))
-					desktop.Aliases.Replace(",", ";").ToList(";").ForEach(alias => DesktopExtensions.DesktopsByAlias.Remove($"{desktop.SystemID}:{alias}"));
+					desktop.Aliases.ToList(";").ForEach(alias => DesktopExtensions.DesktopsByAlias.Remove($"{desktop.SystemID}:{alias}"));
 				return desktop;
 			}
 			return null;
 		}
 
-		internal static Desktop GetDesktopByID(this string id, bool force = false, bool fetchRepository = true)
+		public static Desktop GetDesktopByID(this string id, bool force = false, bool fetchRepository = true)
 			=> !force && !string.IsNullOrWhiteSpace(id) && DesktopExtensions.Desktops.ContainsKey(id)
 				? DesktopExtensions.Desktops[id]
 				: fetchRepository && !string.IsNullOrWhiteSpace(id)
 					? Desktop.Get<Desktop>(id)?.Set()
 					: null;
 
-		internal static async Task<Desktop> GetDesktopByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
+		public static async Task<Desktop> GetDesktopByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetDesktopByID(force, false) ?? (await Desktop.GetAsync<Desktop>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
-		internal static Desktop GetDesktopByAlias(this string systemID, string alias, bool force = false, bool fetchRepository = true)
+		public static Desktop GetDesktopByAlias(this string systemID, string alias, bool force = false, bool fetchRepository = true)
 		{
-			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias))
+			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Desktop:{systemID}:{alias}"))
 				return null;
 
 			var desktop = !force && DesktopExtensions.DesktopsByAlias.ContainsKey($"{systemID}:{alias}")
 				? DesktopExtensions.DesktopsByAlias[$"{systemID}:{alias}"]
 				: null;
 
-			return desktop ?? (fetchRepository && !string.IsNullOrWhiteSpace(alias) ? Desktop.Get<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null)?.Set() : null);
+			if (desktop == null && fetchRepository)
+			{
+				desktop = Desktop.Get<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null)?.Set();
+				if (desktop == null)
+					Utility.NotRecognizedAliases.Add($"Desktop:{systemID}:{alias}");
+			}
+
+			return desktop;
 		}
 
-		internal static async Task<Desktop> GetDesktopByAliasAsync(this string systemID, string alias, CancellationToken cancellationToken = default, bool force = false)
-			=> (systemID ?? "").GetDesktopByAlias(alias, force, false) ?? (!string.IsNullOrWhiteSpace(alias) ? (await Desktop.GetAsync<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null, cancellationToken).ConfigureAwait(false))?.Set() : null);
+		public static async Task<Desktop> GetDesktopByAliasAsync(this string systemID, string alias, CancellationToken cancellationToken = default, bool force = false)
+		{
+			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Desktop:{systemID}:{alias}"))
+				return null;
 
-		internal static IFilterBy<Desktop> GetDesktopsFilter(this string systemID, string parentID)
+			var desktop = systemID.GetDesktopByAlias(alias, force, false) ?? (await Desktop.GetAsync<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null, cancellationToken).ConfigureAwait(false))?.Set();
+			if (desktop == null)
+				Utility.NotRecognizedAliases.Add($"Desktop:{systemID}:{alias}");
+			return desktop;
+		}
+
+		public static IFilterBy<Desktop> GetDesktopsFilter(this string systemID, string parentID)
 			=> Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Desktop>.IsNull("ParentID") : Filters<Desktop>.Equals("ParentID", parentID));
 
-		internal static List<Desktop> GetDesktopsByParentID(this string systemID, string parentID, bool updateCache = true)
+		public static List<Desktop> GetDesktopsByParentID(this string systemID, string parentID, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Desktop>();
@@ -344,7 +381,7 @@ namespace net.vieapps.Services.Portals
 			return desktops;
 		}
 
-		internal static async Task<List<Desktop>> GetDesktopsByParentIDAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
+		public static async Task<List<Desktop>> GetDesktopsByParentIDAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Desktop>();
