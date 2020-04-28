@@ -175,13 +175,39 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
+		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+			=> base.ToJson(addTypeOfExtendedProperties, json =>
+			{
+				json.Remove("OriginalPrivileges");
+				onPreCompleted?.Invoke(json);
+			});
+
 		internal void NormalizeExtras()
 		{
-			this.Notifications.Emails.Normalize();
-			this.Notifications.WebHooks.Normalize();
-			this.RefreshUrls.Normalize();
-			this.RefreshUrls.Normalize();
-			this.EmailSettings.Normalize();
+			this.Notifications?.Normalize();
+			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.WebHooks == null ? null : this.Notifications;
+			this.Instructions = this.Instructions ?? new Dictionary<string, Dictionary<string, Settings.Instruction>>();
+			this.Instructions.Keys.ToList().ForEach(key =>
+			{
+				var instructions = this.Instructions[key];
+				instructions.Values.ForEach(instruction => instruction.Normalize());
+				instructions.Keys.ToList().ForEach(ikey => instructions[ikey] = string.IsNullOrWhiteSpace(instructions[ikey].Subject) && string.IsNullOrWhiteSpace(instructions[ikey].Body) ? null : instructions[ikey]);
+				instructions = instructions.Where(kvp => kvp.Value != null).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+				this.Instructions[key] = instructions.Count < 1 ? null : instructions;
+			});
+			this.Instructions = this.Instructions.Where(kvp => kvp.Value != null).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+			this.Instructions = this.Instructions.Count < 1 ? null : this.Instructions;
+			this.Socials = this.Socials != null && this.Socials.Count < 1 ? null : this.Socials;
+			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+			this.Trackings = this.Trackings.Count < 1 ? null : this.Trackings;
+			this.MetaTags = string.IsNullOrWhiteSpace(this.MetaTags) ? null : this.MetaTags.Trim();
+			this.Scripts = string.IsNullOrWhiteSpace(this.Scripts) ? null : this.Scripts.Trim();
+			this.RefreshUrls?.Normalize();
+			this.RefreshUrls = this.RefreshUrls != null && this.RefreshUrls.Addresses == null ? null : this.RefreshUrls;
+			this.RedirectUrls?.Normalize();
+			this.RedirectUrls = this.RedirectUrls != null && this.RedirectUrls.Addresses == null ? null : this.RedirectUrls;
+			this.EmailSettings?.Normalize();
+			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			OrganizationExtensions.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);

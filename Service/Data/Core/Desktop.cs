@@ -171,7 +171,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._childrenIDs == null)
 			{
-				desktops = desktops ?? this.SystemID.GetDesktopsByParentID(this.ID);
+				desktops = desktops ?? this.SystemID.GetDesktops(this.ID);
 				this._childrenIDs = desktops.Select(desktop => desktop.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("ChildrenIDs");
@@ -182,7 +182,7 @@ namespace net.vieapps.Services.Portals
 
 		internal async Task<List<Desktop>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
-				? this.GetChildren(notifyPropertyChanged, await this.SystemID.GetDesktopsByParentIDAsync(this.ID, cancellationToken).ConfigureAwait(false))
+				? this.GetChildren(notifyPropertyChanged, await this.SystemID.GetDesktopsAsync(this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetDesktopByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -197,13 +197,24 @@ namespace net.vieapps.Services.Portals
 		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
-				if (addChildren && json != null)
-					json["Children"] = (this.GetChildren() ?? new List<Desktop>()).Select(desktop => desktop?.ToJson(true, false)).Where(desktop => desktop != null).ToJArray();
+				json.Remove("Privileges");
+				json.Remove("OriginalPrivileges");
+				if (addChildren)
+					json["Children"] = this.Children?.Select(desktop => desktop?.ToJson(true, false)).Where(desktop => desktop != null).ToJArray();
 				onPreCompleted?.Invoke(json);
 			});
 
 		internal void NormalizeExtras()
 		{
+			this.UISettings?.Normalize();
+			this.UISettings = this.UISettings != null && string.IsNullOrWhiteSpace(this.UISettings.Padding) && string.IsNullOrWhiteSpace(this.UISettings.Margin) && string.IsNullOrWhiteSpace(this.UISettings.Width) && string.IsNullOrWhiteSpace(this.UISettings.Height) && string.IsNullOrWhiteSpace(this.UISettings.Color) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundColor) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageURI) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageRepeat) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImagePosition) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageSize) && string.IsNullOrWhiteSpace(this.UISettings.Css) && string.IsNullOrWhiteSpace(this.UISettings.Style) ? null : this.UISettings;
+			this.IconURI = string.IsNullOrWhiteSpace(this.IconURI) ? null : this.IconURI.Trim();
+			this.CoverURI = string.IsNullOrWhiteSpace(this.CoverURI) ? null : this.CoverURI.Trim();
+			this.MetaTags = string.IsNullOrWhiteSpace(this.MetaTags) ? null : this.MetaTags.Trim();
+			this.Scripts = string.IsNullOrWhiteSpace(this.Scripts) ? null : this.Scripts.Trim();
+			this.MainPortletID = string.IsNullOrWhiteSpace(this.MainPortletID) ? null : this.MainPortletID.Trim();
+			this.SEOSettings?.Normalize();
+			this.SEOSettings = this.SEOSettings != null && this.SEOSettings.SEOInfo == null && this.SEOSettings.TitleMode == null && this.SEOSettings.DescriptionMode == null && this.SEOSettings.KeywordsMode == null ? null : this.SEOSettings;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			DesktopExtensions.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
@@ -211,9 +222,7 @@ namespace net.vieapps.Services.Portals
 
 		public override void ProcessPropertyChanged(string name)
 		{
-			if (name.IsEquals("ChildrenIDs"))
-				Utility.Cache.Set(this);
-			else if (name.IsEquals("Extras"))
+			if (name.IsEquals("Extras"))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this.UISettings = this._json["UISettings"]?.FromJson<Settings.UI>() ?? new Settings.UI();
@@ -229,6 +238,8 @@ namespace net.vieapps.Services.Portals
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
+			else if (name.IsEquals("ChildrenIDs"))
+				Utility.Cache.Set(this);
 		}
 	}
 
@@ -370,7 +381,7 @@ namespace net.vieapps.Services.Portals
 		public static IFilterBy<Desktop> GetDesktopsFilter(this string systemID, string parentID)
 			=> Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Desktop>.IsNull("ParentID") : Filters<Desktop>.Equals("ParentID", parentID));
 
-		public static List<Desktop> GetDesktopsByParentID(this string systemID, string parentID, bool updateCache = true)
+		public static List<Desktop> GetDesktops(this string systemID, string parentID, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Desktop>();
@@ -381,7 +392,7 @@ namespace net.vieapps.Services.Portals
 			return desktops;
 		}
 
-		public static async Task<List<Desktop>> GetDesktopsByParentIDAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
+		public static async Task<List<Desktop>> GetDesktopsAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Desktop>();

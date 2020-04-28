@@ -1,144 +1,183 @@
 ﻿using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Xml.Serialization;
+using Newtonsoft.Json;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Portals
 {
 	/// <summary>
-	/// Presents a definition of a portal module
+	/// Presents a module definition in a portal/system
 	/// </summary>
-	[Serializable]
 	public class ModuleDefinition
 	{
 		public ModuleDefinition() : this(null) { }
 
-		public ModuleDefinition(RepositoryDefinition definition, string serviceName = null)
+		public ModuleDefinition(RepositoryDefinition definition)
 		{
-			this.ID = definition?.ID;
-			this.Title = definition?.Title;
-			this.Description = definition?.Description;
-			this.Icon = definition?.Icon;
-			this.Directory = definition?.Directory ?? serviceName ?? ServiceBase.ServiceComponent.ServiceName;
-			this.ServiceName = serviceName ?? ServiceBase.ServiceComponent.ServiceName;
-			this.ContentTypeDefinitions = definition == null
-				? new List<ContentTypeDefinition>()
-				: definition.EntityDefinitions.Where(entityDefinition => !string.IsNullOrWhiteSpace(entityDefinition.ID)).Select(entityDefinition => new ContentTypeDefinition(entityDefinition)).ToList();
+			if (definition != null)
+			{
+				this.RepositoryDefinition = definition;
+				this.RepositoryDefinitionTypeName = definition.Type.GetTypeName();
+				this.ID = definition.ID;
+				this.Title = definition.Title;
+				this.Description = definition.Description;
+				this.Icon = definition.Icon;
+				this.Directory = definition.Directory;
+				this.ServiceName = definition.ServiceName;
+				this.ContentTypeDefinitions = definition.EntityDefinitions.Where(entityDefinition => !string.IsNullOrWhiteSpace(entityDefinition.ID)).Select(entityDefinition => new ContentTypeDefinition(entityDefinition, this)).ToList();
+			}
 		}
 
 		/// <summary>
-		/// Gets or Sets the identity
+		/// Gets or Sets the identity (means the value of RepositoryAttribute.ID)
 		/// </summary>
 		public string ID { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the title
+		/// Gets or Sets the title (means the value of RepositoryAttribute.Title)
 		/// </summary>
 		public string Title { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the description
+		/// Gets or Sets the description (means the value of RepositoryAttribute.Description)
 		/// </summary>
 		public string Description { get; set; }
 
 		/// <summary>
-		/// Gets or sets the name of the icon for working with user interfaces
+		/// Gets or Sets the name of the icon for working with user interfaces (means the value of RepositoryAttribute.Icon)
 		/// </summary>
 		public string Icon { get; set; }
 
 		/// <summary>
-		/// Gets or sets the name of the directory that contains all files for working with user interfaces
+		/// Gets or Sets the name of the directory that contains the files for working with user interfaces (means the value of RepositoryAttribute.Directory)
 		/// </summary>
 		public string Directory { get; set; }
 
 		/// <summary>
-		/// Gets or sets the name of the service that responsibilty to process the request
+		/// Gets or Sets the name of the service that associates with this module definition
 		/// </summary>
 		public string ServiceName { get; set; }
 
 		/// <summary>
-		/// Gets or sets the collection of content-type definitions of the module
+		/// Gets or Sets the type name of the repository definition
+		/// </summary>
+		public string RepositoryDefinitionTypeName { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the repository definition
+		/// </summary>
+		[JsonIgnore, XmlIgnore]
+		public RepositoryDefinition RepositoryDefinition { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the collection of content-type definitions
 		/// </summary>
 		public List<ContentTypeDefinition> ContentTypeDefinitions { get; set; }
 	}
 
+	//  ------------------------------------------------------------------------
+
 	/// <summary>
 	/// Presents a definition of a portal content-type
 	/// </summary>
-	[Serializable]
 	public class ContentTypeDefinition
 	{
 		public ContentTypeDefinition() : this(null) { }
 
-		public ContentTypeDefinition(EntityDefinition definition, string objectName = null, string parentObjectName = null)
+		public ContentTypeDefinition(EntityDefinition definition, ModuleDefinition moduleDefinition = null)
 		{
-			this.ID = definition?.ID;
-			this.Title = definition?.Title;
-			this.Description = definition?.Description;
-			this.Icon = definition?.Icon;
-			this.MultipleIntances = definition == null ? false : definition.MultipleIntances;
-			this.Extendable = definition == null ? false : definition.Extendable;
-			this.Indexable = definition == null ? false : definition.Indexable;
-			this.ParentAssociatedProperty = definition?.ParentAssociatedProperty;
-			this.AliasProperty = definition?.AliasProperty;
-			this.ObjectName = objectName ?? definition?.Type.GetTypeName(true);
-			this.ParentObjectName = parentObjectName ?? definition?.ParentType?.GetTypeName(true);
+			if (definition != null)
+			{
+				this.EntityDefinition = definition;
+				this.EntityDefinitionTypeName = definition.Type.GetTypeName();
+				this.ModuleDefinition = moduleDefinition;
+				this.ID = definition.ID;
+				this.Title = definition.Title;
+				this.Description = definition.Description;
+				this.Icon = definition.Icon;
+				this.MultipleIntances = definition.MultipleIntances;
+				this.Extendable = definition.Extendable;
+				this.Indexable = definition.Indexable;
+				this.AliasProperty = definition.AliasProperty;
+				this.ParentAssociatedProperty = definition.ParentAssociatedProperty;
+				this.ParentObjectName = definition.ParentType?.GetTypeName(true);
+				this.ObjectName = definition.ObjectName;
+			}
 		}
 
 		/// <summary>
-		/// Gets or Sets the identity
+		/// Gets or Sets the identity (means the value of EntityAttribute.ID)
 		/// </summary>
 		public string ID { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the title
+		/// Gets or Sets the title (means the value of EntityAttribute.Title)
 		/// </summary>
 		public string Title { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the description
+		/// Gets or Sets the description (means the value of EntityAttribute.Description)
 		/// </summary>
 		public string Description { get; set; }
 
 		/// <summary>
-		/// Gets or sets the name of the icon for working with user interfaces
+		/// Gets or sets the name of the icon for working with user interfaces (means the value of EntityAttribute.Icon)
 		/// </summary>
 		public string Icon { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the state that allow to use multiple instances
+		/// Gets or Sets the state that allow to use multiple instances (means the value of EntityAttribute.MultipleIntances)
 		/// </summary>
 		public bool MultipleIntances { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the state that allow to extent properties
+		/// Gets or Sets the state that allow to extend the run-time entities by extended properties (means the value of EntityAttribute.Extendable)
 		/// </summary>
 		public bool Extendable { get; set; }
 
 		/// <summary>
-		/// Gets or sets the state that specifies this entity is able to index with global search module
+		/// Gets or sets the state that specifies the data of run-time entities are able to index with global search module (means the value of EntityAttribute.Indexable)
 		/// </summary>
 		public bool Indexable { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the name of the property that use to associate with parent object
-		/// </summary>
-		public string ParentAssociatedProperty { get; set; }
-
-		/// <summary>
-		/// Gets or Sets the name of the property to use as alias
+		/// Gets or Sets the name of the property to use as alias (means the value of EntityAttribute.AliasProperty)
 		/// </summary>
 		public string AliasProperty { get; set; }
 
 		/// <summary>
-		/// Gets or sets the name of the service's object that responsibilty to process the request
+		/// Gets or Sets the name of the property that use to associate with the parent object (means the value of EntityAttribute.ParentAssociatedProperty)
+		/// </summary>
+		public string ParentAssociatedProperty { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the name of the service's object that associates as parent object (means the type-name value of EntityAttribute.ParentType)
+		/// </summary>
+		public string ParentObjectName { get; set; }
+
+		/// <summary>
+		/// Gets or sets the name of the service's object that associates with this content-type definition
 		/// </summary>
 		public string ObjectName { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the name of the service's object that marked as parent object
+		/// Gets or Sets the type name of the entity definition
 		/// </summary>
-		public string ParentObjectName { get; set; }
+		public string EntityDefinitionTypeName { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the entity definition
+		/// </summary>
+		[JsonIgnore, XmlIgnore]
+		public EntityDefinition EntityDefinition { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the module definition of this content-type definition
+		/// </summary>
+		[JsonIgnore, XmlIgnore]
+		public ModuleDefinition ModuleDefinition { get; set; }
 	}
 }

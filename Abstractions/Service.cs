@@ -8,9 +8,9 @@ using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.Portals
 {
 	/// <summary>
-	/// Presents a service that provide the functionality of a CMS
+	/// Presents a service of CMS Portals
 	/// </summary>
-	public interface ICmsService : IService, IUniqueService, IServiceComponent
+	public interface ICmsPortalsService : IService, IUniqueService, IServiceComponent
 	{
 		/// <summary>
 		/// Registers the service with API Gateway
@@ -34,7 +34,7 @@ namespace net.vieapps.Services.Portals
 		/// Gets the definition
 		/// </summary>
 		/// <returns></returns>
-		[WampProcedure("cms.{0}.definitions")]
+		[WampProcedure("cms.portals.{0}.definitions")]
 		ModuleDefinition GetDefinition();
 	}
 

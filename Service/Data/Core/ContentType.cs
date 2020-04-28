@@ -21,9 +21,17 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "ContentTypes", TableName = "T_Portals_ContentTypes", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
-	public sealed class ContentType : Repository<ContentType>, IPortalContentType
+	public sealed class ContentType : Repository<ContentType>, IPortalContentType, IRuntimeRepositoryEntity
 	{
 		public ContentType() : base() { }
+
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
+		public override string RepositoryID { get; set; }
+
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
+		public string ContentTypeDefinitionID { get; set; }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
@@ -52,6 +60,23 @@ namespace net.vieapps.Services.Portals
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[FormControl(Segment = "basic", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public ApprovalStatus DefaultCommentStatus { get; set; } = ApprovalStatus.Pending;
+
+		[Ignore, BsonIgnore]
+		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
+
+		[Ignore, BsonIgnore]
+		public Dictionary<string, string> Trackings { get; set; } = new Dictionary<string, string>();
+
+		[Ignore, BsonIgnore]
+		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
+
+		[AsJson, JsonIgnore, XmlIgnore]
+		[FormControl(Excluded = true)]
+		public List<ExtendedPropertyDefinition> ExtendedPropertyDefinitions { get; set; }
+
+		[AsJson, JsonIgnore, XmlIgnore]
+		[FormControl(Excluded = true)]
+		public ExtendedUIDefinition ExtendedUIDefinition { get; set; }
 
 		[NonSerialized]
 		JObject _json;
@@ -92,59 +117,61 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Hidden = true)]
 		public override string SystemID { get; set; }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
-		public override string RepositoryID { get; set; }
-
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string EntityID { get; set; }
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public new IPortalObject Parent => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public string ModuleID => this.RepositoryID;
-
-		[AsJson, JsonIgnore, XmlIgnore]
-		[FormControl(Excluded = true)]
-		public List<ExtendedPropertyDefinition> ExtendedPropertyDefinitions { get; }
-
-		[AsJson, JsonIgnore, XmlIgnore]
-		[FormControl(Excluded = true)]
-		public ExtendedUIDefinition ExtendedUIDefinition { get; }
-
-		[JsonIgnore, XmlIgnore]
-		public string DefinitionType { get; set; }
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public EntityDefinition Definition => RepositoryMediator.GetEntityDefinition(AssemblyLoader.GetType(this.DefinitionType), true);
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		IPortalObject IPortalContentType.Organization => this.Organization;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public string ModuleID => this.RepositoryID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Module Module => (this.ModuleID ?? "").GetModuleByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		IPortalModule IPortalContentType.Module => this.Module;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		IRuntimeRepository IRuntimeRepositoryEntity.RuntimeRepository => this.Module;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public new IPortalObject Parent => this.Module;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public ContentTypeDefinition ContentTypeDefinition => Utility.ContentTypeDefinitions.TryGetValue(this.ContentTypeDefinitionID, out var definition) ? definition : null;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public string EntityDefinitionTypeName => this.ContentTypeDefinition?.EntityDefinitionTypeName;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public EntityDefinition EntityDefinition => this.ContentTypeDefinition?.EntityDefinition ?? RepositoryMediator.GetEntityDefinition(this.EntityDefinitionTypeName);
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.Module?.Desktop;
 
-		[Ignore, BsonIgnore]
-		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
-
-		[Ignore, BsonIgnore]
-		public Dictionary<string, string> Trackings { get; set; } = new Dictionary<string, string>();
-
-		[Ignore, BsonIgnore]
-		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
+		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+			=> base.ToJson(addTypeOfExtendedProperties, json =>
+			{
+				json["ExtendedPropertyDefinitions"] = this.ExtendedPropertyDefinitions?.ToJson();
+				json["ExtendedUIDefinition"] = this.ExtendedUIDefinition?.ToJson();
+				onPreCompleted?.Invoke(json);
+			});
 
 		internal void NormalizeExtras()
 		{
-			this.Notifications.Emails.Normalize();
-			this.Notifications.WebHooks.Normalize();
-			this.EmailSettings.Normalize();
+			this.Notifications?.Normalize();
+			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.WebHooks == null ? null : this.Notifications;
+			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+			this.Trackings = this.Trackings.Count < 1 ? null : this.Trackings;
+			this.EmailSettings?.Normalize();
+			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			ModuleExtensions.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
@@ -172,11 +199,17 @@ namespace net.vieapps.Services.Portals
 		internal static ConcurrentDictionary<string, ContentType> ContentTypes { get; } = new ConcurrentDictionary<string, ContentType>(StringComparer.OrdinalIgnoreCase);
 
 		internal static ContentType CreateContentTypeInstance(this ExpandoObject requestBody, string excluded = null, Action<ContentType> onCompleted = null)
-			=> requestBody.Copy<ContentType>(excluded?.ToHashSet(), onCompleted);
+			=> requestBody.Copy<ContentType>(excluded?.ToHashSet(), contentType =>
+			{
+				contentType.OriginalPrivileges = contentType.OriginalPrivileges?.Normalize();
+				onCompleted?.Invoke(contentType);
+			});
 
 		internal static ContentType UpdateContentTypeInstance(this ContentType contentType, ExpandoObject requestBody, string excluded = null, Action<ContentType> onCompleted = null)
 		{
-			contentType.CopyFrom(requestBody, excluded?.ToHashSet(), onCompleted);
+			contentType.CopyFrom(requestBody, excluded?.ToHashSet());
+			contentType.OriginalPrivileges = contentType.OriginalPrivileges?.Normalize();
+			onCompleted?.Invoke(contentType);
 			return contentType;
 		}
 
@@ -214,9 +247,36 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<ContentType> GetContentTypeByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetContentTypeByID(force, false) ?? (await ContentType.GetAsync<ContentType>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
-		internal static IFilterBy<ContentType> GetContentTypesFilter(this string systemID, string repositoryID)
-			=> string.IsNullOrWhiteSpace(repositoryID)
-				? Filters<ContentType>.And(Filters<ContentType>.Equals("SystemID", systemID))
-				: Filters<ContentType>.And(Filters<ContentType>.Equals("SystemID", systemID), Filters<ContentType>.Equals("RepositoryID", repositoryID));
+		internal static IFilterBy<ContentType> GetContentTypesFilter(this string systemID, string repositoryID = null, string definitionID = null)
+		{
+			var filter = Filters<ContentType>.And(Filters<ContentType>.Equals("SystemID", systemID));
+			if (!string.IsNullOrWhiteSpace(repositoryID))
+				filter.Add(Filters<ContentType>.Equals("RepositoryID", repositoryID));
+			if (!string.IsNullOrWhiteSpace(definitionID))
+				filter.Add(Filters<ContentType>.Equals("DefinitionID", definitionID));
+			return filter;
+		}
+
+		internal static List<ContentType> GetContentTypes(this string systemID, string repositoryID = null, string definitionID = null, bool updateCache = true)
+		{
+			if (string.IsNullOrWhiteSpace(systemID))
+				return new List<ContentType>();
+			var filter = systemID.GetContentTypesFilter(repositoryID, definitionID);
+			var sort = Sorts<ContentType>.Ascending("Title");
+			var contentTypes = ContentType.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
+			contentTypes.ForEach(contentType => contentType.Set(updateCache));
+			return contentTypes;
+		}
+
+		internal static async Task<List<ContentType>> GetContentTypesAsync(this string systemID, string repositoryID = null, string definitionID = null, CancellationToken cancellationToken = default, bool updateCache = true)
+		{
+			if (string.IsNullOrWhiteSpace(systemID))
+				return new List<ContentType>();
+			var filter = systemID.GetContentTypesFilter(repositoryID, definitionID);
+			var sort = Sorts<ContentType>.Ascending("Title");
+			var contentTypes = await ContentType.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
+			await contentTypes.ForEachAsync((contentType, token) => contentType.SetAsync(updateCache, token), cancellationToken).ConfigureAwait(false);
+			return contentTypes;
+		}
 	}
 }

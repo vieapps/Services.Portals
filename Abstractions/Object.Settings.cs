@@ -31,6 +31,8 @@ namespace net.vieapps.Services.Portals.Settings
 			this.ToAddresses = string.IsNullOrWhiteSpace(this.ToAddresses) ? null : this.ToAddresses.ToList(";", true).Where(emailAddress => emailAddress.GetMailAddress() != null).Join(";");
 			this.CcAddresses = string.IsNullOrWhiteSpace(this.CcAddresses) ? null : this.CcAddresses.ToList(";", true).Where(emailAddress => emailAddress.GetMailAddress() != null).Join(";");
 			this.BccAddresses = string.IsNullOrWhiteSpace(this.BccAddresses) ? null : this.BccAddresses.ToList(";", true).Where(emailAddress => emailAddress.GetMailAddress() != null).Join(";");
+			this.Subject = string.IsNullOrWhiteSpace(this.Subject) ? null : this.Subject.Trim();
+			this.Body = string.IsNullOrWhiteSpace(this.Body) ? null : this.Body.Trim();
 		}
 	}
 
@@ -58,6 +60,7 @@ namespace net.vieapps.Services.Portals.Settings
 		public void Normalize()
 		{
 			this.EndpointURLs = (this.EndpointURLs ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("http://") || url.IsStartsWith("https://"))).ToList();
+			this.EndpointURLs = this.EndpointURLs.Count < 1 ? null : this.EndpointURLs;
 			if (string.IsNullOrWhiteSpace(this.AdditionalQuery))
 				this.AdditionalQuery = null;
 			else
@@ -99,6 +102,16 @@ namespace net.vieapps.Services.Portals.Settings
 		public EmailNotifications Emails { get; set; } = new EmailNotifications();
 
 		public WebHookNotifications WebHooks { get; set; } = new WebHookNotifications();
+
+		public void Normalize()
+		{
+			this.Events = this.Events == null || this.Events.Count < 1 ? null : this.Events;
+			this.Methods = this.Methods == null || this.Methods.Count < 1 ? null : this.Methods;
+			this.Emails?.Normalize();
+			this.Emails = this.Emails != null && string.IsNullOrWhiteSpace(this.Emails.ToAddresses) && string.IsNullOrWhiteSpace(this.Emails.CcAddresses) && string.IsNullOrWhiteSpace(this.Emails.BccAddresses) && string.IsNullOrWhiteSpace(this.Emails.Subject) && string.IsNullOrWhiteSpace(this.Emails.Body) ? null : this.Emails;
+			this.WebHooks?.Normalize();
+			this.WebHooks = this.WebHooks != null && this.WebHooks.EndpointURLs == null ? null : this.WebHooks;
+		}
 	}
 
 	[Serializable]
@@ -109,6 +122,12 @@ namespace net.vieapps.Services.Portals.Settings
 		public string Subject { get; set; }
 
 		public string Body { get; set; }
+
+		public void Normalize()
+		{
+			this.Subject = string.IsNullOrWhiteSpace(this.Subject) ? null : this.Subject.Trim();
+			this.Body = string.IsNullOrWhiteSpace(this.Body) ? null : this.Body.Trim();
+		}
 	}
 
 	[Serializable]
@@ -123,6 +142,7 @@ namespace net.vieapps.Services.Portals.Settings
 		public void Normalize()
 		{
 			this.Addresses = (this.Addresses ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).ToList();
+			this.Addresses = this.Addresses.Count < 1 ? null : this.Addresses;
 			this.Interval = this.Interval < 1 ? 15 : this.Interval;
 		}
 	}
@@ -137,7 +157,10 @@ namespace net.vieapps.Services.Portals.Settings
 		public bool AllHttp404 { get; set; } = false;
 
 		public void Normalize()
-			=> this.Addresses = (this.Addresses ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).ToList();
+		{
+			this.Addresses = (this.Addresses ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).ToList();
+			this.Addresses = this.Addresses.Count < 1 ? null : this.Addresses;
+		}
 	}
 
 	[Serializable]
@@ -170,7 +193,8 @@ namespace net.vieapps.Services.Portals.Settings
 		public void Normalize()
 		{
 			this.Sender = string.IsNullOrWhiteSpace(this.Sender) || this.Sender.GetMailAddress() == null ? null : this.Sender.Trim();
-			this.Signature = this.Signature?.Trim();
+			this.Signature = string.IsNullOrWhiteSpace(this.Sender)  ? null : this.Signature.Trim();
+			this.Smtp = string.IsNullOrWhiteSpace(this.Smtp?.Host) ? null : this.Smtp;
 		}
 	}
 
@@ -206,6 +230,22 @@ namespace net.vieapps.Services.Portals.Settings
 		public string Css { get; set; }
 
 		public string Style { get; set; }
+
+		public void Normalize()
+		{
+			this.Padding = string.IsNullOrWhiteSpace(this.Padding) ? null : this.Padding.Trim();
+			this.Margin = string.IsNullOrWhiteSpace(this.Margin) ? null : this.Margin.Trim();
+			this.Width = string.IsNullOrWhiteSpace(this.Width) ? null : this.Width.Trim();
+			this.Height = string.IsNullOrWhiteSpace(this.Height) ? null : this.Height.Trim();
+			this.Color = string.IsNullOrWhiteSpace(this.Color) ? null : this.Color.Trim();
+			this.BackgroundColor = string.IsNullOrWhiteSpace(this.BackgroundColor) ? null : this.BackgroundColor.Trim();
+			this.BackgroundImageURI = string.IsNullOrWhiteSpace(this.BackgroundImageURI) ? null : this.BackgroundImageURI.Trim();
+			this.BackgroundImageRepeat = string.IsNullOrWhiteSpace(this.BackgroundImageRepeat) ? null : this.BackgroundImageRepeat.Trim();
+			this.BackgroundImagePosition = string.IsNullOrWhiteSpace(this.BackgroundImagePosition) ? null : this.BackgroundImagePosition.Trim();
+			this.BackgroundImageSize = string.IsNullOrWhiteSpace(this.BackgroundImageSize) ? null : this.BackgroundImageSize.Trim();
+			this.Css = string.IsNullOrWhiteSpace(this.Css) ? null : this.Css.Trim();
+			this.Style = string.IsNullOrWhiteSpace(this.Style) ? null : this.Style.Trim();
+		}
 	}
 
 	[Serializable]
@@ -233,6 +273,13 @@ namespace net.vieapps.Services.Portals.Settings
 
 		[FormControl(ControlType = "TextArea")]
 		public string Keywords { get; set; }
+
+		public void Normalize()
+		{
+			this.Title = string.IsNullOrWhiteSpace(this.Title) ? null : this.Title.Trim();
+			this.Description = string.IsNullOrWhiteSpace(this.Description) ? null : this.Description.Trim();
+			this.Keywords = string.IsNullOrWhiteSpace(this.Keywords) ? null : this.Keywords.Trim();
+		}
 	}
 
 	[Serializable]
@@ -252,7 +299,12 @@ namespace net.vieapps.Services.Portals.Settings
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String)]
 		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "PortletAndDesktopAndSite,SiteAndDesktopAndPortlet,PortletAndDesktop,DesktopAndPortlet,PortletAndSite,SiteAndPortlet,Portlet,Desktop")]
-		public SEOMode? KeywordsMode { get; set; }		
+		public SEOMode? KeywordsMode { get; set; }
 
+		public void Normalize()
+		{
+			this.SEOInfo?.Normalize();
+			this.SEOInfo = this.SEOInfo != null && string.IsNullOrWhiteSpace(this.SEOInfo.Title) && string.IsNullOrWhiteSpace(this.SEOInfo.Description) && string.IsNullOrWhiteSpace(this.SEOInfo.Keywords) ? null : this.SEOInfo;
+		}
 	}
 }

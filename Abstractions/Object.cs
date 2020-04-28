@@ -1,9 +1,5 @@
 ﻿using System;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 using net.vieapps.Components.Security;
-using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.Portals
 {
 	/// <summary>
@@ -12,12 +8,12 @@ namespace net.vieapps.Services.Portals
 	public interface IPortalObject
 	{
 		/// <summary>
-		/// Gets the title of this object
+		/// Gets the title
 		/// </summary>
 		string Title { get; }
 
 		/// <summary>
-		/// Gets the identity of this object
+		/// Gets the identity
 		/// </summary>
 		string ID { get; }
 

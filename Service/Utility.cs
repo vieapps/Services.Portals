@@ -2,6 +2,7 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
@@ -19,7 +20,12 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the collection of module definition
 		/// </summary>
-		public static List<ModuleDefinition> ModuleDefinitions { get; } = new List<ModuleDefinition>();
+		public static ConcurrentDictionary<string, ModuleDefinition> ModuleDefinitions { get; } = new ConcurrentDictionary<string, ModuleDefinition>();
+
+		/// <summary>
+		/// Gets the collection of content-type definition
+		/// </summary>
+		public static ConcurrentDictionary<string, ContentTypeDefinition> ContentTypeDefinitions { get; } = new ConcurrentDictionary<string, ContentTypeDefinition>();
 
 		/// <summary>
 		/// Gets the collection of not recognized aliases
@@ -69,10 +75,6 @@ namespace net.vieapps.Services.Portals
 	//  --------------------------------------------------------------------------------------------
 
 	[Serializable]
-	[Repository(ID = "00000000000000000000000000000001", Title = "CMS", Description = "Provide services of the CMS module", Directory = "CMS")]
-	public abstract class Repository<T> : RepositoryBase<T> where T : class
-	{
-		[Ignore, Newtonsoft.Json.JsonIgnore, MongoDB.Bson.Serialization.Attributes.BsonIgnore, System.Xml.Serialization.XmlIgnore]
-		public override string ServiceName => ServiceBase.ServiceComponent.ServiceName;
-	}
+	[Repository(ServiceName = "Portals", ID = "00000000000000000000000000000001", Title = "CMS", Description = "Provide services of the CMS module", Directory = "CMS")]
+	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 }

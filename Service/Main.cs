@@ -18,7 +18,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	public class ServiceComponent : ServiceBase, ICmsService
+	public class ServiceComponent : ServiceBase, ICmsPortalsService
 	{
 
 		#region Definitions
@@ -29,7 +29,7 @@ namespace net.vieapps.Services.Portals
 		public override string ServiceName => "Portals";
 
 		public ModuleDefinition GetDefinition()
-			=> new ModuleDefinition(RepositoryMediator.GetEntityDefinition<Organization>().RepositoryDefinition, this.ServiceName);
+			=> new ModuleDefinition(RepositoryMediator.GetEntityDefinition<Organization>().RepositoryDefinition);
 		#endregion
 
 		#region Start/Stop the service
@@ -39,15 +39,13 @@ namespace net.vieapps.Services.Portals
 				async _ =>
 				{
 					onSuccess?.Invoke(this);
-					this.ServiceInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<ICmsService>(() => this, RegistrationInterceptor.Create(this.ServiceName)).ConfigureAwait(false);
-					this.Logger?.LogDebug($"The service was{(this.State == ServiceState.Disconnected ? " re-" : " ")}registered successfully with CMS Portals");
+					this.ServiceInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<ICmsPortalsService>(() => this, RegistrationInterceptor.Create(this.ServiceName)).ConfigureAwait(false);
 					this.ServiceCommunicator?.Dispose();
-					this.ServiceCommunicator = Router.IncomingChannel.RealmProxy.Services
-						.GetSubject<CommunicateMessage>("messages.services.cms")
-						.Subscribe(
-							async message => await this.ProcessCommunicateMessageAsync(message).ConfigureAwait(false),
-							exception => this.Logger?.LogError($"Error occurred while fetching an communicate message of CMS => {exception.Message}", this.State == ServiceState.Connected ? exception : null)
-						);
+					this.ServiceCommunicator = CmsPortalsServiceExtensions.RegisterServiceCommunicator(
+						async message => await this.ProcessCommunicateMessageAsync(message).ConfigureAwait(false),
+						exception => this.Logger?.LogError($"Error occurred while fetching an communicate message of CMS Portals => {exception.Message}", this.State == ServiceState.Connected ? exception : null)
+					);
+					this.Logger?.LogDebug($"The service was{(this.State == ServiceState.Disconnected ? " re-" : " ")}registered successfully with CMS Portals");
 				},
 				onError
 			);
@@ -59,16 +57,16 @@ namespace net.vieapps.Services.Portals
 				async _ =>
 				{
 					onSuccess?.Invoke(this);
-					try
-					{
-						await (this.ServiceInstance != null ? this.ServiceInstance.DisposeAsync().AsTask() : Task.CompletedTask).ConfigureAwait(false);
-						this.Logger?.LogDebug($"The service was unregistered successfully with CMS Portals");
-					}
-					catch (Exception ex)
-					{
-						this.Logger?.LogError($"Error occurred while unregistering service with CMS Portals => {ex.Message}", ex);
-					}
+					if (this.ServiceInstance != null)
+						try
+						{
+							await this.ServiceInstance.DisposeAsync().ConfigureAwait(false);
+						}
+						catch { }
+					this.ServiceInstance = null;
 					this.ServiceCommunicator?.Dispose();
+					this.ServiceCommunicator = null;
+					this.Logger?.LogDebug($"The service was unregistered successfully with CMS Portals");
 				},
 				onError
 			);
@@ -91,7 +89,7 @@ namespace net.vieapps.Services.Portals
 				Utility.PassportsHttpURI = this.GetHttpURI("Passports", "https://id.vieapps.net");
 				while (Utility.PassportsHttpURI.EndsWith("/"))
 					Utility.PassportsHttpURI = Utility.PassportsHttpURI.Left(Utility.PassportsHttpURI.Length - 1);
-				
+
 				Utility.DefaultSite = UtilityService.GetAppSetting("Portals:DefaultSiteID", "").GetSiteByID();
 				Utility.DataFilesDirectory = UtilityService.GetAppSetting("Path:Portals");
 				this.StartTimer(() => this.SendDefinitionInfoAsync(this.CancellationTokenSource.Token), 15 * 60);
@@ -104,7 +102,7 @@ namespace net.vieapps.Services.Portals
 					try
 					{
 						await Task.Delay(UtilityService.GetRandomNumber(678, 789), this.CancellationTokenSource.Token).ConfigureAwait(false);
-						await this.SendInterCommunicateMessageAsync(new CommunicateMessage("CMS")
+						await this.SendInterCommunicateMessageAsync(new CommunicateMessage("CMS.Portals")
 						{
 							Type = "Definition#RequestInfo"
 						}, this.CancellationTokenSource.Token).ConfigureAwait(false);
@@ -127,6 +125,8 @@ namespace net.vieapps.Services.Portals
 				JToken json = null;
 				switch (requestInfo.ObjectName.ToLower())
 				{
+
+					#region process the request of Portals objects
 					case "organization":
 						json = await this.ProcessOrganizationAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
@@ -148,16 +148,21 @@ namespace net.vieapps.Services.Portals
 						break;
 
 					case "contenttype":
+					case "content.type":
 					case "content-type":
 						json = await this.ProcessContentTypeAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
+					#endregion
 
+					#region process the request of definitions
 					case "definitions":
 						var mode = requestInfo.GetQueryParameter("mode");
 						switch (requestInfo.GetObjectIdentity())
 						{
-							case "modules":
-								json = Utility.ModuleDefinitions.OrderBy(definition => definition.Title).ToJArray();
+							case "moduledefinitions":
+							case "module.definitions":
+							case "module-definitions":
+								json = Utility.ModuleDefinitions.Values.OrderBy(definition => definition.Title).ToJArray();
 								break;
 
 							case "social":
@@ -168,6 +173,11 @@ namespace net.vieapps.Services.Portals
 							case "tracking":
 							case "trackings":
 								json = UtilityService.GetAppSetting("Portals:Trackings", "GoogleAnalytics,FacebookPixel").ToArray().ToJArray();
+								break;
+
+							case "theme":
+							case "themes":
+								json = await this.GetThemesAsync(cancellationToken).ConfigureAwait(false);
 								break;
 
 							case "organization":
@@ -187,6 +197,7 @@ namespace net.vieapps.Services.Portals
 								break;
 
 							case "contenttype":
+							case "content.type":
 							case "content-type":
 								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<ContentType>() : this.GenerateFormControls<ContentType>();
 								break;
@@ -199,6 +210,7 @@ namespace net.vieapps.Services.Portals
 								throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 						}
 						break;
+					#endregion
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
@@ -217,6 +229,41 @@ namespace net.vieapps.Services.Portals
 				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
 			}
 		}
+
+		#region Get themes
+		async Task<JArray> GetThemesAsync(CancellationToken cancellationToken)
+		{
+			var themes = new JArray();
+			if (string.IsNullOrWhiteSpace(Utility.DataFilesDirectory))
+				themes.Add(new JObject
+				{
+					{ "name", "default" },
+					{ "displayName", "Default theme" },
+					{ "description", "The theme with default styles and coloring codes" },
+					{ "author", "System" }
+				});
+			else if (Directory.Exists(Path.Combine(Utility.DataFilesDirectory, "themes")))
+				await Directory.GetDirectories(Path.Combine(Utility.DataFilesDirectory, "themes")).ForEachAsync(async (directory, token) =>
+				{
+					var name = Path.GetFileName(directory).ToLower();
+					var packageInfo = new JObject
+					{
+						{ "name", name },
+						{ "displayName", name.GetCapitalizedFirstLetter() },
+						{ "description", "" },
+						{ "author", "System" }
+					};
+					if (File.Exists(Path.Combine(directory, "package.json")))
+						try
+						{
+							packageInfo = JObject.Parse(await UtilityService.ReadTextFileAsync(Path.Combine(directory, "package.json")).ConfigureAwait(false));
+						}
+						catch { }
+					themes.Add(packageInfo);
+				}, cancellationToken, true, false).ConfigureAwait(false);
+			return themes;
+		}
+		#endregion
 
 		Task<JObject> ProcessOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
@@ -1823,21 +1870,25 @@ namespace net.vieapps.Services.Portals
 			var pageSize = pagination.Item3;
 			var pageNumber = pagination.Item4;
 
-			// get organization
-			var organizationID = filter is FilterBys<Module>
-					? ((filter as FilterBys<Module>).Children.FirstOrDefault(exp => (exp as FilterBy<Module>).Attribute.IsEquals("SystemID")) as FilterBy<Module>)?.Value as string
-					: null;
-			if (string.IsNullOrWhiteSpace(organizationID))
-				organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
-
 			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator;
 			if (!gotRights)
-				throw new AccessDeniedException();
+			{
+				// get organization
+				var organizationID = filter is FilterBys<Site>
+					? ((filter as FilterBys<Site>).Children.FirstOrDefault(exp => (exp as FilterBy<Site>).Attribute.IsEquals("SystemID")) as FilterBy<Site>)?.Value as string
+					: null;
+				if (string.IsNullOrWhiteSpace(organizationID))
+					organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
+				var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (organization == null)
+					throw new InformationExistedException("The organization is invalid");
+
+				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+				if (!gotRights)
+					throw new AccessDeniedException();
+			}
 
 			// process cache
 			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
@@ -1915,7 +1966,9 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				Module.CreateAsync(module, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(null, Sorts<Module>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Module>.And(), Sorts<Module>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(), Sorts<Module>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(module.ModuleDefinitionID), Sorts<Module>.Ascending("Title")), cancellationToken),
 				module.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
 
@@ -1959,8 +2012,11 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			await module.GetContentTypeAsync(cancellationToken).ConfigureAwait(false);
+			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+
 			// send the update message to update to all other connected clients and response
-			var response = module.ToJson();
+			var response = module.ToJson(true, false);
 			await this.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{this.ServiceName}#{module.GetTypeName(true)}#Update",
@@ -1997,7 +2053,9 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				Module.UpdateAsync(module, requestInfo.Session.User.ID, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(null, Sorts<Module>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Module>.And(), Sorts<Module>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(), Sorts<Module>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(module.ModuleDefinitionID), Sorts<Module>.Ascending("Title")), cancellationToken),
 				module.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
 
@@ -2041,10 +2099,18 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// TO DO: delete all content-types and business objects first
+			// .......
+
 			// delete
 			await Module.DeleteAsync<Module>(module.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			module.Remove();
-			await Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(null, Sorts<Module>.Ascending("Title")), cancellationToken).ConfigureAwait(false);
+
+			await Task.WhenAll(
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Module>.And(), Sorts<Module>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(), Sorts<Module>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(module.ModuleDefinitionID), Sorts<Module>.Ascending("Title")), cancellationToken)
+			).ConfigureAwait(false);
 
 			// send update messages
 			var response = module.ToJson();
@@ -2106,21 +2172,25 @@ namespace net.vieapps.Services.Portals
 			var pageSize = pagination.Item3;
 			var pageNumber = pagination.Item4;
 
-			// get organization
-			var organizationID = filter is FilterBys<ContentType>
-					? ((filter as FilterBys<ContentType>).Children.FirstOrDefault(exp => (exp as FilterBy<ContentType>).Attribute.IsEquals("SystemID")) as FilterBy<ContentType>)?.Value as string
-					: null;
-			if (string.IsNullOrWhiteSpace(organizationID))
-				organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
-
 			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator;
 			if (!gotRights)
-				throw new AccessDeniedException();
+			{
+				// get organization
+				var organizationID = filter is FilterBys<Site>
+					? ((filter as FilterBys<Site>).Children.FirstOrDefault(exp => (exp as FilterBy<Site>).Attribute.IsEquals("SystemID")) as FilterBy<Site>)?.Value as string
+					: null;
+				if (string.IsNullOrWhiteSpace(organizationID))
+					organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
+				var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (organization == null)
+					throw new InformationExistedException("The organization is invalid");
+
+				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+				if (!gotRights)
+					throw new AccessDeniedException();
+			}
 
 			// process cache
 			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
@@ -2198,8 +2268,11 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				ContentType.CreateAsync(contentType, cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<ContentType>.And(), Sorts<ContentType>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null), Sorts<ContentType>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
 				contentType.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
 
@@ -2281,8 +2354,11 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				ContentType.UpdateAsync(contentType, requestInfo.Session.User.ID, cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<ContentType>.And(), Sorts<ContentType>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null), Sorts<ContentType>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
 				contentType.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
 
@@ -2326,12 +2402,19 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// TO DO: delete all business objects first
+			// .......
+
 			// delete
 			await ContentType.DeleteAsync<ContentType>(contentType.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			contentType.Remove();
+
 			await Task.WhenAll(
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<ContentType>.And(), Sorts<ContentType>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID), Sorts<ContentType>.Ascending("Title")), cancellationToken)
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken)
 			).ConfigureAwait(false);
 
 			// send update messages
@@ -2416,11 +2499,16 @@ namespace net.vieapps.Services.Portals
 			{
 				var definition = message.Data?.ToExpandoObject()?.Copy<ModuleDefinition>();
 				if (this.IsDebugLogEnabled)
-					await this.WriteLogsAsync(correlationID, $"Got an update of a module definition\r\n{message.Data}", null, this.ServiceName, "CMS").ConfigureAwait(false);
+					await this.WriteLogsAsync(correlationID, $"Got an update of a module definition\r\n{message.Data}", null, this.ServiceName, "CMS.Portals").ConfigureAwait(false);
 
-				if (definition != null && Utility.ModuleDefinitions.FirstOrDefault(def => def.ID.Equals(definition.ID)) != null)
+				if (definition != null && !Utility.ModuleDefinitions.ContainsKey(definition.ID))
 				{
-					Utility.ModuleDefinitions.Add(definition);
+					Utility.ModuleDefinitions[definition.ID] = definition;
+					definition.ContentTypeDefinitions.ForEach(contentTypeDefinition =>
+					{
+						contentTypeDefinition.ModuleDefinition = definition;
+						Utility.ContentTypeDefinitions[contentTypeDefinition.ID] = contentTypeDefinition;
+					});
 					if (this.IsDebugLogEnabled)
 						await this.WriteLogsAsync(correlationID, $"Update the module definition into the collection of definitions\r\n{definition.ToJson()}", null, this.ServiceName, "CMS").ConfigureAwait(false);
 				}
@@ -2428,7 +2516,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		Task SendDefinitionInfoAsync(CancellationToken cancellationToken = default)
-			=> this.SendInterCommunicateMessageAsync(new CommunicateMessage("CMS")
+			=> this.SendInterCommunicateMessageAsync(new CommunicateMessage("CMS.Portals")
 			{
 				Type = "Definition#Info",
 				Data = this.GetDefinition().ToJson()

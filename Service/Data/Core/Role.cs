@@ -111,7 +111,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._childrenIDs == null)
 			{
-				roles = roles ?? this.SystemID.GetRolesByParentID(this.ID);
+				roles = roles ?? this.SystemID.GetRoles(this.ID);
 				this._childrenIDs = roles.Select(role => role.ID).ToList();
 				this.NotifyPropertyChanged("ChildrenIDs");
 				return roles;
@@ -121,7 +121,7 @@ namespace net.vieapps.Services.Portals
 
 		internal async Task<List<Role>> GetChildrenAsync(CancellationToken cancellationToken = default)
 			=> this._childrenIDs == null
-				? this.GetChildren(await this.SystemID.GetRolesByParentIDAsync(this.ID, cancellationToken).ConfigureAwait(false))
+				? this.GetChildren(await this.SystemID.GetRolesAsync(this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -136,10 +136,18 @@ namespace net.vieapps.Services.Portals
 		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
-				if (addChildren && json != null)
-					json["Children"] = (this.GetChildren() ?? new List<Role>()).Select(role => role?.ToJson(true, false)).Where(role => role != null).ToJArray();
+				json.Remove("Privileges");
+				json.Remove("OriginalPrivileges");
+				if (addChildren)
+					json["Children"] = this.Children?.Select(role => role?.ToJson(true, false)).Where(role => role != null).ToJArray();
 				onPreCompleted?.Invoke(json);
 			});
+
+		public override void ProcessPropertyChanged(string name)
+		{
+			if (name.IsEquals("ChildrenIDs"))
+				Utility.Cache.Set(this);
+		}
 	}
 
 	internal static class RoleExtensions
@@ -147,7 +155,7 @@ namespace net.vieapps.Services.Portals
 		internal static ConcurrentDictionary<string, Role> Roles { get; } = new ConcurrentDictionary<string, Role>(StringComparer.OrdinalIgnoreCase);
 
 		internal static Role CreateRoleInstance(this ExpandoObject requestBody, string excluded = null, Action<Role> onCompleted = null)
-			=> requestBody.Copy<Role>(excluded?.ToHashSet(), onCompleted);
+			=> requestBody.Copy(excluded?.ToHashSet(), onCompleted);
 
 		internal static Role UpdateRoleInstance(this Role role, ExpandoObject requestBody, string excluded = null, Action<Role> onCompleted = null)
 		{
@@ -192,7 +200,7 @@ namespace net.vieapps.Services.Portals
 		internal static IFilterBy<Role> GetRolesFilter(this string systemID, string parentID)
 			=> Filters<Role>.And(Filters<Role>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Role>.IsNull("ParentID") : Filters<Role>.Equals("ParentID", parentID));
 
-		internal static List<Role> GetRolesByParentID(this string systemID, string parentID, bool updateCache = true)
+		internal static List<Role> GetRoles(this string systemID, string parentID, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Role>();
@@ -203,7 +211,7 @@ namespace net.vieapps.Services.Portals
 			return roles;
 		}
 
-		internal static async Task<List<Role>> GetRolesByParentIDAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
+		internal static async Task<List<Role>> GetRolesAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Role>();
