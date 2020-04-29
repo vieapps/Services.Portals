@@ -20,7 +20,9 @@ using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Contents", TableName = "T_Portals_CMS_Contents", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ObjectName = "Content", ID = "B0000000000000000000000000000002", Title = "Content", Description = "A detail of content in CMS module (article/news)", MultipleIntances = true, Extendable = true, Indexable = true, ParentType = typeof(Category), ParentAssociatedProperty = "CategoryID", MultipleParentAssociates = true, MultipleParentAssociatesProperty = "OtherCategories", MultipleParentAssociatesTable = "T_Portals_CMS_Contents_Categories", MultipleParentAssociatesMapColumn = "CategoryID", MultipleParentAssociatesLinkColumn = "ContentID", AliasProperty = "Alias")]
+	[Entity(CollectionName = "CMS_Contents", TableName = "T_Portals_CMS_Contents", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true,
+		ObjectName = "Content", ID = "B0000000000000000000000000000002", Title = "Content", Description = "A detail of content in CMS module (article/news)", MultipleIntances = true, Extendable = true, Indexable = true, AliasProperty = "Alias",
+		ParentType = typeof(Category), ParentAssociatedProperty = "CategoryID", MultipleParentAssociates = true, MultipleParentAssociatesProperty = "OtherCategories", MultipleParentAssociatesTable = "T_Portals_CMS_Contents_Categories", MultipleParentAssociatesMapColumn = "CategoryID", MultipleParentAssociatesLinkColumn = "ContentID")]
 	public sealed class Content : Repository<Content>, IBusinessObject
 	{
 		public Content() : base() { }
@@ -93,7 +95,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "TextEditor", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
 		public string Details { get; set; }
 
-		[AsMapping]
+		[AsSingleMapping]
 		[FormControl(Segment = "related", ControlType = "Lookup", Multiple = true, Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
 		public List<string> RelatedContents { get; set; }
 
@@ -130,7 +132,7 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management", UniqueIndexName = "Alias")]
 		[FormControl(Hidden = true)]
-		public override string EntityID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
@@ -151,7 +153,7 @@ namespace net.vieapps.Services.Portals
 		IPortalModule IBusinessObject.Module => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public string ContentTypeID => this.EntityID;
+		public string ContentTypeID => this.RepositoryEntityID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public ContentType ContentType => (this.ContentTypeID ?? "").GetContentTypeByID();

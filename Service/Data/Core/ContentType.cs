@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "ContentTypes", TableName = "T_Portals_ContentTypes", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
-	public sealed class ContentType : Repository<ContentType>, IPortalContentType, IRuntimeRepositoryEntity
+	public sealed class ContentType : Repository<ContentType>, IPortalContentType, IBusinessRepositoryEntity
 	{
 		public ContentType() : base() { }
 
@@ -118,7 +118,7 @@ namespace net.vieapps.Services.Portals
 		public override string SystemID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public override string EntityID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
@@ -139,7 +139,7 @@ namespace net.vieapps.Services.Portals
 		IPortalModule IPortalContentType.Module => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		IRuntimeRepository IRuntimeRepositoryEntity.RuntimeRepository => this.Module;
+		IBusinessRepository IBusinessRepositoryEntity.BusinessRepository => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override RepositoryBase Parent => this.Module;
@@ -205,6 +205,7 @@ namespace net.vieapps.Services.Portals
 			=> requestBody.Copy<ContentType>(excluded?.ToHashSet(), contentType =>
 			{
 				contentType.OriginalPrivileges = contentType.OriginalPrivileges?.Normalize();
+				contentType.TrimAll();
 				onCompleted?.Invoke(contentType);
 			});
 
@@ -212,6 +213,7 @@ namespace net.vieapps.Services.Portals
 		{
 			contentType.CopyFrom(requestBody, excluded?.ToHashSet());
 			contentType.OriginalPrivileges = contentType.OriginalPrivileges?.Normalize();
+			contentType.TrimAll();
 			onCompleted?.Invoke(contentType);
 			return contentType;
 		}

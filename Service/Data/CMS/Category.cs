@@ -105,7 +105,7 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
-		public override string EntityID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public ApprovalStatus Status => ApprovalStatus.Published;
@@ -129,7 +129,7 @@ namespace net.vieapps.Services.Portals
 		IPortalModule IBusinessObject.Module => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public string ContentTypeID => this.EntityID;
+		public string ContentTypeID => this.RepositoryEntityID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public ContentType ContentType => (this.ContentTypeID ?? "").GetContentTypeByID();
@@ -168,7 +168,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._childrenIDs == null)
 			{
-				categories = categories ?? this.SystemID.GetCategories(this.RepositoryID, this.EntityID, this.ID);
+				categories = categories ?? this.SystemID.GetCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
 				this._childrenIDs = categories.Select(category => category.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("ChildrenIDs");
@@ -179,7 +179,7 @@ namespace net.vieapps.Services.Portals
 
 		internal async Task<List<Category>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
-				? this.GetChildren(notifyPropertyChanged, await this.SystemID.GetCategoriesAsync(this.RepositoryID, this.EntityID, this.ID, cancellationToken).ConfigureAwait(false))
+				? this.GetChildren(notifyPropertyChanged, await this.SystemID.GetCategoriesAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetCategoryByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -287,33 +287,33 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<Category> GetCategoryByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetCategoryByID(force, false) ?? (await Category.GetAsync<Category>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
-		internal static IFilterBy<Category> GetCategorysFilter(this string systemID, string repositoryID = null, string entityID = null, string parentID = null)
+		internal static IFilterBy<Category> GetCategoriesFilter(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null)
 		{
 			var filter = Filters<Category>.And(Filters<Category>.Equals("SystemID", systemID));
 			if (!string.IsNullOrWhiteSpace(repositoryID))
 				filter.Add(Filters<Category>.Equals("RepositoryID", repositoryID));
-			if (!string.IsNullOrWhiteSpace(entityID))
-				filter.Add(Filters<Category>.Equals("EntityID", entityID));
+			if (!string.IsNullOrWhiteSpace(repositoryEntityID))
+				filter.Add(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID));
 			filter.Add(string.IsNullOrWhiteSpace(parentID) ? Filters<Category>.IsNull("ParentID") : Filters<Category>.Equals("ParentID", parentID));
 			return filter;
 		}
 
-		internal static List<Category> GetCategories(this string systemID, string repositoryID = null, string entityID = null, string parentID = null, bool updateCache = true)
+		internal static List<Category> GetCategories(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Category>();
-			var filter = systemID.GetCategorysFilter(repositoryID, entityID, parentID);
+			var filter = systemID.GetCategoriesFilter(repositoryID, repositoryEntityID, parentID);
 			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
 			var categories = Category.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
 			categories.ForEach(category => category.Set(updateCache));
 			return categories;
 		}
 
-		internal static async Task<List<Category>> GetCategoriesAsync(this string systemID, string repositoryID = null, string entityID = null, string parentID = null, CancellationToken cancellationToken = default, bool updateCache = true)
+		internal static async Task<List<Category>> GetCategoriesAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Category>();
-			var filter = systemID.GetCategorysFilter(repositoryID, entityID, parentID);
+			var filter = systemID.GetCategoriesFilter(repositoryID, repositoryEntityID, parentID);
 			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
 			var categories = await Category.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
 			await categories.ForEachAsync((category, token) => category.SetAsync(updateCache, token), cancellationToken).ConfigureAwait(false);

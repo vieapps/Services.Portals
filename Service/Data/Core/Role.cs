@@ -39,7 +39,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public string Description { get; set; }
 
-		[AsMapping]
+		[AsSingleMapping(TableName = "T_Portals_Roles_Users", LinkColumn = "RoleID", MapColumn = "UserID")]
 		[Sortable(IndexName = "Members")]
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public List<string> UserIDs { get; set; } = new List<string>();
@@ -69,7 +69,7 @@ namespace net.vieapps.Services.Portals
 		public override string RepositoryID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public override string EntityID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override Privileges OriginalPrivileges { get; set; }
@@ -158,11 +158,17 @@ namespace net.vieapps.Services.Portals
 		internal static ConcurrentDictionary<string, Role> Roles { get; } = new ConcurrentDictionary<string, Role>(StringComparer.OrdinalIgnoreCase);
 
 		internal static Role CreateRoleInstance(this ExpandoObject requestBody, string excluded = null, Action<Role> onCompleted = null)
-			=> requestBody.Copy(excluded?.ToHashSet(), onCompleted);
+		{
+			var role = requestBody.Copy<Role>(excluded?.ToHashSet());
+			role.TrimAll();
+			onCompleted?.Invoke(role);
+			return role;
+		}
 
 		internal static Role UpdateRoleInstance(this Role role, ExpandoObject requestBody, string excluded = null, Action<Role> onCompleted = null)
 		{
 			role.CopyFrom(requestBody, excluded?.ToHashSet(), onCompleted);
+			role.TrimAll();
 			return role;
 		}
 

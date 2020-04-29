@@ -65,7 +65,7 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management", UniqueIndexName = "Alias")]
 		[FormControl(Hidden = true)]
-		public override string EntityID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
@@ -86,7 +86,7 @@ namespace net.vieapps.Services.Portals
 		IPortalModule IBusinessObject.Module => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public string ContentTypeID => this.EntityID;
+		public string ContentTypeID => this.RepositoryEntityID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public ContentType ContentType => (this.ContentTypeID ?? "").GetContentTypeByID();

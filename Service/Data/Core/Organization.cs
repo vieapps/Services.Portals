@@ -122,7 +122,7 @@ namespace net.vieapps.Services.Portals
 		public override string RepositoryID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public override string EntityID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.ID;
@@ -263,14 +263,16 @@ namespace net.vieapps.Services.Portals
 		public static Organization CreateOrganizationInstance(this ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
 			=> requestBody.Copy<Organization>(excluded?.ToHashSet(), organization =>
 			{
-				organization.Instructions = requestBody.Get<ExpandoObject>("Instructions").GetOrganizationInstructions();
+				organization.Instructions = requestBody.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
+				organization.TrimAll();
 				onCompleted?.Invoke(organization);
 			});
 
 		public static Organization UpdateOrganizationInstance(this Organization organization, ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
 		{
 			organization.CopyFrom(requestBody, excluded?.ToHashSet());
-			organization.Instructions = requestBody.Get<ExpandoObject>("Instructions").GetOrganizationInstructions();
+			organization.Instructions = requestBody.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
+			organization.TrimAll();
 			onCompleted?.Invoke(organization);
 			return organization;
 		}

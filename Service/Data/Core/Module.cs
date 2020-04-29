@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Modules", TableName = "T_Portals_Modules", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
-	public sealed class Module : Repository<Module>, IPortalModule, IRuntimeRepository
+	public sealed class Module : Repository<Module>, IPortalModule, IBusinessRepository
 	{
 		public Module() : base() { }
 
@@ -93,7 +93,7 @@ namespace net.vieapps.Services.Portals
 		public override string RepositoryID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public override string EntityID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
@@ -149,7 +149,7 @@ namespace net.vieapps.Services.Portals
 		List<IPortalContentType> IPortalModule.ContentTypes => this.ContentTypes.Select(contentType => contentType as IPortalContentType).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<IRuntimeRepositoryEntity> RuntimeRepositoryEntities => this.ContentTypes.Select(contentType => contentType as IRuntimeRepositoryEntity).ToList();
+		public List<IBusinessRepositoryEntity> BusinessRepositoryEntities => this.ContentTypes.Select(contentType => contentType as IBusinessRepositoryEntity).ToList();
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
@@ -204,6 +204,7 @@ namespace net.vieapps.Services.Portals
 			=> requestBody.Copy<Module>(excluded?.ToHashSet(), module =>
 			{
 				module.OriginalPrivileges = module.OriginalPrivileges?.Normalize();
+				module.TrimAll();
 				onCompleted?.Invoke(module);
 			});
 
@@ -211,6 +212,7 @@ namespace net.vieapps.Services.Portals
 		{
 			module.CopyFrom(requestBody, excluded?.ToHashSet());
 			module.OriginalPrivileges = module.OriginalPrivileges?.Normalize();
+			module.TrimAll();
 			onCompleted?.Invoke(module);
 			return module;
 		}
