@@ -75,6 +75,6 @@ namespace net.vieapps.Services.Portals
 	//  --------------------------------------------------------------------------------------------
 
 	[Serializable]
-	[Repository(ServiceName = "Portals", ID = "00000000000000000000000000000001", Title = "CMS", Description = "Provide services of the CMS module", Directory = "CMS")]
+	[Repository(ServiceName = "Portals", ID = "A0000000000000000000000000000001", Title = "CMS", Description = "Services of the Portals CMS module", Directory = "CMS")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 }

@@ -30,7 +30,7 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
-		public override string Title { get; set; } = "";
+		public override string Title { get; set; }
 
 		[Property(MaxLength = 250), Searchable]
 		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
@@ -85,8 +85,8 @@ namespace net.vieapps.Services.Portals
 
 		string _extras;
 
-		[Property(IsCLOB = true)]
 		[JsonIgnore, XmlIgnore]
+		[Property(IsCLOB = true)]
 		[FormControl(Excluded = true)]
 		public string Extras
 		{
@@ -101,19 +101,19 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime Created { get; set; } = DateTime.Now;
+		public DateTime Created { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string CreatedID { get; set; } = "";
+		public string CreatedID { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime LastModified { get; set; } = DateTime.Now;
+		public DateTime LastModified { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string LastModifiedID { get; set; } = "";
+		public string LastModifiedID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string SystemID { get; set; }
@@ -128,7 +128,7 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.ID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public new IPortalObject Parent => null;
+		IPortalObject IPortalObject.Parent => null;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override Privileges WorkingPrivileges => this.OriginalPrivileges ?? new Privileges(true);
@@ -218,15 +218,15 @@ namespace net.vieapps.Services.Portals
 			if (name.IsEquals("Extras"))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>() ?? new Settings.Notifications();
+				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>();
 				this.Instructions = this._json["Instructions"]?.ToExpandoObject().GetOrganizationInstructions();
-				this.Socials = this._json["Socials"]?.FromJson<List<string>>() ?? new List<string>();
-				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>() ?? new Dictionary<string, string>();
+				this.Socials = this._json["Socials"]?.FromJson<List<string>>();
+				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
 				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
 				this.Scripts = this._json["Scripts"]?.FromJson<string>();
-				this.RefreshUrls = this._json["RefreshUrls"]?.FromJson<Settings.RefreshUrls>() ?? new Settings.RefreshUrls();
-				this.RedirectUrls = this._json["RedirectUrls"]?.FromJson<Settings.RedirectUrls>() ?? new Settings.RedirectUrls();
-				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>() ?? new Settings.Email();
+				this.RefreshUrls = this._json["RefreshUrls"]?.FromJson<Settings.RefreshUrls>();
+				this.RedirectUrls = this._json["RedirectUrls"]?.FromJson<Settings.RedirectUrls>();
+				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
 			}
 			else if (OrganizationExtensions.ExtraProperties.Contains(name))
 			{

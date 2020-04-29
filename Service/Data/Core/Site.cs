@@ -27,7 +27,7 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
-		public override string Title { get; set; } = "";
+		public override string Title { get; set; }
 
 		[Searchable]
 		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
@@ -119,19 +119,19 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime Created { get; set; } = DateTime.Now;
+		public DateTime Created { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string CreatedID { get; set; } = "";
+		public string CreatedID { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime LastModified { get; set; } = DateTime.Now;
+		public DateTime LastModified { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string LastModifiedID { get; set; } = "";
+		public string LastModifiedID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
@@ -153,10 +153,13 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public new IPortalObject Parent => this.Organization;
+		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
+		public override RepositoryBase Parent => this.Organization;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		IPortalObject IPortalObject.Parent => this.Organization;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop HomeDesktop => (this.HomeDesktopID ?? "").GetDesktopByID() ?? this.Organization?.HomeDesktop;
@@ -193,13 +196,13 @@ namespace net.vieapps.Services.Portals
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this.AlwaysUseHTTPs = this._json["AlwaysUseHTTPs"] != null ? this._json["AlwaysUseHTTPs"].FromJson<bool>() : false;
-				this.UISettings = this._json["UISettings"]?.FromJson<Settings.UI>() ?? new Settings.UI();
+				this.UISettings = this._json["UISettings"]?.FromJson<Settings.UI>();
 				this.IconURI = this._json["IconURI"]?.FromJson<string>();
 				this.CoverURI = this._json["CoverURI"]?.FromJson<string>();
 				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
 				this.Scripts = this._json["Scripts"]?.FromJson<string>();
 				this.RedirectToNoneWWW = this._json["RedirectToNoneWWW"] != null ? this._json["RedirectToNoneWWW"].FromJson<bool>() : true;
-				this.SEOInfo = this._json["SEOInfo"]?.FromJson<Settings.SEOInfo>() ?? new Settings.SEOInfo();
+				this.SEOInfo = this._json["SEOInfo"]?.FromJson<Settings.SEOInfo>();
 			}
 			else if (SiteExtensions.ExtraProperties.Contains(name))
 			{

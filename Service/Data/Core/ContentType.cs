@@ -35,7 +35,7 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
-		public override string Title { get; set; } = "";
+		public override string Title { get; set; }
 
 		[Searchable]
 		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
@@ -99,19 +99,19 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime Created { get; set; } = DateTime.Now;
+		public DateTime Created { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string CreatedID { get; set; } = "";
+		public string CreatedID { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime LastModified { get; set; } = DateTime.Now;
+		public DateTime LastModified { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string LastModifiedID { get; set; } = "";
+		public string LastModifiedID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
@@ -142,7 +142,10 @@ namespace net.vieapps.Services.Portals
 		IRuntimeRepository IRuntimeRepositoryEntity.RuntimeRepository => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public new IPortalObject Parent => this.Module;
+		public override RepositoryBase Parent => this.Module;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		IPortalObject IPortalObject.Parent => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public ContentTypeDefinition ContentTypeDefinition => Utility.ContentTypeDefinitions.TryGetValue(this.ContentTypeDefinitionID, out var definition) ? definition : null;
@@ -182,9 +185,9 @@ namespace net.vieapps.Services.Portals
 			if (name.IsEquals("Extras"))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>() ?? new Settings.Notifications();
-				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>() ?? new Dictionary<string, string>();
-				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>() ?? new Settings.Email();
+				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>();
+				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
+				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
 			}
 			else if (ModuleExtensions.ExtraProperties.Contains(name))
 			{

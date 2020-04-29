@@ -22,10 +22,10 @@ namespace net.vieapps.Services.Portals
 				this.RepositoryDefinition = definition;
 				this.RepositoryDefinitionTypeName = definition.Type.GetTypeName();
 				this.ID = definition.ID;
-				this.Title = definition.Title;
+				this.Title = definition.Title ?? definition.Type.GetTypeName(true);
 				this.Description = definition.Description;
 				this.Icon = definition.Icon;
-				this.Directory = definition.Directory;
+				this.Directory = definition.Directory ?? definition.Type.GetTypeName(true);
 				this.ServiceName = definition.ServiceName;
 				this.ContentTypeDefinitions = definition.EntityDefinitions.Where(entityDefinition => !string.IsNullOrWhiteSpace(entityDefinition.ID)).Select(entityDefinition => new ContentTypeDefinition(entityDefinition, this)).ToList();
 			}
@@ -95,7 +95,7 @@ namespace net.vieapps.Services.Portals
 				this.EntityDefinitionTypeName = definition.Type.GetTypeName();
 				this.ModuleDefinition = moduleDefinition;
 				this.ID = definition.ID;
-				this.Title = definition.Title;
+				this.Title = definition.Title ?? definition.Type.GetTypeName(true);
 				this.Description = definition.Description;
 				this.Icon = definition.Icon;
 				this.MultipleIntances = definition.MultipleIntances;

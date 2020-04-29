@@ -128,18 +128,22 @@ namespace net.vieapps.Services.Portals
 
 					#region process the request of Portals objects
 					case "organization":
+					case "core.organization":
 						json = await this.ProcessOrganizationAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
 					case "role":
+					case "core.role":
 						json = await this.ProcessRoleAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
 					case "desktop":
+					case "core.desktop":
 						json = await this.ProcessDesktopAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
 					case "site":
+					case "core.site":
 						json = await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
@@ -150,6 +154,8 @@ namespace net.vieapps.Services.Portals
 					case "contenttype":
 					case "content.type":
 					case "content-type":
+					case "core.contenttype":
+					case "core.content.type":
 						json = await this.ProcessContentTypeAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 					#endregion
@@ -1955,7 +1961,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// create new
+			// create new module
 			var module = requestBody.CreateModuleInstance("SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", xmodule =>
 			{
 				xmodule.ID = string.IsNullOrWhiteSpace(xmodule.ID) || !xmodule.ID.IsValidUUID() ? UtilityService.NewUUID : xmodule.ID;
@@ -1968,12 +1974,31 @@ namespace net.vieapps.Services.Portals
 				Module.CreateAsync(module, cancellationToken),
 				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Module>.And(), Sorts<Module>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(), Sorts<Module>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(module.ModuleDefinitionID), Sorts<Module>.Ascending("Title")), cancellationToken),
-				module.SetAsync(false, cancellationToken)
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(module.ModuleDefinitionID), Sorts<Module>.Ascending("Title")), cancellationToken)
 			).ConfigureAwait(false);
 
+			// create new content-types
+			var contentTypeJson = new JObject
+			{
+				{ "SystemID", module.SystemID },
+				{ "RepositoryID", module.ID },
+				{ "ContentTypeDefinitionID", "" },
+				{ "Title", "" }
+			};
+
+			await Utility.ModuleDefinitions[module.ModuleDefinitionID].ContentTypeDefinitions.ForEachAsync(async (contentTypeDefinition, token) =>
+			{
+				contentTypeJson["ContentTypeDefinitionID"] = contentTypeDefinition.ID;
+				contentTypeJson["Title"] = contentTypeDefinition.Title;
+				await this.CreateContentTypeAsync(contentTypeJson, organization.ID, requestInfo.Session.User.ID, null, null, token).ConfigureAwait(false);
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			// update instance/cache
+			await module.GetContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
+			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+
 			// send update messages
-			var response = module.ToJson();
+			var response = module.ToJson(true, false);
 			var objectName = module.GetTypeName(true);
 			await Task.WhenAll(
 				this.SendUpdateMessageAsync(new UpdateMessage
@@ -2012,7 +2037,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			await module.GetContentTypeAsync(cancellationToken).ConfigureAwait(false);
+			await module.GetContentTypesAsync(cancellationToken).ConfigureAwait(false);
 			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 
 			// send the update message to update to all other connected clients and response
@@ -2242,6 +2267,54 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Create a content-type
+		async Task<ContentType> CreateContentTypeAsync(ExpandoObject data, string systemID, string userID, string excludedProperties = null, string excludedDeviceID = null, CancellationToken cancellationToken = default)
+		{
+			// create new
+			var contentType = data.CreateContentTypeInstance(excludedProperties, xcontentType =>
+			{
+				xcontentType.ID = string.IsNullOrWhiteSpace(xcontentType.ID) || !xcontentType.ID.IsValidUUID() ? UtilityService.NewUUID : xcontentType.ID;
+				xcontentType.SystemID = systemID;
+				xcontentType.Created = xcontentType.LastModified = DateTime.Now;
+				xcontentType.CreatedID = xcontentType.LastModifiedID = userID;
+				xcontentType.NormalizeExtras();
+			});
+			await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
+
+			// clear related cache
+			await Task.WhenAll(
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<ContentType>.And(), Sorts<ContentType>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null), Sorts<ContentType>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken)
+			).ConfigureAwait(false);
+
+			// send update messages
+			var json = contentType.ToJson();
+			var objectName = contentType.GetTypeName(true);
+			await Task.WhenAll(
+				this.SendUpdateMessageAsync(new UpdateMessage
+				{
+					Type = $"{this.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*",
+					ExcludedDeviceID = excludedDeviceID ?? ""
+				}, cancellationToken),
+				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = json,
+					ExcludedNodeID = this.NodeID
+				}, cancellationToken)
+			).ConfigureAwait(false);
+
+			// return the object
+			return await contentType.SetAsync(false, cancellationToken).ConfigureAwait(false);
+		}
+
+		Task<ContentType> CreateContentTypeAsync(JObject data, string systemID, string userID, string excludedProperties = null, string excludedDeviceID = null, CancellationToken cancellationToken = default)
+			=> this.CreateContentTypeAsync(data.ToExpandoObject(), systemID, userID, excludedProperties, excludedDeviceID, cancellationToken);
+
 		async Task<JObject> CreateContentTypeAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
@@ -2258,45 +2331,8 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// create new
-			var contentType = requestBody.CreateContentTypeInstance("SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", xcontentType =>
-			{
-				xcontentType.ID = string.IsNullOrWhiteSpace(xcontentType.ID) || !xcontentType.ID.IsValidUUID() ? UtilityService.NewUUID : xcontentType.ID;
-				xcontentType.SystemID = organization.ID;
-				xcontentType.Created = xcontentType.LastModified = DateTime.Now;
-				xcontentType.CreatedID = xcontentType.LastModifiedID = requestInfo.Session.User.ID;
-				xcontentType.NormalizeExtras();
-			});
-			await Task.WhenAll(
-				ContentType.CreateAsync(contentType, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<ContentType>.And(), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				contentType.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var response = contentType.ToJson();
-			var objectName = contentType.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
+			var contentType = await this.CreateContentTypeAsync(requestBody, organization.ID, requestInfo.Session.User.ID, "SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", requestInfo.Session.DeviceID, cancellationToken).ConfigureAwait(false);
+			return contentType.ToJson();
 		}
 		#endregion
 

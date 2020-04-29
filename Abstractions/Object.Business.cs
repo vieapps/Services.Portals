@@ -1,4 +1,5 @@
 ﻿using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
 namespace net.vieapps.Services.Portals
 {
 	/// <summary>
@@ -6,6 +7,11 @@ namespace net.vieapps.Services.Portals
 	/// </summary>
 	public interface IBusinessObject : IPortalObject, IBusinessEntity
 	{
+		/// <summary>
+		/// Gets the approval status
+		/// </summary>
+		ApprovalStatus Status { get; }
+
 		/// <summary>
 		/// Gets the organization that this object is belong to
 		/// </summary>

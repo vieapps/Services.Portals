@@ -33,12 +33,12 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
-		public override string Title { get; set; } = "";
+		public override string Title { get; set; }
 
 		[Property(MaxLength = 100, NotNull = true, NotEmpty = true)]
 		[Sortable(UniqueIndexName = "Alias"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
-		public string Alias { get; set; } = "";
+		public string Alias { get; set; }
 
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Aliases"), Searchable]
@@ -106,19 +106,19 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime Created { get; set; } = DateTime.Now;
+		public DateTime Created { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string CreatedID { get; set; } = "";
+		public string CreatedID { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime LastModified { get; set; } = DateTime.Now;
+		public DateTime LastModified { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string LastModifiedID { get; set; } = "";
+		public string LastModifiedID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management", UniqueIndexName = "Alias")]
@@ -150,7 +150,10 @@ namespace net.vieapps.Services.Portals
 		public Desktop ParentDesktop => (this.ParentID ?? "").GetDesktopByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public new IPortalObject Parent => this.ParentDesktop ?? this.Organization as IPortalObject;
+		public override RepositoryBase Parent => this.ParentDesktop ?? this.Organization as RepositoryBase;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		IPortalObject IPortalObject.Parent => this.ParentDesktop ?? this.Organization as IPortalObject;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		INestedObject INestedObject.Parent => this.ParentDesktop;
@@ -189,7 +192,7 @@ namespace net.vieapps.Services.Portals
 		public List<Desktop> Children => this.GetChildren();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		List<INestedObject> INestedObject.Children => this.Children.Select(desktop => desktop as INestedObject).ToList();
+		List<INestedObject> INestedObject.Children => this.Children?.Select(desktop => desktop as INestedObject).ToList();
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
@@ -225,13 +228,13 @@ namespace net.vieapps.Services.Portals
 			if (name.IsEquals("Extras"))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-				this.UISettings = this._json["UISettings"]?.FromJson<Settings.UI>() ?? new Settings.UI();
+				this.UISettings = this._json["UISettings"]?.FromJson<Settings.UI>();
 				this.IconURI = this._json["IconURI"]?.FromJson<string>();
 				this.CoverURI = this._json["CoverURI"]?.FromJson<string>();
 				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
 				this.Scripts = this._json["Scripts"]?.FromJson<string>();
 				this.MainPortletID = this._json["MainPortletID"]?.FromJson<string>();
-				this.SEOSettings = this._json["SEOSettings"]?.FromJson<Settings.SEO>() ?? new Settings.SEO();
+				this.SEOSettings = this._json["SEOSettings"]?.FromJson<Settings.SEO>();
 			}
 			else if (DesktopExtensions.ExtraProperties.Contains(name))
 			{
@@ -264,6 +267,7 @@ namespace net.vieapps.Services.Portals
 					var value = requestBody.Get<string>($"SEOSettings.{name}");
 					desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
 				});
+				desktop.SEOSettings = desktop.SEOSettings != null && desktop.SEOSettings.SEOInfo == null && desktop.SEOSettings.TitleMode == null && desktop.SEOSettings.DescriptionMode == null && desktop.SEOSettings.KeywordsMode == null ? null : desktop.SEOSettings;
 				onCompleted?.Invoke(desktop);
 			});
 
@@ -278,6 +282,7 @@ namespace net.vieapps.Services.Portals
 				var value = requestBody.Get<string>($"SEOSettings.{name}");
 				desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
 			});
+			desktop.SEOSettings = desktop.SEOSettings != null && desktop.SEOSettings.SEOInfo == null && desktop.SEOSettings.TitleMode == null && desktop.SEOSettings.DescriptionMode == null && desktop.SEOSettings.KeywordsMode == null ? null : desktop.SEOSettings;
 			onCompleted?.Invoke(desktop);
 			return desktop;
 		}

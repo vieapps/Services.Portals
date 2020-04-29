@@ -33,7 +33,7 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
-		public override string Title { get; set; } = "";
+		public override string Title { get; set; }
 
 		[Searchable]
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
@@ -46,19 +46,19 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime Created { get; set; } = DateTime.Now;
+		public DateTime Created { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string CreatedID { get; set; } = "";
+		public string CreatedID { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime LastModified { get; set; } = DateTime.Now;
+		public DateTime LastModified { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string LastModifiedID { get; set; } = "";
+		public string LastModifiedID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management")]
@@ -90,7 +90,10 @@ namespace net.vieapps.Services.Portals
 		public Role ParentRole => (this.ParentID ?? "").GetRoleByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public new IPortalObject Parent => this.ParentRole ?? this.Organization as IPortalObject;
+		public override RepositoryBase Parent => this.ParentRole ?? this.Organization as RepositoryBase;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		IPortalObject IPortalObject.Parent => this.ParentRole ?? this.Organization as IPortalObject;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		INestedObject INestedObject.Parent => this.ParentRole;
@@ -128,7 +131,7 @@ namespace net.vieapps.Services.Portals
 		public List<Role> Children => this.GetChildren();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		List<INestedObject> INestedObject.Children => this.Children.Select(role => role as INestedObject).ToList();
+		List<INestedObject> INestedObject.Children => this.Children?.Select(role => role as INestedObject).ToList();
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);

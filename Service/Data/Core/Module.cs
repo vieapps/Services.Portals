@@ -27,11 +27,11 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
 		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.modules.controls.[name].label}}", PlaceHolder = "{{portals.modules.controls.[name].placeholder}}", Description = "{{portals.modules.controls.[name].description}}")]
-
 		public string ModuleDefinitionID { get; set; }
+
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.modules.controls.[name].label}}", PlaceHolder = "{{portals.modules.controls.[name].placeholder}}", Description = "{{portals.modules.controls.[name].description}}")]
-		public override string Title { get; set; } = "";
+		public override string Title { get; set; }
 
 		[Searchable]
 		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.modules.controls.[name].label}}", PlaceHolder = "{{portals.modules.controls.[name].placeholder}}", Description = "{{portals.modules.controls.[name].description}}")]
@@ -71,19 +71,19 @@ namespace net.vieapps.Services.Portals
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime Created { get; set; } = DateTime.Now;
+		public DateTime Created { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string CreatedID { get; set; } = "";
+		public string CreatedID { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public DateTime LastModified { get; set; } = DateTime.Now;
+		public DateTime LastModified { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
-		public string LastModifiedID { get; set; } = "";
+		public string LastModifiedID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
@@ -105,7 +105,10 @@ namespace net.vieapps.Services.Portals
 		IPortalObject IPortalModule.Organization => this.Organization;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public new IPortalObject Parent => this.Organization;
+		public override RepositoryBase Parent => this.Organization;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		IPortalObject IPortalObject.Parent => this.Organization;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public ModuleDefinition ModuleDefinition => Utility.ModuleDefinitions.TryGetValue(this.ModuleDefinitionID, out var definition) ? definition : null;
@@ -121,25 +124,26 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _contentTypeIDs;
 
-		internal List<ContentType> GetContentType(List<ContentType> contentTypes = null)
+		internal List<ContentType> GetContentsType(List<ContentType> contentTypes = null, bool notifyPropertyChanged = true)
 		{
 			if (this._contentTypeIDs == null)
 			{
 				contentTypes = contentTypes ?? this.SystemID.GetContentTypes(this.ID);
 				this._contentTypeIDs = contentTypes.Select(contentType => contentType.ID).ToList();
-				this.NotifyPropertyChanged("ContentTypes");
+				if (notifyPropertyChanged)
+					this.NotifyPropertyChanged("ContentTypes");
 				return contentTypes;
 			}
 			return this._contentTypeIDs.Select(id => id.GetContentTypeByID()).ToList();
 		}
 
-		internal async Task<List<ContentType>> GetContentTypeAsync(CancellationToken cancellationToken = default)
+		internal async Task<List<ContentType>> GetContentTypesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._contentTypeIDs == null
-				? this.GetContentType(await this.SystemID.GetContentTypesAsync(this.ID, null, cancellationToken).ConfigureAwait(false))
+				? this.GetContentsType(await this.SystemID.GetContentTypesAsync(this.ID, null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
 				: this._contentTypeIDs.Select(id => id.GetContentTypeByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<ContentType> ContentTypes => this.GetContentType();
+		public List<ContentType> ContentTypes => this.GetContentsType();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		List<IPortalContentType> IPortalModule.ContentTypes => this.ContentTypes.Select(contentType => contentType as IPortalContentType).ToList();
@@ -176,9 +180,9 @@ namespace net.vieapps.Services.Portals
 			if (name.IsEquals("Extras"))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>() ?? new Settings.Notifications();
-				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>() ?? new Dictionary<string, string>();
-				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>() ?? new Settings.Email();
+				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>();
+				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
+				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
 			}
 			else if (ModuleExtensions.ExtraProperties.Contains(name))
 			{
