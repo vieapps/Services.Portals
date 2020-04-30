@@ -31,17 +31,20 @@ namespace net.vieapps.Services.Portals
 		public string ParentID { get; set; }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
-		[Sortable(IndexName = "Title"), Searchable]
+		[Sortable(IndexName = "Title")]
+		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public override string Title { get; set; }
 
 		[Property(MaxLength = 100, NotNull = true, NotEmpty = true)]
-		[Sortable(UniqueIndexName = "Alias"), Searchable]
+		[Sortable(UniqueIndexName = "Alias")]
+		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string Alias { get; set; }
 
 		[Property(MaxLength = 250)]
-		[Sortable(IndexName = "Aliases"), Searchable]
+		[Sortable(IndexName = "Aliases")]
+		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string Aliases { get; set; }
 
@@ -90,8 +93,8 @@ namespace net.vieapps.Services.Portals
 
 		string _extras;
 
-		[Property(IsCLOB = true)]
 		[JsonIgnore, XmlIgnore]
+		[Property(IsCLOB = true)]
 		[FormControl(Excluded = true)]
 		public string Extras
 		{

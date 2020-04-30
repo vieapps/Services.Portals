@@ -28,11 +28,13 @@ namespace net.vieapps.Services.Portals
 			=> this.OriginalPrivileges = new Privileges(true);
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
-		[Sortable(IndexName = "Title"), Searchable]
+		[Sortable(IndexName = "Title")]
+		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public override string Title { get; set; }
 
-		[Property(MaxLength = 250), Searchable]
+		[Property(MaxLength = 250)]
+		[Searchable]
 		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string Description { get; set; }
 

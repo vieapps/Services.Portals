@@ -25,7 +25,9 @@ namespace net.vieapps.Services.Portals
 	{
 		public Site() : base() { }
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Title")]
+		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public override string Title { get; set; }
 
@@ -38,15 +40,20 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
-		[Property(MaxLength = 100), Sortable(UniqueIndexName = "Domains"), Searchable]
+		[Property(MaxLength = 100)]
+		[Sortable(UniqueIndexName = "Domains")]
+		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string PrimaryDomain { get; set; } = "company.com";
 
-		[Property(MaxLength = 20), Sortable(UniqueIndexName = "Domains")]
+		[Property(MaxLength = 20)]
+		[Sortable(UniqueIndexName = "Domains")]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string SubDomain { get; set; } = "*";
 
-		[Property(MaxLength = 500), Sortable(IndexName = "OtherDomains"), Searchable]
+		[Property(MaxLength = 1000)]
+		[Sortable(IndexName = "OtherDomains")]
+		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string OtherDomains { get; set; }
 
@@ -103,8 +110,8 @@ namespace net.vieapps.Services.Portals
 
 		string _extras;
 
-		[Property(IsCLOB = true)]
 		[JsonIgnore, XmlIgnore]
+		[Property(IsCLOB = true)]
 		[FormControl(Excluded = true)]
 		public string Extras
 		{
@@ -133,7 +140,8 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
 		public override string SystemID { get; set; }
 
