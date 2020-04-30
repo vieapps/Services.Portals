@@ -25,15 +25,19 @@ namespace net.vieapps.Services.Portals
 	{
 		public ContentType() : base() { }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public override string RepositoryID { get; set; }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public string ContentTypeDefinitionID { get; set; }
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Title")]
+		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public override string Title { get; set; }
 
@@ -76,15 +80,21 @@ namespace net.vieapps.Services.Portals
 
 		[AsJson, JsonIgnore, XmlIgnore]
 		[FormControl(Excluded = true)]
-		public ExtendedUIDefinition ExtendedUIDefinition { get; set; }
+		public List<ExtendedUIControlDefinition> ExtendedUIDefinitions { get; set; }
+
+		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
+		public string ExtendedXsltList { get; set; }
+
+		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
+		public string ExtendedXsltView { get; set; }
 
 		[NonSerialized]
 		JObject _json;
 
 		string _extras;
 
-		[Property(IsCLOB = true)]
 		[JsonIgnore, XmlIgnore]
+		[Property(IsCLOB = true)]
 		[FormControl(Excluded = true)]
 		public string Extras
 		{
@@ -113,7 +123,8 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
 		public override string SystemID { get; set; }
 
@@ -163,7 +174,7 @@ namespace net.vieapps.Services.Portals
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json["ExtendedPropertyDefinitions"] = this.ExtendedPropertyDefinitions?.ToJson();
-				json["ExtendedUIDefinition"] = this.ExtendedUIDefinition?.ToJson();
+				json["ExtendedUIDefinitions"] = this.ExtendedUIDefinitions?.ToJson();
 				onPreCompleted?.Invoke(json);
 			});
 
@@ -223,6 +234,7 @@ namespace net.vieapps.Services.Portals
 			if (contentType != null)
 			{
 				ContentTypeExtensions.ContentTypes[contentType.ID] = contentType;
+				contentType.EntityDefinition.Register(contentType);
 				if (updateCache)
 					Utility.Cache.Set(contentType);
 			}
@@ -240,7 +252,14 @@ namespace net.vieapps.Services.Portals
 			=> (contentType?.ID ?? "").RemoveContentType();
 
 		internal static ContentType RemoveContentType(this string id)
-			=> !string.IsNullOrWhiteSpace(id) && ContentTypeExtensions.ContentTypes.TryRemove(id, out var contentType) ? contentType : null;
+		{
+			if (!string.IsNullOrWhiteSpace(id) && ContentTypeExtensions.ContentTypes.TryRemove(id, out var contentType) && contentType != null)
+			{
+				contentType.EntityDefinition.Unregister(contentType);
+				return contentType;
+			}
+			return null;
+		}
 
 		internal static ContentType GetContentTypeByID(this string id, bool force = false, bool fetchRepository = true)
 			=> !force && !string.IsNullOrWhiteSpace(id) && ContentTypeExtensions.ContentTypes.ContainsKey(id)

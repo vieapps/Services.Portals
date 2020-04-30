@@ -25,11 +25,14 @@ namespace net.vieapps.Services.Portals
 	{
 		public Module() : base() { }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.modules.controls.[name].label}}", PlaceHolder = "{{portals.modules.controls.[name].placeholder}}", Description = "{{portals.modules.controls.[name].description}}")]
 		public string ModuleDefinitionID { get; set; }
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Title")]
+		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.modules.controls.[name].label}}", PlaceHolder = "{{portals.modules.controls.[name].placeholder}}", Description = "{{portals.modules.controls.[name].description}}")]
 		public override string Title { get; set; }
 
@@ -55,8 +58,8 @@ namespace net.vieapps.Services.Portals
 
 		string _exras;
 
-		[Property(IsCLOB = true)]
 		[JsonIgnore, XmlIgnore]
+		[Property(IsCLOB = true)]
 		[FormControl(Excluded = true)]
 		public string Extras
 		{
@@ -85,7 +88,8 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
 		public override string SystemID { get; set; }
 
@@ -222,6 +226,7 @@ namespace net.vieapps.Services.Portals
 			if (module != null)
 			{
 				ModuleExtensions.Modules[module.ID] = module;
+				module.RepositoryDefinition.Register(module);
 				if (updateCache)
 					Utility.Cache.Set(module);
 			}
@@ -239,7 +244,14 @@ namespace net.vieapps.Services.Portals
 			=> (module?.ID ?? "").RemoveModule();
 
 		internal static Module RemoveModule(this string id)
-			=> !string.IsNullOrWhiteSpace(id) && ModuleExtensions.Modules.TryRemove(id, out var module) ? module : null;
+		{
+			if (!string.IsNullOrWhiteSpace(id) && ModuleExtensions.Modules.TryRemove(id, out var module) && module != null)
+			{
+				module.RepositoryDefinition.Unregister(module);
+				return module;
+			}
+			return null;
+		}
 
 		internal static Module GetModuleByID(this string id, bool force = false, bool fetchRepository = true)
 			=> !force && !string.IsNullOrWhiteSpace(id) && ModuleExtensions.Modules.ContainsKey(id)
