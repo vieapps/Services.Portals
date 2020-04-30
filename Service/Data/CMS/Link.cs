@@ -20,7 +20,7 @@ using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Links", TableName = "T_Portals_CMS_Links", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ObjectName = "Link", ID = "B0000000000000000000000000000003", Title = "Link", Description = "Linking content in the CMS module (menu/banners/external links)", MultipleIntances = true, Extendable = true, Indexable = false)]
+	[Entity(CollectionName = "CMS_Links", TableName = "T_Portals_CMS_Links", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000004", Title = "Link", Description = "Linking content in the CMS module (menu/banners/links)", MultipleIntances = true, Indexable = false, Extendable = true, ExtendedPropertiesBefore = "Created")]
 	public sealed class Link : Repository<Link>, IBusinessObject, INestedObject
 	{
 		public Link() : base() { }
@@ -39,7 +39,9 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Hidden = true)]
 		public int OrderIndex { get; set; } = 0;
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true), Sortable(IndexName = "Title"), Searchable]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Title")]
+		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.link.controls.[name].label}}", PlaceHolder = "{{portals.cms.link.controls.[name].placeholder}}", Description = "{{portals.cms.link.controls.[name].description}}")]
 		public override string Title { get; set; }
 
@@ -47,9 +49,12 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.cms.link.controls.[name].label}}", PlaceHolder = "{{portals.cms.link.controls.[name].placeholder}}", Description = "{{portals.cms.link.controls.[name].description}}")]
 		public string Summary { get; set; }
 
-		[Property(MaxLength = 1000)]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.link.controls.[name].label}}", PlaceHolder = "{{portals.cms.link.controls.[name].placeholder}}", Description = "{{portals.cms.link.controls.[name].description}}")]
 		public string URL { get; set; }
+
+		[Property(MaxLength = 50)]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.link.controls.[name].label}}", PlaceHolder = "{{portals.cms.link.controls.[name].placeholder}}", Description = "{{portals.cms.link.controls.[name].description}}")]
+		public string Target { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
@@ -67,15 +72,18 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Hidden = true)]
 		public string LastModifiedID { get; set; }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
 		public override string SystemID { get; set; }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
 		public override string RepositoryID { get; set; }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true), Sortable(IndexName = "Management")]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
 		public override string RepositoryEntityID { get; set; }
 
@@ -110,7 +118,7 @@ namespace net.vieapps.Services.Portals
 		public Link ParentLink => string.IsNullOrWhiteSpace(this.ParentID) ? null : Link.Get<Link>(this.ParentID);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public override RepositoryBase Parent => this.ParentLink ?? this.Module as RepositoryBase;
+		public override RepositoryBase Parent => this.ParentLink ?? this.ContentType as RepositoryBase;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		IBusinessEntity IBusinessEntity.Parent => this.ParentLink;
@@ -133,6 +141,7 @@ namespace net.vieapps.Services.Portals
 
 		[NonSerialized]
 		internal List<Link> _children;
+
 		internal List<string> _childrenIDs;
 
 		internal List<Link> GetChildren(bool notifyPropertyChanged = true, List<Link> links = null)
