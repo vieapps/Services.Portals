@@ -201,23 +201,12 @@ namespace net.vieapps.Services.Portals
 			if (contentType == null)
 				return null;
 
-			// get category by ID
+			// get category
 			var category = parentIdentity.IsValidUUID()
 				? parentIdentity.GetCategoryByID()
-				: null;
-
-			// get category by alias
+				: (contentType.GetParent()?.RepositoryEntityID ?? "").GetCategoryByAlias(parentIdentity.NormalizeAlias());
 			if (category == null)
-			{
-				var parentDefinitionID = RepositoryMediator.GetEntityDefinition<Category>().ID;
-				var parentContentType = contentType.Module.ContentTypes.FirstOrDefault(ctype => ctype.RepositoryID.Equals(contentType.RepositoryID) && ctype.Equals(parentDefinitionID));
-				if (parentContentType == null)
-					return null;
-
-				category = parentContentType.RepositoryEntityID.GetCategoryByAlias(parentIdentity.NormalizeAlias());
-				if (category == null)
-					return null;
-			}
+				return null;
 
 			// get content by alias
 			var filter = Filters<Content>.And(
@@ -239,23 +228,12 @@ namespace net.vieapps.Services.Portals
 			if (contentType == null)
 				return null;
 
-			// get category by ID
+			// get category
 			var category = parentIdentity.IsValidUUID()
 				? await parentIdentity.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false)
-				: null;
-
-			// get category by alias
+				: await (contentType.GetParent()?.RepositoryEntityID ?? "").GetCategoryByAliasAsync(parentIdentity.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
 			if (category == null)
-			{
-				var parentDefinitionID = RepositoryMediator.GetEntityDefinition<Category>().ID;
-				var parentContentType = contentType.Module.ContentTypes.FirstOrDefault(ctype => ctype.RepositoryID.Equals(contentType.RepositoryID) && ctype.Equals(parentDefinitionID));
-				if (parentContentType == null)
-					return null;
-
-				category = await parentContentType.RepositoryEntityID.GetCategoryByAliasAsync(parentIdentity.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
-				if (category == null)
-					return null;
-			}
+				return null;
 
 			// get content by alias
 			var filter = Filters<Content>.And(

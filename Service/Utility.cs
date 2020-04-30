@@ -70,6 +70,19 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string NormalizeAlias(this string alias, bool allowMinusSymbols = true)
 			=> allowMinusSymbols ? alias.GetANSIUri() : alias.GetANSIUri().Replace("-", "");
+
+		/// <summary>
+		/// Gets the parent content-type of this content-type
+		/// </summary>
+		/// <param name="contentType"></param>
+		/// <returns></returns>
+		public static ContentType GetParent(this ContentType contentType)
+		{
+			var parentDefinition = RepositoryMediator.GetEntityDefinition(contentType?.EntityDefinition?.ParentType);
+			return parentDefinition != null
+				? contentType?.Module?.ContentTypes?.FirstOrDefault(type => type.ContentTypeDefinitionID.Equals(parentDefinition.ID))
+				: null;
+		}
 	}
 
 	//  --------------------------------------------------------------------------------------------
