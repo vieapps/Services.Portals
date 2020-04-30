@@ -25,13 +25,14 @@ namespace net.vieapps.Services.Portals
 	{
 		public Role() : base() { }
 
-		[Property(MaxLength = 32)]
+		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management")]
 		[FormControl(ControlType = "Lookup", Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public string ParentID { get; set; }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
-		[Sortable(IndexName = "Title"), Searchable]
+		[Sortable(IndexName = "Title")]
+		[Searchable]
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public override string Title { get; set; }
 
@@ -39,8 +40,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public string Description { get; set; }
 
-		[AsSingleMapping(TableName = "T_Portals_Roles_Users", LinkColumn = "RoleID", MapColumn = "UserID")]
-		[Sortable(IndexName = "Members")]
+		[ChildrenMappings(TableName = "T_Portals_Roles_Users", LinkColumn = "RoleID", MapColumn = "UserID")]
 		[FormControl(Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public List<string> UserIDs { get; set; } = new List<string>();
 
