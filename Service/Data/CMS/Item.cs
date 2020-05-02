@@ -109,10 +109,10 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		IPortalObject IPortalObject.Parent => this.ContentType;
 
-		public IBusinessEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
+		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
 			=> Item.GetItemByAlias(repositoryEntityID, alias);
 
-		public async Task<IBusinessEntity> GetByAliasAsync(string repositoryEntityID, string alias, string parentIdentity = null, CancellationToken cancellationToken = default)
+		public async Task<IAliasEntity> GetByAliasAsync(string repositoryEntityID, string alias, string parentIdentity = null, CancellationToken cancellationToken = default)
 			=> await Item.GetItemByAliasAsync(repositoryEntityID, alias, cancellationToken).ConfigureAwait(false);
 
 		internal static Item GetItemByAlias(string repositoryEntityID, string alias)

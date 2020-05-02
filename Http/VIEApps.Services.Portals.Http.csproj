@@ -20,8 +20,6 @@
 
 	<ItemGroup>
 		<None Remove=".DS_Store" />
-		<None Include="$(ProjectDir)assets\**" CopyToOutputDirectory="PreserveNewest" LinkBase="assets\" />
-		<None Include="$(ProjectDir)themes\**" CopyToOutputDirectory="PreserveNewest" LinkBase="themes\" />
 	</ItemGroup>
 
 	<ItemGroup>

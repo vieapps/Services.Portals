@@ -239,10 +239,10 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.Set(this);
 		}
 
-		public IBusinessEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
+		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
 			=> (repositoryEntityID ?? "").GetCategoryByAlias(alias);
 
-		public async Task<IBusinessEntity> GetByAliasAsync(string repositoryEntityID, string alias, string parentIdentity = null, CancellationToken cancellationToken = default)
+		public async Task<IAliasEntity> GetByAliasAsync(string repositoryEntityID, string alias, string parentIdentity = null, CancellationToken cancellationToken = default)
 			=> await (repositoryEntityID ?? "").GetCategoryByAliasAsync(alias, cancellationToken).ConfigureAwait(false);
 	}
 

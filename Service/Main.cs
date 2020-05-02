@@ -33,7 +33,7 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Start/Stop the service
-		public override Task RegisterServiceAsync(IEnumerable<string> args, Action<ServiceBase> onSuccess = null, Action<Exception> onError = null)
+		public override Task RegisterServiceAsync(IEnumerable<string> args, Action<IService> onSuccess = null, Action<Exception> onError = null)
 			=> base.RegisterServiceAsync(
 				args,
 				async _ =>
@@ -50,7 +50,7 @@ namespace net.vieapps.Services.Portals
 				onError
 			);
 
-		public override Task UnregisterServiceAsync(IEnumerable<string> args, bool available = true, Action<ServiceBase> onSuccess = null, Action<Exception> onError = null)
+		public override Task UnregisterServiceAsync(IEnumerable<string> args, bool available = true, Action<IService> onSuccess = null, Action<Exception> onError = null)
 			=> base.UnregisterServiceAsync(
 				args,
 				available,
@@ -218,6 +218,9 @@ namespace net.vieapps.Services.Portals
 						break;
 					#endregion
 
+					case "profile":
+						break;
+
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 				}
@@ -296,6 +299,11 @@ namespace net.vieapps.Services.Portals
 		#region Search organizations
 		async Task<JObject> SearchOrganizationsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
+			// check permissions
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
 			// prepare
 			var request = requestInfo.GetRequestExpando();
 
@@ -306,11 +314,6 @@ namespace net.vieapps.Services.Portals
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
 			var pageSize = pagination.Item3;
 			var pageNumber = pagination.Item4;
-
-			// check permissions
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			if (!gotRights)
-				throw new AccessDeniedException();
 
 			// process cache
 			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
@@ -390,7 +393,7 @@ namespace net.vieapps.Services.Portals
 					? requestBody.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
 					: isCreatedByOtherService
 						? requestInfo.Extra.TryGetValue("x-status", out var xstatus) && xstatus.TryToEnum(out ApprovalStatus statusByOtherService) ? statusByOtherService : ApprovalStatus.Pending
-						 : ApprovalStatus.Pending;
+						: ApprovalStatus.Pending;
 				xorganization.OriginalPrivileges = (isSystemAdministrator ? requestBody.Get<Privileges>("OriginalPrivileges") : null) ?? new Privileges(true);
 				xorganization.Created = xorganization.LastModified = DateTime.Now;
 				xorganization.CreatedID = xorganization.LastModifiedID = requestInfo.Session.User.ID;
@@ -408,14 +411,14 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll(
 				this.SendUpdateMessageAsync(new UpdateMessage
 				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
+					Type = $"{this.ServiceName}#{objectName}#Create",
 					Data = response,
 					DeviceID = "*",
 					ExcludedDeviceID = requestInfo.Session.DeviceID
 				}, cancellationToken),
 				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{objectName}#Create",
 					Data = response,
 					ExcludedNodeID = this.NodeID
 				}, cancellationToken)
@@ -435,13 +438,12 @@ namespace net.vieapps.Services.Portals
 			if (organization == null)
 				throw new InformationNotFoundException();
 
-			/*
 			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsAdministrator(organization.WorkingPrivileges);
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			if (!gotRights)
+				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsViewer(organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
-			*/
 
 			// response
 			return identity.IsValidUUID()
@@ -656,14 +658,14 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// create new
-			var role = requestBody.CreateRoleInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", xrole =>
+			var role = requestBody.CreateRoleInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
-				xrole.ID = string.IsNullOrWhiteSpace(xrole.ID) || !xrole.ID.IsValidUUID() ? UtilityService.NewUUID : xrole.ID;
-				xrole.SystemID = organization.ID;
-				xrole.ParentID = xrole.ParentRole != null ? xrole.ParentID : null;
-				xrole.Created = xrole.LastModified = DateTime.Now;
-				xrole.CreatedID = xrole.LastModifiedID = requestInfo.Session.User.ID;
-				xrole._childrenIDs = new List<string>();
+				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
+				obj.SystemID = organization.ID;
+				obj.ParentID = obj.ParentRole != null ? obj.ParentID : null;
+				obj.Created = obj.LastModified = DateTime.Now;
+				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj._childrenIDs = new List<string>();
 			});
 			await Task.WhenAll(
 				Role.CreateAsync(role, cancellationToken),
@@ -671,11 +673,52 @@ namespace net.vieapps.Services.Portals
 				role.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
 
+			// update users
+			var requestUser = new RequestInfo(requestInfo)
+			{
+				ServiceName = "Users",
+				ObjectName = "Privileges",
+				Verb = "POST",
+				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					{ "related-service", this.ServiceName },
+					{ "related-object", "Role" },
+					{ "related-system", role.SystemID },
+					{ "related-entity", typeof(Role).GetTypeName() },
+					{ "related-object-identity", role.ID }
+				},
+				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					{ "AddedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(this.EncryptionKey) }
+				}
+			};
+
+			var userIDs = role.UserIDs ?? new List<string>();
+			var parentRole = role.ParentRole;
+			while (parentRole != null)
+			{
+				userIDs = userIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
+				parentRole = parentRole.ParentRole;
+			}
+
+			await userIDs.Distinct(StringComparer.OrdinalIgnoreCase).ForEachAsync(async (userID, token) =>
+			{
+				try
+				{
+					requestUser.Query["object-identity"] = userID;
+					await this.CallServiceAsync(requestUser, token).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await this.WriteLogsAsync(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex, Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
+				}
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			// update parent
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = role.GetTypeName(true);
 
-			// update parent
 			if (role.ParentRole != null)
 			{
 				await role.ParentRole.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
@@ -705,7 +748,7 @@ namespace net.vieapps.Services.Portals
 			if (role.ParentRole == null)
 				updateMessages.Add(new UpdateMessage
 				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
+					Type = $"{this.ServiceName}#{objectName}#Create",
 					Data = response,
 					DeviceID = "*",
 					ExcludedDeviceID = requestInfo.Session.DeviceID
@@ -714,7 +757,7 @@ namespace net.vieapps.Services.Portals
 			// message to update to all service instances (on all other nodes)
 			communicateMessages.Add(new CommunicateMessage(this.ServiceName)
 			{
-				Type = $"{objectName}#Update",
+				Type = $"{objectName}#Create",
 				Data = response,
 				ExcludedNodeID = this.NodeID
 			});
@@ -782,13 +825,13 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			var oldParentID = role.ParentID;
-			var requestBody = requestInfo.GetBodyExpando();
+			var oldUserIDs = role.UserIDs ?? new List<string>();
 
-			role.UpdateRoleInstance(requestBody, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async xrole =>
+			role.UpdateRoleInstance(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async obj =>
 			{
-				xrole.LastModified = DateTime.Now;
-				xrole.LastModifiedID = requestInfo.Session.User.ID;
-				await xrole.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
+				obj.LastModified = DateTime.Now;
+				obj.LastModifiedID = requestInfo.Session.User.ID;
+				await obj.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
 			});
 			await Task.WhenAll(
 				Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken),
@@ -800,11 +843,79 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(oldParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
 			).ConfigureAwait(false);
 
+			// update users
+			var beAddedUserIDs = (role.UserIDs ?? new List<string>()).Except(oldUserIDs).ToList();
+			var parentRole = role.ParentRole;
+			while (parentRole != null)
+			{
+				beAddedUserIDs = beAddedUserIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
+				parentRole = parentRole.ParentRole;
+			}
+			beAddedUserIDs = beAddedUserIDs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+			var beRemovedUserIDs = oldUserIDs.Except(role.UserIDs ?? new List<string>()).ToList();
+			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(role.ParentID))
+			{
+				parentRole = await oldParentID.GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
+				while (parentRole != null)
+				{
+					beRemovedUserIDs = beRemovedUserIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
+					parentRole = parentRole.ParentRole;
+				}
+			}
+			beRemovedUserIDs = beRemovedUserIDs.Distinct(StringComparer.OrdinalIgnoreCase).Except(beAddedUserIDs).ToList();
+
+			var requestUser = new RequestInfo(requestInfo)
+			{
+				ServiceName = "Users",
+				ObjectName = "Privileges",
+				Verb = "POST",
+				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					{ "related-service", this.ServiceName },
+					{ "related-object", "Role" },
+					{ "related-system", role.SystemID },
+					{ "related-entity", typeof(Role).GetTypeName() },
+					{ "related-object-identity", role.ID }
+				},
+				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+			};
+
+			requestUser.Extra.Clear();
+			requestUser.Extra["RemovedRoles"] = new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(this.EncryptionKey);
+			await beRemovedUserIDs.ForEachAsync(async (userID, token) =>
+			{
+				try
+				{
+					requestUser.Query["object-identity"] = userID;
+					await this.CallServiceAsync(requestUser, token).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await this.WriteLogsAsync(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex, Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
+				}
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			requestUser.Extra.Clear();
+			requestUser.Extra["AddedRoles"] = new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(this.EncryptionKey);
+			await beAddedUserIDs.ForEachAsync(async (userID, token) =>
+			{
+				try
+				{
+					requestUser.Query["object-identity"] = userID;
+					await this.CallServiceAsync(requestUser, token).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await this.WriteLogsAsync(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex, Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
+				}
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			// update parent
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = role.GetTypeName(true);
 
-			// update parent
 			if (role.ParentRole != null && !role.ParentID.IsEquals(oldParentID))
 			{
 				await role.ParentRole.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
@@ -833,7 +944,7 @@ namespace net.vieapps.Services.Portals
 			// update old parent
 			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(role.ParentID))
 			{
-				var parentRole = await oldParentID.GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
+				parentRole = await oldParentID.GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (parentRole != null)
 				{
 					await parentRole.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
@@ -1188,13 +1299,13 @@ namespace net.vieapps.Services.Portals
 				var json = desktop.ParentDesktop.ToJson(true, false);
 				updateMessages.Add(new UpdateMessage
 				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
+					Type = $"{this.ServiceName}#{objectName}#Create",
 					Data = json,
 					DeviceID = "*"
 				});
 				communicateMessages.Add(new CommunicateMessage(this.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{objectName}#Create",
 					Data = json,
 					ExcludedNodeID = this.NodeID
 				});
@@ -1678,14 +1789,14 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll(
 				this.SendUpdateMessageAsync(new UpdateMessage
 				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
+					Type = $"{this.ServiceName}#{objectName}#Create",
 					Data = response,
 					DeviceID = "*",
 					ExcludedDeviceID = requestInfo.Session.DeviceID
 				}, cancellationToken),
 				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{objectName}#Create",
 					Data = response,
 					ExcludedNodeID = this.NodeID
 				}, cancellationToken)
@@ -2003,14 +2114,14 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll(
 				this.SendUpdateMessageAsync(new UpdateMessage
 				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
+					Type = $"{this.ServiceName}#{objectName}#Create",
 					Data = response,
 					DeviceID = "*",
 					ExcludedDeviceID = requestInfo.Session.DeviceID
 				}, cancellationToken),
 				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{objectName}#Create",
 					Data = response,
 					ExcludedNodeID = this.NodeID
 				}, cancellationToken)
@@ -2295,14 +2406,14 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll(
 				this.SendUpdateMessageAsync(new UpdateMessage
 				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
+					Type = $"{this.ServiceName}#{objectName}#Create",
 					Data = json,
 					DeviceID = "*",
 					ExcludedDeviceID = excludedDeviceID ?? ""
 				}, cancellationToken),
 				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{objectName}#Create",
 					Data = json,
 					ExcludedNodeID = this.NodeID
 				}, cancellationToken)
@@ -2489,8 +2600,8 @@ namespace net.vieapps.Services.Portals
 			if (request == null)
 				return;
 
-			// update an orgaization
-			if (message.Type.IsEquals("Organization#Update"))
+			// create/update an orgaization
+			if (message.Type.IsEquals("Organization#Create") || message.Type.IsEquals("Organization#Update"))
 				await message.Data.ToExpandoObject().CreateOrganizationInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
 
 			// delete an orgaization
@@ -2498,7 +2609,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateOrganizationInstance().Remove();
 
 			// update a role
-			else if (message.Type.IsEquals("Role#Update"))
+			else if (message.Type.IsEquals("Role#Create") || message.Type.IsEquals("Role#Update"))
 				await message.Data.ToExpandoObject().CreateRoleInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
 
 			// delete a role
@@ -2506,7 +2617,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateRoleInstance().Remove();
 
 			// update a site
-			else if (message.Type.IsEquals("Site#Update"))
+			else if (message.Type.IsEquals("Site#Create") || message.Type.IsEquals("Site#Update"))
 				await message.Data.ToExpandoObject().CreateSiteInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
 
 			// delete a site
@@ -2514,7 +2625,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateSiteInstance().Remove();
 
 			// update a desktop
-			else if (message.Type.IsEquals("Desktop#Update"))
+			else if (message.Type.IsEquals("Desktop#Create") || message.Type.IsEquals("Desktop#Update"))
 				await message.Data.ToExpandoObject().CreateDesktopInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
 
 			// delete a desktop

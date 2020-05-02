@@ -184,10 +184,10 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop Desktop => this.Category?.Desktop;
 
-		public IBusinessEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
+		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
 			=> Content.GetContentByAlias(repositoryEntityID, alias, parentIdentity);
 
-		public async Task<IBusinessEntity> GetByAliasAsync(string repositoryEntityID, string alias, string parentIdentity = null, CancellationToken cancellationToken = default)
+		public async Task<IAliasEntity> GetByAliasAsync(string repositoryEntityID, string alias, string parentIdentity = null, CancellationToken cancellationToken = default)
 			=> await Content.GetContentByAliasAsync(repositoryEntityID, alias, parentIdentity, cancellationToken).ConfigureAwait(false);
 
 		internal static Content GetContentByAlias(string repositoryEntityID, string alias, string parentIdentity)
@@ -245,6 +245,7 @@ namespace net.vieapps.Services.Portals
 		}
 	}
 
+	[Serializable]
 	public sealed class ExternalRelated
 	{
 		public ExternalRelated() { }

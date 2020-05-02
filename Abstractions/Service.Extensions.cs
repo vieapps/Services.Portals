@@ -28,7 +28,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		/// <summary>
-		/// Registers the communicator to the commnunicating subject of CMS Portals service (Service name: cms.portals - URI: messages.services.cms.portals)
+		/// Registers the communicator to the commnunicating subject of CMS Portals service (URI: messages.services.cms.portals)
 		/// </summary>
 		/// <param name="onNext"></param>
 		/// <param name="onError"></param>

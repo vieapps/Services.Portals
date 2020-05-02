@@ -25,7 +25,7 @@ namespace net.vieapps.Services.Portals
 	{
 		public Role() : base() { }
 
-		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
+		[Property(MaxLength = 32)]
 		[Sortable(IndexName = "Management")]
 		[FormControl(ControlType = "Lookup", Label = "{{portals.roles.controls.[name].label}}", PlaceHolder = "{{portals.roles.controls.[name].placeholder}}", Description = "{{portals.roles.controls.[name].description}}")]
 		public string ParentID { get; set; }

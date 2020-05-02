@@ -19,7 +19,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="onSuccess">The action to run when the service was registered successful</param>
 		/// <param name="onError">The action to run when got any error</param>
 		/// <returns></returns>
-		Task RegisterServiceAsync(IEnumerable<string> args, Action<ServiceBase> onSuccess = null, Action<Exception> onError = null);
+		Task RegisterServiceAsync(IEnumerable<string> args, Action<IService> onSuccess = null, Action<Exception> onError = null);
 
 		/// <summary>
 		/// Unregisters the service with API Gateway
@@ -28,7 +28,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="available">true to mark the service still available</param>
 		/// <param name="onSuccess">The action to run when the service was unregistered successful</param>
 		/// <param name="onError">The action to run when got any error</param>
-		Task UnregisterServiceAsync(IEnumerable<string> args, bool available = true, Action<ServiceBase> onSuccess = null, Action<Exception> onError = null);
+		Task UnregisterServiceAsync(IEnumerable<string> args, bool available = true, Action<IService> onSuccess = null, Action<Exception> onError = null);
 
 		/// <summary>
 		/// Gets the definition

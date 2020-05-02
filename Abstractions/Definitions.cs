@@ -14,6 +14,7 @@ namespace net.vieapps.Services.Portals
 	/// <summary>
 	/// Presents a module definition in a portal/system
 	/// </summary>
+	[Serializable]
 	public class ModuleDefinition
 	{
 		public ModuleDefinition() : this(null) { }
@@ -86,6 +87,7 @@ namespace net.vieapps.Services.Portals
 	/// <summary>
 	/// Presents a definition of a portal content-type
 	/// </summary>
+	[Serializable]
 	public class ContentTypeDefinition
 	{
 		public ContentTypeDefinition() : this(null) { }
@@ -183,9 +185,12 @@ namespace net.vieapps.Services.Portals
 	/// <summary>
 	/// Presents an UI definition for working with an extended property of a repository entity in a respository 
 	/// </summary>
+	[Serializable]
 	public sealed class ExtendedUIControlDefinition
 	{
-		public ExtendedUIControlDefinition(JObject json = null)
+		public ExtendedUIControlDefinition() : this(null) { }
+
+		public ExtendedUIControlDefinition(JObject json)
 			=> this.CopyFrom(json ?? new JObject());
 
 		public override string ToString()
