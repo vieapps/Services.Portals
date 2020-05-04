@@ -19,7 +19,8 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[Serializable, BsonIgnoreExtraElements]
+	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "ContentTypes", TableName = "T_Portals_ContentTypes", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public sealed class ContentType : Repository<ContentType>, IPortalContentType, IBusinessRepositoryEntity
 	{
@@ -74,19 +75,13 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
-		[AsJson, JsonIgnore, XmlIgnore]
+		[AsJson]
 		[FormControl(Excluded = true)]
 		public List<ExtendedPropertyDefinition> ExtendedPropertyDefinitions { get; set; }
 
-		[AsJson, JsonIgnore, XmlIgnore]
+		[AsJson]
 		[FormControl(Excluded = true)]
-		public List<ExtendedUIControlDefinition> ExtendedUIDefinitions { get; set; }
-
-		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
-		public string ExtendedXsltList { get; set; }
-
-		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore]
-		public string ExtendedXsltView { get; set; }
+		public ExtendedUIDefinition ExtendedUIDefinition { get; set; }
 
 		[NonSerialized]
 		JObject _json;
@@ -169,14 +164,6 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.Module?.Desktop;
-
-		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
-			=> base.ToJson(addTypeOfExtendedProperties, json =>
-			{
-				json["ExtendedPropertyDefinitions"] = this.ExtendedPropertyDefinitions?.ToJson();
-				json["ExtendedUIDefinitions"] = this.ExtendedUIDefinitions?.ToJson();
-				onPreCompleted?.Invoke(json);
-			});
 
 		internal void NormalizeExtras()
 		{

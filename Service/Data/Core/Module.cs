@@ -19,7 +19,8 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[Serializable, BsonIgnoreExtraElements]
+	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Modules", TableName = "T_Portals_Modules", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public sealed class Module : Repository<Module>, IPortalModule, IBusinessRepository
 	{

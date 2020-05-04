@@ -19,7 +19,8 @@ using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[Serializable, BsonIgnoreExtraElements]
+	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Sites", TableName = "T_Portals_Sites", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public sealed class Site : Repository<Site>, IPortalObject
 	{
@@ -40,13 +41,13 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
-		[Property(MaxLength = 100)]
+		[Property(MaxLength = 100, NotNull = true, NotEmpty = true)]
 		[Sortable(UniqueIndexName = "Domains")]
 		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string PrimaryDomain { get; set; } = "company.com";
 
-		[Property(MaxLength = 20)]
+		[Property(MaxLength = 50, NotNull = true, NotEmpty = true)]
 		[Sortable(UniqueIndexName = "Domains")]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string SubDomain { get; set; } = "*";
@@ -315,7 +316,7 @@ namespace net.vieapps.Services.Portals
 
 		public static Tuple<string, string> GetSiteDomains(this string domain)
 		{
-			var info = domain.ToArray(".");
+			var info = domain.ToArray(".").Select(name => name.Equals("*") ? "*" : name.NormalizeAlias()).ToList();
 			return new Tuple<string, string>(info.Skip(1).Join("."), info.First());
 		}
 
@@ -351,12 +352,15 @@ namespace net.vieapps.Services.Portals
 			if (site == null && fetchRepository)
 			{
 				var domains = domain.GetSiteDomains();
-				var filter = Filters<Site>.Or(
-					Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domains.Item1)),
-					Filters<Site>.And(Filters<Site>.Equals("SubDomain", domains.Item2), Filters<Site>.Equals("PrimaryDomain", domains.Item1)),
-					Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domain)),
-					Filters<Site>.Contains("OtherDomains", domain)
-				);
+				var filter = Filters<Site>.Or(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domains.Item1)));
+				if (!domains.Item2.Equals("*"))
+				{
+					filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", domains.Item2), Filters<Site>.Equals("PrimaryDomain", domains.Item1)));
+					filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domain)));
+					filter.Add(Filters<Site>.Contains("OtherDomains", domain));
+				}
+				else
+					filter.Add(Filters<Site>.Contains("OtherDomains", domains.Item1));
 				site = Site.Get<Site>(filter, null, null)?.Set();
 				if (site == null)
 					Utility.NotRecognizedAliases.Add($"Site:{domain}");
@@ -371,17 +375,23 @@ namespace net.vieapps.Services.Portals
 			if (site == null)
 			{
 				var domains = domain.GetSiteDomains();
-				var filter = Filters<Site>.Or(
-					Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domains.Item1)),
-					Filters<Site>.And(Filters<Site>.Equals("SubDomain", domains.Item2), Filters<Site>.Equals("PrimaryDomain", domains.Item1)),
-					Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domain)),
-					Filters<Site>.Contains("OtherDomains", domain)
-				);
+				var filter = Filters<Site>.Or(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domains.Item1)));
+				if (!domains.Item2.Equals("*"))
+				{
+					filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", domains.Item2), Filters<Site>.Equals("PrimaryDomain", domains.Item1)));
+					filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domain)));
+					filter.Add(Filters<Site>.Contains("OtherDomains", domain));
+				}
+				else
+					filter.Add(Filters<Site>.Contains("OtherDomains", domains.Item1));
 				site = (await Site.GetAsync<Site>(filter, null, null, cancellationToken).ConfigureAwait(false))?.Set();
 				if (site == null)
 					Utility.NotRecognizedAliases.Add($"Site:{domain}");
 			}
 			return site ?? (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
 		}
+
+		public static Task<Site> GetSiteByDomainAsync(this string domain, CancellationToken cancellationToken)
+			=> (domain ?? "").GetSiteByDomainAsync(null, cancellationToken);
 	}
 }

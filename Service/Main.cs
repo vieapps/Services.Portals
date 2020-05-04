@@ -45,7 +45,7 @@ namespace net.vieapps.Services.Portals
 						async message => await this.ProcessCommunicateMessageAsync(message).ConfigureAwait(false),
 						exception => this.Logger?.LogError($"Error occurred while fetching an communicate message of CMS Portals => {exception.Message}", this.State == ServiceState.Connected ? exception : null)
 					);
-					this.Logger?.LogDebug($"The service was{(this.State == ServiceState.Disconnected ? " re-" : " ")}registered successfully with CMS Portals");
+					this.Logger?.LogDebug($"Successfully {(this.State == ServiceState.Disconnected ? " re-" : " ")}register the service with CMS Portals");
 				},
 				onError
 			);
@@ -66,7 +66,7 @@ namespace net.vieapps.Services.Portals
 					this.ServiceInstance = null;
 					this.ServiceCommunicator?.Dispose();
 					this.ServiceCommunicator = null;
-					this.Logger?.LogDebug($"The service was unregistered successfully with CMS Portals");
+					this.Logger?.LogDebug($"Successfully unregister the service from CMS Portals");
 				},
 				onError
 			);
@@ -384,20 +384,20 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// create new
-			var organization = requestBody.CreateOrganizationInstance("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", xorganization =>
+			var organization = requestBody.CreateOrganizationInstance("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
-				xorganization.ID = string.IsNullOrWhiteSpace(xorganization.ID) || !xorganization.ID.IsValidUUID() ? UtilityService.NewUUID : xorganization.ID;
-				xorganization.Alias = string.IsNullOrWhiteSpace(xorganization.Alias) ? xorganization.Title.NormalizeAlias(false) + xorganization.ID : xorganization.Alias.NormalizeAlias(false);
-				xorganization.OwnerID = string.IsNullOrWhiteSpace(xorganization.OwnerID) || !xorganization.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : xorganization.OwnerID;
-				xorganization.Status = isSystemAdministrator
+				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
+				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? obj.Title.NormalizeAlias(false) + obj.ID : obj.Alias.NormalizeAlias(false);
+				obj.OwnerID = string.IsNullOrWhiteSpace(obj.OwnerID) || !obj.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : obj.OwnerID;
+				obj.Status = isSystemAdministrator
 					? requestBody.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
 					: isCreatedByOtherService
 						? requestInfo.Extra.TryGetValue("x-status", out var xstatus) && xstatus.TryToEnum(out ApprovalStatus statusByOtherService) ? statusByOtherService : ApprovalStatus.Pending
 						: ApprovalStatus.Pending;
-				xorganization.OriginalPrivileges = (isSystemAdministrator ? requestBody.Get<Privileges>("OriginalPrivileges") : null) ?? new Privileges(true);
-				xorganization.Created = xorganization.LastModified = DateTime.Now;
-				xorganization.CreatedID = xorganization.LastModifiedID = requestInfo.Session.User.ID;
-				xorganization.NormalizeExtras();
+				obj.OriginalPrivileges = (isSystemAdministrator ? requestBody.Get<Privileges>("OriginalPrivileges") : null) ?? new Privileges(true);
+				obj.Created = obj.LastModified = DateTime.Now;
+				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
 			});
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
@@ -483,14 +483,14 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// update
-			organization.UpdateOrganizationInstance(requestBody, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", xorganization =>
+			organization.UpdateOrganizationInstance(requestBody, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
-				xorganization.OwnerID = isSystemAdministrator ? requestBody.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
-				xorganization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias.NormalizeAlias(false);
-				xorganization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
-				xorganization.LastModified = DateTime.Now;
-				xorganization.LastModifiedID = requestInfo.Session.User.ID;
-				xorganization.NormalizeExtras();
+				obj.OwnerID = isSystemAdministrator ? requestBody.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
+				obj.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias.NormalizeAlias(false);
+				obj.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
+				obj.LastModified = DateTime.Now;
+				obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
 			});
 			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
@@ -1269,15 +1269,15 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// create new
-			var desktop = requestBody.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", xdesktop =>
+			var desktop = requestBody.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
-				xdesktop.SystemID = organization.ID;
-				xdesktop.ParentID = xdesktop.ParentDesktop != null ? xdesktop.ParentID : null;
-				xdesktop.ID = string.IsNullOrWhiteSpace(xdesktop.ID) || !xdesktop.ID.IsValidUUID() ? UtilityService.NewUUID : xdesktop.ID;
-				xdesktop.Created = xdesktop.LastModified = DateTime.Now;
-				xdesktop.CreatedID = xdesktop.LastModifiedID = requestInfo.Session.User.ID;
-				xdesktop.NormalizeExtras();
-				xdesktop._childrenIDs = new List<string>();
+				obj.SystemID = organization.ID;
+				obj.ParentID = obj.ParentDesktop != null ? obj.ParentID : null;
+				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
+				obj.Created = obj.LastModified = DateTime.Now;
+				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
+				obj._childrenIDs = new List<string>();
 			});
 			await Task.WhenAll(
 				Desktop.CreateAsync(desktop, cancellationToken),
@@ -1415,12 +1415,12 @@ namespace net.vieapps.Services.Portals
 					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
 			}
 
-			desktop.UpdateDesktopInstance(requestBody, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async xdesktop =>
+			desktop.UpdateDesktopInstance(requestBody, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async obj =>
 			{
-				xdesktop.LastModified = DateTime.Now;
-				xdesktop.LastModifiedID = requestInfo.Session.User.ID;
-				xdesktop.NormalizeExtras();
-				await xdesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				obj.LastModified = DateTime.Now;
+				obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
+				await obj.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			});
 			await Task.WhenAll(
 				Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken),
@@ -1763,18 +1763,18 @@ namespace net.vieapps.Services.Portals
 
 			// check domain
 			var domain = $"{requestBody.Get<string>("SubDomain")}.{requestBody.Get<string>("PrimaryDomain")}";
-			var existing = await organization.ID.GetSiteByDomainAsync(domain, cancellationToken).ConfigureAwait(false);
+			var existing = await domain.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
 			if (existing != null)
-				throw new InformationExistedException($"The alias ({domain.NormalizeAlias()}) is used by another site");
+				throw new InformationExistedException($"The domain ({domain.ToArray(".").Select(name => name.Equals("*") ? "*" : name.NormalizeAlias()).Join(".")}) was used by another site");
 
 			// create new
-			var site = requestBody.CreateSiteInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", xsite =>
+			var site = requestBody.CreateSiteInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
-				xsite.ID = string.IsNullOrWhiteSpace(xsite.ID) || !xsite.ID.IsValidUUID() ? UtilityService.NewUUID : xsite.ID;
-				xsite.SystemID = organization.ID;
-				xsite.Created = xsite.LastModified = DateTime.Now;
-				xsite.CreatedID = xsite.LastModifiedID = requestInfo.Session.User.ID;
-				xsite.NormalizeExtras();
+				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
+				obj.SystemID = organization.ID;
+				obj.Created = obj.LastModified = DateTime.Now;
+				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
 			});
 			await Task.WhenAll(
 				Site.CreateAsync(site, cancellationToken),
@@ -1812,7 +1812,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity() ?? "";
-			var site = await (identity.IsValidUUID() ? identity.GetSiteByIDAsync(cancellationToken) : (requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID") ?? "").GetSiteByDomainAsync(identity, cancellationToken)).ConfigureAwait(false);
+			var site = await (identity.IsValidUUID() ? identity.GetSiteByIDAsync(cancellationToken) : identity.GetSiteByDomainAsync(cancellationToken)).ConfigureAwait(false);
 			if (site == null)
 				throw new InformationNotFoundException();
 			else if (site.Organization == null)
@@ -1864,16 +1864,16 @@ namespace net.vieapps.Services.Portals
 			// check domain
 			var requestBody = requestInfo.GetBodyExpando();
 			var domain = $"{requestBody.Get<string>("SubDomain")}.{requestBody.Get<string>("PrimaryDomain")}";
-			var existing = await site.Organization.ID.GetSiteByDomainAsync(domain, cancellationToken).ConfigureAwait(false);
-			if (existing != null)
-				throw new InformationExistedException($"The domain ({domain}) is used by another site");
+			var existing = await domain.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
+			if (existing != null && !existing.ID.Equals(site.ID))
+				throw new InformationExistedException($"The domain ({domain.ToArray(".").Select(name => name.Equals("*") ? "*" : name.NormalizeAlias()).Join(".")}) was used by another site");
 
 			// update
-			site.UpdateSiteInstance(requestBody, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", xsite =>
+			site.UpdateSiteInstance(requestBody, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
-				xsite.LastModified = DateTime.Now;
-				xsite.LastModifiedID = requestInfo.Session.User.ID;
-				xsite.NormalizeExtras();
+				obj.LastModified = DateTime.Now;
+				obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
 			});
 			await Task.WhenAll(
 				Site.UpdateAsync(site, requestInfo.Session.User.ID, cancellationToken),
@@ -1925,7 +1925,10 @@ namespace net.vieapps.Services.Portals
 			// delete
 			await Site.DeleteAsync<Site>(site.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			site.Remove();
-			await Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")), cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll(
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")), cancellationToken)
+			).ConfigureAwait(false);
 
 			// send update messages
 			var response = site.ToJson();
@@ -2073,13 +2076,13 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// create new module
-			var module = requestBody.CreateModuleInstance("SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", xmodule =>
+			var module = requestBody.CreateModuleInstance("SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
-				xmodule.ID = string.IsNullOrWhiteSpace(xmodule.ID) || !xmodule.ID.IsValidUUID() ? UtilityService.NewUUID : xmodule.ID;
-				xmodule.SystemID = organization.ID;
-				xmodule.Created = xmodule.LastModified = DateTime.Now;
-				xmodule.CreatedID = xmodule.LastModifiedID = requestInfo.Session.User.ID;
-				xmodule.NormalizeExtras();
+				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
+				obj.SystemID = organization.ID;
+				obj.Created = obj.LastModified = DateTime.Now;
+				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
 			});
 			await Task.WhenAll(
 				Module.CreateAsync(module, cancellationToken),
@@ -2181,11 +2184,11 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// update
-			module.UpdateModuleInstance(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", xmodule =>
+			module.UpdateModuleInstance(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
-				xmodule.LastModified = DateTime.Now;
-				xmodule.LastModifiedID = requestInfo.Session.User.ID;
-				xmodule.NormalizeExtras();
+				obj.LastModified = DateTime.Now;
+				obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
 			});
 			await Task.WhenAll(
 				Module.UpdateAsync(module, requestInfo.Session.User.ID, cancellationToken),
@@ -2381,13 +2384,13 @@ namespace net.vieapps.Services.Portals
 		async Task<ContentType> CreateContentTypeAsync(ExpandoObject data, string systemID, string userID, string excludedProperties = null, string excludedDeviceID = null, CancellationToken cancellationToken = default)
 		{
 			// create new
-			var contentType = data.CreateContentTypeInstance(excludedProperties, xcontentType =>
+			var contentType = data.CreateContentTypeInstance(excludedProperties, obj =>
 			{
-				xcontentType.ID = string.IsNullOrWhiteSpace(xcontentType.ID) || !xcontentType.ID.IsValidUUID() ? UtilityService.NewUUID : xcontentType.ID;
-				xcontentType.SystemID = systemID;
-				xcontentType.Created = xcontentType.LastModified = DateTime.Now;
-				xcontentType.CreatedID = xcontentType.LastModifiedID = userID;
-				xcontentType.NormalizeExtras();
+				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
+				obj.SystemID = systemID;
+				obj.Created = obj.LastModified = DateTime.Now;
+				obj.CreatedID = obj.LastModifiedID = userID;
+				obj.NormalizeExtras();
 			});
 			await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
 
@@ -2493,11 +2496,11 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// update
-			contentType.UpdateContentTypeInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,EntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", xcontentType =>
+			contentType.UpdateContentTypeInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,EntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
-				xcontentType.LastModified = DateTime.Now;
-				xcontentType.LastModifiedID = requestInfo.Session.User.ID;
-				xcontentType.NormalizeExtras();
+				obj.LastModified = DateTime.Now;
+				obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
 			});
 			await Task.WhenAll(
 				ContentType.UpdateAsync(contentType, requestInfo.Session.User.ID, cancellationToken),
@@ -2608,14 +2611,6 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEquals("Organization#Delete"))
 				message.Data.ToExpandoObject().CreateOrganizationInstance().Remove();
 
-			// update a role
-			else if (message.Type.IsEquals("Role#Create") || message.Type.IsEquals("Role#Update"))
-				await message.Data.ToExpandoObject().CreateRoleInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
-
-			// delete a role
-			else if (message.Type.IsEquals("Role#Delete"))
-				message.Data.ToExpandoObject().CreateRoleInstance().Remove();
-
 			// update a site
 			else if (message.Type.IsEquals("Site#Create") || message.Type.IsEquals("Site#Update"))
 				await message.Data.ToExpandoObject().CreateSiteInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
@@ -2624,6 +2619,14 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEquals("Site#Delete"))
 				message.Data.ToExpandoObject().CreateSiteInstance().Remove();
 
+			// update a role
+			else if (message.Type.IsEquals("Role#Create") || message.Type.IsEquals("Role#Update"))
+				await message.Data.ToExpandoObject().CreateRoleInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
+
+			// delete a role
+			else if (message.Type.IsEquals("Role#Delete"))
+				message.Data.ToExpandoObject().CreateRoleInstance().Remove();
+
 			// update a desktop
 			else if (message.Type.IsEquals("Desktop#Create") || message.Type.IsEquals("Desktop#Update"))
 				await message.Data.ToExpandoObject().CreateDesktopInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
@@ -2631,6 +2634,22 @@ namespace net.vieapps.Services.Portals
 			// delete a desktop
 			else if (message.Type.IsEquals("Desktop#Delete"))
 				message.Data.ToExpandoObject().CreateDesktopInstance().Remove();
+
+			// update a module
+			else if (message.Type.IsEquals("Module#Create") || message.Type.IsEquals("Module#Update"))
+				await message.Data.ToExpandoObject().CreateModuleInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
+
+			// delete a module
+			else if (message.Type.IsEquals("Module#Delete"))
+				message.Data.ToExpandoObject().CreateModuleInstance().Remove();
+
+			// update a content-type
+			else if (message.Type.IsEquals("ContentType#Create") || message.Type.IsEquals("ContentType#Update"))
+				await message.Data.ToExpandoObject().CreateContentTypeInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
+
+			// delete a content-type
+			else if (message.Type.IsEquals("ContentType#Delete"))
+				message.Data.ToExpandoObject().CreateContentTypeInstance().Remove();
 		}
 		#endregion
 

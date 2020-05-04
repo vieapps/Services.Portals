@@ -19,8 +19,9 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Links", TableName = "T_Portals_CMS_Links", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000004", Title = "Link", Description = "Linking content in the CMS module (menu/banners/links)", MultipleIntances = true, Indexable = false, Extendable = true, ExtendedPropertiesBefore = "Created")]
+	[Serializable, BsonIgnoreExtraElements]
+	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[Entity(CollectionName = "CMS_Links", TableName = "T_Portals_CMS_Links", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000004", Title = "Link", Description = "Linking content in the CMS module (menu/banners/links)", MultipleIntances = true, Extendable = true)]
 	public sealed class Link : Repository<Link>, IBusinessObject, INestedObject
 	{
 		public Link() : base() { }

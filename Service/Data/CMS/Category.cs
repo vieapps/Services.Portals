@@ -19,8 +19,9 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Categories", TableName = "T_Portals_CMS_Categories", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ObjectName = "Category", ID = "B0000000000000000000000000000001", Title = "Category", Description = "Categorizing the CMS contents", MultipleIntances = false, Extendable = false, Indexable = false)]
+	[Serializable, BsonIgnoreExtraElements]
+	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[Entity(CollectionName = "CMS_Categories", TableName = "T_Portals_CMS_Categories", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ObjectName = "Category", ID = "B0000000000000000000000000000001", Title = "Category", Description = "Categorizing the CMS contents")]
 	public sealed class Category : Repository<Category>, IBusinessObject, INestedObject, IAliasEntity
 	{
 		public Category() : base() { }
@@ -318,13 +319,13 @@ namespace net.vieapps.Services.Portals
 				: null;
 
 			if (category == null && fetchRepository)
-				category = Category.Get(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias)), null, repositoryEntityID)?.Set();
+				category = Category.Get(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID)?.Set();
 
 			return category;
 		}
 
 		internal static async Task<Category> GetCategoryByAliasAsync(this string repositoryEntityID, string alias, CancellationToken cancellationToken = default)
-			=> (repositoryEntityID ?? "").GetCategoryByAlias(alias, false) ?? (await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias)), null, repositoryEntityID, cancellationToken).ConfigureAwait(false))?.Set();
+			=> (repositoryEntityID ?? "").GetCategoryByAlias(alias, false) ?? (await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID, cancellationToken).ConfigureAwait(false))?.Set();
 
 		internal static async Task<Category> GetCategoryByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetCategoryByID(force, false) ?? (await Category.GetAsync<Category>(id, cancellationToken).ConfigureAwait(false))?.Set();

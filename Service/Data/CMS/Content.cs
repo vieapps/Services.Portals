@@ -19,8 +19,9 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Contents", TableName = "T_Portals_CMS_Contents", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000002", Title = "Content", Description = "Complex content in CMS module (article/news)", MultipleIntances = true, Indexable = true, Extendable = true, ExtendedPropertiesBefore = "Details")]
+	[Serializable, BsonIgnoreExtraElements]
+	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[Entity(CollectionName = "CMS_Contents", TableName = "T_Portals_CMS_Contents", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000002", Title = "Content", Description = "Complex content in CMS module (article/news)", MultipleIntances = true, Indexable = true, Extendable = true)]
 	public sealed class Content : Repository<Content>, IBusinessObject, IAliasEntity
 	{
 		public Content() : base() { }
@@ -65,6 +66,10 @@ namespace net.vieapps.Services.Portals
 		[Searchable]
 		[FormControl(Segment = "management", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
 		public string Tags { get; set; }
+
+		[Sortable(IndexName = "Management")]
+		[FormControl(Segment = "management", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		public bool AllowComments { get; set; } = false;
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title")]
@@ -208,13 +213,22 @@ namespace net.vieapps.Services.Portals
 			if (category == null)
 				return null;
 
-			// get content by alias
+			// get by identity (using cache)
+			var cacheKey = $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias()}".ToLower();
+			var id = Utility.Cache.Get<string>(cacheKey);
+			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
+				return Content.Get<Content>(id);
+
+			// get by alias
 			var filter = Filters<Content>.And(
 				Filters<Content>.Equals("RepositoryEntityID", contentType.ID),
 				Filters<Content>.Equals("CategoryID", category.ID),
 				Filters<Content>.Equals("Alias", alias.NormalizeAlias())
 			);
-			return Content.Get<Content>(filter, null, contentType.ID);
+			var content = Content.Get<Content>(filter, null, contentType.ID);
+			if (content != null)
+				Utility.Cache.Set(cacheKey, content.ID);
+			return content;
 		}
 
 		internal static async Task<Content> GetContentByAliasAsync(string repositoryEntityID, string alias, string parentIdentity, CancellationToken cancellationToken = default)
@@ -235,13 +249,22 @@ namespace net.vieapps.Services.Portals
 			if (category == null)
 				return null;
 
-			// get content by alias
+			// get by identity (using cache)
+			var cacheKey = $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias()}".ToLower();
+			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
+			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
+				return await Content.GetAsync<Content>(id, cancellationToken).ConfigureAwait(false);
+
+			// get by alias
 			var filter = Filters<Content>.And(
 				Filters<Content>.Equals("RepositoryEntityID", contentType.ID),
 				Filters<Content>.Equals("CategoryID", category.ID),
 				Filters<Content>.Equals("Alias", alias.NormalizeAlias())
 			);
-			return await Content.GetAsync<Content>(filter, null, contentType.ID, cancellationToken).ConfigureAwait(false);
+			var content = await Content.GetAsync<Content>(filter, null, contentType.ID, cancellationToken).ConfigureAwait(false);
+			if (content != null)
+				await Utility.Cache.SetAsync(cacheKey, content.ID, cancellationToken).ConfigureAwait(false);
+			return content;
 		}
 	}
 

@@ -19,22 +19,31 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Items", TableName = "T_Portals_CMS_Items", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ObjectName = "Link", ID = "B0000000000000000000000000000003", Title = "Item", Description = "Simple content in the CMS module", MultipleIntances = true, Indexable = true, Extendable = true, ExtendedPropertiesBefore = "Created")]
+	[Serializable, BsonIgnoreExtraElements]
+	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[Entity(CollectionName = "CMS_Items", TableName = "T_Portals_CMS_Items", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ObjectName = "Link", ID = "B0000000000000000000000000000003", Title = "Item", Description = "Simple content in the CMS module", MultipleIntances = true, Indexable = true, Extendable = true)]
 	public sealed class Item : Repository<Item>, IBusinessObject, IAliasEntity
 	{
 		public Item() : base() { }
 
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
-		[Sortable(IndexName = "Management")]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.item.controls.[name].label}}", PlaceHolder = "{{portals.cms.item.controls.[name].placeholder}}", Description = "{{portals.cms.item.controls.[name].description}}")]
-		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
-
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title")]
 		[Searchable]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.item.controls.[name].label}}", PlaceHolder = "{{portals.cms.item.controls.[name].placeholder}}", Description = "{{portals.cms.item.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.item.controls.[name].label}}", PlaceHolder = "{{portals.cms.item.controls.[name].placeholder}}", Description = "{{portals.cms.item.controls.[name].description}}")]
 		public override string Title { get; set; }
+
+		[Searchable]
+		[FormControl(Label = "{{portals.cms.item.controls.[name].label}}", PlaceHolder = "{{portals.cms.item.controls.[name].placeholder}}", Description = "{{portals.cms.item.controls.[name].description}}")]
+		public string Summary { get; set; }
+
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Label = "{{portals.cms.item.controls.[name].label}}", PlaceHolder = "{{portals.cms.item.controls.[name].placeholder}}", Description = "{{portals.cms.item.controls.[name].description}}")]
+		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
+
+		[Sortable(IndexName = "Management")]
+		[FormControl(Label = "{{portals.cms.item.controls.[name].label}}", PlaceHolder = "{{portals.cms.item.controls.[name].placeholder}}", Description = "{{portals.cms.item.controls.[name].description}}")]
+		public bool AllowComments { get; set; } = false;
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Alias]
@@ -116,13 +125,41 @@ namespace net.vieapps.Services.Portals
 			=> await Item.GetItemByAliasAsync(repositoryEntityID, alias, cancellationToken).ConfigureAwait(false);
 
 		internal static Item GetItemByAlias(string repositoryEntityID, string alias)
-			=> !string.IsNullOrWhiteSpace(repositoryEntityID) && !string.IsNullOrWhiteSpace(alias)
-				? Item.Get(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Item>.Equals("Alias", alias)), null, repositoryEntityID)
-				: null;
+		{
+			// check
+			if (string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias))
+				return null;
+
+			// get by identity (using cache)
+			var cacheKey = $"e:{repositoryEntityID}#a:{alias.NormalizeAlias()}".ToLower();
+			var id = Utility.Cache.Get<string>(cacheKey);
+			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
+				return Item.Get<Item>(id);
+
+			// get by alias
+			var item = Item.Get(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID);
+			if (item != null)
+				Utility.Cache.Set(cacheKey, item.ID);
+			return item;
+		}
 
 		internal static async Task<Item> GetItemByAliasAsync(string repositoryEntityID, string alias, CancellationToken cancellationToken = default)
-			=> !string.IsNullOrWhiteSpace(repositoryEntityID) && !string.IsNullOrWhiteSpace(alias)
-				? await Item.GetAsync(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Item>.Equals("Alias", alias)), null, repositoryEntityID, cancellationToken).ConfigureAwait(false)
-				: null;
+		{
+			// check
+			if (string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias))
+				return null;
+
+			// get by identity (using cache)
+			var cacheKey = $"e:{repositoryEntityID}#a:{alias.NormalizeAlias()}".ToLower();
+			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
+			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
+				return await Item.GetAsync<Item>(id, cancellationToken).ConfigureAwait(false);
+
+			// get by alias
+			var item = await Item.GetAsync(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID, cancellationToken).ConfigureAwait(false);
+			if (item != null)
+				await Utility.Cache.SetAsync(cacheKey, item.ID, cancellationToken).ConfigureAwait(false);
+			return item;
+		}
 	}
 }
