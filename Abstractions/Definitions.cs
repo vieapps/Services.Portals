@@ -106,7 +106,6 @@ namespace net.vieapps.Services.Portals
 				this.MultipleIntances = definition.MultipleIntances;
 				this.Indexable = definition.Indexable;
 				this.Extendable = definition.Extendable;
-				this.ExtendedPropertiesBefore = definition.ExtendedPropertiesBefore;
 				this.ObjectName = definition.ObjectName;
 				this.ParentObjectName = definition.ParentType?.GetTypeName(true);
 			}
@@ -146,11 +145,6 @@ namespace net.vieapps.Services.Portals
 		/// Gets or Sets the state that allow to extend the run-time entities by extended properties (means the value of EntityAttribute.Extendable)
 		/// </summary>
 		public bool Extendable { get; set; }
-
-		/// <summary>
-		/// Gets or Sets the name of the standard property to place extended properties before its (means the value of EntityAttribute.ExtendedPropertiesBefore)
-		/// </summary>
-		public string ExtendedPropertiesBefore { get; internal set; }
 
 		/// <summary>
 		/// Gets or sets the name of the service's object that associates with this content-type definition
@@ -200,7 +194,7 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets or sets the name
 		/// </summary>
-		public string Name { get; set; } = "";
+		public string Name { get; set; }
 
 		/// <summary>
 		/// Gets or sets the excluded state
@@ -243,9 +237,9 @@ namespace net.vieapps.Services.Portals
 		public bool ValidatePattern { get; set; }
 
 		/// <summary>
-		/// Gets or sets the order number
+		/// Gets or sets the name of a standard property that the UI control of extended property will place before
 		/// </summary>
-		public int? Order { get; set; }
+		public string PlaceBefore { get; set; }
 
 		/// <summary>
 		/// Gets or sets the disable state
@@ -342,6 +336,61 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public string LookupProperty { get; set; }
 		#endregion
+	}
 
+	//  ------------------------------------------------------------------------
+
+	/// <summary>
+	/// Presents a definition for working with the extended properties of a repository entity in a respository 
+	/// </summary>
+	[Serializable]
+	public sealed class ExtendedUIDefinition
+	{
+		public ExtendedUIDefinition() : this(null) { }
+
+		public ExtendedUIDefinition(JObject json)
+			=> this.CopyFrom(json ?? new JObject());
+
+		public override string ToString()
+			=> this.ToJson().ToString(Formatting.None);
+
+		public List<ExtendedUIControlDefinition> Controls { get; set; }
+
+		public List<StandardUIDefinition> Specials { get; set; }
+
+		public string ListXslt { get; set; }
+
+		public string ViewXslt { get; set; }
+	}
+
+	//  ------------------------------------------------------------------------
+
+	/// <summary>
+	/// Presents a definition for working with a standard property of a repository entity in a respository 
+	/// </summary>
+	[Serializable]
+	public sealed class StandardUIDefinition
+	{
+		public StandardUIDefinition() : this(null) { }
+
+		public StandardUIDefinition(JObject json)
+			=> this.CopyFrom(json ?? new JObject());
+
+		public override string ToString()
+			=> this.ToJson().ToString(Formatting.None);
+
+		public string Name { get; set; }
+
+		public string Title { get; set; }
+
+		public string PlaceHolder { get; set; }
+
+		public string Description { get; set; }
+
+		public bool Hidden { get; set; } = false;
+
+		public bool? HiddenInView { get; set; }
+
+		public string Formula { get; set; }
 	}
 }
