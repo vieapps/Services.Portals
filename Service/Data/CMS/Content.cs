@@ -108,7 +108,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "TextEditor", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Details { get; set; }
 
-		[ChildrenMappings(TableName = "T_Portals_CMS_Contents_Relateds", LinkColumn = "FromID", MapColumn = "ToID")]
+		[ChildrenMappings(TableName = "T_Portals_CMS_Contents_Relateds", LinkColumn = "FromID", MapColumn = "ToID", Type = typeof(Content))]
 		[FormControl(Segment = "related", ControlType = "Lookup", Multiple = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public List<string> Relateds { get; set; }
 

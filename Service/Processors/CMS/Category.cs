@@ -303,7 +303,7 @@ namespace net.vieapps.Services.Portals
 			// update parent
 			if (category.ParentCategory != null)
 			{
-				await category.ParentCategory.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await category.ParentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				category.ParentCategory._childrenIDs.Add(category.ID);
 				await category.ParentCategory.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
@@ -375,7 +375,7 @@ namespace net.vieapps.Services.Portals
 			// prepare the response
 			if (category._childrenIDs == null)
 			{
-				await category.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await category.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
@@ -425,7 +425,7 @@ namespace net.vieapps.Services.Portals
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
-				await obj.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await obj.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			});
 			await Task.WhenAll(
 				Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken),
@@ -440,7 +440,7 @@ namespace net.vieapps.Services.Portals
 			// update parent
 			if (category.ParentCategory != null && !category.ParentID.IsEquals(oldParentID))
 			{
-				await category.ParentCategory.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await category.ParentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				category.ParentCategory._childrenIDs.Add(category.ID);
 				await category.ParentCategory.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
@@ -465,7 +465,7 @@ namespace net.vieapps.Services.Portals
 				var parentCategory = await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (parentCategory != null)
 				{
-					await parentCategory.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+					await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 					parentCategory._childrenIDs.Remove(category.ID);
 					await parentCategory.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
@@ -532,7 +532,7 @@ namespace net.vieapps.Services.Portals
 			var objectName = category.GetTypeName(true);
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
-			await (await category.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
+			await (await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
 			{
 				// update children to root
 				if (updateChildren)
@@ -606,7 +606,7 @@ namespace net.vieapps.Services.Portals
 			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = category.GetTypeName(true);
 
-			var children = await category.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			await children.ForEachAsync(async (child, token) =>
 			{
 				var messages = await child.DeleteChildrenAsync(userID, serviceName, nodeID, token).ConfigureAwait(false);

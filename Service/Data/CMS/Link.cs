@@ -145,7 +145,7 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _childrenIDs;
 
-		internal List<Link> GetChildren(bool notifyPropertyChanged = true, List<Link> links = null)
+		internal List<Link> FindChildren(bool notifyPropertyChanged = true, List<Link> links = null)
 		{
 			if (this._childrenIDs == null)
 			{
@@ -167,19 +167,19 @@ namespace net.vieapps.Services.Portals
 			return this._children;
 		}
 
-		internal async Task<List<Link>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+		internal async Task<List<Link>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 		{
 			if (this._childrenIDs == null)
 			{
 				var filter = Filters<Link>.And(Filters<Link>.Equals("ParentID", this.ID));
 				var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
-				return this.GetChildren(notifyPropertyChanged, await Link.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false));
+				return this.FindChildren(notifyPropertyChanged, await Link.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false));
 			}
-			return this.GetChildren();
+			return this.FindChildren();
 		}
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<Link> Children => this.GetChildren();
+		public List<Link> Children => this.FindChildren();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		List<INestedObject> INestedObject.Children => this.Children?.Select(link => link as INestedObject).ToList();

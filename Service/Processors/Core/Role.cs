@@ -283,7 +283,7 @@ namespace net.vieapps.Services.Portals
 
 			if (role.ParentRole != null)
 			{
-				await role.ParentRole.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
+				await role.ParentRole.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 				role.ParentRole._childrenIDs.Add(role.ID);
 				await role.ParentRole.SetAsync(true, cancellationToken).ConfigureAwait(false);
 
@@ -349,7 +349,7 @@ namespace net.vieapps.Services.Portals
 			// prepare the response
 			if (role._childrenIDs == null)
 			{
-				await role.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
+				await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 				await role.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 
@@ -387,7 +387,7 @@ namespace net.vieapps.Services.Portals
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
-				await obj.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
+				await obj.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 			});
 			await Task.WhenAll(
 				Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken),
@@ -470,7 +470,7 @@ namespace net.vieapps.Services.Portals
 
 			if (role.ParentRole != null && !role.ParentID.IsEquals(oldParentID))
 			{
-				await role.ParentRole.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
+				await role.ParentRole.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 				role.ParentRole._childrenIDs.Add(role.ID);
 				await role.ParentRole.SetAsync(true).ConfigureAwait(false);
 
@@ -499,7 +499,7 @@ namespace net.vieapps.Services.Portals
 				parentRole = await oldParentID.GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (parentRole != null)
 				{
-					await parentRole.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
+					await parentRole.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 					parentRole._childrenIDs.Remove(role.ID);
 					await parentRole.SetAsync(true, cancellationToken).ConfigureAwait(false);
 
@@ -570,7 +570,7 @@ namespace net.vieapps.Services.Portals
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
 			// delete
-			await (await role.GetChildrenAsync(cancellationToken).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
+			await (await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
 			{
 				// update children to root
 				if (updateChildren)
@@ -684,7 +684,7 @@ namespace net.vieapps.Services.Portals
 			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = role.GetTypeName(true);
 
-			var children = await role.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
+			var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 			await children.ForEachAsync(async (child, token) =>
 			{
 				var messages = await child.DeleteChildrenAsync(requestInfo, encryptionKey, serviceCaller, onServiceCallerGotError, nodeID, token).ConfigureAwait(false);

@@ -342,7 +342,7 @@ namespace net.vieapps.Services.Portals
 			// update parent
 			if (desktop.ParentDesktop != null)
 			{
-				await desktop.ParentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await desktop.ParentDesktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
 				await desktop.ParentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
@@ -414,7 +414,7 @@ namespace net.vieapps.Services.Portals
 			// prepare the response
 			if (desktop._childrenIDs == null)
 			{
-				await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
@@ -464,7 +464,7 @@ namespace net.vieapps.Services.Portals
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
-				await obj.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await obj.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			});
 			await Task.WhenAll(
 				Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken),
@@ -479,7 +479,7 @@ namespace net.vieapps.Services.Portals
 			// update parent
 			if (desktop.ParentDesktop != null && !desktop.ParentID.IsEquals(oldParentID))
 			{
-				await desktop.ParentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await desktop.ParentDesktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
 				await desktop.ParentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
@@ -504,7 +504,7 @@ namespace net.vieapps.Services.Portals
 				var parentDesktop = await oldParentID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (parentDesktop != null)
 				{
-					await parentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+					await parentDesktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 					parentDesktop._childrenIDs.Remove(desktop.ID);
 					await parentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
@@ -571,7 +571,7 @@ namespace net.vieapps.Services.Portals
 			var objectName = desktop.GetTypeName(true);
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
-			await (await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
+			await (await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
 			{
 				// update children to root
 				if (updateChildren)
@@ -645,7 +645,7 @@ namespace net.vieapps.Services.Portals
 			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = desktop.GetTypeName(true);
 
-			var children = await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			await children.ForEachAsync(async (child, token) =>
 			{
 				var messages = await child.DeleteChildrenAsync(userID, serviceName, nodeID, token).ConfigureAwait(false);

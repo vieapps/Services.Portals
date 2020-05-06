@@ -174,11 +174,11 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _childrenIDs;
 
-		internal List<Desktop> GetChildren(bool notifyPropertyChanged = true, List<Desktop> desktops = null)
+		internal List<Desktop> FindChildren(bool notifyPropertyChanged = true, List<Desktop> desktops = null)
 		{
 			if (this._childrenIDs == null)
 			{
-				desktops = desktops ?? this.SystemID.FindDesktops(this.ID);
+				desktops = desktops ?? (this.SystemID ?? "").FindDesktops(this.ID);
 				this._childrenIDs = desktops.Select(desktop => desktop.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("ChildrenIDs");
@@ -187,13 +187,13 @@ namespace net.vieapps.Services.Portals
 			return this._childrenIDs.Select(id => id.GetDesktopByID()).ToList();
 		}
 
-		internal async Task<List<Desktop>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+		internal async Task<List<Desktop>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
-				? this.GetChildren(notifyPropertyChanged, await this.SystemID.FindDesktopsAsync(this.ID, cancellationToken).ConfigureAwait(false))
+				? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindDesktopsAsync(this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetDesktopByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<Desktop> Children => this.GetChildren();
+		public List<Desktop> Children => this.FindChildren();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		List<INestedObject> INestedObject.Children => this.Children?.Select(desktop => desktop as INestedObject).ToList();

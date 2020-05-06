@@ -111,11 +111,11 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _childrenIDs;
 
-		internal List<Role> GetChildren(List<Role> roles = null)
+		internal List<Role> FindChildren(List<Role> roles = null)
 		{
 			if (this._childrenIDs == null)
 			{
-				roles = roles ?? this.SystemID.FindRoles(this.ID);
+				roles = roles ?? (this.SystemID ?? "").FindRoles(this.ID);
 				this._childrenIDs = roles.Select(role => role.ID).ToList();
 				this.NotifyPropertyChanged("ChildrenIDs");
 				return roles;
@@ -123,13 +123,13 @@ namespace net.vieapps.Services.Portals
 			return this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 		}
 
-		internal async Task<List<Role>> GetChildrenAsync(CancellationToken cancellationToken = default)
+		internal async Task<List<Role>> FindChildrenAsync(CancellationToken cancellationToken = default)
 			=> this._childrenIDs == null
-				? this.GetChildren(await this.SystemID.FindRolesAsync(this.ID, cancellationToken).ConfigureAwait(false))
+				? this.FindChildren(await (this.SystemID ?? "").FindRolesAsync(this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<Role> Children => this.GetChildren();
+		public List<Role> Children => this.FindChildren();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		List<INestedObject> INestedObject.Children => this.Children?.Select(role => role as INestedObject).ToList();

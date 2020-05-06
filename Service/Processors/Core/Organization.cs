@@ -226,8 +226,8 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// check the exising the the alias
-			var requestBody = requestInfo.GetBodyExpando();
-			var alias = requestBody.Get<string>("Alias");
+			var request = requestInfo.GetBodyExpando();
+			var alias = request.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
 				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
@@ -236,17 +236,17 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// create new
-			var organization = requestBody.CreateOrganizationInstance("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var organization = request.CreateOrganizationInstance("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? obj.Title.NormalizeAlias(false) + obj.ID : obj.Alias.NormalizeAlias(false);
 				obj.OwnerID = string.IsNullOrWhiteSpace(obj.OwnerID) || !obj.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : obj.OwnerID;
 				obj.Status = isSystemAdministrator
-					? requestBody.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
+					? request.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
 					: isCreatedByOtherService
 						? requestInfo.Extra.TryGetValue("x-status", out var xstatus) && xstatus.TryToEnum(out ApprovalStatus statusByOtherService) ? statusByOtherService : ApprovalStatus.Pending
 						: ApprovalStatus.Pending;
-				obj.OriginalPrivileges = (isSystemAdministrator ? requestBody.Get<Privileges>("OriginalPrivileges") : null) ?? new Privileges(true);
+				obj.OriginalPrivileges = (isSystemAdministrator ? request.Get<Privileges>("OriginalPrivileges") : null) ?? new Privileges(true);
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();

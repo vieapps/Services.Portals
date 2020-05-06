@@ -171,11 +171,11 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _childrenIDs;
 
-		internal List<Category> GetChildren(bool notifyPropertyChanged = true, List<Category> categories = null)
+		internal List<Category> FindChildren(bool notifyPropertyChanged = true, List<Category> categories = null)
 		{
 			if (this._childrenIDs == null)
 			{
-				categories = categories ?? this.SystemID.FindCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
+				categories = categories ?? (this.SystemID ?? "").FindCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
 				this._childrenIDs = categories.Select(category => category.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("ChildrenIDs");
@@ -184,13 +184,13 @@ namespace net.vieapps.Services.Portals
 			return this._childrenIDs.Select(id => id.GetCategoryByID()).ToList();
 		}
 
-		internal async Task<List<Category>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+		internal async Task<List<Category>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
-				? this.GetChildren(notifyPropertyChanged, await this.SystemID.FindCategoriesAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false))
+				? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindCategoriesAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetCategoryByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<Category> Children => this.GetChildren();
+		public List<Category> Children => this.FindChildren();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		List<INestedObject> INestedObject.Children => this.Children?.Select(category => category as INestedObject).ToList();

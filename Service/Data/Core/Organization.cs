@@ -179,7 +179,7 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _moduleIDs;
 
-		internal List<Module> GetModules(List<Module> modules = null, bool notifyPropertyChanged = true)
+		internal List<Module> FindModules(List<Module> modules = null, bool notifyPropertyChanged = true)
 		{
 			if (this._moduleIDs == null)
 			{
@@ -192,24 +192,21 @@ namespace net.vieapps.Services.Portals
 			return this._moduleIDs?.Select(id => id.GetModuleByID()).ToList();
 		}
 
-		internal async Task<List<Module>> GetModulesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+		internal async Task<List<Module>> FindModulesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._moduleIDs == null
-				? this.GetModules(await (this.ID ?? "").FindModulesAsync(null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
+				? this.FindModules(await (this.ID ?? "").FindModulesAsync(null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
 				: this._moduleIDs.Select(id => id.GetModuleByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<Module> Modules => this.GetModules();
+		public List<Module> Modules => this.FindModules();
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
+
+		public JObject ToJson(bool addModules, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json.Remove("OriginalPrivileges");
-				onPreCompleted?.Invoke(json);
-			});
-
-		public JObject ToJson(bool addModules, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
-			=> this.ToJson(addTypeOfExtendedProperties, json =>
-			{
 				if (addModules)
 					json["Modules"] = this.Modules.ToJArray(module => module?.ToJson(true, addTypeOfExtendedProperties));
 				onPreCompleted?.Invoke(json);

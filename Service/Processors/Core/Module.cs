@@ -258,7 +258,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			// update instance/cache
-			await module.GetContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
+			await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
@@ -298,7 +298,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			await module.GetContentTypesAsync(cancellationToken).ConfigureAwait(false);
+			await module.FindContentTypesAsync(cancellationToken).ConfigureAwait(false);
 			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 
 			// send the update message to update to all other connected clients and response
