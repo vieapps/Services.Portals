@@ -36,7 +36,7 @@ namespace net.vieapps.Services.Portals
 			return contentType;
 		}
 
-		public static ContentType Set(this ContentType contentType, bool updateCache = false)
+		internal static ContentType Set(this ContentType contentType, bool updateCache = false)
 		{
 			if (contentType != null)
 			{
@@ -48,17 +48,17 @@ namespace net.vieapps.Services.Portals
 			return contentType;
 		}
 
-		public static async Task<ContentType> SetAsync(this ContentType contentType, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<ContentType> SetAsync(this ContentType contentType, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			contentType?.Set();
 			await (updateCache && contentType != null ? Utility.Cache.SetAsync(contentType, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return contentType;
 		}
 
-		public static ContentType Remove(this ContentType contentType)
+		internal static ContentType Remove(this ContentType contentType)
 			=> (contentType?.ID ?? "").RemoveContentType();
 
-		public static ContentType RemoveContentType(this string id)
+		internal static ContentType RemoveContentType(this string id)
 		{
 			if (!string.IsNullOrWhiteSpace(id) && ContentTypeProcessor.ContentTypes.TryRemove(id, out var contentType) && contentType != null)
 			{
@@ -88,7 +88,7 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
-		public static List<ContentType> GetContentTypes(this string systemID, string repositoryID = null, string definitionID = null, bool updateCache = true)
+		public static List<ContentType> FindContentTypes(this string systemID, string repositoryID = null, string definitionID = null, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<ContentType>();
@@ -99,7 +99,7 @@ namespace net.vieapps.Services.Portals
 			return contentTypes;
 		}
 
-		public static async Task<List<ContentType>> GetContentTypesAsync(this string systemID, string repositoryID = null, string definitionID = null, CancellationToken cancellationToken = default, bool updateCache = true)
+		public static async Task<List<ContentType>> FindContentTypesAsync(this string systemID, string repositoryID = null, string definitionID = null, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<ContentType>();

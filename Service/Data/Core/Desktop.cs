@@ -178,7 +178,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._childrenIDs == null)
 			{
-				desktops = desktops ?? this.SystemID.GetDesktops(this.ID);
+				desktops = desktops ?? this.SystemID.FindDesktops(this.ID);
 				this._childrenIDs = desktops.Select(desktop => desktop.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("ChildrenIDs");
@@ -189,7 +189,7 @@ namespace net.vieapps.Services.Portals
 
 		internal async Task<List<Desktop>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
-				? this.GetChildren(notifyPropertyChanged, await this.SystemID.GetDesktopsAsync(this.ID, cancellationToken).ConfigureAwait(false))
+				? this.GetChildren(notifyPropertyChanged, await this.SystemID.FindDesktopsAsync(this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetDesktopByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]

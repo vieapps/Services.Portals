@@ -34,7 +34,7 @@ namespace net.vieapps.Services.Portals
 			return role;
 		}
 
-		public static Role Set(this Role role, bool updateCache = false)
+		internal static Role Set(this Role role, bool updateCache = false)
 		{
 			if (role != null)
 			{
@@ -45,17 +45,17 @@ namespace net.vieapps.Services.Portals
 			return role;
 		}
 
-		public static async Task<Role> SetAsync(this Role role, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<Role> SetAsync(this Role role, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			role?.Set();
 			await (updateCache && role != null ? Utility.Cache.SetAsync(role, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return role;
 		}
 
-		public static Role Remove(this Role role)
+		internal static Role Remove(this Role role)
 			=> (role?.ID ?? "").RemoveRole();
 
-		public static Role RemoveRole(this string id)
+		internal static Role RemoveRole(this string id)
 			=> !string.IsNullOrWhiteSpace(id) && RoleProcessor.Roles.TryRemove(id, out var role) ? role : null;
 
 		public static Role GetRoleByID(this string id, bool force = false, bool fetchRepository = true)
@@ -71,7 +71,7 @@ namespace net.vieapps.Services.Portals
 		public static IFilterBy<Role> GetRolesFilter(this string systemID, string parentID)
 			=> Filters<Role>.And(Filters<Role>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Role>.IsNull("ParentID") : Filters<Role>.Equals("ParentID", parentID));
 
-		public static List<Role> GetRoles(this string systemID, string parentID, bool updateCache = true)
+		public static List<Role> FindRoles(this string systemID, string parentID, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Role>();
@@ -82,7 +82,7 @@ namespace net.vieapps.Services.Portals
 			return roles;
 		}
 
-		public static async Task<List<Role>> GetRolesAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
+		public static async Task<List<Role>> FindRolesAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Role>();
@@ -208,8 +208,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> CreateRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string encryptionKey = null, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var requestBody = requestInfo.GetBodyExpando();
-			var organizationID = requestBody.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
+			var request = requestInfo.GetBodyExpando();
+			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationInvalidException("The organization is invalid");
@@ -220,7 +220,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// create new
-			var role = requestBody.CreateRoleInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var role = request.CreateRoleInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
@@ -231,7 +231,7 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				Role.CreateAsync(role, cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
+				role.ClearRelatedCache(null, cancellationToken),
 				role.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
 
@@ -391,12 +391,8 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken),
+				role.ClearRelatedCache(oldParentID, cancellationToken),
 				role.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
-
-			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(oldParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
 			).ConfigureAwait(false);
 
 			// update users
@@ -607,19 +603,55 @@ namespace net.vieapps.Services.Portals
 				// delete children
 				else
 				{
-					var messages = await child.DeleteChildrenAsync(requestInfo.Session.User.ID, requestInfo.ServiceName, nodeID, token).ConfigureAwait(false);
+					var messages = await child.DeleteChildrenAsync(requestInfo, encryptionKey, serviceCaller, onServiceCallerGotError, nodeID, token).ConfigureAwait(false);
 					updateMessages = updateMessages.Concat(messages.Item1).ToList();
 					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
 				}
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await role.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
 			role.Remove();
 
-			await Task.WhenAll(
-				updateChildren ? Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(null), Sorts<Role>.Ascending("Title")), cancellationToken) : Task.CompletedTask,
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
-			).ConfigureAwait(false);
+			// update users
+			var beRemovedUserIDs = role.UserIDs ?? new List<string>();
+			var parentRole = role.ParentRole;
+			while (parentRole != null)
+			{
+				beRemovedUserIDs = beRemovedUserIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
+				parentRole = parentRole.ParentRole;
+			}
+			beRemovedUserIDs = beRemovedUserIDs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var requestUser = new RequestInfo(requestInfo)
+			{
+				ServiceName = "Users",
+				ObjectName = "Privileges",
+				Verb = "POST",
+				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					{ "related-service", requestInfo.ServiceName },
+					{ "related-object", "Role" },
+					{ "related-system", role.SystemID },
+					{ "related-entity", typeof(Role).GetTypeName() },
+					{ "related-object-identity", role.ID }
+				},
+				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					{ "RemovedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(encryptionKey) }
+				}
+			};
+			await beRemovedUserIDs.ForEachAsync(async (userID, token) =>
+			{
+				try
+				{
+					requestUser.Query["object-identity"] = userID;
+					await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, token)).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					onServiceCallerGotError?.Invoke(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex);
+				}
+			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			// message to update to all other connected clients
 			var response = role.ToJson();
@@ -646,7 +678,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Role role, string userID, string serviceName = null, string nodeID = null, CancellationToken cancellationToken = default)
+		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Role role, RequestInfo requestInfo, string encryptionKey = null, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, string nodeID = null, CancellationToken cancellationToken = default)
 		{
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -655,22 +687,63 @@ namespace net.vieapps.Services.Portals
 			var children = await role.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
 			await children.ForEachAsync(async (child, token) =>
 			{
-				var messages = await child.DeleteChildrenAsync(userID, serviceName, nodeID, token).ConfigureAwait(false);
+				var messages = await child.DeleteChildrenAsync(requestInfo, encryptionKey, serviceCaller, onServiceCallerGotError, nodeID, token).ConfigureAwait(false);
 				updateMessages = updateMessages.Concat(messages.Item1).ToList();
 				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
-			await Role.DeleteAsync<Role>(role.ID, userID, cancellationToken).ConfigureAwait(false);
+			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await role.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
 			role.Remove();
+
+			// update users
+			var beRemovedUserIDs = role.UserIDs ?? new List<string>();
+			var parentRole = role.ParentRole;
+			while (parentRole != null)
+			{
+				beRemovedUserIDs = beRemovedUserIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
+				parentRole = parentRole.ParentRole;
+			}
+			beRemovedUserIDs = beRemovedUserIDs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var requestUser = new RequestInfo(requestInfo)
+			{
+				ServiceName = "Users",
+				ObjectName = "Privileges",
+				Verb = "POST",
+				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					{ "related-service", requestInfo.ServiceName },
+					{ "related-object", "Role" },
+					{ "related-system", role.SystemID },
+					{ "related-entity", typeof(Role).GetTypeName() },
+					{ "related-object-identity", role.ID }
+				},
+				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					{ "RemovedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(encryptionKey) }
+				}
+			};
+			await beRemovedUserIDs.ForEachAsync(async (userID, token) =>
+			{
+				try
+				{
+					requestUser.Query["object-identity"] = userID;
+					await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, token)).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					onServiceCallerGotError?.Invoke(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex);
+				}
+			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			var json = role.ToJson();
 			updateMessages.Add(new UpdateMessage
 			{
-				Type = $"{serviceName}#{objectName}#Delete",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 				Data = json,
 				DeviceID = "*"
 			});
-			communicateMessages.Add(new CommunicateMessage(serviceName)
+			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Delete",
 				Data = json,

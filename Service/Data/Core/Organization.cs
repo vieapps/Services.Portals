@@ -183,7 +183,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._moduleIDs == null)
 			{
-				modules = modules ?? (this.ID ?? "").GetModules();
+				modules = modules ?? (this.ID ?? "").FindModules();
 				this._moduleIDs = modules.Select(module => module.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("Modules");
@@ -194,7 +194,7 @@ namespace net.vieapps.Services.Portals
 
 		internal async Task<List<Module>> GetModulesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._moduleIDs == null
-				? this.GetModules(await (this.ID ?? "").GetModulesAsync(null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
+				? this.GetModules(await (this.ID ?? "").FindModulesAsync(null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
 				: this._moduleIDs.Select(id => id.GetModuleByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]

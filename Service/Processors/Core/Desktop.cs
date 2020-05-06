@@ -58,7 +58,7 @@ namespace net.vieapps.Services.Portals
 			return desktop;
 		}
 
-		public static Desktop Set(this Desktop desktop, bool clear = false, bool updateCache = false)
+		internal static Desktop Set(this Desktop desktop, bool clear = false, bool updateCache = false)
 		{
 			if (desktop != null)
 			{
@@ -91,17 +91,17 @@ namespace net.vieapps.Services.Portals
 			return desktop;
 		}
 
-		public static async Task<Desktop> SetAsync(this Desktop desktop, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<Desktop> SetAsync(this Desktop desktop, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			desktop?.Set(clear);
 			await (updateCache && desktop != null ? Utility.Cache.SetAsync(desktop, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return desktop;
 		}
 
-		public static Desktop Remove(this Desktop desktop)
+		internal static Desktop Remove(this Desktop desktop)
 			=> (desktop?.ID ?? "").RemoveDesktop();
 
-		public static Desktop RemoveDesktop(this string id)
+		internal static Desktop RemoveDesktop(this string id)
 		{
 			if (!string.IsNullOrWhiteSpace(id) && DesktopProcessor.Desktops.TryRemove(id, out var desktop) && desktop != null)
 			{
@@ -157,7 +157,7 @@ namespace net.vieapps.Services.Portals
 		public static IFilterBy<Desktop> GetDesktopsFilter(this string systemID, string parentID)
 			=> Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Desktop>.IsNull("ParentID") : Filters<Desktop>.Equals("ParentID", parentID));
 
-		public static List<Desktop> GetDesktops(this string systemID, string parentID, bool updateCache = true)
+		public static List<Desktop> FindDesktops(this string systemID, string parentID, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Desktop>();
@@ -168,7 +168,7 @@ namespace net.vieapps.Services.Portals
 			return desktops;
 		}
 
-		public static async Task<List<Desktop>> GetDesktopsAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
+		public static async Task<List<Desktop>> FindDesktopsAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Desktop>();

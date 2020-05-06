@@ -44,7 +44,7 @@ namespace net.vieapps.Services.Portals
 			return site;
 		}
 
-		public static Site Set(this Site site, bool clear = false, bool updateCache = false)
+		internal static Site Set(this Site site, bool clear = false, bool updateCache = false)
 		{
 			if (site != null)
 			{
@@ -71,17 +71,17 @@ namespace net.vieapps.Services.Portals
 			return site;
 		}
 
-		public static async Task<Site> SetAsync(this Site site, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<Site> SetAsync(this Site site, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			site?.Set(clear);
 			await (updateCache && site != null ? Utility.Cache.SetAsync(site, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return site;
 		}
 
-		public static Site Remove(this Site site)
+		internal static Site Remove(this Site site)
 			=> (site?.ID ?? "").RemoveSite();
 
-		public static Site RemoveSite(this string id)
+		internal static Site RemoveSite(this string id)
 		{
 			if (!string.IsNullOrWhiteSpace(id) && SiteProcessor.Sites.TryGetValue(id, out var site) && site != null)
 			{

@@ -175,7 +175,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._childrenIDs == null)
 			{
-				categories = categories ?? this.SystemID.GetCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
+				categories = categories ?? this.SystemID.FindCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
 				this._childrenIDs = categories.Select(category => category.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("ChildrenIDs");
@@ -186,7 +186,7 @@ namespace net.vieapps.Services.Portals
 
 		internal async Task<List<Category>> GetChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
-				? this.GetChildren(notifyPropertyChanged, await this.SystemID.GetCategoriesAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false))
+				? this.GetChildren(notifyPropertyChanged, await this.SystemID.FindCategoriesAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetCategoryByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]

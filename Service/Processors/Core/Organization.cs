@@ -56,7 +56,7 @@ namespace net.vieapps.Services.Portals
 			return organization;
 		}
 
-		public static Organization Set(this Organization organization, bool clear = false, bool updateCache = false)
+		internal static Organization Set(this Organization organization, bool clear = false, bool updateCache = false)
 		{
 			if (organization != null)
 			{
@@ -73,17 +73,17 @@ namespace net.vieapps.Services.Portals
 			return organization;
 		}
 
-		public static async Task<Organization> SetAsync(this Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<Organization> SetAsync(this Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			organization?.Set(clear);
 			await (updateCache && organization != null ? Utility.Cache.SetAsync(organization, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return organization;
 		}
 
-		public static Organization Remove(this Organization organization)
+		internal static Organization Remove(this Organization organization)
 			=> (organization?.ID ?? "").RemoveOrganization();
 
-		public static Organization RemoveOrganization(this string id)
+		internal static Organization RemoveOrganization(this string id)
 		{
 			if (string.IsNullOrWhiteSpace(id) || !OrganizationProcessor.Organizations.TryRemove(id, out var organization) || organization == null)
 				return null;
@@ -147,7 +147,8 @@ namespace net.vieapps.Services.Portals
 		}
 
 		static Task ClearRelatedCache(this Organization organization, CancellationToken cancellationToken = default)
-			=> Task.WhenAll(
+			=> Task.WhenAll
+			(
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(Filters<Organization>.Equals("OwnerID", organization.OwnerID)), Sorts<Organization>.Ascending("Title")), cancellationToken)
 			);

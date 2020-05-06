@@ -1,6 +1,7 @@
 ﻿#region Related components
 using System;
 using System.Linq;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Xml.Serialization;
 using Newtonsoft.Json;
@@ -15,6 +16,7 @@ namespace net.vieapps.Services.Portals
 	/// Presents a module definition in a portal/system
 	/// </summary>
 	[Serializable]
+	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	public class ModuleDefinition
 	{
 		public ModuleDefinition() : this(null) { }
@@ -88,6 +90,7 @@ namespace net.vieapps.Services.Portals
 	/// Presents a definition of a portal content-type
 	/// </summary>
 	[Serializable]
+	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	public class ContentTypeDefinition
 	{
 		public ContentTypeDefinition() : this(null) { }

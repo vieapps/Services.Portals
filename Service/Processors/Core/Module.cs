@@ -38,7 +38,7 @@ namespace net.vieapps.Services.Portals
 			return module;
 		}
 
-		public static Module Set(this Module module, bool updateCache = false)
+		internal static Module Set(this Module module, bool updateCache = false)
 		{
 			if (module != null)
 			{
@@ -50,17 +50,17 @@ namespace net.vieapps.Services.Portals
 			return module;
 		}
 
-		public static async Task<Module> SetAsync(this Module module, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<Module> SetAsync(this Module module, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			module?.Set();
 			await (updateCache && module != null ? Utility.Cache.SetAsync(module, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return module;
 		}
 
-		public static Module Remove(this Module module)
+		internal static Module Remove(this Module module)
 			=> (module?.ID ?? "").RemoveModule();
 
-		public static Module RemoveModule(this string id)
+		internal static Module RemoveModule(this string id)
 		{
 			if (!string.IsNullOrWhiteSpace(id) && ModuleProcessor.Modules.TryRemove(id, out var module) && module != null)
 			{
@@ -88,7 +88,7 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
-		public static List<Module> GetModules(this string systemID, string definitionID = null, bool updateCache = true)
+		public static List<Module> FindModules(this string systemID, string definitionID = null, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Module>();
@@ -99,7 +99,7 @@ namespace net.vieapps.Services.Portals
 			return modules;
 		}
 
-		public static async Task<List<Module>> GetModulesAsync(this string systemID, string definitionID = null, CancellationToken cancellationToken = default, bool updateCache = true)
+		public static async Task<List<Module>> FindModulesAsync(this string systemID, string definitionID = null, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Module>();

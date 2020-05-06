@@ -115,7 +115,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._childrenIDs == null)
 			{
-				roles = roles ?? this.SystemID.GetRoles(this.ID);
+				roles = roles ?? this.SystemID.FindRoles(this.ID);
 				this._childrenIDs = roles.Select(role => role.ID).ToList();
 				this.NotifyPropertyChanged("ChildrenIDs");
 				return roles;
@@ -125,7 +125,7 @@ namespace net.vieapps.Services.Portals
 
 		internal async Task<List<Role>> GetChildrenAsync(CancellationToken cancellationToken = default)
 			=> this._childrenIDs == null
-				? this.GetChildren(await this.SystemID.GetRolesAsync(this.ID, cancellationToken).ConfigureAwait(false))
+				? this.GetChildren(await this.SystemID.FindRolesAsync(this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]

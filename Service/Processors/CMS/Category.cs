@@ -38,7 +38,7 @@ namespace net.vieapps.Services.Portals
 			return category;
 		}
 
-		public static Category Set(this Category category, bool clear = false, bool updateCache = false)
+		internal static Category Set(this Category category, bool clear = false, bool updateCache = false)
 		{
 			if (category != null)
 			{
@@ -54,17 +54,17 @@ namespace net.vieapps.Services.Portals
 			return category;
 		}
 
-		public static async Task<Category> SetAsync(this Category category, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<Category> SetAsync(this Category category, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			category?.Set(clear);
 			await (updateCache && category != null ? Utility.Cache.SetAsync(category, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return category;
 		}
 
-		public static Category Remove(this Category category)
+		internal static Category Remove(this Category category)
 			=> (category?.ID ?? "").RemoveCategory();
 
-		public static Category RemoveCategory(this string id)
+		internal static Category RemoveCategory(this string id)
 		{
 			if (!string.IsNullOrWhiteSpace(id) && CategoryProcessor.Categories.TryRemove(id, out var category) && category != null)
 			{
@@ -113,7 +113,7 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
-		public static List<Category> GetCategories(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool updateCache = true)
+		public static List<Category> FindCategories(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Category>();
@@ -124,7 +124,7 @@ namespace net.vieapps.Services.Portals
 			return categories;
 		}
 
-		public static async Task<List<Category>> GetCategoriesAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool updateCache = true)
+		public static async Task<List<Category>> FindCategoriesAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Category>();
@@ -137,7 +137,7 @@ namespace net.vieapps.Services.Portals
 
 		public static async Task<int> GetLastOrderIndexAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default)
 		{
-			var categories = await systemID.GetCategoriesAsync(repositoryID, repositoryEntityID, parentID, cancellationToken).ConfigureAwait(false);
+			var categories = await systemID.FindCategoriesAsync(repositoryID, repositoryEntityID, parentID, cancellationToken).ConfigureAwait(false);
 			return categories != null && categories.Count > 0 ? categories.Last().OrderIndex : -1;
 		}
 
