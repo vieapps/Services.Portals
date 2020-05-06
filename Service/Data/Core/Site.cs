@@ -195,7 +195,7 @@ namespace net.vieapps.Services.Portals
 			this.SEOInfo?.Normalize();
 			this.SEOInfo = this.SEOInfo != null && string.IsNullOrWhiteSpace(this.SEOInfo.Title) && string.IsNullOrWhiteSpace(this.SEOInfo.Description) && string.IsNullOrWhiteSpace(this.SEOInfo.Keywords) ? null : this.SEOInfo;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-			SiteExtensions.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
+			SiteProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
 		}
 
@@ -213,185 +213,11 @@ namespace net.vieapps.Services.Portals
 				this.RedirectToNoneWWW = this._json["RedirectToNoneWWW"] != null ? this._json["RedirectToNoneWWW"].FromJson<bool>() : true;
 				this.SEOInfo = this._json["SEOInfo"]?.FromJson<Settings.SEOInfo>();
 			}
-			else if (SiteExtensions.ExtraProperties.Contains(name))
+			else if (SiteProcessor.ExtraProperties.Contains(name))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 		}
-	}
-
-	public static class SiteExtensions
-	{
-		public static ConcurrentDictionary<string, Site> Sites { get; } = new ConcurrentDictionary<string, Site>(StringComparer.OrdinalIgnoreCase);
-
-		public static ConcurrentDictionary<string, Site> SitesByDomain { get; } = new ConcurrentDictionary<string, Site>(StringComparer.OrdinalIgnoreCase);
-
-		public static HashSet<string> ExtraProperties { get; } = "AlwaysUseHTTPs,UISettings,IconURI,CoverURI,MetaTags,Scripts,RedirectToNoneWWW,SEOInfo".ToHashSet();
-
-		public static Site CreateSiteInstance(this ExpandoObject requestBody, string excluded = null, Action<Site> onCompleted = null)
-			=> requestBody.Copy<Site>(excluded?.ToHashSet(), site =>
-			{
-				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
-				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
-				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToList(";", true, true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
-				site.TrimAll();
-				onCompleted?.Invoke(site);
-			});
-
-		public static Site UpdateSiteInstance(this Site site, ExpandoObject requestBody, string excluded = null, Action<Site> onCompleted = null)
-		{
-			site.CopyFrom(requestBody, excluded?.ToHashSet());
-			site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
-			site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
-			site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToList(";", true, true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
-			site.TrimAll();
-			onCompleted?.Invoke(site);
-			return site;
-		}
-
-		public static Site Set(this Site site, bool clear = false, bool updateCache = false)
-		{
-			if (site != null)
-			{
-				if (clear)
-					site.Remove();
-
-				SiteExtensions.Sites[site.ID] = site;
-				SiteExtensions.SitesByDomain[$"{site.SubDomain}.{site.PrimaryDomain}"] = site;
-				Utility.NotRecognizedAliases.Remove($"Site:{(site.SubDomain.Equals("*") ? "" : $"{site.SubDomain}.")}{site.PrimaryDomain}");
-
-				if (!string.IsNullOrWhiteSpace(site.OtherDomains))
-					site.OtherDomains.ToList(";").Where(domain => !string.IsNullOrWhiteSpace(domain)).ForEach(domain =>
-					{
-						if (SiteExtensions.SitesByDomain.TryAdd(domain, site))
-						{
-							SiteExtensions.SitesByDomain.TryAdd($"*.{domain}", site);
-							Utility.NotRecognizedAliases.Remove($"Site:{domain}");
-						}
-					});
-
-				if (updateCache)
-					Utility.Cache.Set(site);
-			}
-			return site;
-		}
-
-		public static async Task<Site> SetAsync(this Site site, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
-		{
-			site?.Set(clear);
-			await (updateCache && site != null ? Utility.Cache.SetAsync(site, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
-			return site;
-		}
-
-		public static Site Remove(this Site site)
-			=> (site?.ID ?? "").RemoveSite();
-
-		public static Site RemoveSite(this string id)
-		{
-			if (!string.IsNullOrWhiteSpace(id) && SiteExtensions.Sites.TryGetValue(id, out var site) && site != null)
-			{
-				SiteExtensions.Sites.Remove(site.ID);
-				SiteExtensions.SitesByDomain.Remove($"{site.SubDomain}.{site.PrimaryDomain}");
-				if (!string.IsNullOrWhiteSpace(site.OtherDomains))
-					site.OtherDomains.ToList(";").Where(domain => !string.IsNullOrWhiteSpace(domain)).ForEach(domain =>
-					{
-						if (SiteExtensions.SitesByDomain.Remove(domain))
-							SiteExtensions.SitesByDomain.Remove($"*.{domain}");
-					});
-				return site;
-			}
-			return null;
-		}
-
-		public static Site GetSiteByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && SiteExtensions.Sites.ContainsKey(id)
-				? SiteExtensions.Sites[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Site.Get<Site>(id)?.Set()
-					: null;
-
-		public static async Task<Site> GetSiteByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetSiteByID(force, false) ?? (await Site.GetAsync<Site>(id, cancellationToken).ConfigureAwait(false))?.Set();
-
-		public static Tuple<string, string> GetSiteDomains(this string domain)
-		{
-			var info = domain.ToArray(".").Select(name => name.Equals("*") ? "*" : name.NormalizeAlias()).ToList();
-			return new Tuple<string, string>(info.Skip(1).Join("."), info.First());
-		}
-
-		public static Site GetSiteByDomain(this string domain, string defaultSiteIDWhenNotFound = null, bool fetchRepository = true)
-		{
-			if (string.IsNullOrWhiteSpace(domain) || Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
-				return (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
-
-			domain = domain.StartsWith("*.") ? domain.Right(domain.Length - 2) : domain;
-			if (!SiteExtensions.SitesByDomain.TryGetValue(domain, out var site))
-				SiteExtensions.SitesByDomain.TryGetValue($"*.{domain}", out site);
-
-			if (site == null)
-			{
-				var name = domain;
-				var dotOffset = name.IndexOf(".");
-				if (dotOffset < 0)
-					SiteExtensions.SitesByDomain.TryGetValue($"*.{name}", out site);
-				else
-					while (site == null && dotOffset > 0)
-					{
-						if (!SiteExtensions.SitesByDomain.TryGetValue(name, out site))
-							SiteExtensions.SitesByDomain.TryGetValue($"*.{name}", out site);
-
-						if (site == null)
-						{
-							name = name.Right(name.Length - dotOffset - 1);
-							dotOffset = name.IndexOf(".");
-						}
-					}
-			}
-
-			if (site == null && fetchRepository)
-			{
-				var domains = domain.GetSiteDomains();
-				var filter = Filters<Site>.Or(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domains.Item1)));
-				if (!domains.Item2.Equals("*"))
-				{
-					filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", domains.Item2), Filters<Site>.Equals("PrimaryDomain", domains.Item1)));
-					filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domain)));
-					filter.Add(Filters<Site>.Contains("OtherDomains", domain));
-				}
-				else
-					filter.Add(Filters<Site>.Contains("OtherDomains", domains.Item1));
-				site = Site.Get<Site>(filter, null, null)?.Set();
-				if (site == null)
-					Utility.NotRecognizedAliases.Add($"Site:{domain}");
-			}
-
-			return site ?? (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
-		}
-
-		public static async Task<Site> GetSiteByDomainAsync(this string domain, string defaultSiteIDWhenNotFound = null, CancellationToken cancellationToken = default)
-		{
-			var site = (domain ?? "").GetSiteByDomain(defaultSiteIDWhenNotFound, false);
-			if (site == null)
-			{
-				var domains = domain.GetSiteDomains();
-				var filter = Filters<Site>.Or(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domains.Item1)));
-				if (!domains.Item2.Equals("*"))
-				{
-					filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", domains.Item2), Filters<Site>.Equals("PrimaryDomain", domains.Item1)));
-					filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domain)));
-					filter.Add(Filters<Site>.Contains("OtherDomains", domain));
-				}
-				else
-					filter.Add(Filters<Site>.Contains("OtherDomains", domains.Item1));
-				site = (await Site.GetAsync<Site>(filter, null, null, cancellationToken).ConfigureAwait(false))?.Set();
-				if (site == null)
-					Utility.NotRecognizedAliases.Add($"Site:{domain}");
-			}
-			return site ?? (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
-		}
-
-		public static Task<Site> GetSiteByDomainAsync(this string domain, CancellationToken cancellationToken)
-			=> (domain ?? "").GetSiteByDomainAsync(null, cancellationToken);
 	}
 }

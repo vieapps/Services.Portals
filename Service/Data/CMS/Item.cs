@@ -29,20 +29,20 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title")]
 		[Searchable]
-		[FormControl(Label = "{{portals.cms.item.controls.[name].label}}", PlaceHolder = "{{portals.cms.item.controls.[name].placeholder}}", Description = "{{portals.cms.item.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.items.controls.[name].label}}", PlaceHolder = "{{portals.cms.items.controls.[name].placeholder}}", Description = "{{portals.cms.items.controls.[name].description}}")]
 		public override string Title { get; set; }
 
 		[Searchable]
-		[FormControl(Label = "{{portals.cms.item.controls.[name].label}}", PlaceHolder = "{{portals.cms.item.controls.[name].placeholder}}", Description = "{{portals.cms.item.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.items.controls.[name].label}}", PlaceHolder = "{{portals.cms.items.controls.[name].placeholder}}", Description = "{{portals.cms.items.controls.[name].description}}")]
 		public string Summary { get; set; }
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Label = "{{portals.cms.item.controls.[name].label}}", PlaceHolder = "{{portals.cms.item.controls.[name].placeholder}}", Description = "{{portals.cms.item.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.items.controls.[name].label}}", PlaceHolder = "{{portals.cms.items.controls.[name].placeholder}}", Description = "{{portals.cms.items.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
 
 		[Sortable(IndexName = "Management")]
-		[FormControl(Label = "{{portals.cms.item.controls.[name].label}}", PlaceHolder = "{{portals.cms.item.controls.[name].placeholder}}", Description = "{{portals.cms.item.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.items.controls.[name].label}}", PlaceHolder = "{{portals.cms.items.controls.[name].placeholder}}", Description = "{{portals.cms.items.controls.[name].description}}")]
 		public bool AllowComments { get; set; } = false;
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]

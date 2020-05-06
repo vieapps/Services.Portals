@@ -129,7 +129,7 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _contentTypeIDs;
 
-		internal List<ContentType> GetContentsType(List<ContentType> contentTypes = null, bool notifyPropertyChanged = true)
+		internal List<ContentType> GetContentTypes(List<ContentType> contentTypes = null, bool notifyPropertyChanged = true)
 		{
 			if (this._contentTypeIDs == null)
 			{
@@ -144,11 +144,11 @@ namespace net.vieapps.Services.Portals
 
 		internal async Task<List<ContentType>> GetContentTypesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._contentTypeIDs == null
-				? this.GetContentsType(await this.SystemID.GetContentTypesAsync(this.ID, null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
+				? this.GetContentTypes(await this.SystemID.GetContentTypesAsync(this.ID, null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
 				: this._contentTypeIDs.Select(id => id.GetContentTypeByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<ContentType> ContentTypes => this.GetContentsType();
+		public List<ContentType> ContentTypes => this.GetContentTypes();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		List<IPortalContentType> IPortalModule.ContentTypes => this.ContentTypes.Select(contentType => contentType as IPortalContentType).ToList();
@@ -176,7 +176,7 @@ namespace net.vieapps.Services.Portals
 			this.EmailSettings?.Normalize();
 			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-			ModuleExtensions.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
+			ModuleProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._exras = this._json.ToString(Formatting.None);
 		}
 
@@ -189,109 +189,13 @@ namespace net.vieapps.Services.Portals
 				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
 				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
 			}
-			else if (ModuleExtensions.ExtraProperties.Contains(name))
+			else if (ModuleProcessor.ExtraProperties.Contains(name))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 			else if (name.IsEquals("ContentTypes"))
 				this.Set(true);
-		}
-	}
-
-	internal static class ModuleExtensions
-	{
-		internal static ConcurrentDictionary<string, Module> Modules { get; } = new ConcurrentDictionary<string, Module>(StringComparer.OrdinalIgnoreCase);
-
-		public static HashSet<string> ExtraProperties { get; } = "Notifications,Trackings,EmailSettings".ToHashSet();
-
-		internal static Module CreateModuleInstance(this ExpandoObject requestBody, string excluded = null, Action<Module> onCompleted = null)
-			=> requestBody.Copy<Module>(excluded?.ToHashSet(), module =>
-			{
-				module.OriginalPrivileges = module.OriginalPrivileges?.Normalize();
-				module.TrimAll();
-				onCompleted?.Invoke(module);
-			});
-
-		internal static Module UpdateModuleInstance(this Module module, ExpandoObject requestBody, string excluded = null, Action<Module> onCompleted = null)
-		{
-			module.CopyFrom(requestBody, excluded?.ToHashSet());
-			module.OriginalPrivileges = module.OriginalPrivileges?.Normalize();
-			module.TrimAll();
-			onCompleted?.Invoke(module);
-			return module;
-		}
-
-		internal static Module Set(this Module module, bool updateCache = false)
-		{
-			if (module != null)
-			{
-				ModuleExtensions.Modules[module.ID] = module;
-				module.RepositoryDefinition.Register(module);
-				if (updateCache)
-					Utility.Cache.Set(module);
-			}
-			return module;
-		}
-
-		internal static async Task<Module> SetAsync(this Module module, bool updateCache = false, CancellationToken cancellationToken = default)
-		{
-			module?.Set();
-			await (updateCache && module != null ? Utility.Cache.SetAsync(module, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
-			return module;
-		}
-
-		internal static Module Remove(this Module module)
-			=> (module?.ID ?? "").RemoveModule();
-
-		internal static Module RemoveModule(this string id)
-		{
-			if (!string.IsNullOrWhiteSpace(id) && ModuleExtensions.Modules.TryRemove(id, out var module) && module != null)
-			{
-				module.RepositoryDefinition.Unregister(module);
-				return module;
-			}
-			return null;
-		}
-
-		internal static Module GetModuleByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && ModuleExtensions.Modules.ContainsKey(id)
-				? ModuleExtensions.Modules[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Module.Get<Module>(id)?.Set()
-					: null;
-
-		internal static async Task<Module> GetModuleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetModuleByID(force, false) ?? (await Module.GetAsync<Module>(id, cancellationToken).ConfigureAwait(false))?.Set();
-
-		internal static IFilterBy<Module> GetModulesFilter(this string systemID, string definitionID = null)
-		{
-			var filter = Filters<Module>.And(Filters<Module>.Equals("SystemID", systemID));
-			if (!string.IsNullOrWhiteSpace(definitionID))
-				filter.Add(Filters<Module>.Equals("DefinitionID", definitionID));
-			return filter;
-		}
-
-		internal static List<Module> GetModules(this string systemID, string definitionID = null, bool updateCache = true)
-		{
-			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Module>();
-			var filter = systemID.GetModulesFilter(definitionID);
-			var sort = Sorts<Module>.Ascending("Title");
-			var modules = Module.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
-			modules.ForEach(module => module.Set(updateCache));
-			return modules;
-		}
-
-		internal static async Task<List<Module>> GetModulesAsync(this string systemID, string definitionID = null, CancellationToken cancellationToken = default, bool updateCache = true)
-		{
-			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Module>();
-			var filter = systemID.GetModulesFilter(definitionID);
-			var sort = Sorts<Module>.Ascending("Title");
-			var modules = await Module.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-			await modules.ForEachAsync((module, token) => module.SetAsync(updateCache, token), cancellationToken).ConfigureAwait(false);
-			return modules;
 		}
 	}
 }

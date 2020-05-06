@@ -28,7 +28,7 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 32)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Segment = "basic", ControlType = "Lookup", Multiple = false, Label = "{{portals.cms.category.controls.[name].label}}", PlaceHolder = "{{portals.cms.category.controls.[name].placeholder}}", Description = "{{portals.cms.category.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "Lookup", Multiple = false, Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public string ParentID { get; set; }
 
 		[Sortable(IndexName = "Management")]
@@ -38,21 +38,21 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title")]
 		[Searchable]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.category.controls.[name].label}}", PlaceHolder = "{{portals.cms.category.controls.[name].placeholder}}", Description = "{{portals.cms.category.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public override string Title { get; set; }
 
 		[Property(MaxLength = 100, NotNull = true, NotEmpty = true)]
 		[Alias]
 		[Searchable]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.category.controls.[name].label}}", PlaceHolder = "{{portals.cms.category.controls.[name].placeholder}}", Description = "{{portals.cms.category.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public string Alias { get; set; }
 
 		[Searchable]
-		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.cms.category.controls.[name].label}}", PlaceHolder = "{{portals.cms.category.controls.[name].placeholder}}", Description = "{{portals.cms.category.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public string Description { get; set; }
 
 		[Property(MaxLength = 32)]
-		[FormControl(Segment = "basic", ControlType = "Lookup", Label = "{{portals.cms.category.controls.[name].label}}", PlaceHolder = "{{portals.cms.category.controls.[name].placeholder}}", Description = "{{portals.cms.category.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "Lookup", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public string DesktopID { get; set; }
 
 		[Ignore, BsonIgnore]
@@ -218,7 +218,7 @@ namespace net.vieapps.Services.Portals
 			this.EmailSettings?.Normalize();
 			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-			ModuleExtensions.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
+			ModuleProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._exras = this._json.ToString(Formatting.None);
 		}
 
@@ -231,7 +231,7 @@ namespace net.vieapps.Services.Portals
 				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
 				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
 			}
-			else if (ModuleExtensions.ExtraProperties.Contains(name))
+			else if (ModuleProcessor.ExtraProperties.Contains(name))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
@@ -245,122 +245,5 @@ namespace net.vieapps.Services.Portals
 
 		public async Task<IAliasEntity> GetByAliasAsync(string repositoryEntityID, string alias, string parentIdentity = null, CancellationToken cancellationToken = default)
 			=> await (repositoryEntityID ?? "").GetCategoryByAliasAsync(alias, cancellationToken).ConfigureAwait(false);
-	}
-
-	internal static class CategoryExtensions
-	{
-		internal static ConcurrentDictionary<string, Category> Categories { get; } = new ConcurrentDictionary<string, Category>(StringComparer.OrdinalIgnoreCase);
-
-		internal static ConcurrentDictionary<string, Category> CategoriesByAlias { get; } = new ConcurrentDictionary<string, Category>(StringComparer.OrdinalIgnoreCase);
-
-		internal static Category CreateCategoryInstance(this ExpandoObject requestBody, string excluded = null, Action<Category> onCompleted = null)
-			=> requestBody.Copy<Category>(excluded?.ToHashSet(), category =>
-			{
-				category.OriginalPrivileges = category.OriginalPrivileges?.Normalize();
-				category.TrimAll();
-				onCompleted?.Invoke(category);
-			});
-
-		internal static Category UpdateCategoryInstance(this Category category, ExpandoObject requestBody, string excluded = null, Action<Category> onCompleted = null)
-		{
-			category.CopyFrom(requestBody, excluded?.ToHashSet());
-			category.OriginalPrivileges = category.OriginalPrivileges?.Normalize();
-			category.TrimAll();
-			onCompleted?.Invoke(category);
-			return category;
-		}
-
-		internal static Category Set(this Category category, bool updateCache = false)
-		{
-			if (category != null)
-			{
-				CategoryExtensions.Categories[category.ID] = category;
-				CategoryExtensions.CategoriesByAlias[$"{category.RepositoryEntityID}:{category.Alias}"] = category;
-				if (updateCache)
-					Utility.Cache.Set(category);
-			}
-			return category;
-		}
-
-		internal static async Task<Category> SetAsync(this Category category, bool updateCache = false, CancellationToken cancellationToken = default)
-		{
-			category?.Set();
-			await (updateCache && category != null ? Utility.Cache.SetAsync(category, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
-			return category;
-		}
-
-		internal static Category Remove(this Category category)
-			=> (category?.ID ?? "").RemoveCategory();
-
-		internal static Category RemoveCategory(this string id)
-		{
-			if (!string.IsNullOrWhiteSpace(id) && CategoryExtensions.Categories.TryRemove(id, out var category) && category != null)
-			{
-				CategoryExtensions.CategoriesByAlias.Remove($"{category.RepositoryEntityID}:{category.Alias}");
-				return category;
-			}
-			return null;
-		}
-
-		internal static Category GetCategoryByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && CategoryExtensions.Categories.ContainsKey(id)
-				? CategoryExtensions.Categories[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Category.Get<Category>(id)?.Set()
-					: null;
-
-		internal static Category GetCategoryByAlias(this string repositoryEntityID, string alias, bool fetchRepository = true)
-		{
-			if (string.IsNullOrWhiteSpace(alias))
-				return null;
-
-			var category = CategoryExtensions.CategoriesByAlias.ContainsKey($"{repositoryEntityID}:{alias}")
-				? CategoryExtensions.CategoriesByAlias[$"{repositoryEntityID}:{alias}"]
-				: null;
-
-			if (category == null && fetchRepository)
-				category = Category.Get(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID)?.Set();
-
-			return category;
-		}
-
-		internal static async Task<Category> GetCategoryByAliasAsync(this string repositoryEntityID, string alias, CancellationToken cancellationToken = default)
-			=> (repositoryEntityID ?? "").GetCategoryByAlias(alias, false) ?? (await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID, cancellationToken).ConfigureAwait(false))?.Set();
-
-		internal static async Task<Category> GetCategoryByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetCategoryByID(force, false) ?? (await Category.GetAsync<Category>(id, cancellationToken).ConfigureAwait(false))?.Set();
-
-		internal static IFilterBy<Category> GetCategoriesFilter(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null)
-		{
-			var filter = Filters<Category>.And(Filters<Category>.Equals("SystemID", systemID));
-			if (!string.IsNullOrWhiteSpace(repositoryID))
-				filter.Add(Filters<Category>.Equals("RepositoryID", repositoryID));
-			if (!string.IsNullOrWhiteSpace(repositoryEntityID))
-				filter.Add(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID));
-			filter.Add(string.IsNullOrWhiteSpace(parentID) ? Filters<Category>.IsNull("ParentID") : Filters<Category>.Equals("ParentID", parentID));
-			return filter;
-		}
-
-		internal static List<Category> GetCategories(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool updateCache = true)
-		{
-			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Category>();
-			var filter = systemID.GetCategoriesFilter(repositoryID, repositoryEntityID, parentID);
-			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
-			var categories = Category.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
-			categories.ForEach(category => category.Set(updateCache));
-			return categories;
-		}
-
-		internal static async Task<List<Category>> GetCategoriesAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool updateCache = true)
-		{
-			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Category>();
-			var filter = systemID.GetCategoriesFilter(repositoryID, repositoryEntityID, parentID);
-			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
-			var categories = await Category.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-			await categories.ForEachAsync((category, token) => category.SetAsync(updateCache, token), cancellationToken).ConfigureAwait(false);
-			return categories;
-		}
 	}
 }

@@ -4,7 +4,6 @@ using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
-using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
@@ -137,13 +136,13 @@ namespace net.vieapps.Services.Portals
 		public override Privileges WorkingPrivileges => this.OriginalPrivileges ?? new Privileges(true);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<Site> Sites => SiteExtensions.Sites.Values.Where(site => site.SystemID.IsEquals(this.ID)).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ToList();
+		public List<Site> Sites => SiteProcessor.Sites.Values.Where(site => site.SystemID.IsEquals(this.ID)).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Site DefaultSite => this.Sites.FirstOrDefault();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop DefaultDesktop => DesktopExtensions.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
+		public Desktop DefaultDesktop => DesktopProcessor.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop HomeDesktop => (this.HomeDesktopID ?? "").GetDesktopByID() ?? this.DefaultDesktop;
@@ -178,10 +177,41 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
+		internal List<string> _moduleIDs;
+
+		internal List<Module> GetModules(List<Module> modules = null, bool notifyPropertyChanged = true)
+		{
+			if (this._moduleIDs == null)
+			{
+				modules = modules ?? (this.ID ?? "").GetModules();
+				this._moduleIDs = modules.Select(module => module.ID).ToList();
+				if (notifyPropertyChanged)
+					this.NotifyPropertyChanged("Modules");
+				return modules;
+			}
+			return this._moduleIDs?.Select(id => id.GetModuleByID()).ToList();
+		}
+
+		internal async Task<List<Module>> GetModulesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+			=> this._moduleIDs == null
+				? this.GetModules(await (this.ID ?? "").GetModulesAsync(null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
+				: this._moduleIDs.Select(id => id.GetModuleByID()).ToList();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<Module> Modules => this.GetModules();
+
 		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json.Remove("OriginalPrivileges");
+				onPreCompleted?.Invoke(json);
+			});
+
+		public JObject ToJson(bool addModules, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+			=> this.ToJson(addTypeOfExtendedProperties, json =>
+			{
+				if (addModules)
+					json["Modules"] = this.Modules.ToJArray(module => module?.ToJson(true, addTypeOfExtendedProperties));
 				onPreCompleted?.Invoke(json);
 			});
 
@@ -212,7 +242,7 @@ namespace net.vieapps.Services.Portals
 			this.EmailSettings?.Normalize();
 			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-			OrganizationExtensions.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
+			OrganizationProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
 		}
 
@@ -231,128 +261,13 @@ namespace net.vieapps.Services.Portals
 				this.RedirectUrls = this._json["RedirectUrls"]?.FromJson<Settings.RedirectUrls>();
 				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
 			}
-			else if (OrganizationExtensions.ExtraProperties.Contains(name))
+			else if (OrganizationProcessor.ExtraProperties.Contains(name))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
-		}
-	}
-
-	internal static class OrganizationExtensions
-	{
-		public static ConcurrentDictionary<string, Organization> Organizations { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
-
-		public static ConcurrentDictionary<string, Organization> OrganizationsByAlias { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
-
-		public static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,Scripts,RefreshUrls,RedirectUrls,EmailSettings".ToHashSet();
-
-		public static Dictionary<string, Dictionary<string, Settings.Instruction>> GetOrganizationInstructions(this ExpandoObject rawInstructions)
-		{
-			var instructions = new Dictionary<string, Dictionary<string, Settings.Instruction>>();
-			rawInstructions?.ForEach(rawInstruction =>
-			{
-				var instructionsByLanguage = new Dictionary<string, Settings.Instruction>();
-				(rawInstruction.Value as ExpandoObject)?.ForEach(kvp =>
-				{
-					var instructionData = kvp.Value as ExpandoObject;
-					instructionsByLanguage[kvp.Key] = new Settings.Instruction { Subject = instructionData.Get<string>("Subject"), Body = instructionData.Get<string>("Body") };
-				});
-				instructions[rawInstruction.Key] = instructionsByLanguage;
-			});
-			return instructions;
-		}
-
-		public static Organization CreateOrganizationInstance(this ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
-			=> requestBody.Copy<Organization>(excluded?.ToHashSet(), organization =>
-			{
-				organization.Instructions = requestBody.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
-				organization.TrimAll();
-				onCompleted?.Invoke(organization);
-			});
-
-		public static Organization UpdateOrganizationInstance(this Organization organization, ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
-		{
-			organization.CopyFrom(requestBody, excluded?.ToHashSet());
-			organization.Instructions = requestBody.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
-			organization.TrimAll();
-			onCompleted?.Invoke(organization);
-			return organization;
-		}
-
-		public static Organization Set(this Organization organization, bool clear = false, bool updateCache = false)
-		{
-			if (organization != null)
-			{
-				if (clear)
-					organization.Remove();
-
-				OrganizationExtensions.Organizations[organization.ID] = organization;
-				OrganizationExtensions.OrganizationsByAlias[organization.Alias] = organization;
-				Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
-
-				if (updateCache)
-					Utility.Cache.Set(organization);
-			}
-			return organization;
-		}
-
-		public static async Task<Organization> SetAsync(this Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
-		{
-			organization?.Set(clear);
-			await (updateCache && organization != null ? Utility.Cache.SetAsync(organization, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
-			return organization;
-		}
-
-		public static Organization Remove(this Organization organization)
-			=> (organization?.ID ?? "").RemoveOrganization();
-
-		public static Organization RemoveOrganization(this string id)
-		{
-			if (string.IsNullOrWhiteSpace(id) || !OrganizationExtensions.Organizations.TryRemove(id, out var organization) || organization == null)
-				return null;
-			OrganizationExtensions.OrganizationsByAlias.Remove(organization.Alias);
-			return organization;
-		}
-
-		public static Organization GetOrganizationByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && OrganizationExtensions.Organizations.ContainsKey(id)
-				? OrganizationExtensions.Organizations[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Organization.Get<Organization>(id)?.Set()
-					: null;
-
-		public static async Task<Organization> GetOrganizationByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetOrganizationByID(force, false) ?? (await Organization.GetAsync<Organization>(id, cancellationToken).ConfigureAwait(false))?.Set();
-
-		public static Organization GetOrganizationByAlias(this string alias, bool fetchRepository = true)
-		{
-			if (string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Organization:{alias}"))
-				return null;
-
-			var organization = OrganizationExtensions.OrganizationsByAlias.ContainsKey(alias)
-				? OrganizationExtensions.OrganizationsByAlias[alias]
-				: null;
-
-			if (organization == null && fetchRepository)
-			{
-				organization = Organization.Get<Organization>(Filters<Organization>.Equals("Alias", alias), null, null)?.Set();
-				if (organization == null)
-					Utility.NotRecognizedAliases.Add($"Organization:{alias}");
-			}
-
-			return organization;
-		}
-
-		public static async Task<Organization> GetOrganizationByAliasAsync(this string alias, CancellationToken cancellationToken = default)
-		{
-			if (string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Organization:{alias}"))
-				return null;
-
-			var organization = alias.GetOrganizationByAlias(false) ?? (await Organization.GetAsync<Organization>(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false))?.Set();
-			if (organization == null)
-				Utility.NotRecognizedAliases.Add($"Organization:{alias}");
-			return organization;
+			else if (name.IsEquals("Modules"))
+				this.Set(true);
 		}
 	}
 }

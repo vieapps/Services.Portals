@@ -381,7 +381,7 @@ namespace net.vieapps.Services.Portals
 
 		public string Name { get; set; }
 
-		public string Title { get; set; }
+		public string Label { get; set; }
 
 		public string PlaceHolder { get; set; }
 

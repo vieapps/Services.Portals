@@ -148,6 +148,7 @@ namespace net.vieapps.Services.Portals
 						break;
 
 					case "module":
+					case "core.module":
 						json = await this.ProcessModuleAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
@@ -160,7 +161,14 @@ namespace net.vieapps.Services.Portals
 						break;
 					#endregion
 
-					#region process the request of definitions
+					#region process the request of CMS objects
+					case "category":
+					case "cms.category":
+						json = await this.ProcessCategoryAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
+					#endregion
+
+					#region process the request of definitions and others
 					case "definitions":
 						var mode = requestInfo.GetQueryParameter("mode");
 						switch (requestInfo.GetObjectIdentity())
@@ -187,39 +195,51 @@ namespace net.vieapps.Services.Portals
 								break;
 
 							case "organization":
+							case "core.organization":
 								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Organization>() : this.GenerateFormControls<Organization>();
 								break;
 
+							case "site":
+							case "core.site":
+								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Site>() : this.GenerateFormControls<Site>();
+								break;
+
 							case "role":
+							case "core.role":
 								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Role>() : this.GenerateFormControls<Role>();
 								break;
 
 							case "desktop":
+							case "core.desktop":
 								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Desktop>() : this.GenerateFormControls<Desktop>();
 								break;
 
 							case "module":
+							case "core.module":
 								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Module>() : this.GenerateFormControls<Module>();
 								break;
 
 							case "contenttype":
 							case "content.type":
 							case "content-type":
+							case "core.contenttype":
+							case "core.content.type":
 								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<ContentType>() : this.GenerateFormControls<ContentType>();
 								break;
 
-							case "site":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Site>() : this.GenerateFormControls<Site>();
+							case "category":
+							case "cms.category":
+								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Category>() : this.GenerateFormControls<Category>();
 								break;
 
 							default:
 								throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 						}
 						break;
-					#endregion
 
 					case "profile":
 						break;
+					#endregion
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
@@ -274,2382 +294,212 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		Task<JObject> ProcessOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JObject> ProcessOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? this.SearchOrganizationsAsync(requestInfo, cancellationToken)
-						: this.GetOrganizationAsync(requestInfo, cancellationToken);
+						? await requestInfo.SearchOrganizationsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return this.CreateOrganizationAsync(requestInfo, cancellationToken);
+					return await requestInfo.CreateOrganizationAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return this.UpdateOrganizationAsync(requestInfo, cancellationToken);
+					return await requestInfo.UpdateOrganizationAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return this.DeleteOrganizationAsync(requestInfo, cancellationToken);
-			}
+					return await requestInfo.DeleteOrganizationAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
-			return Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
+			}
 		}
 
-		#region Search organizations
-		async Task<JObject> SearchOrganizationsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JObject> ProcessSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			// check permissions
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// prepare
-			var request = requestInfo.GetRequestExpando();
-
-			var query = request.Get<string>("FilterBy.Query");
-			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Organization>() ?? Filters<Organization>.And();
-			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Organization>() ?? Sorts<Organization>.Ascending("Title") : null;
-
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
-
-			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(json))
-				return JObject.Parse(json);
-
-			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
-			if (totalRecords < 0)
-				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Organization.CountAsync(filter, this.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
-					: await Organization.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
-
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
-			if (totalPages > 0 && pageNumber > totalPages)
-				pageNumber = totalPages;
-
-			// search
-			var objects = totalRecords > 0
-				? string.IsNullOrWhiteSpace(query)
-					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
-					: await Organization.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Organization>();
-
-			// build result
-			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
-			var response = new JObject
-			{
-				{ "FilterBy", filter.ToClientJson(query) },
-				{ "SortBy", sort?.ToClientJson() },
-				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
-			};
-
-			// update cache
-			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Create an organization
-		async Task<JObject> CreateOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// check permission
-			var isCreatedByOtherService = requestInfo.Extra != null && requestInfo.Extra.TryGetValue("x-create", out var xcreate) && xcreate.IsEquals(requestInfo.Session.SessionID.Encrypt());
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			if (!isSystemAdministrator && !isCreatedByOtherService)
-				throw new AccessDeniedException();
-
-			// check the exising the the alias
-			var requestBody = requestInfo.GetBodyExpando();
-			var alias = requestBody.Get<string>("Alias");
-			if (!string.IsNullOrWhiteSpace(alias))
-			{
-				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
-				if (existing != null)
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
-			}
-
-			// create new
-			var organization = requestBody.CreateOrganizationInstance("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? obj.Title.NormalizeAlias(false) + obj.ID : obj.Alias.NormalizeAlias(false);
-				obj.OwnerID = string.IsNullOrWhiteSpace(obj.OwnerID) || !obj.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : obj.OwnerID;
-				obj.Status = isSystemAdministrator
-					? requestBody.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
-					: isCreatedByOtherService
-						? requestInfo.Extra.TryGetValue("x-status", out var xstatus) && xstatus.TryToEnum(out ApprovalStatus statusByOtherService) ? statusByOtherService : ApprovalStatus.Pending
-						: ApprovalStatus.Pending;
-				obj.OriginalPrivileges = (isSystemAdministrator ? requestBody.Get<Privileges>("OriginalPrivileges") : null) ?? new Privileges(true);
-				obj.Created = obj.LastModified = DateTime.Now;
-				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-			});
-			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title")), cancellationToken),
-				organization.SetAsync(false, false, cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var response = organization.ToJson();
-			var objectName = organization.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Create",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Create",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Get an organization
-		async Task<JObject> GetOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// get the organization
-			var identity = requestInfo.GetObjectIdentity() ?? "";
-			var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cancellationToken) : identity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationNotFoundException();
-
-			// check permission
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			if (!gotRights)
-				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsViewer(organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// response
-			return identity.IsValidUUID()
-				? organization.ToJson()
-				: new JObject
-				{
-					{ "ID", organization.ID },
-					{ "Title", organization.Title },
-					{ "Alias", organization.Alias }
-				};
-		}
-		#endregion
-
-		#region Update an organization
-		async Task<JObject> UpdateOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// get the organization
-			var organization = await (requestInfo.GetObjectIdentity() ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationNotFoundException();
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsAdministrator(organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// check the exising the the alias
-			var requestBody = requestInfo.GetBodyExpando();
-			var oldAlias = organization.Alias;
-			var alias = requestBody.Get<string>("Alias");
-			if (!string.IsNullOrWhiteSpace(alias))
-			{
-				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
-				if (existing != null && !existing.ID.Equals(organization.ID))
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
-			}
-
-			// update
-			organization.UpdateOrganizationInstance(requestBody, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.OwnerID = isSystemAdministrator ? requestBody.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
-				obj.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias.NormalizeAlias(false);
-				obj.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-			});
-			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title")), cancellationToken),
-				organization.SetAsync(false, false, cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var response = organization.ToJson();
-			var objectName = organization.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Delete an organization
-		Task<JObject> DeleteOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			return Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
-		}
-		#endregion
-
-		Task<JObject> ProcessRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
 			switch (requestInfo.Verb)
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? this.SearchRolesAsync(requestInfo, cancellationToken)
-						: this.GetRoleAsync(requestInfo, cancellationToken);
+						? await requestInfo.SearchSitesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetSiteAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return this.CreateRoleAsync(requestInfo, cancellationToken);
+					return await requestInfo.CreateSiteAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return this.UpdateRoleAsync(requestInfo, cancellationToken);
+					return await requestInfo.UpdateSiteAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return this.DeleteRoleAsync(requestInfo, cancellationToken);
-			}
+					return await requestInfo.DeleteSiteAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
-			return Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
+			}
 		}
 
-		#region Search roles
-		async Task<JObject> SearchRolesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JObject> ProcessRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			// prepare
-			var request = requestInfo.GetRequestExpando();
-
-			var query = request.Get<string>("FilterBy.Query");
-			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Role>() ?? Filters<Role>.And();
-			if (filter is FilterBys<Role>)
-			{
-				if (!string.IsNullOrWhiteSpace(query))
-				{
-					var index = (filter as FilterBys<Role>).Children.FindIndex(exp => (exp as FilterBy<Role>).Attribute.IsEquals("ParentID"));
-					if (index > -1)
-						(filter as FilterBys<Role>).Children.RemoveAt(index);
-				}
-				else if ((filter as FilterBys<Role>).Children.FirstOrDefault(exp => (exp as FilterBy<Role>).Attribute.IsEquals("ParentID")) == null)
-					(filter as FilterBys<Role>).Children.Add(Filters<Role>.IsNull("ParentID"));
-			}
-			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Role>() ?? Sorts<Role>.Ascending("Title") : null;
-
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
-
-			// get organization
-			var organizationID = filter is FilterBys<Role>
-					? ((filter as FilterBys<Role>).Children.FirstOrDefault(exp => (exp as FilterBy<Role>).Attribute.IsEquals("SystemID")) as FilterBy<Role>)?.Value as string
-					: null;
-			if (string.IsNullOrWhiteSpace(organizationID))
-				organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
-
-			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsViewer(organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(json))
-				return JObject.Parse(json);
-
-			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
-			if (totalRecords < 0)
-				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Role.CountAsync(filter, this.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
-					: await Role.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
-
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
-			if (totalPages > 0 && pageNumber > totalPages)
-				pageNumber = totalPages;
-
-			// search
-			var objects = totalRecords > 0
-				? string.IsNullOrWhiteSpace(query)
-					? await Role.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
-					: await Role.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Role>();
-
-			// build result
-			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
-			var response = new JObject
-			{
-				{ "FilterBy", filter.ToClientJson(query) },
-				{ "SortBy", sort?.ToClientJson() },
-				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
-			};
-
-			// update cache
-			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Create a role
-		async Task<JObject> CreateRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var requestBody = requestInfo.GetBodyExpando();
-			var organizationID = requestBody.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// create new
-			var role = requestBody.CreateRoleInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.SystemID = organization.ID;
-				obj.ParentID = obj.ParentRole != null ? obj.ParentID : null;
-				obj.Created = obj.LastModified = DateTime.Now;
-				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj._childrenIDs = new List<string>();
-			});
-			await Task.WhenAll(
-				Role.CreateAsync(role, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
-				role.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
-
-			// update users
-			var requestUser = new RequestInfo(requestInfo)
-			{
-				ServiceName = "Users",
-				ObjectName = "Privileges",
-				Verb = "POST",
-				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "related-service", this.ServiceName },
-					{ "related-object", "Role" },
-					{ "related-system", role.SystemID },
-					{ "related-entity", typeof(Role).GetTypeName() },
-					{ "related-object-identity", role.ID }
-				},
-				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "AddedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(this.EncryptionKey) }
-				}
-			};
-
-			var userIDs = role.UserIDs ?? new List<string>();
-			var parentRole = role.ParentRole;
-			while (parentRole != null)
-			{
-				userIDs = userIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
-				parentRole = parentRole.ParentRole;
-			}
-
-			await userIDs.Distinct(StringComparer.OrdinalIgnoreCase).ForEachAsync(async (userID, token) =>
-			{
-				try
-				{
-					requestUser.Query["object-identity"] = userID;
-					await this.CallServiceAsync(requestUser, token).ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					await this.WriteLogsAsync(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex, Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
-				}
-			}, cancellationToken, true, false).ConfigureAwait(false);
-
-			// update parent
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = role.GetTypeName(true);
-
-			if (role.ParentRole != null)
-			{
-				await role.ParentRole.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
-				role.ParentRole._childrenIDs.Add(role.ID);
-				await role.ParentRole.SetAsync(true, cancellationToken).ConfigureAwait(false);
-
-				// message to update to all connected clients
-				var json = role.ParentRole.ToJson(true, false);
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					Data = json,
-					DeviceID = "*"
-				});
-
-				// message to update to all service instances (on all other nodes)
-				communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = json,
-					ExcludedNodeID = this.NodeID
-				});
-			}
-
-			// message to update to all other connected clients
-			var response = role.ToJson(true, false);
-			if (role.ParentRole == null)
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Create",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-			{
-				Type = $"{objectName}#Create",
-				Data = response,
-				ExcludedNodeID = this.NodeID
-			});
-
-			// send the messages and response
-			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => this.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => this.SendInterCommunicateMessageAsync(message, token), cancellationToken)
-			).ConfigureAwait(false);
-			return response;
-		}
-		#endregion
-
-		#region Get a role
-		async Task<JObject> GetRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (role == null)
-				throw new InformationNotFoundException();
-			else if (role.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(role.Organization.OwnerID) || requestInfo.Session.User.IsViewer(role.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// prepare the response
-			if (role._childrenIDs == null)
-			{
-				await role.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
-				await role.SetAsync(true, cancellationToken).ConfigureAwait(false);
-			}
-
-			// send the update message to update to all other connected clients and response
-			var response = role.ToJson(true, false);
-			await this.SendUpdateMessageAsync(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{role.GetTypeName(true)}#Update",
-				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}, cancellationToken).ConfigureAwait(false);
-			return response;
-		}
-		#endregion
-
-		#region Update a role
-		async Task<JObject> UpdateRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (role == null)
-				throw new InformationNotFoundException();
-			else if (role.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(role.Organization.OwnerID) || requestInfo.Session.User.IsModerator(role.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// update
-			var oldParentID = role.ParentID;
-			var oldUserIDs = role.UserIDs ?? new List<string>();
-
-			role.UpdateRoleInstance(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async obj =>
-			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				await obj.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
-			});
-			await Task.WhenAll(
-				Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken),
-				role.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
-
-			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(oldParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
-			).ConfigureAwait(false);
-
-			// update users
-			var beAddedUserIDs = (role.UserIDs ?? new List<string>()).Except(oldUserIDs).ToList();
-			var parentRole = role.ParentRole;
-			while (parentRole != null)
-			{
-				beAddedUserIDs = beAddedUserIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
-				parentRole = parentRole.ParentRole;
-			}
-			beAddedUserIDs = beAddedUserIDs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
-			var beRemovedUserIDs = oldUserIDs.Except(role.UserIDs ?? new List<string>()).ToList();
-			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(role.ParentID))
-			{
-				parentRole = await oldParentID.GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
-				while (parentRole != null)
-				{
-					beRemovedUserIDs = beRemovedUserIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
-					parentRole = parentRole.ParentRole;
-				}
-			}
-			beRemovedUserIDs = beRemovedUserIDs.Distinct(StringComparer.OrdinalIgnoreCase).Except(beAddedUserIDs).ToList();
-
-			var requestUser = new RequestInfo(requestInfo)
-			{
-				ServiceName = "Users",
-				ObjectName = "Privileges",
-				Verb = "POST",
-				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "related-service", this.ServiceName },
-					{ "related-object", "Role" },
-					{ "related-system", role.SystemID },
-					{ "related-entity", typeof(Role).GetTypeName() },
-					{ "related-object-identity", role.ID }
-				},
-				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-			};
-
-			requestUser.Extra.Clear();
-			requestUser.Extra["RemovedRoles"] = new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(this.EncryptionKey);
-			await beRemovedUserIDs.ForEachAsync(async (userID, token) =>
-			{
-				try
-				{
-					requestUser.Query["object-identity"] = userID;
-					await this.CallServiceAsync(requestUser, token).ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					await this.WriteLogsAsync(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex, Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
-				}
-			}, cancellationToken, true, false).ConfigureAwait(false);
-
-			requestUser.Extra.Clear();
-			requestUser.Extra["AddedRoles"] = new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(this.EncryptionKey);
-			await beAddedUserIDs.ForEachAsync(async (userID, token) =>
-			{
-				try
-				{
-					requestUser.Query["object-identity"] = userID;
-					await this.CallServiceAsync(requestUser, token).ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					await this.WriteLogsAsync(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex, Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
-				}
-			}, cancellationToken, true, false).ConfigureAwait(false);
-
-			// update parent
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = role.GetTypeName(true);
-
-			if (role.ParentRole != null && !role.ParentID.IsEquals(oldParentID))
-			{
-				await role.ParentRole.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
-				role.ParentRole._childrenIDs.Add(role.ID);
-				await role.ParentRole.SetAsync(true).ConfigureAwait(false);
-
-				var json = role.ParentRole.ToJson(true, false);
-
-				// message to update to all connected clients
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					Data = json,
-					DeviceID = "*"
-				});
-
-				// message to update to all service instances (on all other nodes)
-				communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = json,
-					ExcludedNodeID = this.NodeID
-				});
-			}
-
-			// update old parent
-			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(role.ParentID))
-			{
-				parentRole = await oldParentID.GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (parentRole != null)
-				{
-					await parentRole.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
-					parentRole._childrenIDs.Remove(role.ID);
-					await parentRole.SetAsync(true, cancellationToken).ConfigureAwait(false);
-
-					var json = parentRole.ToJson(true, false);
-
-					// message to update to all connected clients
-					updateMessages.Add(new UpdateMessage
-					{
-						Type = $"{this.ServiceName}#{objectName}#Update",
-						Data = json,
-						DeviceID = "*"
-					});
-
-					// message to update to all service instances (on all other nodes)
-					communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-					{
-						Type = $"{objectName}#Update",
-						Data = json,
-						ExcludedNodeID = this.NodeID
-					});
-				}
-			}
-
-			// message to update to all other connected clients
-			var response = role.ToJson(true, false);
-			if (string.IsNullOrWhiteSpace(oldParentID) && role.ParentRole == null)
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-			{
-				Type = $"{objectName}#Update",
-				Data = response,
-				ExcludedNodeID = this.NodeID
-			});
-
-			// send messages and response
-			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => this.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => this.SendInterCommunicateMessageAsync(message, token), cancellationToken)
-			).ConfigureAwait(false);
-			return response;
-		}
-		#endregion
-
-		#region Delete a role
-		async Task<JObject> DeleteRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (role == null)
-				throw new InformationNotFoundException();
-			else if (role.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(role.Organization.OwnerID) || requestInfo.Session.User.IsModerator(role.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = role.GetTypeName(true);
-			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
-
-			// delete
-			await (await role.GetChildrenAsync(cancellationToken).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
-			{
-				// update children to root
-				if (updateChildren)
-				{
-					child.ParentID = null;
-					child.LastModified = DateTime.Now;
-					child.LastModifiedID = requestInfo.Session.User.ID;
-
-					await Task.WhenAll(
-						Role.UpdateAsync(child, requestInfo.Session.User.ID, token),
-						child.SetAsync(false, token)
-					).ConfigureAwait(false);
-
-					var json = child.ToJson(true, false);
-					updateMessages.Add(new UpdateMessage
-					{
-						Type = $"{this.ServiceName}#{objectName}#Delete",
-						Data = json,
-						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-					{
-						ServiceName = this.ServiceName,
-						Type = $"{objectName}#Delete",
-						Data = json,
-						ExcludedNodeID = this.NodeID
-					});
-				}
-
-				// delete children
-				else
-				{
-					var messages = await this.DeleteChildRoleAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false);
-					updateMessages = updateMessages.Concat(messages.Item1).ToList();
-					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-				}
-			}, cancellationToken, true, false).ConfigureAwait(false);
-
-			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			role.Remove();
-
-			await Task.WhenAll(
-				updateChildren ? Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(null), Sorts<Role>.Ascending("Title")), cancellationToken) : Task.CompletedTask,
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken)
-			).ConfigureAwait(false);
-
-			// message to update to all other connected clients
-			var response = role.ToJson();
-			updateMessages.Add(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{objectName}#Delete",
-				DeviceID = "*",
-				Data = response
-			});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = response,
-				ExcludedNodeID = this.NodeID
-			});
-
-			// send messages and response
-			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => this.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => this.SendInterCommunicateMessageAsync(message, token), cancellationToken)
-			).ConfigureAwait(false);
-			return response;
-		}
-
-		async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildRoleAsync(Role role, string userID, CancellationToken cancellationToken)
-		{
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = role.GetTypeName(true);
-
-			var children = await role.GetChildrenAsync(cancellationToken).ConfigureAwait(false);
-			await children.ForEachAsync(async (child, token) =>
-			{
-				var messages = await this.DeleteChildRoleAsync(child, userID, token).ConfigureAwait(false);
-				updateMessages = updateMessages.Concat(messages.Item1).ToList();
-				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-			}, cancellationToken, true, false).ConfigureAwait(false);
-
-			await Role.DeleteAsync<Role>(role.ID, userID, cancellationToken).ConfigureAwait(false);
-			role.Remove();
-
-			var json = role.ToJson();
-			updateMessages.Add(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{objectName}#Delete",
-				Data = json,
-				DeviceID = "*"
-			});
-			communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = json,
-				ExcludedNodeID = this.NodeID
-			});
-			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
-		}
-		#endregion
-
-		Task<JObject> ProcessDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
 			switch (requestInfo.Verb)
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? this.SearchDesktopsAsync(requestInfo, cancellationToken)
-						: this.GetDesktopAsync(requestInfo, cancellationToken);
+						? await requestInfo.SearchRolesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetRoleAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return this.CreateDesktopAsync(requestInfo, cancellationToken);
+					return await requestInfo.CreateRoleAsync(isSystemAdministrator, this.EncryptionKey, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, Microsoft.Extensions.Logging.LogLevel.Error), this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return this.UpdateDesktopAsync(requestInfo, cancellationToken);
+					return await requestInfo.UpdateRoleAsync(isSystemAdministrator, this.EncryptionKey, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, Microsoft.Extensions.Logging.LogLevel.Error), this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return this.DeleteDesktopAsync(requestInfo, cancellationToken);
-			}
+					return await requestInfo.DeleteRoleAsync(isSystemAdministrator, this.EncryptionKey, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, Microsoft.Extensions.Logging.LogLevel.Error), this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
-			return Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
+			}
 		}
 
-		#region Search desktops
-		async Task<JObject> SearchDesktopsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JObject> ProcessDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			// prepare
-			var request = requestInfo.GetRequestExpando();
-
-			var query = request.Get<string>("FilterBy.Query");
-
-			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Desktop>() ?? Filters<Desktop>.And();
-			if (filter is FilterBys<Desktop>)
-			{
-				if (!string.IsNullOrWhiteSpace(query))
-				{
-					var index = (filter as FilterBys<Desktop>).Children.FindIndex(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("ParentID"));
-					if (index > -1)
-						(filter as FilterBys<Desktop>).Children.RemoveAt(index);
-				}
-				else if ((filter as FilterBys<Desktop>).Children.FirstOrDefault(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("ParentID")) == null)
-					(filter as FilterBys<Desktop>).Children.Add(Filters<Desktop>.IsNull("ParentID"));
-			}
-
-			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Desktop>() ?? Sorts<Desktop>.Ascending("Title") : null;
-
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
-
-			// get organization
-			var organizationID = filter is FilterBys<Desktop>
-				? ((filter as FilterBys<Desktop>).Children.FirstOrDefault(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("SystemID")) as FilterBy<Desktop>)?.Value as string
-				: null;
-			if (string.IsNullOrWhiteSpace(organizationID))
-				organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
-
-			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsViewer(organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(json))
-				return JObject.Parse(json);
-
-			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
-			if (totalRecords < 0)
-				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Desktop.CountAsync(filter, this.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
-					: await Desktop.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
-
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
-			if (totalPages > 0 && pageNumber > totalPages)
-				pageNumber = totalPages;
-
-			// search
-			var objects = totalRecords > 0
-				? string.IsNullOrWhiteSpace(query)
-					? await Desktop.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
-					: await Desktop.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Desktop>();
-
-			// build response
-			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
-			var response = new JObject()
-			{
-				{ "FilterBy", filter.ToClientJson(query) },
-				{ "SortBy", sort?.ToClientJson() },
-				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
-			};
-
-			// update cache
-			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Create a desktop
-		async Task<JObject> CreateDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var requestBody = requestInfo.GetBodyExpando();
-			var organizationID = requestBody.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// check alias
-			var alias = requestBody.Get<string>("Alias");
-			if (!string.IsNullOrWhiteSpace(alias))
-			{
-				if (DesktopExtensions.ExcludedAliases.Contains(alias.NormalizeAlias()))
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another purpose");
-				var existing = await organization.ID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
-				if (existing != null)
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
-			}
-
-			// create new
-			var desktop = requestBody.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.SystemID = organization.ID;
-				obj.ParentID = obj.ParentDesktop != null ? obj.ParentID : null;
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.Created = obj.LastModified = DateTime.Now;
-				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-				obj._childrenIDs = new List<string>();
-			});
-			await Task.WhenAll(
-				Desktop.CreateAsync(desktop, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken),
-				desktop.SetAsync(false, false, cancellationToken)
-			).ConfigureAwait(false);
-
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = desktop.GetTypeName(true);
-
-			// update parent
-			if (desktop.ParentDesktop != null)
-			{
-				await desktop.ParentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
-				await desktop.ParentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-
-				var json = desktop.ParentDesktop.ToJson(true, false);
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Create",
-					Data = json,
-					DeviceID = "*"
-				});
-				communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Create",
-					Data = json,
-					ExcludedNodeID = this.NodeID
-				});
-			}
-
-			// message to update to all other connected clients
-			var response = desktop.ToJson(true, false);
-			if (desktop.ParentDesktop == null)
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID,
-					Data = response
-				});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-			{
-				Type = $"{objectName}#Update",
-				Data = response,
-				ExcludedNodeID = this.NodeID
-			});
-
-			// send messages and response
-			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => this.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => this.SendInterCommunicateMessageAsync(message, token), cancellationToken)
-			).ConfigureAwait(false);
-			return response;
-		}
-		#endregion
-
-		#region Get a desktop
-		async Task<JObject> GetDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var identity = requestInfo.GetObjectIdentity() ?? "";
-			var desktop = await (identity.IsValidUUID() ? identity.GetDesktopByIDAsync(cancellationToken) : (requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID") ?? "").GetDesktopByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
-			if (desktop == null)
-				throw new InformationNotFoundException();
-			else if (desktop.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop.Organization.OwnerID) || requestInfo.Session.User.IsViewer(desktop.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			if (!identity.IsValidUUID())
-				return new JObject
-				{
-					{ "ID", desktop.ID },
-					{ "Title", desktop.Title },
-					{ "Alias", desktop.Alias }
-				};
-
-			// prepare the response
-			if (desktop._childrenIDs == null)
-			{
-				await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-			}
-
-			// send update message and response
-			var response = desktop.ToJson(true, false);
-			await this.SendUpdateMessageAsync(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{desktop.GetTypeName(true)}#Update",
-				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}, cancellationToken).ConfigureAwait(false);
-			return response;
-		}
-		#endregion
-
-		#region Update a desktop
-		async Task<JObject> UpdateDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var desktop = await (requestInfo.GetObjectIdentity() ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (desktop == null)
-				throw new InformationNotFoundException();
-			else if (desktop.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop.Organization.OwnerID) || requestInfo.Session.User.IsModerator(desktop.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// update
-			var requestBody = requestInfo.GetBodyExpando();
-			var oldParentID = desktop.ParentID;
-
-			var oldAlias = desktop.Alias;
-			var alias = requestBody.Get<string>("Alias");
-			if (!string.IsNullOrWhiteSpace(alias))
-			{
-				if (DesktopExtensions.ExcludedAliases.Contains(alias.NormalizeAlias()))
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another purpose");
-				var existing = await desktop.SystemID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
-				if (existing != null && !existing.ID.Equals(desktop.ID))
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
-			}
-
-			desktop.UpdateDesktopInstance(requestBody, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async obj =>
-			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-				await obj.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-			});
-			await Task.WhenAll(
-				Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken),
-				desktop.SetAsync(false, false, cancellationToken)
-			).ConfigureAwait(false);
-
-			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(oldParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken)
-			).ConfigureAwait(false);
-
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = desktop.GetTypeName(true);
-
-			// update parent
-			if (desktop.ParentDesktop != null && !desktop.ParentID.IsEquals(oldParentID))
-			{
-				await desktop.ParentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
-				await desktop.ParentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-
-				var json = desktop.ParentDesktop.ToJson(true, false);
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					Data = json,
-					DeviceID = "*"
-				});
-				communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = json,
-					ExcludedNodeID = this.NodeID
-				});
-			}
-
-			// update old parent
-			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(desktop.ParentID))
-			{
-				var parentDesktop = await oldParentID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (parentDesktop != null)
-				{
-					await parentDesktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-					parentDesktop._childrenIDs.Remove(desktop.ID);
-					await parentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-
-					var json = parentDesktop.ToJson(true, false);
-					updateMessages.Add(new UpdateMessage
-					{
-						Type = $"{this.ServiceName}#{objectName}#Update",
-						Data = json,
-						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-					{
-						Type = $"{objectName}#Update",
-						Data = json,
-						ExcludedNodeID = this.NodeID
-					});
-				}
-			}
-
-			// message to update to all other connected clients
-			var response = desktop.ToJson(true, false);
-			if (desktop.ParentDesktop == null)
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-			{
-				Type = $"{objectName}#Update",
-				Data = response,
-				ExcludedNodeID = this.NodeID
-			});
-
-			// send messages and response
-			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => this.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => this.SendInterCommunicateMessageAsync(message, token), cancellationToken)
-			).ConfigureAwait(false);
-			return response;
-		}
-		#endregion
-
-		#region Delete a desktop
-		async Task<JObject> DeleteDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var desktop = await (requestInfo.GetObjectIdentity() ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (desktop == null)
-				throw new InformationNotFoundException();
-			else if (desktop.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop.Organization.OwnerID) || requestInfo.Session.User.IsModerator(desktop.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// delete
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = desktop.GetTypeName(true);
-			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
-
-			await (await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
-			{
-				// update children to root
-				if (updateChildren)
-				{
-					child.ParentID = null;
-					child.LastModified = DateTime.Now;
-					child.LastModifiedID = requestInfo.Session.User.ID;
-
-					await Task.WhenAll(
-						Role.UpdateAsync(child, requestInfo.Session.User.ID, token),
-						child.SetAsync(false, false, token)
-					).ConfigureAwait(false);
-
-					var json = child.ToJson(true, false);
-					updateMessages.Add(new UpdateMessage
-					{
-						Type = $"{this.ServiceName}#{objectName}#Delete",
-						Data = json,
-						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-					{
-						Type = $"{objectName}#Delete",
-						Data = json,
-						ExcludedNodeID = this.NodeID
-					});
-				}
-
-				// delete children
-				else
-				{
-					var messages = await this.DeleteChildDesktopAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false);
-					updateMessages = updateMessages.Concat(messages.Item1).ToList();
-					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-				}
-			}, cancellationToken, true, false).ConfigureAwait(false);
-
-			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			desktop.Remove();
-
-			await Task.WhenAll(
-				updateChildren ? Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(null), Sorts<Desktop>.Ascending("Title")), cancellationToken) : Task.CompletedTask,
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(desktop.ParentID), Sorts<Desktop>.Ascending("Title")), cancellationToken)
-			).ConfigureAwait(false);
-
-			// message to update to all other connected clients
-			var response = desktop.ToJson();
-			updateMessages.Add(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{objectName}#Delete",
-				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
-			});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = response,
-				ExcludedNodeID = this.NodeID
-			});
-
-			// send messages and response
-			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => this.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => this.SendInterCommunicateMessageAsync(message, token), cancellationToken)
-			).ConfigureAwait(false);
-			return response;
-		}
-
-		async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildDesktopAsync(Desktop desktop, string userID, CancellationToken cancellationToken)
-		{
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = desktop.GetTypeName(true);
-
-			var children = await desktop.GetChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-			await children.ForEachAsync(async (child, token) =>
-			{
-				var messages = await this.DeleteChildDesktopAsync(child, userID, token).ConfigureAwait(false);
-				updateMessages = updateMessages.Concat(messages.Item1).ToList();
-				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-			}, cancellationToken, true, false).ConfigureAwait(false);
-
-			await Desktop.DeleteAsync<Desktop>(desktop.ID, userID, cancellationToken).ConfigureAwait(false);
-			desktop.Remove();
-
-			var json = desktop.ToJson();
-			updateMessages.Add(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{objectName}#Delete",
-				Data = json,
-				DeviceID = "*"
-			});
-			communicateMessages.Add(new CommunicateMessage(this.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = json,
-				ExcludedNodeID = this.NodeID
-			});
-			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
-		}
-		#endregion
-
-		Task<JObject> ProcessSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
 			switch (requestInfo.Verb)
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? this.SearchSitesAsync(requestInfo, cancellationToken)
-						: this.GetSiteAsync(requestInfo, cancellationToken);
+						? await requestInfo.SearchDesktopsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetDesktopAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return this.CreateSiteAsync(requestInfo, cancellationToken);
+					return await requestInfo.CreateDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return this.UpdateSiteAsync(requestInfo, cancellationToken);
+					return await requestInfo.UpdateDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return this.DeleteSiteAsync(requestInfo, cancellationToken);
+					return await requestInfo.DeleteDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
 			}
-
-			return Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
 		}
 
-		#region Search sites
-		async Task<JObject> SearchSitesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JObject> ProcessModuleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			// prepare
-			var request = requestInfo.GetRequestExpando();
-
-			var query = request.Get<string>("FilterBy.Query");
-			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Site>() ?? Filters<Site>.And();
-			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Site>() ?? Sorts<Site>.Ascending("Title") : null;
-
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
-
-			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator;
-			if (!gotRights)
-			{
-				// get organization
-				var organizationID = filter is FilterBys<Site>
-					? ((filter as FilterBys<Site>).Children.FirstOrDefault(exp => (exp as FilterBy<Site>).Attribute.IsEquals("SystemID")) as FilterBy<Site>)?.Value as string
-					: null;
-				if (string.IsNullOrWhiteSpace(organizationID))
-					organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-				var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (organization == null)
-					throw new InformationExistedException("The organization is invalid");
-
-				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
-				if (!gotRights)
-					throw new AccessDeniedException();
-			}
-
-			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(json))
-				return JObject.Parse(json);
-
-			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
-			if (totalRecords < 0)
-				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Site.CountAsync(filter, this.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
-					: await Site.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
-
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
-			if (totalPages > 0 && pageNumber > totalPages)
-				pageNumber = totalPages;
-
-			// search
-			var objects = totalRecords > 0
-				? string.IsNullOrWhiteSpace(query)
-					? await Site.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
-					: await Site.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Site>();
-
-			// build response
-			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
-			var response = new JObject()
-			{
-				{ "FilterBy", filter.ToClientJson(query) },
-				{ "SortBy", sort?.ToClientJson() },
-				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
-			};
-
-			// update cache
-			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Create a site
-		async Task<JObject> CreateSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var requestBody = requestInfo.GetBodyExpando();
-			var organizationID = requestBody.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// check domain
-			var domain = $"{requestBody.Get<string>("SubDomain")}.{requestBody.Get<string>("PrimaryDomain")}";
-			var existing = await domain.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
-			if (existing != null)
-				throw new InformationExistedException($"The domain ({domain.ToArray(".").Select(name => name.Equals("*") ? "*" : name.NormalizeAlias()).Join(".")}) was used by another site");
-
-			// create new
-			var site = requestBody.CreateSiteInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.SystemID = organization.ID;
-				obj.Created = obj.LastModified = DateTime.Now;
-				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-			});
-			await Task.WhenAll(
-				Site.CreateAsync(site, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")), cancellationToken),
-				site.SetAsync(false, false, cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var response = site.ToJson();
-			var objectName = site.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Create",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Create",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Get a site
-		async Task<JObject> GetSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var identity = requestInfo.GetObjectIdentity() ?? "";
-			var site = await (identity.IsValidUUID() ? identity.GetSiteByIDAsync(cancellationToken) : identity.GetSiteByDomainAsync(cancellationToken)).ConfigureAwait(false);
-			if (site == null)
-				throw new InformationNotFoundException();
-			else if (site.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(site.Organization.OwnerID) || requestInfo.Session.User.IsViewer(site.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			if (!identity.IsValidUUID())
-				return new JObject
-				{
-					{ "ID", site.ID },
-					{ "Title", site.Title },
-					{ "Domain", (site.SubDomain.Equals("*") ? "" : site.SubDomain + ".") + site.PrimaryDomain }
-				};
-
-			// send update message and response
-			var response = site.ToJson();
-			await this.SendUpdateMessageAsync(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{site.GetTypeName(true)}#Update",
-				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}, cancellationToken).ConfigureAwait(false);
-			return response;
-		}
-		#endregion
-
-		#region Update a site
-		async Task<JObject> UpdateSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var site = await (requestInfo.GetObjectIdentity() ?? "").GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (site == null)
-				throw new InformationNotFoundException();
-			else if (site.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(site.Organization.OwnerID) || requestInfo.Session.User.IsModerator(site.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// check domain
-			var requestBody = requestInfo.GetBodyExpando();
-			var domain = $"{requestBody.Get<string>("SubDomain")}.{requestBody.Get<string>("PrimaryDomain")}";
-			var existing = await domain.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
-			if (existing != null && !existing.ID.Equals(site.ID))
-				throw new InformationExistedException($"The domain ({domain.ToArray(".").Select(name => name.Equals("*") ? "*" : name.NormalizeAlias()).Join(".")}) was used by another site");
-
-			// update
-			site.UpdateSiteInstance(requestBody, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-			});
-			await Task.WhenAll(
-				Site.UpdateAsync(site, requestInfo.Session.User.ID, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")), cancellationToken),
-				site.SetAsync(false, false, cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var response = site.ToJson();
-			var objectName = site.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Delete a site
-		async Task<JObject> DeleteSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var site = await (requestInfo.GetObjectIdentity() ?? "").GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (site == null)
-				throw new InformationNotFoundException();
-			else if (site.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(site.Organization.OwnerID) || requestInfo.Session.User.IsModerator(site.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// delete
-			await Site.DeleteAsync<Site>(site.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			site.Remove();
-			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")), cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var response = site.ToJson();
-			var objectName = site.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Delete",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Delete",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-		#endregion
-
-		Task<JObject> ProcessModuleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
 			switch (requestInfo.Verb)
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? this.SearchModulesAsync(requestInfo, cancellationToken)
-						: this.GetModuleAsync(requestInfo, cancellationToken);
+						? await requestInfo.SearchModulesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetModuleAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return this.CreateModuleAsync(requestInfo, cancellationToken);
+					return await requestInfo.CreateModuleAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return this.UpdateModuleAsync(requestInfo, cancellationToken);
+					return await requestInfo.UpdateModuleAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return this.DeleteModuleAsync(requestInfo, cancellationToken);
+					return await requestInfo.DeleteModuleAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
 			}
-
-			return Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
 		}
 
-		#region Search modules
-		async Task<JObject> SearchModulesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JObject> ProcessContentTypeAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			// prepare
-			var request = requestInfo.GetRequestExpando();
-
-			var query = request.Get<string>("FilterBy.Query");
-			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Module>() ?? Filters<Module>.And();
-			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Module>() ?? Sorts<Module>.Ascending("Title") : null;
-
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
-
-			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator;
-			if (!gotRights)
-			{
-				// get organization
-				var organizationID = filter is FilterBys<Site>
-					? ((filter as FilterBys<Site>).Children.FirstOrDefault(exp => (exp as FilterBy<Site>).Attribute.IsEquals("SystemID")) as FilterBy<Site>)?.Value as string
-					: null;
-				if (string.IsNullOrWhiteSpace(organizationID))
-					organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-				var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (organization == null)
-					throw new InformationExistedException("The organization is invalid");
-
-				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
-				if (!gotRights)
-					throw new AccessDeniedException();
-			}
-
-			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(json))
-				return JObject.Parse(json);
-
-			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
-			if (totalRecords < 0)
-				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Module.CountAsync(filter, this.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
-					: await Module.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
-
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
-			if (totalPages > 0 && pageNumber > totalPages)
-				pageNumber = totalPages;
-
-			// search
-			var objects = totalRecords > 0
-				? string.IsNullOrWhiteSpace(query)
-					? await Module.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
-					: await Module.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Module>();
-
-			// build result
-			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
-			var response = new JObject
-			{
-				{ "FilterBy", filter.ToClientJson(query) },
-				{ "SortBy", sort?.ToClientJson() },
-				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
-			};
-
-			// update cache
-			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Create a module
-		async Task<JObject> CreateModuleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var requestBody = requestInfo.GetBodyExpando();
-			var organizationID = requestBody.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// create new module
-			var module = requestBody.CreateModuleInstance("SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.SystemID = organization.ID;
-				obj.Created = obj.LastModified = DateTime.Now;
-				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-			});
-			await Task.WhenAll(
-				Module.CreateAsync(module, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Module>.And(), Sorts<Module>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(), Sorts<Module>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(module.ModuleDefinitionID), Sorts<Module>.Ascending("Title")), cancellationToken)
-			).ConfigureAwait(false);
-
-			// create new content-types
-			var contentTypeJson = new JObject
-			{
-				{ "SystemID", module.SystemID },
-				{ "RepositoryID", module.ID },
-				{ "ContentTypeDefinitionID", "" },
-				{ "Title", "" }
-			};
-
-			await Utility.ModuleDefinitions[module.ModuleDefinitionID].ContentTypeDefinitions.ForEachAsync(async (contentTypeDefinition, token) =>
-			{
-				contentTypeJson["ContentTypeDefinitionID"] = contentTypeDefinition.ID;
-				contentTypeJson["Title"] = contentTypeDefinition.Title;
-				await this.CreateContentTypeAsync(contentTypeJson, organization.ID, requestInfo.Session.User.ID, null, null, token).ConfigureAwait(false);
-			}, cancellationToken, true, false).ConfigureAwait(false);
-
-			// update instance/cache
-			await module.GetContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
-			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
-
-			// send update messages
-			var response = module.ToJson(true, false);
-			var objectName = module.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Create",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Create",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Get a module
-		async Task<JObject> GetModuleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var module = await (requestInfo.GetObjectIdentity() ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (module == null)
-				throw new InformationNotFoundException();
-			else if (module.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(module.Organization.OwnerID) || requestInfo.Session.User.IsViewer(module.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			await module.GetContentTypesAsync(cancellationToken).ConfigureAwait(false);
-			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
-
-			// send the update message to update to all other connected clients and response
-			var response = module.ToJson(true, false);
-			await this.SendUpdateMessageAsync(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{module.GetTypeName(true)}#Update",
-				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}, cancellationToken).ConfigureAwait(false);
-			return response;
-		}
-		#endregion
-
-		#region Update a module
-		async Task<JObject> UpdateModuleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var module = await (requestInfo.GetObjectIdentity() ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (module == null)
-				throw new InformationNotFoundException();
-			else if (module.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(module.Organization.OwnerID) || requestInfo.Session.User.IsModerator(module.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// update
-			module.UpdateModuleInstance(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-			});
-			await Task.WhenAll(
-				Module.UpdateAsync(module, requestInfo.Session.User.ID, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Module>.And(), Sorts<Module>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(), Sorts<Module>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(module.ModuleDefinitionID), Sorts<Module>.Ascending("Title")), cancellationToken),
-				module.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var response = module.ToJson();
-			var objectName = module.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Delete a module
-		async Task<JObject> DeleteModuleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var module = await (requestInfo.GetObjectIdentity() ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (module == null)
-				throw new InformationNotFoundException();
-			else if (module.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(module.Organization.OwnerID) || requestInfo.Session.User.IsModerator(module.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// TO DO: delete all content-types and business objects first
-			// .......
-
-			// delete
-			await Module.DeleteAsync<Module>(module.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			module.Remove();
-
-			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<Module>.And(), Sorts<Module>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(), Sorts<Module>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(module.ModuleDefinitionID), Sorts<Module>.Ascending("Title")), cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var response = module.ToJson();
-			var objectName = module.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Delete",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Delete",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-		#endregion
-
-		Task<JObject> ProcessContentTypeAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
 			switch (requestInfo.Verb)
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? this.SearchContentTypesAsync(requestInfo, cancellationToken)
-						: this.GetContentTypeAsync(requestInfo, cancellationToken);
+						? await requestInfo.SearchContentTypesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetContentTypeAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return this.CreateContentTypeAsync(requestInfo, cancellationToken);
+					return await requestInfo.CreateContentTypeAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return this.UpdateContentTypeAsync(requestInfo, cancellationToken);
+					return await requestInfo.UpdateContentTypeAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return this.DeleteContentTypeAsync(requestInfo, cancellationToken);
+					return await requestInfo.DeleteContentTypeAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
 			}
-
-			return Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
 		}
 
-		#region Search content-types
-		async Task<JObject> SearchContentTypesAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JObject> ProcessCategoryAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			// prepare
-			var request = requestInfo.GetRequestExpando();
-
-			var query = request.Get<string>("FilterBy.Query");
-			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<ContentType>() ?? Filters<ContentType>.And();
-			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<ContentType>() ?? Sorts<ContentType>.Ascending("Title") : null;
-
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
-
-			// check permission
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator;
-			if (!gotRights)
+			switch (requestInfo.Verb)
 			{
-				// get organization
-				var organizationID = filter is FilterBys<Site>
-					? ((filter as FilterBys<Site>).Children.FirstOrDefault(exp => (exp as FilterBy<Site>).Attribute.IsEquals("SystemID")) as FilterBy<Site>)?.Value as string
-					: null;
-				if (string.IsNullOrWhiteSpace(organizationID))
-					organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-				var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (organization == null)
-					throw new InformationExistedException("The organization is invalid");
+				case "GET":
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? await requestInfo.SearchCategorysAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetCategoryAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
-				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
-				if (!gotRights)
-					throw new AccessDeniedException();
+				case "POST":
+					return await requestInfo.CreateCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "PUT":
+					return await requestInfo.UpdateCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "DELETE":
+					return await requestInfo.DeleteCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
 			}
-
-			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(json))
-				return JObject.Parse(json);
-
-			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
-			if (totalRecords < 0)
-				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await ContentType.CountAsync(filter, this.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
-					: await ContentType.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
-
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
-			if (totalPages > 0 && pageNumber > totalPages)
-				pageNumber = totalPages;
-
-			// search
-			var objects = totalRecords > 0
-				? string.IsNullOrWhiteSpace(query)
-					? await ContentType.FindAsync(filter, sort, pageSize, pageNumber, this.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
-					: await ContentType.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<ContentType>();
-
-			// build result
-			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
-			var response = new JObject
-			{
-				{ "FilterBy", filter.ToClientJson(query) },
-				{ "SortBy", sort?.ToClientJson() },
-				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
-			};
-
-			// update cache
-			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(this.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
-
-			// response
-			return response;
 		}
-		#endregion
-
-		#region Create a content-type
-		async Task<ContentType> CreateContentTypeAsync(ExpandoObject data, string systemID, string userID, string excludedProperties = null, string excludedDeviceID = null, CancellationToken cancellationToken = default)
-		{
-			// create new
-			var contentType = data.CreateContentTypeInstance(excludedProperties, obj =>
-			{
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.SystemID = systemID;
-				obj.Created = obj.LastModified = DateTime.Now;
-				obj.CreatedID = obj.LastModifiedID = userID;
-				obj.NormalizeExtras();
-			});
-			await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
-
-			// clear related cache
-			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<ContentType>.And(), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var json = contentType.ToJson();
-			var objectName = contentType.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Create",
-					Data = json,
-					DeviceID = "*",
-					ExcludedDeviceID = excludedDeviceID ?? ""
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Create",
-					Data = json,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// return the object
-			return await contentType.SetAsync(false, cancellationToken).ConfigureAwait(false);
-		}
-
-		Task<ContentType> CreateContentTypeAsync(JObject data, string systemID, string userID, string excludedProperties = null, string excludedDeviceID = null, CancellationToken cancellationToken = default)
-			=> this.CreateContentTypeAsync(data.ToExpandoObject(), systemID, userID, excludedProperties, excludedDeviceID, cancellationToken);
-
-		async Task<JObject> CreateContentTypeAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var requestBody = requestInfo.GetBodyExpando();
-			var organizationID = requestBody.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// create new
-			var contentType = await this.CreateContentTypeAsync(requestBody, organization.ID, requestInfo.Session.User.ID, "SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", requestInfo.Session.DeviceID, cancellationToken).ConfigureAwait(false);
-			return contentType.ToJson();
-		}
-		#endregion
-
-		#region Get a content-type
-		async Task<JObject> GetContentTypeAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null)
-				throw new InformationNotFoundException();
-			else if (contentType.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(contentType.Organization.OwnerID) || requestInfo.Session.User.IsViewer(contentType.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// send the update message to update to all other connected clients and response
-			var response = contentType.ToJson();
-			await this.SendUpdateMessageAsync(new UpdateMessage
-			{
-				Type = $"{this.ServiceName}#{contentType.GetTypeName(true)}#Update",
-				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}, cancellationToken).ConfigureAwait(false);
-			return response;
-		}
-		#endregion
-
-		#region Update a content-type
-		async Task<JObject> UpdateContentTypeAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null)
-				throw new InformationNotFoundException();
-			else if (contentType.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(contentType.Organization.OwnerID) || requestInfo.Session.User.IsModerator(contentType.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// update
-			contentType.UpdateContentTypeInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,EntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-			});
-			await Task.WhenAll(
-				ContentType.UpdateAsync(contentType, requestInfo.Session.User.ID, cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<ContentType>.And(), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				contentType.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var response = contentType.ToJson();
-			var objectName = contentType.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-		#endregion
-
-		#region Delete a content-type
-		async Task<JObject> DeleteContentTypeAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null)
-				throw new InformationNotFoundException();
-			else if (contentType.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(contentType.Organization.OwnerID) || requestInfo.Session.User.IsModerator(contentType.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// TO DO: delete all business objects first
-			// .......
-
-			// delete
-			await ContentType.DeleteAsync<ContentType>(contentType.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			contentType.Remove();
-
-			await Task.WhenAll(
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(Filters<ContentType>.And(), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(this.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID, contentType.ContentTypeDefinitionID), Sorts<ContentType>.Ascending("Title")), cancellationToken)
-			).ConfigureAwait(false);
-
-			// send update messages
-			var response = contentType.ToJson();
-			var objectName = contentType.GetTypeName(true);
-			await Task.WhenAll(
-				this.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{this.ServiceName}#{objectName}#Delete",
-					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
-				}, cancellationToken),
-				this.SendInterCommunicateMessageAsync(new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{objectName}#Delete",
-					Data = response,
-					ExcludedNodeID = this.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-		#endregion
 
 		#region Process communicate message of Portals service
 		protected override async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			// prepare
+			if (message?.Type == null || message?.Data == null)
+				return;
+
 			var correlationID = UtilityService.NewUUID;
 			if (this.IsDebugLogEnabled)
 				this.WriteLogs(correlationID, $"Process an inter-communicate message\r\n{message?.ToJson()}");
 
-			var request = message.Data?.ToExpandoObject();
-			if (request == null)
-				return;
+			// messages of an organization
+			if (message.Type.StartsWith("Organization#"))
+				await message.ProcessInterCommunicateMessageOfOrganizationAsync(cancellationToken).ConfigureAwait(false);
 
-			// create/update an orgaization
-			if (message.Type.IsEquals("Organization#Create") || message.Type.IsEquals("Organization#Update"))
-				await message.Data.ToExpandoObject().CreateOrganizationInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
+			// messages of a site
+			else if (message.Type.StartsWith("Site#"))
+				await message.ProcessInterCommunicateMessageOfSiteAsync(cancellationToken).ConfigureAwait(false);
 
-			// delete an orgaization
-			else if (message.Type.IsEquals("Organization#Delete"))
-				message.Data.ToExpandoObject().CreateOrganizationInstance().Remove();
+			// messages a role
+			else if (message.Type.StartsWith("Role#"))
+				await message.ProcessInterCommunicateMessageOfRoleAsync(cancellationToken).ConfigureAwait(false);
 
-			// update a site
-			else if (message.Type.IsEquals("Site#Create") || message.Type.IsEquals("Site#Update"))
-				await message.Data.ToExpandoObject().CreateSiteInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
+			// messages of a desktop
+			else if (message.Type.StartsWith("Desktop#"))
+				await message.ProcessInterCommunicateMessageOfDesktopAsync(cancellationToken).ConfigureAwait(false);
 
-			// delete a site
-			else if (message.Type.IsEquals("Site#Delete"))
-				message.Data.ToExpandoObject().CreateSiteInstance().Remove();
+			// messages a module
+			else if (message.Type.StartsWith("Module#"))
+				await message.ProcessInterCommunicateMessageOfModuleAsync(cancellationToken).ConfigureAwait(false);
 
-			// update a role
-			else if (message.Type.IsEquals("Role#Create") || message.Type.IsEquals("Role#Update"))
-				await message.Data.ToExpandoObject().CreateRoleInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
+			// messages a content-type
+			else if (message.Type.StartsWith("ContentType#"))
+				await message.ProcessInterCommunicateMessageOfContentTypeAsync(cancellationToken).ConfigureAwait(false);
 
-			// delete a role
-			else if (message.Type.IsEquals("Role#Delete"))
-				message.Data.ToExpandoObject().CreateRoleInstance().Remove();
-
-			// update a desktop
-			else if (message.Type.IsEquals("Desktop#Create") || message.Type.IsEquals("Desktop#Update"))
-				await message.Data.ToExpandoObject().CreateDesktopInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
-
-			// delete a desktop
-			else if (message.Type.IsEquals("Desktop#Delete"))
-				message.Data.ToExpandoObject().CreateDesktopInstance().Remove();
-
-			// update a module
-			else if (message.Type.IsEquals("Module#Create") || message.Type.IsEquals("Module#Update"))
-				await message.Data.ToExpandoObject().CreateModuleInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
-
-			// delete a module
-			else if (message.Type.IsEquals("Module#Delete"))
-				message.Data.ToExpandoObject().CreateModuleInstance().Remove();
-
-			// update a content-type
-			else if (message.Type.IsEquals("ContentType#Create") || message.Type.IsEquals("ContentType#Update"))
-				await message.Data.ToExpandoObject().CreateContentTypeInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
-
-			// delete a content-type
-			else if (message.Type.IsEquals("ContentType#Delete"))
-				message.Data.ToExpandoObject().CreateContentTypeInstance().Remove();
+			// messages of a CMS category
+			else if (message.Type.StartsWith("Category#") || message.Type.StartsWith("CMS.Category#"))
+				await message.ProcessInterCommunicateMessageOfCategoryAsync(cancellationToken).ConfigureAwait(false);
 		}
 		#endregion
 

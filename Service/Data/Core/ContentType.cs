@@ -174,7 +174,7 @@ namespace net.vieapps.Services.Portals
 			this.EmailSettings?.Normalize();
 			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-			ModuleExtensions.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
+			ModuleProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
 		}
 
@@ -187,107 +187,11 @@ namespace net.vieapps.Services.Portals
 				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
 				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
 			}
-			else if (ModuleExtensions.ExtraProperties.Contains(name))
+			else if (ModuleProcessor.ExtraProperties.Contains(name))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
-		}
-	}
-
-	internal static class ContentTypeExtensions
-	{
-		internal static ConcurrentDictionary<string, ContentType> ContentTypes { get; } = new ConcurrentDictionary<string, ContentType>(StringComparer.OrdinalIgnoreCase);
-
-		internal static ContentType CreateContentTypeInstance(this ExpandoObject requestBody, string excluded = null, Action<ContentType> onCompleted = null)
-			=> requestBody.Copy<ContentType>(excluded?.ToHashSet(), contentType =>
-			{
-				contentType.OriginalPrivileges = contentType.OriginalPrivileges?.Normalize();
-				contentType.TrimAll();
-				onCompleted?.Invoke(contentType);
-			});
-
-		internal static ContentType UpdateContentTypeInstance(this ContentType contentType, ExpandoObject requestBody, string excluded = null, Action<ContentType> onCompleted = null)
-		{
-			contentType.CopyFrom(requestBody, excluded?.ToHashSet());
-			contentType.OriginalPrivileges = contentType.OriginalPrivileges?.Normalize();
-			contentType.TrimAll();
-			onCompleted?.Invoke(contentType);
-			return contentType;
-		}
-
-		internal static ContentType Set(this ContentType contentType, bool updateCache = false)
-		{
-			if (contentType != null)
-			{
-				ContentTypeExtensions.ContentTypes[contentType.ID] = contentType;
-				contentType.EntityDefinition.Register(contentType);
-				if (updateCache)
-					Utility.Cache.Set(contentType);
-			}
-			return contentType;
-		}
-
-		internal static async Task<ContentType> SetAsync(this ContentType contentType, bool updateCache = false, CancellationToken cancellationToken = default)
-		{
-			contentType?.Set();
-			await (updateCache && contentType != null ? Utility.Cache.SetAsync(contentType, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
-			return contentType;
-		}
-
-		internal static ContentType Remove(this ContentType contentType)
-			=> (contentType?.ID ?? "").RemoveContentType();
-
-		internal static ContentType RemoveContentType(this string id)
-		{
-			if (!string.IsNullOrWhiteSpace(id) && ContentTypeExtensions.ContentTypes.TryRemove(id, out var contentType) && contentType != null)
-			{
-				contentType.EntityDefinition.Unregister(contentType);
-				return contentType;
-			}
-			return null;
-		}
-
-		internal static ContentType GetContentTypeByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && ContentTypeExtensions.ContentTypes.ContainsKey(id)
-				? ContentTypeExtensions.ContentTypes[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? ContentType.Get<ContentType>(id).Set()
-					: null;
-
-		internal static async Task<ContentType> GetContentTypeByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetContentTypeByID(force, false) ?? (await ContentType.GetAsync<ContentType>(id, cancellationToken).ConfigureAwait(false))?.Set();
-
-		internal static IFilterBy<ContentType> GetContentTypesFilter(this string systemID, string repositoryID = null, string definitionID = null)
-		{
-			var filter = Filters<ContentType>.And(Filters<ContentType>.Equals("SystemID", systemID));
-			if (!string.IsNullOrWhiteSpace(repositoryID))
-				filter.Add(Filters<ContentType>.Equals("RepositoryID", repositoryID));
-			if (!string.IsNullOrWhiteSpace(definitionID))
-				filter.Add(Filters<ContentType>.Equals("DefinitionID", definitionID));
-			return filter;
-		}
-
-		internal static List<ContentType> GetContentTypes(this string systemID, string repositoryID = null, string definitionID = null, bool updateCache = true)
-		{
-			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<ContentType>();
-			var filter = systemID.GetContentTypesFilter(repositoryID, definitionID);
-			var sort = Sorts<ContentType>.Ascending("Title");
-			var contentTypes = ContentType.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
-			contentTypes.ForEach(contentType => contentType.Set(updateCache));
-			return contentTypes;
-		}
-
-		internal static async Task<List<ContentType>> GetContentTypesAsync(this string systemID, string repositoryID = null, string definitionID = null, CancellationToken cancellationToken = default, bool updateCache = true)
-		{
-			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<ContentType>();
-			var filter = systemID.GetContentTypesFilter(repositoryID, definitionID);
-			var sort = Sorts<ContentType>.Ascending("Title");
-			var contentTypes = await ContentType.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-			await contentTypes.ForEachAsync((contentType, token) => contentType.SetAsync(updateCache, token), cancellationToken).ConfigureAwait(false);
-			return contentTypes;
 		}
 	}
 }

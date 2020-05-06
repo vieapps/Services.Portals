@@ -28,92 +28,92 @@ namespace net.vieapps.Services.Portals
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Segment = "management", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management")]
 		[ParentMapping(Type = typeof(Category))]
-		[FormControl(Segment = "management", ControlType = "Lookup", Multiple = false, Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "management", ControlType = "Lookup", Multiple = false, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string CategoryID { get; set; }
 
 		[MultipleParentMappings(TableName = "T_Portals_CMS_Contents_Categories", LinkColumn = "ContentID", MapColumn = "CategoryID")]
-		[FormControl(Segment = "management", ControlType = "Lookup", Multiple = true, Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "management", ControlType = "Lookup", Multiple = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public List<string> OtherCategories { get; set; }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Alias(Properties = "CategoryID")]
 		[Searchable]
-		[FormControl(Segment = "management", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Alias { get; set; }
 
 		[Property(MaxLength = 10)]
 		[Sortable(IndexName = "Times")]
-		[FormControl(Segment = "management", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string StartDate { get; set; } = DateTime.Now.ToString("yyyy/MM/dd");
 
 		[Property(MaxLength = 10)]
 		[Sortable(IndexName = "Times")]
-		[FormControl(Segment = "management", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string EndDate { get; set; } = "-";
 
 		[Sortable(IndexName = "Times")]
-		[FormControl(Segment = "management", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public DateTime PublishedTime { get; set; } = DateTime.Now;
 
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Tags")]
 		[Searchable]
-		[FormControl(Segment = "management", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Tags { get; set; }
 
 		[Sortable(IndexName = "Management")]
-		[FormControl(Segment = "management", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public bool AllowComments { get; set; } = false;
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title")]
 		[Searchable]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public override string Title { get; set; }
 
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "SubTitle")]
 		[Searchable]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string SubTitle { get; set; }
 
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Author")]
 		[Searchable]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Author { get; set; }
 
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Source")]
 		[Searchable]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Source { get; set; }
 
 		[Property(MaxLength = 1000)]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string SourceURL { get; set; }
 
 		[Searchable]
-		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Summary { get; set; }
 
 		[Searchable]
 		[Property(IsCLOB = true)]
-		[FormControl(Segment = "basic", ControlType = "TextEditor", Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "TextEditor", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Details { get; set; }
 
 		[ChildrenMappings(TableName = "T_Portals_CMS_Contents_Relateds", LinkColumn = "FromID", MapColumn = "ToID")]
-		[FormControl(Segment = "related", ControlType = "Lookup", Multiple = true, Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "related", ControlType = "Lookup", Multiple = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public List<string> Relateds { get; set; }
 
 		[AsJson]
-		[FormControl(Segment = "related", AsArray = true, Label = "{{portals.cms.content.controls.[name].label}}", PlaceHolder = "{{portals.cms.content.controls.[name].placeholder}}", Description = "{{portals.cms.content.controls.[name].description}}")]
+		[FormControl(Segment = "related", AsArray = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public List<ExternalRelated> Externals { get; set; }
 
 		[Sortable(IndexName = "Audits")]

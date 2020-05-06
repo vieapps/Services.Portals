@@ -72,6 +72,14 @@ namespace net.vieapps.Services.Portals
 			=> allowMinusSymbols ? alias.GetANSIUri() : alias.GetANSIUri().Replace("-", "");
 
 		/// <summary>
+		/// Normalizes a domain name
+		/// </summary>
+		/// <param name="domain"></param>
+		/// <returns></returns>
+		public static string NormalizeDomain(this string domain)
+			=> domain.ToArray(".", true).Select(name => name.Equals("*") || name.Equals("~") ? name : name.GetANSIUri(true, true)).Where(name => !string.IsNullOrWhiteSpace(name)).Join(".");
+
+		/// <summary>
 		/// Gets the parent content-type of this content-type
 		/// </summary>
 		/// <param name="contentType"></param>
