@@ -110,6 +110,8 @@ namespace net.vieapps.Services.Portals
 				this.Indexable = definition.Indexable;
 				this.Extendable = definition.Extendable;
 				this.ObjectName = definition.ObjectName;
+				this.ObjectNamePrefix = definition.ObjectNamePrefix;
+				this.ObjectNameSuffix = definition.ObjectNameSuffix;
 				this.ParentObjectName = definition.ParentType?.GetTypeName(true);
 			}
 		}
@@ -130,7 +132,7 @@ namespace net.vieapps.Services.Portals
 		public string Description { get; set; }
 
 		/// <summary>
-		/// Gets or sets the name of the icon for working with user interfaces (means the value of EntityAttribute.Icon)
+		/// Gets or Sets the name of the icon for working with user interfaces (means the value of EntityAttribute.Icon)
 		/// </summary>
 		public string Icon { get; set; }
 
@@ -140,7 +142,7 @@ namespace net.vieapps.Services.Portals
 		public bool MultipleIntances { get; set; }
 
 		/// <summary>
-		/// Gets or sets the state that specifies the data of run-time entities are able to index with global search module (means the value of EntityAttribute.Indexable)
+		/// Gets or Sets the state that specifies the data of run-time entities are able to index with global search module (means the value of EntityAttribute.Indexable)
 		/// </summary>
 		public bool Indexable { get; set; }
 
@@ -150,9 +152,19 @@ namespace net.vieapps.Services.Portals
 		public bool Extendable { get; set; }
 
 		/// <summary>
-		/// Gets or sets the name of the service's object that associates with this content-type definition
+		/// Gets or Sets the name of the service's object that associates with this content-type definition
 		/// </summary>
 		public string ObjectName { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the name prefix of the service's object that associates with this content-type definition
+		/// </summary>
+		public string ObjectNamePrefix { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the name suffix of the service's object that associates with this content-type definition
+		/// </summary>
+		public string ObjectNameSuffix { get; set; }
 
 		/// <summary>
 		/// Gets or Sets the name of the service's object that associates as parent object (means the type-name value of EntityAttribute.ParentType)
@@ -195,147 +207,147 @@ namespace net.vieapps.Services.Portals
 
 		#region Properties
 		/// <summary>
-		/// Gets or sets the name
+		/// Gets or Sets the name
 		/// </summary>
 		public string Name { get; set; }
 
 		/// <summary>
-		/// Gets or sets the excluded state
+		/// Gets or Sets the excluded state
 		/// </summary>
 		public bool Excluded { get; set; } = false;
 
 		/// <summary>
-		/// Gets or sets the hidden state
+		/// Gets or Sets the hidden state
 		/// </summary>
 		public bool Hidden { get; set; } = false;
 
 		/// <summary>
-		/// Gets or sets the state that mark this property is hidden in the view or not
+		/// Gets or Sets the state that mark this property is hidden in the view or not
 		/// </summary>
 		public bool? HiddenInView { get; set; }
 
 		/// <summary>
-		/// Gets or sets the require state
+		/// Gets or Sets the require state
 		/// </summary>
 		public bool Required { get; set; } = false;
 
 		/// <summary>
-		/// Gets or sets the label - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
+		/// Gets or Sets the label - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
 		/// </summary>
 		public string Label { get; set; }
 
 		/// <summary>
-		/// Gets or sets the place-holder - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
+		/// Gets or Sets the place-holder - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
 		/// </summary>
 		public string PlaceHolder { get; set; }
 
 		/// <summary>
-		/// Gets or sets the description - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
+		/// Gets or Sets the description - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
 		/// </summary>
 		public string Description { get; set; }
 
 		/// <summary>
-		/// Gets or sets the RegEx pattern for data validation
+		/// Gets or Sets the RegEx pattern for data validation
 		/// </summary>
 		public bool ValidatePattern { get; set; }
 
 		/// <summary>
-		/// Gets or sets the name of a standard property that the UI control of extended property will place before
+		/// Gets or Sets the name of a standard property that the UI control of extended property will place before
 		/// </summary>
 		public string PlaceBefore { get; set; }
 
 		/// <summary>
-		/// Gets or sets the disable state
+		/// Gets or Sets the disable state
 		/// </summary>
 		public bool? Disabled { get; set; }
 
 		/// <summary>
-		/// Gets or sets the read-only state
+		/// Gets or Sets the read-only state
 		/// </summary>
 		public bool? ReadOnly { get; set; }
 
 		/// <summary>
-		/// Gets or sets the auto-focus state
+		/// Gets or Sets the auto-focus state
 		/// </summary>
 		public bool? AutoFocus { get; set; }
 
 		/// <summary>
-		/// Gets or sets the min value
+		/// Gets or Sets the min value
 		/// </summary>
 		public double? MinValue { get; set; }
 
 		/// <summary>
-		/// Gets or sets the max value
+		/// Gets or Sets the max value
 		/// </summary>
 		public double? MaxValue { get; set; }
 
 		/// <summary>
-		/// Gets or sets the min-length
+		/// Gets or Sets the min-length
 		/// </summary>
 		public int? MinLength { get; set; }
 
 		/// <summary>
-		/// Gets or sets the max-length
+		/// Gets or Sets the max-length
 		/// </summary>
 		public int? MaxLength { get; set; }
 
 		/// <summary>
-		/// Gets or sets the width
+		/// Gets or Sets the width
 		/// </summary>
 		public string Width { get; set; }
 
 		/// <summary>
-		/// Gets or sets the height
+		/// Gets or Sets the height
 		/// </summary>
 		public string Height { get; set; }
 
 		/// <summary>
-		/// Gets or sets the state to act as text/html editor
+		/// Gets or Sets the state to act as text/html editor
 		/// </summary>
 		public bool? AsTextEditor { get; set; }
 
 		/// <summary>
-		/// Gets or sets the date-picker with times
+		/// Gets or Sets the date-picker with times
 		/// </summary>
 		public bool? DatePickerWithTimes { get; set; }
 
 		/// <summary>
-		/// Gets or sets the multiple of select/lookup control
+		/// Gets or Sets the multiple of select/lookup control
 		/// </summary>
 		public bool? Multiple { get; set; }
 
 		/// <summary>
-		/// Gets or sets the values of select control (JSON string)
+		/// Gets or Sets the values of select control (JSON string)
 		/// </summary>
 		public string SelectValues { get; set; }
 
 		/// <summary>
-		/// Gets or sets the 'as-boxes' of select control
+		/// Gets or Sets the 'as-boxes' of select control
 		/// </summary>
 		public bool? SelectAsBoxes { get; set; }
 
 		/// <summary>
-		/// Gets or sets the interface mode of select control (alert, popover, actionsheet)
+		/// Gets or Sets the interface mode of select control (alert, popover, actionsheet)
 		/// </summary>
 		public string SelectInterface { get; set; }
 
 		/// <summary>
-		/// Gets or sets the mode for looking-up (Address, User or Business Object)
+		/// Gets or Sets the mode for looking-up (Address, User or Business Object)
 		/// </summary>
 		public string LookupMode { get; set; }
 
 		/// <summary>
-		/// Gets or sets the identity of the business repository for looking-up
+		/// Gets or Sets the identity of the business repository for looking-up
 		/// </summary>
 		public string LookupRepositoryID { get; set; }
 
 		/// <summary>
-		/// Gets or sets the identity of the business entity for looking-up
+		/// Gets or Sets the identity of the business entity for looking-up
 		/// </summary>
 		public string LookupRepositoryEntityID { get; set; }
 
 		/// <summary>
-		/// Gets or sets the name of business entity's property for displaying while looking-up
+		/// Gets or Sets the name of business entity's property for displaying while looking-up
 		/// </summary>
 		public string LookupProperty { get; set; }
 		#endregion
