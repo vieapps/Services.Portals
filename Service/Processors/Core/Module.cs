@@ -126,7 +126,8 @@ namespace net.vieapps.Services.Portals
 		}
 
 		static Task ClearRelatedCache(this Module module, CancellationToken cancellationToken = default)
-			=> Task.WhenAll(
+			=> Task.WhenAll
+			(
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Module>.And(), Sorts<Module>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(), Sorts<Module>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(module.ModuleDefinitionID), Sorts<Module>.Ascending("Title")), cancellationToken)
@@ -245,21 +246,25 @@ namespace net.vieapps.Services.Portals
 			var contentTypeJson = new JObject
 			{
 				{ "SystemID", module.SystemID },
-				{ "RepositoryID", module.ID },
-				{ "ContentTypeDefinitionID", "" },
-				{ "Title", "" }
+				{ "RepositoryID", module.ID }
 			};
-
+			module._contentTypeIDs = new List<string>();
 			await Utility.ModuleDefinitions[module.ModuleDefinitionID].ContentTypeDefinitions.ForEachAsync(async (contentTypeDefinition, token) =>
 			{
 				contentTypeJson["ContentTypeDefinitionID"] = contentTypeDefinition.ID;
 				contentTypeJson["Title"] = contentTypeDefinition.Title;
+				contentTypeJson["Description"] = contentTypeDefinition.Description;
 				await contentTypeJson.CreateContentTypeAsync(organization.ID, requestInfo.Session.User.ID, null, null, requestInfo.ServiceName, nodeID, rtuService, token).ConfigureAwait(false);
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
-			// update instance/cache
-			await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
-			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+			// update instance/cache of organization
+			if (organization._moduleIDs == null)
+				await organization.FindModulesAsync(cancellationToken).ConfigureAwait(false);
+			else
+			{
+				organization._moduleIDs.Add(module.ID);
+				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update messages
 			var response = module.ToJson(true, false);
@@ -298,8 +303,12 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			await module.FindContentTypesAsync(cancellationToken).ConfigureAwait(false);
-			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+			// get content-types
+			if (module._contentTypeIDs == null)
+			{
+				await module.FindContentTypesAsync(cancellationToken).ConfigureAwait(false);
+				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send the update message to update to all other connected clients and response
 			var response = module.ToJson(true, false);
@@ -377,13 +386,20 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// TO DO: delete all content-types and business objects first
+			// TO DO: delete all content-types (and business objects) first
 			// .......
 
 			// delete
 			await Module.DeleteAsync<Module>(module.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			module.Remove();
 			await module.ClearRelatedCache(cancellationToken).ConfigureAwait(false);
+
+			// update instance/cache of organization
+			if (module.Organization._moduleIDs != null)
+			{
+				module.Organization._moduleIDs.Remove(module.ID);
+				await module.Organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update messages
 			var response = module.ToJson();

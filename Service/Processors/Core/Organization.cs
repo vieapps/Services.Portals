@@ -293,6 +293,13 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// get modules
+			if (organization._moduleIDs == null)
+			{
+				await organization.FindModulesAsync(cancellationToken).ConfigureAwait(false);
+				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			}
+
 			// response
 			return identity.IsValidUUID()
 				? organization.ToJson(true, false)

@@ -126,7 +126,8 @@ namespace net.vieapps.Services.Portals
 		}
 
 		static Task ClearRelatedCache(this ContentType contentType, CancellationToken cancellationToken = default)
-			=> Task.WhenAll(
+			=> Task.WhenAll
+			(
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<ContentType>.And(), Sorts<ContentType>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(null), Sorts<ContentType>.Ascending("Title")), cancellationToken),
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(contentType.SystemID.GetContentTypesFilter(contentType.RepositoryID), Sorts<ContentType>.Ascending("Title")), cancellationToken),
@@ -226,9 +227,16 @@ namespace net.vieapps.Services.Portals
 				obj.NormalizeExtras();
 			});
 			await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
-
-			// clear related cache
 			await contentType.ClearRelatedCache(cancellationToken).ConfigureAwait(false);
+
+			// update instance/cache of module
+			if (contentType.Module._contentTypeIDs == null)
+				await contentType.Module.FindContentTypesAsync(cancellationToken).ConfigureAwait(false);
+			else
+			{
+				contentType.Module._contentTypeIDs.Add(contentType.ID);
+				await contentType.Module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update messages
 			var json = contentType.ToJson();
@@ -370,8 +378,15 @@ namespace net.vieapps.Services.Portals
 
 			// delete
 			await ContentType.DeleteAsync<ContentType>(contentType.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			contentType.Remove();
 			await contentType.ClearRelatedCache(cancellationToken).ConfigureAwait(false);
+			contentType.Remove();
+
+			// update instance/cache of module
+			if (contentType.Module._contentTypeIDs != null)
+			{
+				contentType.Module._contentTypeIDs.Remove(contentType.ID);
+				await contentType.Module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update messages
 			var response = contentType.ToJson();
