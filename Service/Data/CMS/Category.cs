@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements]
 	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Categories", TableName = "T_Portals_CMS_Categories", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ObjectName = "Category", ID = "B0000000000000000000000000000001", Title = "Category", Description = "Categorizing the CMS contents")]
+	[Entity(CollectionName = "CMS_Categories", TableName = "T_Portals_CMS_Categories", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000001", Title = "Category", Description = "Categorizing the CMS contents", ObjectNamePrefix = "CMS.")]
 	public sealed class Category : Repository<Category>, IBusinessObject, INestedObject, IAliasEntity
 	{
 		public Category() : base() { }

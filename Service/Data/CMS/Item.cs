@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements]
 	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Items", TableName = "T_Portals_CMS_Items", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ObjectName = "Link", ID = "B0000000000000000000000000000003", Title = "Item", Description = "Simple content in the CMS module", MultipleIntances = true, Indexable = true, Extendable = true)]
+	[Entity(CollectionName = "CMS_Items", TableName = "T_Portals_CMS_Items", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000003", Title = "Item", Description = "Simple content in the CMS module", ObjectNamePrefix = "CMS.", MultipleIntances = true, Indexable = true, Extendable = true)]
 	public sealed class Item : Repository<Item>, IBusinessObject, IAliasEntity
 	{
 		public Item() : base() { }

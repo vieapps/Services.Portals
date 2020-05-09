@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 {
 	[Serializable, BsonIgnoreExtraElements]
 	[DebuggerDisplay("ID = {ID}, Name = {Name}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Contacts", TableName = "T_Portals_CMS_Contacts", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ObjectName = "Contact", ID = "B0000000000000000000000000000005", Title = "Contact", Description = "Contact information", MultipleIntances = true, Extendable = true)]
+	[Entity(CollectionName = "CMS_Contacts", TableName = "T_Portals_CMS_Contacts", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000005", Title = "Contact", Description = "Contact information", ObjectNamePrefix = "Utils.", MultipleIntances = true, Extendable = true)]
 	public sealed class Contact : Repository<Contact>, IBusinessObject
 	{
 		public Contact() : base() { }
