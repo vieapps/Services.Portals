@@ -69,7 +69,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="allowMinusSymbols"></param>
 		/// <returns></returns>
 		public static string NormalizeAlias(this string alias, bool allowMinusSymbols = true)
-			=> allowMinusSymbols ? alias.GetANSIUri() : alias.GetANSIUri().Replace("-", "");
+			=> allowMinusSymbols ? alias.GetANSIUri() : alias.GetANSIUri().Replace("-", "").Replace("_", "");
 
 		/// <summary>
 		/// Normalizes a domain name
@@ -77,7 +77,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="domain"></param>
 		/// <returns></returns>
 		public static string NormalizeDomain(this string domain)
-			=> domain.ToArray(".", true).Select(name => name.Equals("*") || name.Equals("~") ? name : name.GetANSIUri(true, true)).Where(name => !string.IsNullOrWhiteSpace(name)).Join(".");
+			=> domain.ToArray(".", true).Select(name => name.Equals("*") || name.Equals("~") ? name : name.GetANSIUri(true, false, true)).Where(name => !string.IsNullOrWhiteSpace(name)).Join(".");
 
 		/// <summary>
 		/// Gets the parent content-type of this content-type
@@ -91,6 +91,18 @@ namespace net.vieapps.Services.Portals
 				? contentType?.Module?.ContentTypes?.FirstOrDefault(type => type.ContentTypeDefinitionID.Equals(parentDefinition.ID))
 				: null;
 		}
+
+		/// <summary>
+		/// Gets the value of 'Equals' filter expression
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="filter"></param>
+		/// <param name="name">The name of attribute that appeared in 'Equals' child filter expression</param>
+		/// <returns></returns>
+		public static string GetValue<T>(this IFilterBy<T> filter, string name) where T : class
+			=> filter is FilterBys<T>
+				? ((filter as FilterBys<T>).Children.FirstOrDefault(exp => (exp as FilterBy<T>).Attribute.IsEquals(name)) as FilterBy<T>)?.Value as string
+				: null;
 	}
 
 	//  --------------------------------------------------------------------------------------------
