@@ -81,9 +81,12 @@ namespace net.vieapps.Services.Portals
 					? Category.Get<Category>(id)?.Set()
 					: null;
 
+		public static async Task<Category> GetCategoryByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
+			=> (id ?? "").GetCategoryByID(force, false) ?? (await Category.GetAsync<Category>(id, cancellationToken).ConfigureAwait(false))?.Set();
+
 		public static Category GetCategoryByAlias(this string repositoryEntityID, string alias, bool fetchRepository = true)
 		{
-			if (string.IsNullOrWhiteSpace(alias))
+			if (string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias))
 				return null;
 
 			var category = CategoryProcessor.CategoriesByAlias.ContainsKey($"{repositoryEntityID}:{alias.NormalizeAlias()}")
@@ -98,9 +101,6 @@ namespace net.vieapps.Services.Portals
 
 		public static async Task<Category> GetCategoryByAliasAsync(this string repositoryEntityID, string alias, CancellationToken cancellationToken = default)
 			=> (repositoryEntityID ?? "").GetCategoryByAlias(alias, false) ?? (await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID, cancellationToken).ConfigureAwait(false))?.Set();
-
-		public static async Task<Category> GetCategoryByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetCategoryByID(force, false) ?? (await Category.GetAsync<Category>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
 		public static IFilterBy<Category> GetCategoriesFilter(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null)
 		{
@@ -158,11 +158,22 @@ namespace net.vieapps.Services.Portals
 
 		static Task ClearRelatedCache(this Category category, string oldParentID = null, CancellationToken cancellationToken = default)
 		{
-			var tasks = new List<Task> { Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, null), Sorts<Category>.Ascending("Title")), cancellationToken) };
+			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
+			var tasks = new List<Task>
+			{
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, null, null), sort), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, null), sort), cancellationToken)
+			};
 			if (!string.IsNullOrWhiteSpace(category.ParentID) && category.ParentID.IsValidUUID())
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, category.ParentID), Sorts<Category>.Ascending("Title")), cancellationToken));
+			{
+				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, null, category.ParentID), sort), cancellationToken));
+				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, category.ParentID), sort), cancellationToken));
+			}
 			if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, oldParentID), Sorts<Category>.Ascending("Title")), cancellationToken));
+			{
+				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, null, oldParentID), sort), cancellationToken));
+				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, oldParentID), sort), cancellationToken));
+			}
 			return Task.WhenAll(tasks);
 		}
 
@@ -186,24 +197,25 @@ namespace net.vieapps.Services.Portals
 					(filter as FilterBys<Category>).Children.Add(Filters<Category>.IsNull("ParentID"));
 			}
 
-			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Category>() ?? Sorts<Category>.Ascending("Title") : null;
+			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Category>() ?? Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title") : null;
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
 			var pageSize = pagination.Item3;
 			var pageNumber = pagination.Item4;
 
 			// get organization
-			var organizationID = filter is FilterBys<Category>
-				? ((filter as FilterBys<Category>).Children.FirstOrDefault(exp => (exp as FilterBy<Category>).Attribute.IsEquals("SystemID")) as FilterBy<Category>)?.Value as string
-				: null;
-			if (string.IsNullOrWhiteSpace(organizationID))
-				organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
+			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationExistedException("The organization is invalid");
 
+			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("x-module") ?? requestInfo.GetParameter("RepositoryID");
+			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (module == null || !module.SystemID.IsEquals(organization.ID))
+				throw new InformationInvalidException("The module is invalid");
+
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsViewer(organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsViewer(module.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -237,7 +249,7 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
+				{ "Objects", requestInfo.GetHeaderParameter("x-children") != null ? objects.Select(category => category.ToJson(true, false)).ToJArray() : objects.ToJsonArray() }
 			};
 
 			// update cache
@@ -259,13 +271,24 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var request = requestInfo.GetBodyExpando();
+
 			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
+			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("x-module") ?? requestInfo.GetParameter("RepositoryID");
+			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (module == null || !module.SystemID.IsEquals(organization.ID))
+				throw new InformationInvalidException("The module is invalid");
+
+			var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type") ?? requestInfo.GetParameter("RepositoryEntityID");
+			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
+				throw new InformationInvalidException("The content-type is invalid");
+
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(module.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -273,23 +296,37 @@ namespace net.vieapps.Services.Portals
 			var alias = request.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await organization.ID.GetCategoryByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+				var existing = await contentType.ID.GetCategoryByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
 				if (existing != null)
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another category");
+					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another CMS category");
 			}
 
 			// create new
-			var category = request.CreateCategoryInstance("SystemID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", async obj =>
+			var category = request.CreateCategoryInstance("SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.SystemID = organization.ID;
+				obj.RepositoryID = module.ID;
+				obj.RepositoryEntityID = contentType.ID;
 				obj.ParentID = obj.ParentCategory != null ? obj.ParentID : null;
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.OrderIndex = (await obj.SystemID.GetLastOrderIndexAsync(obj.RepositoryID, obj.RepositoryEntityID, obj.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
 				obj._childrenIDs = new List<string>();
 			});
+
+			if (string.IsNullOrWhiteSpace(category.Alias))
+			{
+				category.Alias = category.Title.NormalizeAlias();
+				var existing = await contentType.ID.GetCategoryByAliasAsync(category.Alias, cancellationToken).ConfigureAwait(false);
+				if (existing != null)
+					throw new InformationExistedException($"The alias ({category.Alias}) is used by another CMS category");
+			}
+			else
+				category.Alias = category.Alias.NormalizeAlias();
+
+			category.OrderIndex = (await category.SystemID.GetLastOrderIndexAsync(category.RepositoryID, category.RepositoryEntityID, category.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
+
 			await Task.WhenAll(
 				Category.CreateAsync(category, cancellationToken),
 				category.ClearRelatedCache(null, cancellationToken),
@@ -298,25 +335,29 @@ namespace net.vieapps.Services.Portals
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = category.GetTypeName(true);
+			var entityDefinition = RepositoryMediator.GetEntityDefinition<Category>();
+			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 
 			// update parent
-			if (category.ParentCategory != null)
+			var parentCategory = category.ParentCategory;
+			if (parentCategory != null)
 			{
-				await category.ParentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				category.ParentCategory._childrenIDs.Add(category.ID);
-				await category.ParentCategory.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, category.ParentID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
+				await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				if (parentCategory._childrenIDs.IndexOf(category.ID) < 0)
+					parentCategory._childrenIDs.Add(category.ID);
+				await parentCategory.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
-				var json = category.ParentCategory.ToJson(true, false);
+				var json = parentCategory.ToJson(true, false);
 				updateMessages.Add(new UpdateMessage
 				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
 				});
 				communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{objectName}#Create",
+					Type = $"{objectName}#Update",
 					Data = json,
 					ExcludedNodeID = nodeID
 				});
@@ -324,10 +365,11 @@ namespace net.vieapps.Services.Portals
 
 			// message to update to all other connected clients
 			var response = category.ToJson(true, false);
+
 			if (category.ParentCategory == null)
 				updateMessages.Add(new UpdateMessage
 				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 					DeviceID = "*",
 					ExcludedDeviceID = requestInfo.Session.DeviceID,
 					Data = response
@@ -336,7 +378,7 @@ namespace net.vieapps.Services.Portals
 			// message to update to all service instances (on all other nodes)
 			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
 			{
-				Type = $"{objectName}#Update",
+				Type = $"{objectName}#Create",
 				Data = response,
 				ExcludedNodeID = nodeID
 			});
@@ -353,14 +395,14 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity() ?? "";
-			var category = await (identity.IsValidUUID() ? identity.GetCategoryByIDAsync(cancellationToken) : (requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID") ?? "").GetCategoryByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
+			var category = await (identity.IsValidUUID() ? identity.GetCategoryByIDAsync(cancellationToken) : identity.GetCategoryByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
 			if (category == null)
 				throw new InformationNotFoundException();
-			else if (category.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
+			else if (category.Organization == null || category.Module == null)
+				throw new InformationInvalidException("The organization/module is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(category.Organization.OwnerID) || requestInfo.Session.User.IsViewer(category.Organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(category.Organization.OwnerID) || requestInfo.Session.User.IsViewer(category.Module.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -380,10 +422,12 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send update message and response
+			var entityDefinition = RepositoryMediator.GetEntityDefinition<Category>();
+			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 			var response = category.ToJson(true, false);
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{category.GetTypeName(true)}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID
@@ -397,54 +441,63 @@ namespace net.vieapps.Services.Portals
 			var category = await (requestInfo.GetObjectIdentity() ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (category == null)
 				throw new InformationNotFoundException();
-			else if (category.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
+			else if (category.Organization == null || category.Module == null)
+				throw new InformationInvalidException("The organization/module is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(category.Organization.OwnerID) || requestInfo.Session.User.IsModerator(category.Organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(category.Organization.OwnerID) || requestInfo.Session.User.IsModerator(category.Module.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// update
-			var requestBody = requestInfo.GetBodyExpando();
+			var request = requestInfo.GetBodyExpando();
 			var oldParentID = category.ParentID;
 
 			var oldAlias = category.Alias;
-			var alias = requestBody.Get<string>("Alias");
+			var alias = request.Get<string>("Alias");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
-				var existing = await category.SystemID.GetCategoryByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+				var existing = await category.RepositoryEntityID.GetCategoryByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(category.ID))
 					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another category");
 			}
 
-			category.UpdateCategoryInstance(requestBody, "ID,SystemID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", async obj =>
+			category.UpdateCategoryInstance(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
-				if (category.ParentCategory != null && !category.ParentID.IsEquals(oldParentID))
-					obj.OrderIndex = (await obj.SystemID.GetLastOrderIndexAsync(obj.RepositoryID, obj.RepositoryEntityID, obj.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
+				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? oldAlias : obj.Alias.NormalizeAlias();
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
-				await obj.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			});
+
+			if (category.ParentCategory != null && !category.ParentID.IsEquals(oldParentID))
+			{
+				category.OrderIndex = (await category.SystemID.GetLastOrderIndexAsync(category.RepositoryID, category.RepositoryEntityID, category.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
+				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			}
+
 			await Task.WhenAll(
 				Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken),
+				category.ClearRelatedCache(oldParentID, cancellationToken),
 				category.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
-			await category.ClearRelatedCache(oldParentID, cancellationToken).ConfigureAwait(false);
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = category.GetTypeName(true);
+			var entityDefinition = RepositoryMediator.GetEntityDefinition<Category>();
+			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 
 			// update parent
-			if (category.ParentCategory != null && !category.ParentID.IsEquals(oldParentID))
+			var parentCategory = category.ParentCategory;
+			if (parentCategory != null && !category.ParentID.IsEquals(oldParentID))
 			{
-				await category.ParentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				category.ParentCategory._childrenIDs.Add(category.ID);
-				await category.ParentCategory.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, category.ParentID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
+				await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				if (parentCategory._childrenIDs.IndexOf(category.ID) < 0)
+					parentCategory._childrenIDs.Add(category.ID);
+				await parentCategory.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
-				var json = category.ParentCategory.ToJson(true, false);
+				var json = parentCategory.ToJson(true, false);
 				updateMessages.Add(new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -462,9 +515,10 @@ namespace net.vieapps.Services.Portals
 			// update old parent
 			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(category.ParentID))
 			{
-				var parentCategory = await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+				parentCategory = await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (parentCategory != null)
 				{
+					await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, parentCategory.ID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
 					await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 					parentCategory._childrenIDs.Remove(category.ID);
 					await parentCategory.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
@@ -518,18 +572,19 @@ namespace net.vieapps.Services.Portals
 			var category = await (requestInfo.GetObjectIdentity() ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (category == null)
 				throw new InformationNotFoundException();
-			else if (category.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
+			else if (category.Organization == null || category.Module == null)
+				throw new InformationInvalidException("The organization/module is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(category.Organization.OwnerID) || requestInfo.Session.User.IsModerator(category.Organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(category.Organization.OwnerID) || requestInfo.Session.User.IsModerator(category.Module.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// delete
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = category.GetTypeName(true);
+			var entityDefinition = RepositoryMediator.GetEntityDefinition<Category>();
+			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
 			await (await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
@@ -571,8 +626,8 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			category.Remove();
 			await category.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
+			category.Remove();
 
 			// message to update to all other connected clients
 			var response = category.ToJson();
@@ -604,7 +659,8 @@ namespace net.vieapps.Services.Portals
 		{
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = category.GetTypeName(true);
+			var entityDefinition = RepositoryMediator.GetEntityDefinition<Category>();
+			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 
 			var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			await children.ForEachAsync(async (child, token) =>
