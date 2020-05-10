@@ -231,11 +231,7 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = pagination.Item4;
 
 			// get organization
-			var organizationID = filter is FilterBys<Desktop>
-				? ((filter as FilterBys<Desktop>).Children.FirstOrDefault(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("SystemID")) as FilterBy<Desktop>)?.Value as string
-				: null;
-			if (string.IsNullOrWhiteSpace(organizationID))
-				organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
+			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationExistedException("The organization is invalid");
@@ -340,16 +336,18 @@ namespace net.vieapps.Services.Portals
 			var objectName = desktop.GetTypeName(true);
 
 			// update parent
-			if (desktop.ParentDesktop != null)
+			var parentDesktop = desktop.ParentDesktop;
+			if (parentDesktop != null)
 			{
-				await desktop.ParentDesktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
-				await desktop.ParentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				await parentDesktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				if (parentDesktop._childrenIDs.IndexOf(desktop.ID) < 0)
+					parentDesktop._childrenIDs.Add(desktop.ID);
+				await parentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
-				var json = desktop.ParentDesktop.ToJson(true, false);
+				var json = parentDesktop.ToJson(true, false);
 				updateMessages.Add(new UpdateMessage
 				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
 				});
@@ -366,7 +364,7 @@ namespace net.vieapps.Services.Portals
 			if (desktop.ParentDesktop == null)
 				updateMessages.Add(new UpdateMessage
 				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 					DeviceID = "*",
 					ExcludedDeviceID = requestInfo.Session.DeviceID,
 					Data = response
@@ -375,7 +373,7 @@ namespace net.vieapps.Services.Portals
 			// message to update to all service instances (on all other nodes)
 			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
 			{
-				Type = $"{objectName}#Update",
+				Type = $"{objectName}#Create",
 				Data = response,
 				ExcludedNodeID = nodeID
 			});
@@ -392,7 +390,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity() ?? "";
-			var desktop = await (identity.IsValidUUID() ? identity.GetDesktopByIDAsync(cancellationToken) : (requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID") ?? "").GetDesktopByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
+			var desktop = await (identity.IsValidUUID() ? identity.GetDesktopByIDAsync(cancellationToken) : identity.GetDesktopByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
 			if (desktop == null)
 				throw new InformationNotFoundException();
 			else if (desktop.Organization == null)
@@ -477,13 +475,15 @@ namespace net.vieapps.Services.Portals
 			var objectName = desktop.GetTypeName(true);
 
 			// update parent
-			if (desktop.ParentDesktop != null && !desktop.ParentID.IsEquals(oldParentID))
+			var parentDesktop = desktop.ParentDesktop;
+			if (parentDesktop != null && !desktop.ParentID.IsEquals(oldParentID))
 			{
-				await desktop.ParentDesktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				desktop.ParentDesktop._childrenIDs.Add(desktop.ID);
-				await desktop.ParentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				await parentDesktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				if (parentDesktop._childrenIDs.IndexOf(desktop.ID) < 0)
+					parentDesktop._childrenIDs.Add(desktop.ID);
+				await parentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
-				var json = desktop.ParentDesktop.ToJson(true, false);
+				var json = parentDesktop.ToJson(true, false);
 				updateMessages.Add(new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -501,7 +501,7 @@ namespace net.vieapps.Services.Portals
 			// update old parent
 			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(desktop.ParentID))
 			{
-				var parentDesktop = await oldParentID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+				parentDesktop = await oldParentID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (parentDesktop != null)
 				{
 					await parentDesktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -610,8 +610,8 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			desktop.Remove();
 			await desktop.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
+			desktop.Remove();
 
 			// message to update to all other connected clients
 			var response = desktop.ToJson();

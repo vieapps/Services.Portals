@@ -151,11 +151,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 			{
 				// get organization
-				var organizationID = filter is FilterBys<Module>
-					? ((filter as FilterBys<Module>).Children.FirstOrDefault(exp => (exp as FilterBy<Module>).Attribute.IsEquals("SystemID")) as FilterBy<Module>)?.Value as string
-					: null;
-				if (string.IsNullOrWhiteSpace(organizationID))
-					organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
+				var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
 				var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (organization == null)
 					throw new InformationExistedException("The organization is invalid");

@@ -338,7 +338,7 @@ namespace net.vieapps.Services.Portals
 			organization.UpdateOrganizationInstance(request, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.OwnerID = isSystemAdministrator ? request.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
-				obj.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias.NormalizeAlias(false);
+				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? oldAlias : obj.Alias.NormalizeAlias(false);
 				obj.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;

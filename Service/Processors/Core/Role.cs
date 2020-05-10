@@ -143,11 +143,7 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = pagination.Item4;
 
 			// get organization
-			var organizationID = filter is FilterBys<Role>
-					? ((filter as FilterBys<Role>).Children.FirstOrDefault(exp => (exp as FilterBy<Role>).Attribute.IsEquals("SystemID")) as FilterBy<Role>)?.Value as string
-					: null;
-			if (string.IsNullOrWhiteSpace(organizationID))
-				organizationID = requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
+			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationExistedException("The organization is invalid");
