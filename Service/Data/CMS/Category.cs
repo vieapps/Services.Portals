@@ -55,11 +55,16 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "Lookup", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public string DesktopID { get; set; }
 
-		[Ignore, BsonIgnore]
-		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
+		public OpenBy OpenBy { get; set; } = OpenBy.DesktopWithAlias;
+
+		[Property(MaxLength = 1000)]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
+		public string SpecifiedURI { get; set; }
 
 		[Ignore, BsonIgnore]
-		public Dictionary<string, string> Trackings { get; set; } = new Dictionary<string, string>();
+		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
 
 		[Ignore, BsonIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
@@ -213,12 +218,10 @@ namespace net.vieapps.Services.Portals
 		{
 			this.Notifications?.Normalize();
 			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.WebHooks == null ? null : this.Notifications;
-			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-			this.Trackings = this.Trackings.Count < 1 ? null : this.Trackings;
 			this.EmailSettings?.Normalize();
 			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-			ModuleProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
+			CategoryProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._exras = this._json.ToString(Formatting.None);
 		}
 
@@ -228,10 +231,9 @@ namespace net.vieapps.Services.Portals
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>();
-				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
 				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
 			}
-			else if (ModuleProcessor.ExtraProperties.Contains(name))
+			else if (CategoryProcessor.ExtraProperties.Contains(name))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
@@ -245,5 +247,13 @@ namespace net.vieapps.Services.Portals
 
 		public async Task<IAliasEntity> GetByAliasAsync(string repositoryEntityID, string alias, string parentIdentity = null, CancellationToken cancellationToken = default)
 			=> await (repositoryEntityID ?? "").GetCategoryByAliasAsync(alias, cancellationToken).ConfigureAwait(false);
+	}
+
+	[Serializable]
+	public enum OpenBy
+	{
+		DesktopWithAlias,
+		DesktopOnly,
+		SpecifiedURI
 	}
 }

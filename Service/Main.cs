@@ -45,7 +45,7 @@ namespace net.vieapps.Services.Portals
 						async message => await this.ProcessCommunicateMessageAsync(message).ConfigureAwait(false),
 						exception => this.Logger?.LogError($"Error occurred while fetching an communicate message of CMS Portals => {exception.Message}", this.State == ServiceState.Connected ? exception : null)
 					);
-					this.Logger?.LogDebug($"Successfully {(this.State == ServiceState.Disconnected ? " re-" : " ")}register the service with CMS Portals");
+					this.Logger?.LogDebug($"Successfully{(this.State == ServiceState.Disconnected ? " re-" : " ")}register the service with CMS Portals");
 				},
 				onError
 			);
@@ -66,7 +66,7 @@ namespace net.vieapps.Services.Portals
 					this.ServiceInstance = null;
 					this.ServiceCommunicator?.Dispose();
 					this.ServiceCommunicator = null;
-					this.Logger?.LogDebug($"Successfully unregister the service from CMS Portals");
+					this.Logger?.LogDebug($"Successfully unregister the service with CMS Portals");
 				},
 				onError
 			);

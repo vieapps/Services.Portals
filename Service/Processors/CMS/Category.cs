@@ -21,6 +21,8 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, Category> CategoriesByAlias { get; } = new ConcurrentDictionary<string, Category>(StringComparer.OrdinalIgnoreCase);
 
+		internal static HashSet<string> ExtraProperties { get; } = "Notifications,EmailSettings".ToHashSet();
+
 		public static Category CreateCategoryInstance(this ExpandoObject requestBody, string excluded = null, Action<Category> onCompleted = null)
 			=> requestBody.Copy<Category>(excluded?.ToHashSet(), category =>
 			{
@@ -204,12 +206,12 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = pagination.Item4;
 
 			// get organization
-			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
+			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationExistedException("The organization is invalid");
 
-			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("x-module") ?? requestInfo.GetParameter("RepositoryID");
+			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null || !module.SystemID.IsEquals(organization.ID))
 				throw new InformationInvalidException("The module is invalid");
@@ -220,7 +222,8 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
+			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));
+			var json = string.IsNullOrWhiteSpace(query) && !addChildren ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
 			if (!string.IsNullOrWhiteSpace(json))
 				return JObject.Parse(json);
 
@@ -244,12 +247,18 @@ namespace net.vieapps.Services.Portals
 
 			// build response
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
+			if (addChildren)
+				await objects.Where(category => category._childrenIDs == null).ForEachAsync(async (category, token) =>
+				{
+					await category.FindChildrenAsync(token, false).ConfigureAwait(false);
+					await category.SetAsync(false, true, token).ConfigureAwait(false);
+				}, cancellationToken, true, false).ConfigureAwait(false);
 			var response = new JObject()
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", requestInfo.GetHeaderParameter("x-children") != null ? objects.Select(category => category.ToJson(true, false)).ToJArray() : objects.ToJsonArray() }
+				{ "Objects", objects.Select(category => addChildren ? category.ToJson(true, false) : category.ToJson(false, null)).ToJArray() }
 			};
 
 			// update cache
@@ -272,17 +281,17 @@ namespace net.vieapps.Services.Portals
 			// prepare
 			var request = requestInfo.GetBodyExpando();
 
-			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
+			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
-			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("x-module") ?? requestInfo.GetParameter("RepositoryID");
+			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null || !module.SystemID.IsEquals(organization.ID))
 				throw new InformationInvalidException("The module is invalid");
 
-			var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type") ?? requestInfo.GetParameter("RepositoryEntityID");
+			var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
 				throw new InformationInvalidException("The content-type is invalid");
