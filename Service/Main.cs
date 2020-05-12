@@ -166,6 +166,21 @@ namespace net.vieapps.Services.Portals
 					case "cms.category":
 						json = await this.ProcessCategoryAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
+
+					case "content":
+					case "cms.content":
+						json = await this.ProcessContentAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
+
+					case "item":
+					case "cms.item":
+						json = await this.ProcessItemAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
+
+					case "link":
+					case "cms.link":
+						json = await this.ProcessLinkAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
 					#endregion
 
 					#region process the request of definitions and others
@@ -230,6 +245,26 @@ namespace net.vieapps.Services.Portals
 							case "category":
 							case "cms.category":
 								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Category>() : this.GenerateFormControls<Category>();
+								break;
+
+							case "content":
+							case "cms.content":
+								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Content>() : this.GenerateFormControls<Content>();
+								break;
+
+							case "link":
+							case "cms.link":
+								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Link>() : this.GenerateFormControls<Link>();
+								break;
+
+							case "item":
+							case "cms.item":
+								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Item>() : this.GenerateFormControls<Item>();
+								break;
+
+							case "contact":
+							case "utils.contact":
+								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Contact>() : this.GenerateFormControls<Contact>();
 								break;
 
 							default:
@@ -453,6 +488,78 @@ namespace net.vieapps.Services.Portals
 
 				case "DELETE":
 					return await requestInfo.DeleteCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
+			}
+		}
+
+		async Task<JObject> ProcessContentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			switch (requestInfo.Verb)
+			{
+				case "GET":
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? await requestInfo.SearchContentsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetContentAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "POST":
+					return await requestInfo.CreateContentAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "PUT":
+					return await requestInfo.UpdateContentAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "DELETE":
+					return await requestInfo.DeleteContentAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
+			}
+		}
+
+		async Task<JObject> ProcessItemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			switch (requestInfo.Verb)
+			{
+				case "GET":
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? await requestInfo.SearchItemsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetItemAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "POST":
+					return await requestInfo.CreateItemAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "PUT":
+					return await requestInfo.UpdateItemAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "DELETE":
+					return await requestInfo.DeleteItemAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
+			}
+		}
+
+		async Task<JObject> ProcessLinkAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			switch (requestInfo.Verb)
+			{
+				case "GET":
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? await requestInfo.SearchLinksAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetLinkAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "POST":
+					return await requestInfo.CreateLinkAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "PUT":
+					return await requestInfo.UpdateLinkAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "DELETE":
+					return await requestInfo.DeleteLinkAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);

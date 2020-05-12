@@ -26,11 +26,6 @@ namespace net.vieapps.Services.Portals
 	{
 		public Link() : base() { }
 
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
-		[Sortable(IndexName = "Management")]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
-		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
-
 		[Property(MaxLength = 32)]
 		[Sortable(IndexName = "Management")]
 		[FormControl(Segment = "basic", ControlType = "Lookup", Multiple = false, Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
@@ -56,6 +51,27 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 50)]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public string Target { get; set; }
+
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
+
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		public ChildrenMode ChildrenMode { get; set; } = ChildrenMode.Normal;
+
+		[Property(MaxLength = 32)]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		public string LookupRepositoryID { get; set; }
+
+		[Property(MaxLength = 32)]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		public string LookupRepositoryEntityID { get; set; }
+
+		[Property(MaxLength = 32)]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		public string LookupObjectID { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
@@ -194,5 +210,12 @@ namespace net.vieapps.Services.Portals
 					json["Children"] = this.Children?.Select(link => link?.ToJson(true, false)).Where(link => link != null).ToJArray();
 				onPreCompleted?.Invoke(json);
 			});
+	}
+
+	[Serializable]
+	public enum ChildrenMode
+	{
+		Normal,
+		Lookup
 	}
 }

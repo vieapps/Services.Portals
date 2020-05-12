@@ -50,7 +50,7 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 10)]
 		[Sortable(IndexName = "Times")]
 		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
-		public string StartDate { get; set; } = DateTime.Now.ToString("yyyy/MM/dd");
+		public string StartDate { get; set; } = DateTime.Now.ToDTString(false, false);
 
 		[Property(MaxLength = 10)]
 		[Sortable(IndexName = "Times")]
@@ -195,15 +195,10 @@ namespace net.vieapps.Services.Portals
 		public async Task<IAliasEntity> GetByAliasAsync(string repositoryEntityID, string alias, string parentIdentity = null, CancellationToken cancellationToken = default)
 			=> await Content.GetContentByAliasAsync(repositoryEntityID, alias, parentIdentity, cancellationToken).ConfigureAwait(false);
 
-		internal static Content GetContentByAlias(string repositoryEntityID, string alias, string parentIdentity)
+		internal static Content GetContentByAlias(ContentType contentType, string alias, string parentIdentity)
 		{
 			// check
-			if (string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias) || string.IsNullOrWhiteSpace(parentIdentity))
-				return null;
-
-			// get content-type of the content
-			var contentType = repositoryEntityID.GetContentTypeByID();
-			if (contentType == null)
+			if (contentType == null || string.IsNullOrWhiteSpace(alias) || string.IsNullOrWhiteSpace(parentIdentity))
 				return null;
 
 			// get category
@@ -214,32 +209,22 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			// get by identity (using cache)
-			var cacheKey = $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias()}".ToLower();
+			var cacheKey = $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias()}".GetCacheKey<Content>();
 			var id = Utility.Cache.Get<string>(cacheKey);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return Content.Get<Content>(id);
 
 			// get by alias
-			var filter = Filters<Content>.And(
-				Filters<Content>.Equals("RepositoryEntityID", contentType.ID),
-				Filters<Content>.Equals("CategoryID", category.ID),
-				Filters<Content>.Equals("Alias", alias.NormalizeAlias())
-			);
-			var content = Content.Get<Content>(filter, null, contentType.ID);
+			var content = Content.Get<Content>(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID);
 			if (content != null)
 				Utility.Cache.Set(cacheKey, content.ID);
 			return content;
 		}
 
-		internal static async Task<Content> GetContentByAliasAsync(string repositoryEntityID, string alias, string parentIdentity, CancellationToken cancellationToken = default)
+		internal static async Task<Content> GetContentByAliasAsync(ContentType contentType, string alias, string parentIdentity, CancellationToken cancellationToken = default)
 		{
 			// check
-			if (string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias) || string.IsNullOrWhiteSpace(parentIdentity))
-				return null;
-
-			// get content-type of the content
-			var contentType = await repositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null)
+			if (contentType == null || string.IsNullOrWhiteSpace(alias) || string.IsNullOrWhiteSpace(parentIdentity))
 				return null;
 
 			// get category
@@ -250,22 +235,27 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			// get by identity (using cache)
-			var cacheKey = $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias()}".ToLower();
+			var cacheKey = $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias()}".GetCacheKey<Content>();
 			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return await Content.GetAsync<Content>(id, cancellationToken).ConfigureAwait(false);
 
 			// get by alias
-			var filter = Filters<Content>.And(
-				Filters<Content>.Equals("RepositoryEntityID", contentType.ID),
-				Filters<Content>.Equals("CategoryID", category.ID),
-				Filters<Content>.Equals("Alias", alias.NormalizeAlias())
-			);
-			var content = await Content.GetAsync<Content>(filter, null, contentType.ID, cancellationToken).ConfigureAwait(false);
+			var content = await Content.GetAsync<Content>(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID, cancellationToken).ConfigureAwait(false);
 			if (content != null)
 				await Utility.Cache.SetAsync(cacheKey, content.ID, cancellationToken).ConfigureAwait(false);
 			return content;
 		}
+
+		internal static Content GetContentByAlias(string repositoryEntityID, string alias, string parentIdentity)
+			=> string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias) || string.IsNullOrWhiteSpace(parentIdentity)
+				? null
+				: Content.GetContentByAlias(repositoryEntityID.GetContentTypeByID(), alias, parentIdentity);
+
+		internal static async Task<Content> GetContentByAliasAsync(string repositoryEntityID, string alias, string parentIdentity, CancellationToken cancellationToken = default)
+			=> string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias) || string.IsNullOrWhiteSpace(parentIdentity)
+				? null
+				: await Content.GetContentByAliasAsync(await repositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false), alias, parentIdentity, cancellationToken).ConfigureAwait(false);
 	}
 
 	[Serializable]

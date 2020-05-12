@@ -137,7 +137,7 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			// get by identity (using cache)
-			var cacheKey = $"e:{repositoryEntityID}#a:{alias.NormalizeAlias()}".ToLower();
+			var cacheKey = $"e:{repositoryEntityID}#a:{alias.NormalizeAlias()}".GetCacheKey<Item>();
 			var id = Utility.Cache.Get<string>(cacheKey);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return Item.Get<Item>(id);
@@ -149,6 +149,12 @@ namespace net.vieapps.Services.Portals
 			return item;
 		}
 
+		internal static Item GetItemByAlias(ContentType contentType, string alias)
+			=> contentType == null || string.IsNullOrWhiteSpace(alias)
+				? null
+				: Item.GetItemByAlias(contentType.ID, alias);
+
+
 		internal static async Task<Item> GetItemByAliasAsync(string repositoryEntityID, string alias, CancellationToken cancellationToken = default)
 		{
 			// check
@@ -156,7 +162,7 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			// get by identity (using cache)
-			var cacheKey = $"e:{repositoryEntityID}#a:{alias.NormalizeAlias()}".ToLower();
+			var cacheKey = $"e:{repositoryEntityID}#a:{alias.NormalizeAlias()}".GetCacheKey<Item>();
 			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return await Item.GetAsync<Item>(id, cancellationToken).ConfigureAwait(false);
@@ -167,5 +173,10 @@ namespace net.vieapps.Services.Portals
 				await Utility.Cache.SetAsync(cacheKey, item.ID, cancellationToken).ConfigureAwait(false);
 			return item;
 		}
+
+		internal static Task<Item> GetItemByAliasAsync(ContentType contentType, string alias, CancellationToken cancellationToken = default)
+			=> contentType == null || string.IsNullOrWhiteSpace(alias)
+				? Task.FromResult<Item>(null)
+				: Item.GetItemByAliasAsync(contentType.ID, alias, cancellationToken);
 	}
 }

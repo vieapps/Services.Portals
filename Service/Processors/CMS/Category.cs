@@ -137,7 +137,7 @@ namespace net.vieapps.Services.Portals
 			return categories;
 		}
 
-		public static async Task<int> GetLastOrderIndexAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default)
+		internal static async Task<int> GetLastOrderIndexAsync(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default)
 		{
 			var categories = await systemID.FindCategoriesAsync(repositoryID, repositoryEntityID, parentID, cancellationToken).ConfigureAwait(false);
 			return categories != null && categories.Count > 0 ? categories.Last().OrderIndex : -1;
@@ -301,16 +301,6 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// check alias
-			var alias = request.Get<string>("Alias");
-			if (!string.IsNullOrWhiteSpace(alias))
-			{
-				var existing = await contentType.ID.GetCategoryByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
-				if (existing != null)
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another CMS category");
-			}
-
-			// create new
 			var category = request.CreateCategoryInstance("SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.SystemID = organization.ID;
@@ -324,18 +314,14 @@ namespace net.vieapps.Services.Portals
 				obj._childrenIDs = new List<string>();
 			});
 
-			if (string.IsNullOrWhiteSpace(category.Alias))
-			{
-				category.Alias = category.Title.NormalizeAlias();
-				var existing = await contentType.ID.GetCategoryByAliasAsync(category.Alias, cancellationToken).ConfigureAwait(false);
-				if (existing != null)
-					throw new InformationExistedException($"The alias ({category.Alias}) is used by another CMS category");
-			}
-			else
-				category.Alias = category.Alias.NormalizeAlias();
+			category.Alias = string.IsNullOrWhiteSpace(category.Alias) ? category.Title.NormalizeAlias() : category.Alias.NormalizeAlias();
+			var existing = await contentType.ID.GetCategoryByAliasAsync(category.Alias, cancellationToken).ConfigureAwait(false);
+			if (existing != null)
+				throw new InformationExistedException($"The alias ({category.Alias}) was used by another category");
 
-			category.OrderIndex = (await category.SystemID.GetLastOrderIndexAsync(category.RepositoryID, category.RepositoryEntityID, category.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
+			category.OrderIndex = (await CategoryProcessor.GetLastOrderIndexAsync(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
 
+			// create new
 			await Task.WhenAll(
 				Category.CreateAsync(category, cancellationToken),
 				category.ClearRelatedCache(null, cancellationToken),
@@ -404,7 +390,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity() ?? "";
-			var category = await (identity.IsValidUUID() ? identity.GetCategoryByIDAsync(cancellationToken) : identity.GetCategoryByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
+			var category = await (identity.IsValidUUID() ? identity.GetCategoryByIDAsync(cancellationToken) : (requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type") ?? "").GetCategoryByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
 			if (category == null)
 				throw new InformationNotFoundException();
 			else if (category.Organization == null || category.Module == null)
@@ -458,20 +444,9 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// update
-			var request = requestInfo.GetBodyExpando();
 			var oldParentID = category.ParentID;
-
 			var oldAlias = category.Alias;
-			var alias = request.Get<string>("Alias");
-			if (!string.IsNullOrWhiteSpace(alias))
-			{
-				var existing = await category.RepositoryEntityID.GetCategoryByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
-				if (existing != null && !existing.ID.Equals(category.ID))
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another category");
-			}
-
-			category.UpdateCategoryInstance(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			category.UpdateCategoryInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? oldAlias : obj.Alias.NormalizeAlias();
 				obj.LastModified = DateTime.Now;
@@ -479,12 +454,20 @@ namespace net.vieapps.Services.Portals
 				obj.NormalizeExtras();
 			});
 
+			if (!category.Alias.IsEquals(oldAlias))
+			{
+				var existing = await category.RepositoryEntityID.GetCategoryByAliasAsync(category.Alias, cancellationToken).ConfigureAwait(false);
+				if (existing != null && !existing.ID.Equals(category.ID))
+					throw new InformationExistedException($"The alias ({category.Alias}) was used by another category");
+			}
+
 			if (category.ParentCategory != null && !category.ParentID.IsEquals(oldParentID))
 			{
-				category.OrderIndex = (await category.SystemID.GetLastOrderIndexAsync(category.RepositoryID, category.RepositoryEntityID, category.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
+				category.OrderIndex = (await CategoryProcessor.GetLastOrderIndexAsync(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
 				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			}
 
+			// update
 			await Task.WhenAll(
 				Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken),
 				category.ClearRelatedCache(oldParentID, cancellationToken),
