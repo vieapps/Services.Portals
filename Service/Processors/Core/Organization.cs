@@ -297,6 +297,7 @@ namespace net.vieapps.Services.Portals
 			if (organization._moduleIDs == null)
 			{
 				await organization.FindModulesAsync(cancellationToken).ConfigureAwait(false);
+				await organization.Modules.ForEachAsync(async (module, token) => await (module._contentTypeIDs == null ? module.FindContentTypesAsync(token) : Task.CompletedTask).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
 				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 

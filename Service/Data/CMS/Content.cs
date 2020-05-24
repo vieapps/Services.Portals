@@ -34,11 +34,11 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management")]
 		[ParentMapping(Type = typeof(Category))]
-		[FormControl(Segment = "management", ControlType = "Lookup", Multiple = false, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
+		[FormControl(Segment = "management", ControlType = "Lookup", Multiple = false, LookupObjectIsNested = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string CategoryID { get; set; }
 
 		[MultipleParentMappings(TableName = "T_Portals_CMS_Contents_Categories", LinkColumn = "ContentID", MapColumn = "CategoryID")]
-		[FormControl(Segment = "management", ControlType = "Lookup", Multiple = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
+		[FormControl(Segment = "management", ControlType = "Lookup", Multiple = true, LookupObjectIsNested = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public List<string> OtherCategories { get; set; }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
@@ -49,17 +49,17 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 10)]
 		[Sortable(IndexName = "Times")]
-		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
+		[FormControl(Segment = "management", ControlType = "DatePicker", DatePickerWithTimes = false, DataType = "date", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string StartDate { get; set; } = DateTime.Now.ToDTString(false, false);
 
 		[Property(MaxLength = 10)]
 		[Sortable(IndexName = "Times")]
-		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
-		public string EndDate { get; set; } = "-";
+		[FormControl(Segment = "management", ControlType = "DatePicker", DatePickerWithTimes = false, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
+		public string EndDate { get; set; }
 
 		[Sortable(IndexName = "Times")]
-		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
-		public DateTime PublishedTime { get; set; } = DateTime.Now;
+		[FormControl(Segment = "management", ControlType = "DatePicker", DatePickerWithTimes = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
+		public DateTime? PublishedTime { get; set; }
 
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Tags")]
@@ -96,7 +96,7 @@ namespace net.vieapps.Services.Portals
 		public string Source { get; set; }
 
 		[Property(MaxLength = 1000)]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
+		[FormControl(Segment = "basic", DataType = "url", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string SourceURL { get; set; }
 
 		[Searchable]
@@ -114,7 +114,7 @@ namespace net.vieapps.Services.Portals
 
 		[AsJson]
 		[FormControl(Segment = "related", AsArray = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
-		public List<ExternalRelated> Externals { get; set; }
+		public List<ExternalRelated> ExternalRelateds { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
@@ -263,11 +263,13 @@ namespace net.vieapps.Services.Portals
 	{
 		public ExternalRelated() { }
 
+		[FormControl(MaxLength = 250)]
 		public string Title { get; set; }
 
-		[FormControl(ControlType = "TextArea")]
+		[FormControl(ControlType = "TextArea", MaxLength = 4000)]
 		public string Summary { get; set; }
 
+		[FormControl(DataType = "url", MaxLength = 1000)]
 		public string URL { get; set; }
 	}
 }

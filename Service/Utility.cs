@@ -103,6 +103,28 @@ namespace net.vieapps.Services.Portals
 			=> filter is FilterBys<T>
 				? ((filter as FilterBys<T>).Children.FirstOrDefault(exp => (exp as FilterBy<T>).Attribute.IsEquals(name)) as FilterBy<T>)?.Value as string
 				: null;
+
+		/// <summary>
+		/// Gets the object name for working with real-time update messages
+		/// </summary>
+		/// <param name="definition"></param>
+		/// <returns></returns>
+		public static string GetObjectName(this EntityDefinition definition)
+			=> $"{(string.IsNullOrWhiteSpace(definition.ObjectNamePrefix) ? "" : definition.ObjectNamePrefix)}{definition.ObjectName}{(string.IsNullOrWhiteSpace(definition.ObjectNameSuffix) ? "" : definition.ObjectNameSuffix)}";
+
+		/// <summary>
+		/// Gets the object name for working with real-time update messages
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="object"></param>
+		/// <returns></returns>
+		public static string GetObjectName(this RepositoryBase @object)
+		{
+			var definition = @object != null ? RepositoryMediator.GetEntityDefinition(@object.GetType()) : null;
+			return definition != null
+				? definition.GetObjectName()
+				: @object != null ? @object.GetType().GetTypeName(true) : null;
+		}
 	}
 
 	//  --------------------------------------------------------------------------------------------

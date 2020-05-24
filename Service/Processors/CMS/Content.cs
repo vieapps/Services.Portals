@@ -64,13 +64,13 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(content.SystemID.GetContentsFilter(content.RepositoryID, content.RepositoryEntityID, null), sort), cancellationToken),
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(content.SystemID.GetContentsFilter(content.RepositoryID, content.RepositoryEntityID, content.CategoryID), sort), cancellationToken)
 			};
-			content.OtherCategories.ForEach(categoryID => tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(content.SystemID.GetContentsFilter(content.RepositoryID, content.RepositoryEntityID, categoryID), sort), cancellationToken)));
+			content.OtherCategories?.ForEach(categoryID => tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(content.SystemID.GetContentsFilter(content.RepositoryID, content.RepositoryEntityID, categoryID), sort), cancellationToken)));
 			if (!string.IsNullOrWhiteSpace(oldCategoryID) && oldCategoryID.IsValidUUID())
 				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(content.SystemID.GetContentsFilter(content.RepositoryID, content.RepositoryEntityID, oldCategoryID), sort), cancellationToken));
 			return Task.WhenAll(tasks);
 		}
 
-		internal static async Task<JObject> SearchContentsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SearchContentsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default, string validationKey = null)
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
@@ -133,6 +133,10 @@ namespace net.vieapps.Services.Portals
 					: await Content.SearchAsync(query, filter, pageSize, pageNumber, contentType.ID, cancellationToken).ConfigureAwait(false)
 				: new List<Content>();
 
+			// get thumbnails
+			requestInfo.Header["x-as-attachments"] = "true";
+			var thumbnails = await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+
 			// build response
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 			var response = new JObject()
@@ -140,7 +144,7 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.Select(content => content.ToJson(false, null)).ToJArray() }
+				{ "Objects", objects.Select(@object => @object.ToJson(false, cjson => cjson["Thumbnails"] = thumbnails[@object.ID])).ToJArray() }
 			};
 
 			// update cache
@@ -204,6 +208,42 @@ namespace net.vieapps.Services.Portals
 			if (existing != null)
 				content.Alias += $"-{DateTime.Now.ToUnixTimestamp()}";
 
+			var dateString = request.Get<string>("StartDate");
+			content.StartDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out var date)
+				? date.ToDTString(false, false)
+				: DateTime.Now.ToDTString(false, false);
+
+			content.EndDate = null;
+			dateString = request.Get<string>("EndDate");
+			if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
+				content.EndDate = date.ToDTString(false, false);
+
+			content.PublishedTime = null;
+			dateString = request.Get<string>("PublishedTime");
+			if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
+				content.PublishedTime = date;
+			if (content.PublishedTime == null && content.Status.Equals(ApprovalStatus.Published))
+				content.PublishedTime = DateTime.Now;
+
+			content.OtherCategories = content.OtherCategories?.Where(id => !content.CategoryID.IsEquals(id)).ToList();
+			content.OtherCategories = content.OtherCategories != null && content.OtherCategories.Count > 0 ? content.OtherCategories : null;
+
+			content.Relateds = content.Relateds?.Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
+			content.Relateds = content.Relateds != null && content.Relateds.Count > 0 ? content.Relateds : null;
+
+			if (content.ExternalRelateds != null)
+			{
+				var index = 0;
+				while (index < content.ExternalRelateds.Count)
+				{
+					if (content.ExternalRelateds[index] == null || string.IsNullOrWhiteSpace(content.ExternalRelateds[index].Title) || string.IsNullOrWhiteSpace(content.ExternalRelateds[index].URL))
+						content.ExternalRelateds.RemoveAt(index);
+					else
+						index++;
+				}
+			}
+			content.ExternalRelateds = content.ExternalRelateds != null && content.ExternalRelateds.Count > 0 ? content.ExternalRelateds : null;
+
 			// create new
 			await Task.WhenAll(
 				Content.CreateAsync(content, cancellationToken),
@@ -211,12 +251,10 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send update message and response
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Content>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 			var response = content.ToJson();
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
+				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Create",
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response
@@ -248,12 +286,10 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// send update message and response
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Content>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 			var response = content.ToJson();
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response
@@ -280,10 +316,11 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// prepare data
+			var request = requestInfo.GetBodyExpando();
 			var oldCategoryID = content.CategoryID;
 			var oldAlias = content.Alias;
 
-			content.UpdateContentInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			content.UpdateContentInstance(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
@@ -294,6 +331,42 @@ namespace net.vieapps.Services.Portals
 			if (existing != null && !existing.ID.IsEquals(content.ID))
 				content.Alias += $"-{DateTime.Now.ToUnixTimestamp()}";
 
+			var dateString = request.Get<string>("StartDate");
+			content.StartDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out var date)
+				? date.ToDTString(false, false)
+				: DateTime.Now.ToDTString(false, false);
+
+			content.EndDate = null;
+			dateString = request.Get<string>("EndDate");
+			if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
+				content.EndDate = date.ToDTString(false, false);
+
+			content.PublishedTime = null;
+			dateString = request.Get<string>("PublishedTime");
+			if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
+				content.PublishedTime = date;
+			if (content.PublishedTime == null && content.Status.Equals(ApprovalStatus.Published))
+				content.PublishedTime = DateTime.Now;
+
+			content.OtherCategories = content.OtherCategories?.Where(id => !content.CategoryID.IsEquals(id)).ToList();
+			content.OtherCategories = content.OtherCategories != null && content.OtherCategories.Count > 0 ? content.OtherCategories : null;
+
+			content.Relateds = content.Relateds?.Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
+			content.Relateds = content.Relateds != null && content.Relateds.Count > 0 ? content.Relateds : null;
+
+			if (content.ExternalRelateds != null)
+			{
+				var index = 0;
+				while (index < content.ExternalRelateds.Count)
+				{
+					if (content.ExternalRelateds[index] == null || string.IsNullOrWhiteSpace(content.ExternalRelateds[index].Title) || string.IsNullOrWhiteSpace(content.ExternalRelateds[index].URL))
+						content.ExternalRelateds.RemoveAt(index);
+					else
+						index++;
+				}
+			}
+			content.ExternalRelateds = content.ExternalRelateds != null && content.ExternalRelateds.Count > 0 ? content.ExternalRelateds : null;
+
 			// update
 			await Task.WhenAll(
 				Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken),
@@ -301,12 +374,10 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send update message and response
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Content>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 			var response = content.ToJson();
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response
@@ -314,7 +385,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> DeleteContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, CancellationToken cancellationToken = default, string validationKey = null)
 		{
 			// prepare
 			var content = await Content.GetAsync<Content>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
@@ -332,17 +403,18 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// delete
+			// delete files
+			await requestInfo.DeleteFilesAsync(content.SystemID, content.RepositoryEntityID, content.ID, cancellationToken, validationKey).ConfigureAwait(false);
+
+			// delete content
 			await Content.DeleteAsync<Content>(content.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await content.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
 
 			// send update message and response
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Content>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 			var response = content.ToJson();
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Delete",
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response

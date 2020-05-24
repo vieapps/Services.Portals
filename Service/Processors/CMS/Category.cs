@@ -330,8 +330,7 @@ namespace net.vieapps.Services.Portals
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Category>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
+			var objectName = category.GetObjectName();
 
 			// update parent
 			var parentCategory = category.ParentCategory;
@@ -417,8 +416,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send update message and response
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Category>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
+			var objectName = category.GetObjectName();
 			var response = category.ToJson(true, false);
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
@@ -476,8 +474,7 @@ namespace net.vieapps.Services.Portals
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Category>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
+			var objectName = category.GetObjectName();
 
 			// update parent
 			var parentCategory = category.ParentCategory;
@@ -558,7 +555,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> DeleteCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default, string validationKey = null)
 		{
 			// prepare
 			var category = await (requestInfo.GetObjectIdentity() ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -572,13 +569,12 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// delete
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Category>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
+			var objectName = category.GetObjectName();
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
+			// delete children
 			await (await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
 			{
 				// update children to root
@@ -611,12 +607,20 @@ namespace net.vieapps.Services.Portals
 				// delete children
 				else
 				{
+					// delete files
+					await requestInfo.DeleteFilesAsync(child.SystemID, child.RepositoryEntityID, child.ID, token, validationKey).ConfigureAwait(false);
+
+					// delete objects
 					var messages = await child.DeleteChildrenAsync(requestInfo.Session.User.ID, requestInfo.ServiceName, nodeID, token).ConfigureAwait(false);
 					updateMessages = updateMessages.Concat(messages.Item1).ToList();
 					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
 				}
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
+			// delete files of category
+			await requestInfo.DeleteFilesAsync(category.SystemID, category.RepositoryEntityID, category.ID, cancellationToken, validationKey).ConfigureAwait(false);
+
+			// delete vs
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await category.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
 			category.Remove();

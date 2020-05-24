@@ -43,9 +43,11 @@ namespace net.vieapps.Services.Portals
 			if (module != null)
 			{
 				ModuleProcessor.Modules[module.ID] = module;
-				module.RepositoryDefinition.Register(module);
 				if (updateCache)
 					Utility.Cache.Set(module);
+				var definition = module.RepositoryDefinition;
+				if (definition != null)
+					definition.Register(module);
 			}
 			return module;
 		}
@@ -64,7 +66,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (!string.IsNullOrWhiteSpace(id) && ModuleProcessor.Modules.TryRemove(id, out var module) && module != null)
 			{
-				module.RepositoryDefinition.Unregister(module);
+				module.RepositoryDefinition?.Unregister(module);
 				return module;
 			}
 			return null;

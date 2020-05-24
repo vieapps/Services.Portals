@@ -41,9 +41,11 @@ namespace net.vieapps.Services.Portals
 			if (contentType != null)
 			{
 				ContentTypeProcessor.ContentTypes[contentType.ID] = contentType;
-				contentType.EntityDefinition.Register(contentType);
 				if (updateCache)
 					Utility.Cache.Set(contentType);
+				var definition = contentType.EntityDefinition;
+				if (definition != null)
+					definition.Register(contentType);
 			}
 			return contentType;
 		}
@@ -62,7 +64,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (!string.IsNullOrWhiteSpace(id) && ContentTypeProcessor.ContentTypes.TryRemove(id, out var contentType) && contentType != null)
 			{
-				contentType.EntityDefinition.Unregister(contentType);
+				contentType.EntityDefinition?.Unregister(contentType);
 				return contentType;
 			}
 			return null;

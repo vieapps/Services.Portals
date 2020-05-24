@@ -71,7 +71,7 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 32)]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
-		public string LookupObjectID { get; set; }
+		public string LookupRepositoryObjectID { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]

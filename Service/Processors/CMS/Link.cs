@@ -231,8 +231,7 @@ namespace net.vieapps.Services.Portals
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Link>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
+			var objectName = link.GetObjectName();
 
 			// update parent
 			var parentLink = link.ParentLink;
@@ -303,12 +302,10 @@ namespace net.vieapps.Services.Portals
 				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 
 			// send update message and response
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Link>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 			var response = link.ToJson(true, false);
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{link.GetObjectName()}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID
@@ -351,8 +348,7 @@ namespace net.vieapps.Services.Portals
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Link>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
+			var objectName = link.GetObjectName();
 
 			// update parent
 			var parentLink = link.ParentLink;
@@ -446,8 +442,7 @@ namespace net.vieapps.Services.Portals
 			// delete
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Link>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
+			var objectName = link.GetObjectName();
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
 			await (await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
@@ -518,8 +513,7 @@ namespace net.vieapps.Services.Portals
 		{
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Link>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
+			var objectName = link.GetObjectName();
 
 			var children = await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			await children.ForEachAsync(async (child, token) =>

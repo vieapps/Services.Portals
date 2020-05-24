@@ -183,7 +183,7 @@ namespace net.vieapps.Services.Portals
 						break;
 					#endregion
 
-					#region process the request of definitions and others
+					#region process the request of definitions, files, profiles and all known others
 					case "definitions":
 						var mode = requestInfo.GetQueryParameter("mode");
 						switch (requestInfo.GetObjectIdentity())
@@ -211,27 +211,27 @@ namespace net.vieapps.Services.Portals
 
 							case "organization":
 							case "core.organization":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Organization>() : this.GenerateFormControls<Organization>();
+								json = this.GenerateFormControls<Organization>();
 								break;
 
 							case "site":
 							case "core.site":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Site>() : this.GenerateFormControls<Site>();
+								json = this.GenerateFormControls<Site>();
 								break;
 
 							case "role":
 							case "core.role":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Role>() : this.GenerateFormControls<Role>();
+								json = this.GenerateFormControls<Role>();
 								break;
 
 							case "desktop":
 							case "core.desktop":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Desktop>() : this.GenerateFormControls<Desktop>();
+								json = this.GenerateFormControls<Desktop>();
 								break;
 
 							case "module":
 							case "core.module":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Module>() : this.GenerateFormControls<Module>();
+								json = this.GenerateFormControls<Module>();
 								break;
 
 							case "contenttype":
@@ -239,32 +239,32 @@ namespace net.vieapps.Services.Portals
 							case "content-type":
 							case "core.contenttype":
 							case "core.content.type":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<ContentType>() : this.GenerateFormControls<ContentType>();
+								json = this.GenerateFormControls<ContentType>();
 								break;
 
 							case "category":
 							case "cms.category":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Category>() : this.GenerateFormControls<Category>();
+								json = this.GenerateFormControls<Category>();
 								break;
 
 							case "content":
 							case "cms.content":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Content>() : this.GenerateFormControls<Content>();
+								json = this.GenerateFormControls<Content>();
 								break;
 
 							case "link":
 							case "cms.link":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Link>() : this.GenerateFormControls<Link>();
+								json = this.GenerateFormControls<Link>();
 								break;
 
 							case "item":
 							case "cms.item":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Item>() : this.GenerateFormControls<Item>();
+								json = this.GenerateFormControls<Item>();
 								break;
 
 							case "contact":
 							case "utils.contact":
-								json = "view-controls".IsEquals(mode) ? this.GenerateViewControls<Contact>() : this.GenerateFormControls<Contact>();
+								json = this.GenerateFormControls<Contact>();
 								break;
 
 							default:
@@ -272,12 +272,18 @@ namespace net.vieapps.Services.Portals
 						}
 						break;
 
+					case "files":
+					case "attachments":
+						json = await this.ProcessAttachmentFileAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
+
 					case "profile":
 						break;
-					#endregion
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+						#endregion
+
 				}
 				stopwatch.Stop();
 				this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
@@ -487,7 +493,7 @@ namespace net.vieapps.Services.Portals
 					return await requestInfo.UpdateCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken, this.ValidationKey).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -501,7 +507,7 @@ namespace net.vieapps.Services.Portals
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchContentsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						? await requestInfo.SearchContentsAsync(isSystemAdministrator, cancellationToken, this.ValidationKey).ConfigureAwait(false)
 						: await requestInfo.GetContentAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
@@ -511,7 +517,7 @@ namespace net.vieapps.Services.Portals
 					return await requestInfo.UpdateContentAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteContentAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteContentAsync(isSystemAdministrator, this.RTUService, cancellationToken, this.ValidationKey).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -525,7 +531,7 @@ namespace net.vieapps.Services.Portals
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchItemsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						? await requestInfo.SearchItemsAsync(isSystemAdministrator, cancellationToken, this.ValidationKey).ConfigureAwait(false)
 						: await requestInfo.GetItemAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
@@ -564,6 +570,34 @@ namespace net.vieapps.Services.Portals
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
 			}
+		}
+
+		async Task<JToken> ProcessAttachmentFileAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var systemID = requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system");
+			var entityInfo = requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity");
+			var objectID = requestInfo.GetParameter("ObjectID") ?? requestInfo.GetParameter("x-object-id");
+			var objectTitle = requestInfo.GetParameter("ObjectTitle") ?? requestInfo.GetParameter("x-object-title");
+
+			if (requestInfo.Verb.IsEquals("PATCH"))
+				return await this.MarkFilesAsOfficialAsync(requestInfo, systemID, entityInfo, objectID, objectTitle, cancellationToken).ConfigureAwait(false);
+
+			else if (requestInfo.Verb.IsEquals("GET"))
+				switch ((requestInfo.GetObjectIdentity() ?? "").ToLower())
+				{
+					case "thumbnail":
+					case "thumbnails":
+						return await this.GetThumbnailsAsync(requestInfo, objectID, objectTitle, cancellationToken).ConfigureAwait(false);
+
+					case "attachment":
+					case "attachments":
+						return await this.GetAttachmentsAsync(requestInfo, objectID, objectTitle, cancellationToken).ConfigureAwait(false);
+
+					default:
+						return await this.GetFilesAsync(requestInfo, objectID, objectTitle, cancellationToken).ConfigureAwait(false);
+				}
+			else
+				throw new MethodNotAllowedException(requestInfo.Verb);
 		}
 
 		#region Process communicate message of Portals service
