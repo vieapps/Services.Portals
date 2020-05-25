@@ -112,6 +112,7 @@ namespace net.vieapps.Services.Portals
 				this.ObjectName = definition.ObjectName;
 				this.ObjectNamePrefix = definition.ObjectNamePrefix;
 				this.ObjectNameSuffix = definition.ObjectNameSuffix;
+				this.NestedObject = typeof(INestedObject).IsAssignableFrom(definition.Type);
 				this.ParentObjectName = definition.ParentType?.GetTypeName(true);
 			}
 		}
@@ -170,6 +171,11 @@ namespace net.vieapps.Services.Portals
 		/// Gets or Sets the name of the service's object that associates as parent object (means the type-name value of EntityAttribute.ParentType)
 		/// </summary>
 		public string ParentObjectName { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the nested statte
+		/// </summary>
+		public bool NestedObject { get; set; } = false;
 
 		/// <summary>
 		/// Gets or Sets the type name of the entity definition

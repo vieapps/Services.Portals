@@ -45,7 +45,7 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
-		public static List<Link> FindLinks(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool updateCache = true)
+		public static List<Link> FindLinks(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Link>();
@@ -54,7 +54,7 @@ namespace net.vieapps.Services.Portals
 			return Link.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
 		}
 
-		public static Task<List<Link>> FindLinksAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool updateCache = true)
+		public static Task<List<Link>> FindLinksAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return Task.FromResult(new List<Link>());
@@ -238,7 +238,10 @@ namespace net.vieapps.Services.Portals
 			if (parentLink != null)
 			{
 				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.SystemID.GetLinksFilter(link.RepositoryID, link.RepositoryEntityID, link.ParentID), Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
+				parentLink._children = null;
+				parentLink._childrenIDs = null;
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await Utility.Cache.SetAsync(parentLink, cancellationToken).ConfigureAwait(false);
 
 				var json = parentLink.ToJson(true, false);
 				updateMessages.Add(new UpdateMessage
@@ -355,7 +358,10 @@ namespace net.vieapps.Services.Portals
 			if (parentLink != null && !link.ParentID.IsEquals(oldParentID))
 			{
 				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.SystemID.GetLinksFilter(link.RepositoryID, link.RepositoryEntityID, link.ParentID), Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
+				parentLink._children = null;
+				parentLink._childrenIDs = null;
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await Utility.Cache.SetAsync(parentLink, cancellationToken).ConfigureAwait(false);
 
 				var json = parentLink.ToJson(true, false);
 				updateMessages.Add(new UpdateMessage
@@ -379,8 +385,11 @@ namespace net.vieapps.Services.Portals
 				if (parentLink != null)
 				{
 					await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.SystemID.GetLinksFilter(link.RepositoryID, link.RepositoryEntityID, parentLink.ID), Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
+					parentLink._children = null;
+					parentLink._childrenIDs = null;
 					await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 					parentLink._childrenIDs.Remove(link.ID);
+					await Utility.Cache.SetAsync(parentLink, cancellationToken).ConfigureAwait(false);
 
 					var json = parentLink.ToJson(true, false);
 					updateMessages.Add(new UpdateMessage

@@ -45,6 +45,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public string Summary { get; set; }
 
+		[Property(MaxLength = 1000, NotNull = true, NotEmpty = true)]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public string URL { get; set; }
 
@@ -53,25 +54,25 @@ namespace net.vieapps.Services.Portals
 		public string Target { get; set; }
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
-		[Sortable(IndexName = "Management")]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
-		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
-
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public ChildrenMode ChildrenMode { get; set; } = ChildrenMode.Normal;
 
 		[Property(MaxLength = 32)]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public string LookupRepositoryID { get; set; }
 
 		[Property(MaxLength = 32)]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public string LookupRepositoryEntityID { get; set; }
 
 		[Property(MaxLength = 32)]
-		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "Lookup", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public string LookupRepositoryObjectID { get; set; }
+
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
@@ -165,20 +166,11 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._childrenIDs == null)
 			{
-				if (links == null)
-				{
-					var filter = Filters<Link>.And(Filters<Link>.Equals("ParentID", this.ID));
-					var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
-					this._children = links = Link.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
-				}
-				else
-					this._children = links;
-
-				this._childrenIDs = links.Select(link => link.ID).ToList();
+				this._children = links ?? (this.SystemID ?? "").FindLinks(this.RepositoryID, this.RepositoryEntityID, this.ID);
+				this._childrenIDs = this._children.Select(link => link.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("ChildrenIDs");
 			}
-
 			this._children = this._children ?? this._childrenIDs.Select(id => Link.Get<Link>(id)).ToList();
 			return this._children;
 		}
@@ -186,12 +178,9 @@ namespace net.vieapps.Services.Portals
 		internal async Task<List<Link>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 		{
 			if (this._childrenIDs == null)
-			{
-				var filter = Filters<Link>.And(Filters<Link>.Equals("ParentID", this.ID));
-				var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
-				return this.FindChildren(notifyPropertyChanged, await Link.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false));
-			}
-			return this.FindChildren();
+				return this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindLinksAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false));
+			this._children = this._children ?? this._childrenIDs.Select(id => Link.Get<Link>(id)).ToList();
+			return this._children;
 		}
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -199,6 +188,12 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		List<INestedObject> INestedObject.Children => this.Children?.Select(link => link as INestedObject).ToList();
+
+		public override void ProcessPropertyChanged(string name)
+		{
+			if (name.IsEquals("ChildrenIDs"))
+				Utility.Cache.Set(this);
+		}
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);

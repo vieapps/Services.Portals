@@ -507,17 +507,17 @@ namespace net.vieapps.Services.Portals
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchContentsAsync(isSystemAdministrator, cancellationToken, this.ValidationKey).ConfigureAwait(false)
-						: await requestInfo.GetContentAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+						? await requestInfo.SearchContentsAsync(isSystemAdministrator, this.ValidationKey, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetContentAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateContentAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateContentAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateContentAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdateContentAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteContentAsync(isSystemAdministrator, this.RTUService, cancellationToken, this.ValidationKey).ConfigureAwait(false);
+					return await requestInfo.DeleteContentAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -531,17 +531,17 @@ namespace net.vieapps.Services.Portals
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchItemsAsync(isSystemAdministrator, cancellationToken, this.ValidationKey).ConfigureAwait(false)
-						: await requestInfo.GetItemAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+						? await requestInfo.SearchItemsAsync(isSystemAdministrator, this.ValidationKey, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetItemAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateItemAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateItemAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateItemAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdateItemAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteItemAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteItemAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
