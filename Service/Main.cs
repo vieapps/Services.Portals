@@ -9,11 +9,14 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using System.Dynamic;
 using System.ComponentModel;
+using System.Xml;
+using System.Xml.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using System.Threading.Tasks.Sources;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -305,7 +308,6 @@ namespace net.vieapps.Services.Portals
 				themes.Add(new JObject
 				{
 					{ "name", "default" },
-					{ "displayName", "Default theme" },
 					{ "description", "The theme with default styles and coloring codes" },
 					{ "author", "System" }
 				});
@@ -316,14 +318,14 @@ namespace net.vieapps.Services.Portals
 					var packageInfo = new JObject
 					{
 						{ "name", name },
-						{ "displayName", name.GetCapitalizedFirstLetter() },
-						{ "description", "" },
+						{ "description", name.IsEquals("default") ? "The theme with default styles and coloring codes" : "" },
 						{ "author", "System" }
 					};
-					if (File.Exists(Path.Combine(directory, "package.json")))
+					var filename = Path.Combine(directory, "package.json");
+					if (File.Exists(filename))
 						try
 						{
-							packageInfo = JObject.Parse(await UtilityService.ReadTextFileAsync(Path.Combine(directory, "package.json")).ConfigureAwait(false));
+							packageInfo = JObject.Parse(await UtilityService.ReadTextFileAsync(filename).ConfigureAwait(false));
 						}
 						catch { }
 					themes.Add(packageInfo);
@@ -574,7 +576,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JToken> ProcessAttachmentFileAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var systemID = requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system");
+			var systemID = requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
 			var entityInfo = requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity");
 			var objectID = requestInfo.GetParameter("ObjectID") ?? requestInfo.GetParameter("x-object-id");
 			var objectTitle = requestInfo.GetParameter("ObjectTitle") ?? requestInfo.GetParameter("x-object-title");
@@ -655,7 +657,7 @@ namespace net.vieapps.Services.Portals
 				if (this.IsDebugLogEnabled)
 					await this.WriteLogsAsync(correlationID, $"Got an update of a module definition\r\n{message.Data}", null, this.ServiceName, "CMS.Portals").ConfigureAwait(false);
 
-				if (definition != null && !Utility.ModuleDefinitions.ContainsKey(definition.ID))
+				if (definition != null && !string.IsNullOrWhiteSpace(definition.ID) && !Utility.ModuleDefinitions.ContainsKey(definition.ID))
 				{
 					Utility.ModuleDefinitions[definition.ID] = definition;
 					definition.ContentTypeDefinitions.ForEach(contentTypeDefinition =>

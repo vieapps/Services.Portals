@@ -11,6 +11,7 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
+using net.vieapps.Services.Portals.Exceptions;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -232,7 +233,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 				if (existing != null)
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 			}
 
 			// create new
@@ -332,7 +333,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(organization.ID))
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 			}
 
 			// update

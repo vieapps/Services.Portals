@@ -289,8 +289,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> CreateSiteAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var requestBody = requestInfo.GetBodyExpando();
-			var organizationID = requestBody.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
+			var request = requestInfo.GetBodyExpando();
+			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system") ?? requestInfo.GetParameter("SystemID");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationInvalidException("The organization is invalid");
@@ -301,13 +301,17 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// check domain
-			var domain = $"{requestBody.Get<string>("SubDomain")}.{requestBody.Get<string>("PrimaryDomain")}";
+			var domain = $"{request.Get<string>("SubDomain")}.{request.Get<string>("PrimaryDomain")}";
 			var existing = await domain.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
 			if (existing != null)
 				throw new InformationExistedException($"The domain ({domain.NormalizeDomain()}) was used by another site");
 
+			// validate meta-tags and scripts
+			request.Get("MetaTags", "").ValidateMetaTagsOrScripts();
+			request.Get("Scripts", "").ValidateMetaTagsOrScripts(true);
+
 			// create new
-			var site = requestBody.CreateSiteInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var site = request.CreateSiteInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
@@ -394,14 +398,18 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// check domain
-			var requestBody = requestInfo.GetBodyExpando();
-			var domain = $"{requestBody.Get<string>("SubDomain")}.{requestBody.Get<string>("PrimaryDomain")}";
+			var request = requestInfo.GetBodyExpando();
+			var domain = $"{request.Get<string>("SubDomain")}.{request.Get<string>("PrimaryDomain")}";
 			var existing = await domain.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
 			if (existing != null && !existing.ID.Equals(site.ID))
 				throw new InformationExistedException($"The domain ({domain.NormalizeDomain()}) was used by another site");
 
+			// validate meta-tags and scripts
+			request.Get("MetaTags", "").ValidateMetaTagsOrScripts();
+			request.Get("Scripts", "").ValidateMetaTagsOrScripts(true);
+
 			// update
-			site.UpdateSiteInstance(requestBody, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			site.UpdateSiteInstance(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;

@@ -34,6 +34,7 @@ namespace net.vieapps.Services.Portals
 				this.Directory = definition.Directory ?? definition.Type.GetTypeName(true);
 				this.ServiceName = definition.ServiceName;
 				this.ContentTypeDefinitions = definition.EntityDefinitions.Where(entityDefinition => !string.IsNullOrWhiteSpace(entityDefinition.ID)).Select(entityDefinition => new ContentTypeDefinition(entityDefinition, this)).ToList();
+				this.ObjectDefinitions = definition.EntityDefinitions.Where(entityDefinition => string.IsNullOrWhiteSpace(entityDefinition.ID)).Select(entityDefinition => new ContentTypeDefinition(entityDefinition, this)).ToList();
 			}
 		}
 
@@ -82,6 +83,11 @@ namespace net.vieapps.Services.Portals
 		/// Gets or Sets the collection of content-type definitions
 		/// </summary>
 		public List<ContentTypeDefinition> ContentTypeDefinitions { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the collection of other object definitions
+		/// </summary>
+		public List<ContentTypeDefinition> ObjectDefinitions { get; set; }
 	}
 
 	//  ------------------------------------------------------------------------
@@ -103,7 +109,7 @@ namespace net.vieapps.Services.Portals
 				this.EntityDefinitionTypeName = definition.Type.GetTypeName();
 				this.ModuleDefinition = moduleDefinition;
 				this.ID = definition.ID;
-				this.Title = definition.Title ?? definition.Type.GetTypeName(true);
+				this.Title = definition.Title ?? (string.IsNullOrWhiteSpace(definition.ID) ? null : definition.Type.GetTypeName(true));
 				this.Description = definition.Description;
 				this.Icon = definition.Icon;
 				this.MultipleIntances = definition.MultipleIntances;
@@ -112,8 +118,9 @@ namespace net.vieapps.Services.Portals
 				this.ObjectName = definition.ObjectName;
 				this.ObjectNamePrefix = definition.ObjectNamePrefix;
 				this.ObjectNameSuffix = definition.ObjectNameSuffix;
-				this.NestedObject = typeof(INestedObject).IsAssignableFrom(definition.Type);
 				this.ParentObjectName = definition.ParentType?.GetTypeName(true);
+				this.NestedObject = typeof(INestedObject).IsAssignableFrom(definition.Type);
+				this.Portlets = definition.Portlets;
 			}
 		}
 
@@ -173,9 +180,14 @@ namespace net.vieapps.Services.Portals
 		public string ParentObjectName { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the nested statte
+		/// Gets or Sets the nested state
 		/// </summary>
 		public bool NestedObject { get; set; } = false;
+
+		/// <summary>
+		/// Gets or Sets the portlets state
+		/// </summary>
+		public bool Portlets { get; set; } = false;
 
 		/// <summary>
 		/// Gets or Sets the type name of the entity definition
@@ -357,6 +369,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public string LookupProperty { get; set; }
 		#endregion
+
 	}
 
 	//  ------------------------------------------------------------------------

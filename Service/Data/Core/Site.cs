@@ -67,7 +67,7 @@ namespace net.vieapps.Services.Portals
 		public string Language { get; set; } = "vi-VN";
 
 		[Property(MaxLength = 100)]
-		[FormControl(Segment = "display", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
+		[FormControl(Segment = "display", ControlType = "Select", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string Theme { get; set; }
 
 		[Property(MaxLength = 32)]

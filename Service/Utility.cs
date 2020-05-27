@@ -1,11 +1,14 @@
 ﻿#region Related components
 using System;
 using System.Linq;
+using System.Xml.Linq;
+using System.Xml.XPath;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
+using net.vieapps.Services.Portals.Exceptions;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -123,7 +126,82 @@ namespace net.vieapps.Services.Portals
 			var definition = @object != null ? RepositoryMediator.GetEntityDefinition(@object.GetType()) : null;
 			return definition != null
 				? definition.GetObjectName()
-				: @object != null ? @object.GetType().GetTypeName(true) : null;
+				: @object?.GetType().GetTypeName(true);
+		}
+
+
+		/// <summary>
+		/// Gets the XDocument of XHTML
+		/// </summary>
+		/// <param name="xhtml"></param>
+		public static XDocument GetXDocument(this string xhtml)
+			=> XDocument.Parse(xhtml ?? "");
+
+		/// <summary>
+		/// Gets the defined zones from XHTML template
+		/// </summary>
+		/// <param name="xhtmlTemplate"></param>
+		/// <returns></returns>
+		public static IEnumerable<XElement> GetZones(this XDocument xhtmlTemplate)
+			=> xhtmlTemplate?.XPathSelectElements("//*/*[@zone-id]");
+
+		/// <summary>
+		/// Validates the XHTML template
+		/// </summary>
+		/// <param name="xhtmlTemplate"></param>
+		/// <param name="mustHaveAtLeastOneZone"></param>
+		/// <param name="requiredZoneIDs"></param>
+		public static void ValidateTemplate(this string xhtmlTemplate, bool mustHaveAtLeastOneZone = true, IEnumerable<string> requiredZoneIDs = null)
+		{
+			if (!string.IsNullOrWhiteSpace(xhtmlTemplate))
+				try
+				{
+					var template = xhtmlTemplate.GetXDocument();
+					var zones = template.GetZones();
+
+					if (mustHaveAtLeastOneZone && zones.Count() < 1)
+						throw new TemplateIsInvalidException("The template got no zone (means no any tag with 'zone-id' attribute)");
+
+					var zoneIDs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+					zones.ForEach(zone =>
+					{
+						var zoneID = zone.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("zone-id"))?.Value;
+						if (string.IsNullOrWhiteSpace(zoneID))
+							throw new TemplateIsInvalidException($"The tag ({zone.Name.LocalName}) got 'zone-id' attribute but has no value");
+						else if (zoneIDs.Contains(zoneID))
+							throw new TemplateIsInvalidException($"The identity ({zoneID}) of the zone tag ({zone.Name.LocalName}) was used by another zone");
+						zoneIDs.Add(zoneID);
+					});
+
+					requiredZoneIDs?.ForEach(zoneID =>
+					{
+						if (!zoneIDs.Contains(zoneID))
+							throw new TemplateIsInvalidException($"The template is required a zone with specified identity ({zoneID}) but not found");
+					});
+				}
+				catch (Exception ex)
+				{
+					throw new TemplateIsInvalidException(ex);
+				}
+		}
+
+		/// <summary>
+		/// Validates the meta-tags/scripts
+		/// </summary>
+		/// <param name="xhtmlTemplate"></param>
+		/// <param name="mustHaveAtLeastOneZone"></param>
+		/// <param name="requiredZoneIDs"></param>
+		public static void ValidateMetaTagsOrScripts(this string code, bool asScritps = false)
+		{
+			if (!string.IsNullOrWhiteSpace(code))
+				try
+				{
+					var xdoc = $"<vieapps>{code}</vieapps>".GetXDocument();
+				}
+				catch (Exception ex)
+				{
+					throw asScritps ? new ScriptsAreInvalidException(ex) as AppException : new MetaTagsAreInvalidException(ex);
+				}
 		}
 	}
 

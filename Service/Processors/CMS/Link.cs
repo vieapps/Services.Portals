@@ -222,6 +222,13 @@ namespace net.vieapps.Services.Portals
 			});
 
 			link.OrderIndex = (await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
+			if (link.ChildrenMode.Equals(ChildrenMode.Normal))
+				link.RepositoryID = link.RepositoryEntityID = link.LookupRepositoryObjectID = null;
+			else if (string.IsNullOrWhiteSpace(link.RepositoryID) || string.IsNullOrWhiteSpace(link.RepositoryEntityID) || string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
+			{
+				link.ChildrenMode = ChildrenMode.Normal;
+				link.RepositoryID = link.RepositoryEntityID = link.LookupRepositoryObjectID = null;
+			}
 
 			// create new
 			await Task.WhenAll(
@@ -336,6 +343,14 @@ namespace net.vieapps.Services.Portals
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 			});
+
+			if (link.ChildrenMode.Equals(ChildrenMode.Normal))
+				link.RepositoryID = link.RepositoryEntityID = link.LookupRepositoryObjectID = null;
+			else if (string.IsNullOrWhiteSpace(link.RepositoryID) || string.IsNullOrWhiteSpace(link.RepositoryEntityID) || string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
+			{
+				link.ChildrenMode = ChildrenMode.Normal;
+				link.RepositoryID = link.RepositoryEntityID = link.LookupRepositoryObjectID = null;
+			}
 
 			if (link.ParentLink != null && !link.ParentID.IsEquals(oldParentID))
 			{

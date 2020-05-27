@@ -11,6 +11,7 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
+using net.vieapps.Services.Portals.Exceptions;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -304,15 +305,20 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// check alias
-			var alias = request.Get<string>("Alias");
+			var alias = request.Get("Alias", "");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
 				if (DesktopProcessor.ExcludedAliases.Contains(alias.NormalizeAlias()))
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another purpose");
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another purpose");
 				var existing = await organization.ID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
 				if (existing != null)
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
 			}
+
+			// validate template, meta-tags and scripts
+			request.Get("Template", "").ValidateTemplate(true, new[] { "Content" });
+			request.Get("MetaTags", "").ValidateMetaTagsOrScripts();
+			request.Get("Scripts", "").ValidateMetaTagsOrScripts(true);
 
 			// create new
 			var desktop = request.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
@@ -437,26 +443,31 @@ namespace net.vieapps.Services.Portals
 			else if (desktop.Organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
-			// check permission
+			// check
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop.Organization.OwnerID) || requestInfo.Session.User.IsModerator(desktop.Organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// update
 			var request = requestInfo.GetBodyExpando();
 			var oldParentID = desktop.ParentID;
 
 			var oldAlias = desktop.Alias;
-			var alias = request.Get<string>("Alias");
+			var alias = request.Get("Alias", "");
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
 				if (DesktopProcessor.ExcludedAliases.Contains(alias.NormalizeAlias()))
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another purpose");
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another purpose");
 				var existing = await desktop.SystemID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(desktop.ID))
-					throw new InformationExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
 			}
 
+			// validate template, meta-tags and scripts
+			request.Get("Template", "").ValidateTemplate(true, new[] { "Content" });
+			request.Get("MetaTags", "").ValidateMetaTagsOrScripts();
+			request.Get("Scripts", "").ValidateMetaTagsOrScripts(true);
+
+			// update
 			desktop.UpdateDesktopInstance(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async obj =>
 			{
 				obj.LastModified = DateTime.Now;
