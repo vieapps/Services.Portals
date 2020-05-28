@@ -32,11 +32,11 @@ namespace net.vieapps.Services.Portals
 		public override string Title { get; set; }
 
 		[Property(MaxLength = 10)]
-		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "Select", SelectValues = "List,View", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public string MainAction { get; set; }
 
 		[Property(MaxLength = 10)]
-		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
+		[FormControl(Segment = "basic", ControlType = "Select", SelectValues = "List,View", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public string SubAction { get; set; }
 
 		[Property(MaxLength = 32)]
@@ -56,7 +56,7 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 32)]
 		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
-		public string ContentTypeID { get; set; }
+		public override string RepositoryEntityID { get; set; }
 
 		[Property(MaxLength = 32)]
 		[Sortable(IndexName = "Management")]
@@ -64,7 +64,7 @@ namespace net.vieapps.Services.Portals
 		public string OriginalPortletID { get; set; }
 
 		[AsJson]
-		[FormControl(Segment = "basic", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
+		[FormControl(Segment = "common", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public Portlets.CommonSettings CommonSettings { get; set; }
 
 		[AsJson]
@@ -77,11 +77,11 @@ namespace net.vieapps.Services.Portals
 
 		[AsJson]
 		[FormControl(Segment = "other", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
-		public Portlets.BreadcrumbSettings BreadcrumbSettings { get; set; }
+		public Portlets.PaginationSettings PaginationSettings { get; set; }
 
 		[AsJson]
 		[FormControl(Segment = "other", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
-		public Portlets.PaginationSettings PaginationSettings { get; set; }
+		public Portlets.BreadcrumbSettings BreadcrumbSettings { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
@@ -108,13 +108,13 @@ namespace net.vieapps.Services.Portals
 		public override string RepositoryID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public override string RepositoryEntityID { get; set; }
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override Privileges OriginalPrivileges { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override Privileges WorkingPrivileges => this.Desktop?.WorkingPrivileges;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public override RepositoryBase Parent => this.Desktop;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
@@ -123,19 +123,30 @@ namespace net.vieapps.Services.Portals
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public string ModuleID => this.ContentType?.ModuleID;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public Module Module => this.ContentType?.Module;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public string ContentTypeID => this.RepositoryEntityID;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public ContentType ContentType => (this.ContentTypeID ?? "").GetContentTypeByID();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public ContentTypeDefinition ContentTypeDefinition => this.ContentType?.ContentTypeDefinition;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID();
 
+		internal Portlet _originalPortlet;
+
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Portlet OriginalPortlet => Portlet.Get<Portlet>(this.OriginalPortletID);
+		public Portlet OriginalPortlet => string.IsNullOrWhiteSpace(this.OriginalPortletID) ? this : this._originalPortlet ?? (this._originalPortlet = Portlet.Get<Portlet>(this.OriginalPortletID));
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop OriginalDesktop => this.OriginalPortlet?.Desktop;
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public override RepositoryBase Parent => this.Desktop;
 
 		internal void Normalize()
 		{

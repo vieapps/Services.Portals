@@ -131,7 +131,7 @@ namespace net.vieapps.Services.Portals
 
 
 		/// <summary>
-		/// Gets the XDocument of XHTML
+		/// Gets the XDocument of XHTML/XSLT
 		/// </summary>
 		/// <param name="xhtml"></param>
 		public static XDocument GetXDocument(this string xhtml)

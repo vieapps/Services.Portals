@@ -198,16 +198,35 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		List<INestedObject> INestedObject.Children => this.Children?.Select(desktop => desktop as INestedObject).ToList();
 
+		internal List<Portlet> _portlets;
+
+		internal List<Portlet> FindPortlets(bool notifyPropertyChanged = true, List<Portlet> portlets = null)
+		{
+			this._portlets = portlets ?? Portlet.Find(Filters<Portlet>.Equals("DesktopID", this.ID), Sorts<Portlet>.Ascending("Zone").ThenByAscending("OrderIndex"), 0, 1, null);
+			if (notifyPropertyChanged)
+				this.NotifyPropertyChanged("ChildrenIDs");
+			return this._portlets;
+		}
+
+		internal async Task<List<Portlet>> FindPortletsAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+			=> this._portlets ?? this.FindPortlets(notifyPropertyChanged, await Portlet.FindAsync(Filters<Portlet>.Equals("DesktopID", this.ID), Sorts<Portlet>.Ascending("Zone").ThenByAscending("OrderIndex"), 0, 1, null, cancellationToken).ConfigureAwait(false));
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<Portlet> Portlets => this.FindPortlets();
+
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
 
-		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+		public JObject ToJson(bool addChildrenAndPortlets, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json.Remove("Privileges");
 				json.Remove("OriginalPrivileges");
-				if (addChildren)
+				if (addChildrenAndPortlets)
+				{
 					json["Children"] = this.Children?.Select(desktop => desktop?.ToJson(true, false)).Where(desktop => desktop != null).ToJArray();
+					json["Portlets"] = this.Portlets?.Select(portlet => portlet?.ToJson()).Where(portlet => portlet != null).ToJArray();
+				}
 				onPreCompleted?.Invoke(json);
 			});
 
@@ -245,7 +264,7 @@ namespace net.vieapps.Services.Portals
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
-			else if (name.IsEquals("ChildrenIDs"))
+			else if (name.IsEquals("ChildrenIDs") || name.IsEquals("Portlets"))
 				Utility.Cache.Set(this);
 		}
 	}

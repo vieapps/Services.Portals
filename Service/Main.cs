@@ -140,14 +140,19 @@ namespace net.vieapps.Services.Portals
 						json = await this.ProcessRoleAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
+					case "site":
+					case "core.site":
+						json = await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
+
 					case "desktop":
 					case "core.desktop":
 						json = await this.ProcessDesktopAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
-					case "site":
-					case "core.site":
-						json = await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+					case "portlet":
+					case "core.portlet":
+						json = await this.ProcessPortletAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
 					case "module":
@@ -439,6 +444,30 @@ namespace net.vieapps.Services.Portals
 
 				case "DELETE":
 					return await requestInfo.DeleteDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
+			}
+		}
+
+		async Task<JObject> ProcessPortletAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			switch (requestInfo.Verb)
+			{
+				case "GET":
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? await requestInfo.SearchPortletsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetPortletAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "POST":
+					return await requestInfo.CreatePortletAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "PUT":
+					return await requestInfo.UpdatePortletAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "DELETE":
+					return await requestInfo.DeletePortletAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);

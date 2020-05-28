@@ -49,6 +49,7 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public bool AutoPageNumber { get; set; } = true;
 
+		[FormControl(Hidden = true)]
 		public string Options { get; set; }
 
 		public bool ShowBreadcrumbs { get; set; } = true;
@@ -71,6 +72,7 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public string Template { get; set; }
 
+		[FormControl(Hidden = true)]
 		public string Options { get; set; }
 
 		public bool ShowBreadcrumbs { get; set; } = true;
@@ -86,9 +88,9 @@ namespace net.vieapps.Services.Portals.Portlets
 	}
 
 	[Serializable]
-	public class BreadcrumbSettings
+	public class PaginationSettings
 	{
-		public BreadcrumbSettings() { }
+		public PaginationSettings() { }
 
 		public string Template { get; set; }
 
@@ -100,7 +102,7 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public bool ShowPageLinks { get; set; } = true;
 
-		public void Normalize(Action<BreadcrumbSettings> onCompleted = null)
+		public void Normalize(Action<PaginationSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
 			this.PreviousPageLabel = string.IsNullOrWhiteSpace(this.PreviousPageLabel) ? null : this.PreviousPageLabel.Trim();
@@ -111,9 +113,9 @@ namespace net.vieapps.Services.Portals.Portlets
 	}
 
 	[Serializable]
-	public class PaginationSettings
+	public class BreadcrumbSettings
 	{
-		public PaginationSettings() { }
+		public BreadcrumbSettings() { }
 
 		public string Template { get; set; }
 
@@ -147,7 +149,7 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public string ContentTypeAdditionalURL { get; set; }
 
-		public void Normalize(Action<PaginationSettings> onCompleted = null)
+		public void Normalize(Action<BreadcrumbSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
 			this.SeperatedLabel = string.IsNullOrWhiteSpace(this.SeperatedLabel) ? ">" : this.SeperatedLabel.Trim();
