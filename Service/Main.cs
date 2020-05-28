@@ -162,6 +162,11 @@ namespace net.vieapps.Services.Portals
 					case "core.content.type":
 						json = await this.ProcessContentTypeAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
+
+					case "expression":
+					case "core.expression":
+						json = await this.ProcessExpressionAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
 					#endregion
 
 					#region process the request of CMS objects
@@ -232,6 +237,11 @@ namespace net.vieapps.Services.Portals
 								json = this.GenerateFormControls<Desktop>();
 								break;
 
+							case "portlet":
+							case "core.portlet":
+								json = this.GenerateFormControls<Portlet>();
+								break;
+
 							case "module":
 							case "core.module":
 								json = this.GenerateFormControls<Module>();
@@ -243,6 +253,11 @@ namespace net.vieapps.Services.Portals
 							case "core.contenttype":
 							case "core.content.type":
 								json = this.GenerateFormControls<ContentType>();
+								break;
+
+							case "expression":
+							case "core.expression":
+								json = this.GenerateFormControls<Expression>();
 								break;
 
 							case "category":
@@ -472,6 +487,30 @@ namespace net.vieapps.Services.Portals
 
 				case "DELETE":
 					return await requestInfo.DeleteContentTypeAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
+			}
+		}
+
+		async Task<JObject> ProcessExpressionAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			switch (requestInfo.Verb)
+			{
+				case "GET":
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? await requestInfo.SearchExpressionsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetExpressionAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "POST":
+					return await requestInfo.CreateExpressionAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "PUT":
+					return await requestInfo.UpdateExpressionAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+
+				case "DELETE":
+					return await requestInfo.DeleteExpressionAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
