@@ -16,9 +16,9 @@ namespace net.vieapps.Services.Portals
 		string ModuleID { get; }
 
 		/// <summary>
-		/// Gets the type name of the content-type definition what the object is related to
+		/// Gets the identity of a content-type definition that the object is related to
 		/// </summary>
-		string ContentTypeDefinition { get; }
+		string ContentTypeDefinitionID { get; }
 
 		/// <summary>
 		/// Gets the identity of a business content-type that the object is related to
@@ -31,8 +31,13 @@ namespace net.vieapps.Services.Portals
 		IFilterBy FilterBy { get; }
 
 		/// <summary>
-		/// Gets the sort expression
+		/// Gets the default sort expression
 		/// </summary>
 		ISortBy SortBy { get; }
+
+		/// <summary>
+		/// Gets the collection of sort expressions
+		/// </summary>
+		List<ISortBy> SortBys { get; }
 	}
 }
