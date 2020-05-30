@@ -28,16 +28,16 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the filter expression
 		/// </summary>
-		IFilterBy FilterBy { get; }
+		IFilterBy Filter { get; }
 
 		/// <summary>
 		/// Gets the default sort expression
 		/// </summary>
-		ISortBy SortBy { get; }
+		ISortBy Sort { get; }
 
 		/// <summary>
 		/// Gets the collection of sort expressions
 		/// </summary>
-		List<ISortBy> SortBys { get; }
+		List<ISortBy> Sorts { get; }
 	}
 }

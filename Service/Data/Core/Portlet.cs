@@ -28,25 +28,25 @@ namespace net.vieapps.Services.Portals
 		public Portlet() : base() { }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
-		[FormControl(Segment = "basic", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
+		[FormControl(Segment = "common", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public override string Title { get; set; }
 
 		[Property(MaxLength = 10)]
-		[FormControl(Segment = "basic", ControlType = "Select", SelectValues = "List,View", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
-		public string MainAction { get; set; }
+		[FormControl(Segment = "common", ControlType = "Select", SelectValues = "List,View", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
+		public string Action { get; set; }
 
 		[Property(MaxLength = 10)]
-		[FormControl(Segment = "basic", ControlType = "Select", SelectValues = "List,View", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
-		public string SubAction { get; set; }
+		[FormControl(Segment = "common", ControlType = "Select", SelectValues = "List,View", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
+		public string AlternativeAction { get; set; }
 
 		[Property(MaxLength = 32)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
+		[FormControl(Segment = "common", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public string DesktopID { get; set; }
 
 		[Property(MaxLength = 100)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
+		[FormControl(Segment = "common", ControlType = "Select", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public string Zone { get; set; }
 
 		[Sortable(IndexName = "Management")]
@@ -55,12 +55,12 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 32)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
+		[FormControl(Segment = "common", ControlType = "Select", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public override string RepositoryEntityID { get; set; }
 
 		[Property(MaxLength = 32)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
+		[FormControl(Segment = "common", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public string OriginalPortletID { get; set; }
 
 		[AsJson]
@@ -150,58 +150,97 @@ namespace net.vieapps.Services.Portals
 
 		internal void Normalize()
 		{
-			if (this.ContentType == null)
-				this.MainAction = this.SubAction = null;
-			else
+			if (this.ContentType != null && string.IsNullOrWhiteSpace(this.OriginalPortletID))
 			{
-				this.MainAction = (this.MainAction ?? "List").Trim();
-				this.SubAction = string.IsNullOrWhiteSpace(this.SubAction) || this.MainAction.IsEquals(this.SubAction) ? null : this.SubAction.Trim();
+				this.Action = (this.Action ?? "List").Trim();
+				this.AlternativeAction = string.IsNullOrWhiteSpace(this.AlternativeAction) || this.Action.IsEquals(this.AlternativeAction) ? null : this.AlternativeAction.Trim();
 			}
+			else
+				this.Action = this.AlternativeAction = null;
+
 			this.CommonSettings?.Normalize(settings => (settings.Template ?? "").ValidateTemplate(false));
+
 			this.ListSettings?.Normalize(settings =>
 			{
 				try
 				{
-					(settings.Template ?? "").GetXDocument();
+					(settings.Template ?? "").GetXslCompiledTransform();
 				}
 				catch (Exception ex)
 				{
+					if (ex is TemplateIsInvalidException)
+						ex = ex.InnerException;
 					throw new TemplateIsInvalidException($"List XSLT is invalid => {ex.Message}", ex);
 				}
+				if (!string.IsNullOrWhiteSpace(settings.Options))
+					try
+					{
+						JObject.Parse(settings.Options);
+					}
+					catch (Exception ex)
+					{
+						throw new OptionsAreInvalidException($"List options are invalid => {ex.Message}", ex);
+					}
 			});
+
 			this.ViewSettings?.Normalize(settings =>
 			{
 				try
 				{
-					(settings.Template ?? "").GetXDocument();
+					(settings.Template ?? "").GetXslCompiledTransform();
 				}
 				catch (Exception ex)
 				{
+					if (ex is TemplateIsInvalidException)
+						ex = ex.InnerException;
 					throw new TemplateIsInvalidException($"View XSLT is invalid => {ex.Message}", ex);
 				}
+				if (!string.IsNullOrWhiteSpace(settings.Options))
+					try
+					{
+						JObject.Parse(settings.Options);
+					}
+					catch (Exception ex)
+					{
+						throw new OptionsAreInvalidException($"View options are invalid => {ex.Message}", ex);
+					}
 			});
-			this.BreadcrumbSettings?.Normalize(settings =>
-			{
-				try
-				{
-					(settings.Template ?? "").GetXDocument();
-				}
-				catch (Exception ex)
-				{
-					throw new TemplateIsInvalidException($"Breadcrumb XSLT is invalid => {ex.Message}", ex);
-				}
-			});
+
 			this.PaginationSettings?.Normalize(settings =>
 			{
 				try
 				{
-					(settings.Template ?? "").GetXDocument();
+					(settings.Template ?? "").GetXslCompiledTransform();
 				}
 				catch (Exception ex)
 				{
+					if (ex is TemplateIsInvalidException)
+						ex = ex.InnerException;
 					throw new TemplateIsInvalidException($"Pagination XSLT is invalid => {ex.Message}", ex);
 				}
 			});
+
+			this.BreadcrumbSettings?.Normalize(settings =>
+			{
+				try
+				{
+					(settings.Template ?? "").GetXslCompiledTransform();
+				}
+				catch (Exception ex)
+				{
+					if (ex is TemplateIsInvalidException)
+						ex = ex.InnerException;
+					throw new TemplateIsInvalidException($"Breadcrumb XSLT is invalid => {ex.Message}", ex);
+				}
+			});
 		}
+
+		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
+			=> base.ToJson(addTypeOfExtendedProperties, json =>
+			{
+				json.Remove("Privileges");
+				json.Remove("OriginalPrivileges");
+				onCompleted?.Invoke(json);
+			});
 	}
 }

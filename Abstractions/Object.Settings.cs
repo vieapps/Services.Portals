@@ -53,8 +53,10 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public bool SignatureInQuery { get; set; } = false;
 
+		[FormControl(ControlType = "TextArea")]
 		public string AdditionalQuery { get; set; }
 
+		[FormControl(ControlType = "TextArea")]
 		public string AdditionalHeader { get; set; }
 
 		public void Normalize()
@@ -121,6 +123,7 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public string Subject { get; set; }
 
+		[FormControl(ControlType = "TextArea")]
 		public string Body { get; set; }
 
 		public void Normalize()

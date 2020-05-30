@@ -202,32 +202,32 @@ namespace net.vieapps.Services.Portals
 
 		internal List<Portlet> FindPortlets(bool notifyPropertyChanged = true, List<Portlet> portlets = null)
 		{
-			this._portlets = portlets ?? Portlet.Find(Filters<Portlet>.Equals("DesktopID", this.ID), Sorts<Portlet>.Ascending("Zone").ThenByAscending("OrderIndex"), 0, 1, null);
+			this._portlets = portlets ?? (this.ID ?? "").FindPortlets();
 			if (notifyPropertyChanged)
-				this.NotifyPropertyChanged("ChildrenIDs");
+				this.NotifyPropertyChanged("Portlets");
 			return this._portlets;
 		}
 
 		internal async Task<List<Portlet>> FindPortletsAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
-			=> this._portlets ?? this.FindPortlets(notifyPropertyChanged, await Portlet.FindAsync(Filters<Portlet>.Equals("DesktopID", this.ID), Sorts<Portlet>.Ascending("Zone").ThenByAscending("OrderIndex"), 0, 1, null, cancellationToken).ConfigureAwait(false));
+			=> this._portlets ?? this.FindPortlets(notifyPropertyChanged, await (this.ID ?? "").FindPortletsAsync(cancellationToken).ConfigureAwait(false));
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public List<Portlet> Portlets => this.FindPortlets();
 
-		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
-			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
+		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
+			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addChildrenAndPortlets, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+		public JObject ToJson(bool addChildrenAndPortlets, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json.Remove("Privileges");
 				json.Remove("OriginalPrivileges");
 				if (addChildrenAndPortlets)
 				{
-					json["Children"] = this.Children?.Select(desktop => desktop?.ToJson(true, false)).Where(desktop => desktop != null).ToJArray();
-					json["Portlets"] = this.Portlets?.Select(portlet => portlet?.ToJson()).Where(portlet => portlet != null).ToJArray();
+					json["Children"] = this.Children?.Where(desktop => desktop != null).Select(desktop => desktop.ToJson(true, false)).ToJArray();
+					json["Portlets"] = this.Portlets?.Where(portlet => portlet != null).OrderBy(portlet => portlet.Zone).ThenBy(portlet => portlet.OrderIndex).Select(portlet => portlet.ToJson()).ToJArray();
 				}
-				onPreCompleted?.Invoke(json);
+				onCompleted?.Invoke(json);
 			});
 
 		internal void NormalizeExtras()

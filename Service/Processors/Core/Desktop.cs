@@ -416,9 +416,12 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// prepare the response
-			if (desktop._childrenIDs == null)
+			if (desktop._childrenIDs == null || desktop._portlets == null)
 			{
-				await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				if (desktop._childrenIDs == null)
+					await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				if (desktop._portlets == null)
+					await desktop.FindPortletsAsync(cancellationToken, false).ConfigureAwait(false);
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 

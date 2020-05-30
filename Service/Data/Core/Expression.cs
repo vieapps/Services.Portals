@@ -51,13 +51,23 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.expressions.controls.[name].label}}", PlaceHolder = "{{portals.expressions.controls.[name].placeholder}}", Description = "{{portals.expressions.controls.[name].description}}")]
 		public override string RepositoryEntityID { get; set; }
 
-		[AsJson]
-		[FormControl(Hidden = true)]
-		public FilterBy FilterBy { get; set; }
+		[JsonIgnore, XmlIgnore]
+		[Property(IsCLOB = true)]
+		[FormControl(Excluded = true)]
+		public string FilterBy { get; set; }
 
-		[AsJson]
-		[FormControl(Hidden = true)]
-		public List<SortBy> SortBys { get; set; }
+		[Ignore, BsonIgnore]
+		[FormControl(Excluded = true)]
+		public FilterBys Filter { get; set; }
+
+		[JsonIgnore, XmlIgnore]
+		[Property(IsCLOB = true)]
+		[FormControl(Excluded = true)]
+		public string SortBy { get; set; }
+
+		[Ignore, BsonIgnore]
+		[FormControl(Excluded = true)]
+		public List<SortBy> Sorts { get; set; }
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
@@ -114,19 +124,54 @@ namespace net.vieapps.Services.Portals
 		public ContentTypeDefinition ContentTypeDefinition => this.ContentType?.ContentTypeDefinition ?? (!string.IsNullOrWhiteSpace(this.ContentTypeDefinitionID) && Utility.ContentTypeDefinitions.TryGetValue(this.ContentTypeDefinitionID, out var definition) ? definition : null);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		IFilterBy IPortalExpression.FilterBy => this.FilterBy;
+		IFilterBy IPortalExpression.Filter => this.Filter;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public SortBy SortBy => this.SortBys?.FirstOrDefault();
+		public SortBy Sort => this.Sorts?.FirstOrDefault();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		ISortBy IPortalExpression.SortBy => this.SortBy;
+		ISortBy IPortalExpression.Sort => this.Sort;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		List<ISortBy> IPortalExpression.SortBys => this.SortBys?.Select(sortBy => sortBy as ISortBy).ToList();
+		List<ISortBy> IPortalExpression.Sorts => this.Sorts?.Select(sort => sort as ISortBy).ToList();
 
-		internal void Normalize()
+		internal void Normalize(JObject filterBy = null, JArray sortBy = null)
 		{
+			this.Filter = filterBy != null && filterBy["Operator"] != null
+				? new FilterBys(filterBy)
+				: new FilterBys(GroupOperator.And, new List<IFilterBy> { new FilterBy("SystemID", CompareOperator.Equals, this.Organization.ID) });
+			this.FilterBy = this.Filter.ToJson().ToString(Formatting.None);
+			this.Sorts = sortBy?.Select(sort => sort["Attribute"] != null ? new SortBy(sort as JObject) : null).Where(sort => sort != null).ToList();
+			this.Sorts = this.Sorts != null && this.Sorts.Count > 0
+				? this.Sorts
+				: new[] { new SortBy("Created", SortMode.Descending) }.ToList();
+			this.SortBy = this.Sorts.Select(sort => sort.ToJson()).ToJArray().ToString(Formatting.None);
 		}
+
+		public override void ProcessPropertyChanged(string name)
+		{
+			if ("FilterBy".IsEquals(name))
+				this.Filter = string.IsNullOrWhiteSpace(this.FilterBy) ? null : new FilterBys(JObject.Parse(this.FilterBy));
+			else if ("Filter".IsEquals(name))
+				this.FilterBy = this.Filter?.ToJson().ToString(Formatting.None);
+			else if ("SortBy".IsEquals(name))
+				this.Sorts = string.IsNullOrWhiteSpace(this.SortBy) ? null : JArray.Parse(this.SortBy).Select(sort => new SortBy(sort  as JObject)).ToList();
+			else if ("Sorts".IsEquals(name))
+				this.SortBy = this.Sorts?.Select(sort => sort.ToJson()).ToJArray().ToString(Formatting.None);
+		}
+
+		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
+			=> base.ToJson(addTypeOfExtendedProperties, json =>
+			{
+				if (this.Filter == null || this.Sorts == null)
+				{
+					this.Filter = this.Filter ?? new FilterBys(JObject.Parse(this.FilterBy));
+					this.Sorts = this.Sorts ?? JArray.Parse(this.SortBy).Select(sort => new SortBy(sort as JObject)).ToList();
+					this.Set();
+					json["Filter"] = this.Filter.ToJson();
+					json["Sorts"] = this.Sorts.Select(sort => sort.ToJson()).ToJArray();
+				}
+				onCompleted?.Invoke(json);
+			});
 	}
 }

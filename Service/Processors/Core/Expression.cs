@@ -209,7 +209,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> CreateExpressionAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var request = requestInfo.GetBodyExpando();
+			var request = requestInfo.GetBodyJson();
 			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("SystemID");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
@@ -221,14 +221,15 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// create new
-			var expression = request.CreateExpressionInstance("SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var expression = request.ToExpandoObject().CreateExpressionInstance("SystemID,Privileges,Filter,Sorts,FilterBy,SortBy,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.Normalize();
+				obj.Normalize(request["Filter"] as JObject, request["Sorts"] as JArray);
 			});
+
 			await Expression.CreateAsync(expression, cancellationToken).ConfigureAwait(false);
 			await expression.ClearRelatedCache(cancellationToken).ConfigureAwait(false);
 
@@ -294,12 +295,14 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// update
-			expression.UpdateExpressionInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,ContentTypeDefinitionID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var request = requestInfo.GetBodyJson();
+			expression.UpdateExpressionInstance(request.ToExpandoObject(), "ID,SystemID,RepositoryID,RepositoryEntityID,ContentTypeDefinitionID,Privileges,Filter,Sorts,FilterBy,SortBy,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.Normalize();
+				obj.Normalize(request["Filter"] as JObject, request["Sorts"] as JArray);
 			});
+
 			await Task.WhenAll(
 				Expression.UpdateAsync(expression, requestInfo.Session.User.ID, cancellationToken),
 				expression.ClearRelatedCache(cancellationToken),

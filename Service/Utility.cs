@@ -1,10 +1,15 @@
 ﻿#region Related components
 using System;
+using System.IO;
 using System.Linq;
+using System.Xml;
 using System.Xml.Linq;
 using System.Xml.XPath;
+using System.Xml.Xsl;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Threading;
+using System.Threading.Tasks;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
@@ -129,9 +134,8 @@ namespace net.vieapps.Services.Portals
 				: @object?.GetType().GetTypeName(true);
 		}
 
-
 		/// <summary>
-		/// Gets the XDocument of XHTML/XSLT
+		/// Gets the XDocument of XML/XHTML
 		/// </summary>
 		/// <param name="xhtml"></param>
 		public static XDocument GetXDocument(this string xhtml)
@@ -144,6 +148,14 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static IEnumerable<XElement> GetZones(this XDocument xhtmlTemplate)
 			=> xhtmlTemplate?.XPathSelectElements("//*/*[@zone-id]");
+
+		/// <summary>
+		/// Gets the names of the defined zones from XHTML template
+		/// </summary>
+		/// <param name="xhtmlTemplate"></param>
+		/// <returns></returns>
+		public static IEnumerable<string> GetZoneNames(this XDocument xhtmlTemplate)
+			=> xhtmlTemplate.GetZones().Select(element => element.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("zone-id"))).Select(attribute => attribute.Value);
 
 		/// <summary>
 		/// Validates the XHTML template
@@ -196,12 +208,115 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(code))
 				try
 				{
-					var xdoc = $"<vieapps>{code}</vieapps>".GetXDocument();
+					$"<vieapps>{code}</vieapps>".GetXDocument();
 				}
 				catch (Exception ex)
 				{
 					throw asScritps ? new ScriptsAreInvalidException(ex) as AppException : new MetaTagsAreInvalidException(ex);
 				}
+		}
+
+		/// <summary>
+		/// Gets the compiled XSLT
+		/// </summary>
+		/// <param name="xslt"></param>
+		/// <param name="enableScript"></param>
+		/// <returns></returns>
+		public static XslCompiledTransform GetXslCompiledTransform(this string xslt, bool enableScript = true)
+		{
+			if (!string.IsNullOrWhiteSpace(xslt))
+				try
+				{
+					var xml = xslt.GetXDocument();
+					using (var stream = UtilityService.CreateMemoryStream(xml.ToString().ToBytes()))
+					{
+						using (var reader = new XmlTextReader(stream))
+						{
+							var xslTransform = new XslCompiledTransform();
+							xslTransform.Load(reader, enableScript ? new XsltSettings { EnableScript = true } : null, null);
+							return xslTransform;
+						}
+					}
+				}
+				catch (Exception ex)
+				{
+					throw new TemplateIsInvalidException($"The XSLT template is invalid => {ex.Message}", ex);
+				}
+			return null;
+		}
+
+		/// <summary>
+		/// Transforms this XML by the specified stylesheet to XHTML/XML string
+		/// </summary>
+		/// <param name="xml"></param>
+		/// <param name="xslt"></param>
+		/// <returns></returns>
+		public static string Transfrom(this XmlDocument xml, XslCompiledTransform xslt)
+		{
+			if (xslt != null)
+				using (var writer = new StringWriter())
+				{
+					xslt.Transform(xml, null, writer);
+					var results = writer.ToString().Replace(StringComparison.OrdinalIgnoreCase, "&#xD;", "").Replace(StringComparison.OrdinalIgnoreCase, "&#xA;", "").Replace(StringComparison.OrdinalIgnoreCase, "\t", "").Replace(StringComparison.OrdinalIgnoreCase, "&#x9;", "").Replace(StringComparison.OrdinalIgnoreCase, "<?xml version=\"1.0\" encoding=\"utf-16\"?>", "");
+					var start = results.PositionOf("xmlns:");
+					while (start > 0)
+					{
+						var end = results.PositionOf("\"", start);
+						end = results.PositionOf("\"", end + 1);
+						results = results.Remove(start, end - start + 1);
+						start = results.PositionOf("xmlns:");
+					}
+					return results;
+				}
+			return "";
+		}
+
+		/// <summary>
+		/// Transforms this XML by the specified stylesheet to XHTML/XML string
+		/// </summary>
+		/// <param name="xml"></param>
+		/// <param name="xmlStylesheet">The stylesheet for transfroming</param>
+		/// <param name="enableScript">true to enable inline script (like C#) while processing</param>
+		/// <returns></returns>
+		public static string Transfrom(this XmlDocument xml, string xslt, bool enableScript = true)
+			=> xml.Transfrom((xslt ?? "").GetXslCompiledTransform(enableScript));
+
+		/// <summary>
+		/// Transforms this XML by the specified stylesheet to XHTML/XML string
+		/// </summary>
+		/// <param name="xml"></param>
+		/// <param name="xslt"></param>
+		/// <returns></returns>
+		public static string Transfrom(this XDocument xml, XslCompiledTransform xslt)
+			=> xml.ToXmlDocument().Transfrom(xslt);
+
+		/// <summary>
+		/// Transforms this XML by the specified stylesheet to XHTML/XML string
+		/// </summary>
+		/// <param name="xml"></param>
+		/// <param name="xmlStylesheet">The stylesheet for transfroming</param>
+		/// <param name="enableScript">true to enable inline script (like C#) while processing</param>
+		/// <returns></returns>
+		public static string Transfrom(this XDocument xml, string xslt, bool enableScript = true)
+			=> xml.ToXmlDocument().Transfrom(xslt, enableScript);
+
+		/// <summary>
+		/// Gets the pre-defined template
+		/// </summary>
+		/// <param name="filename"></param>
+		/// <param name="mainDirectory"></param>
+		/// <param name="subDirectory"></param>
+		/// <param name="theme"></param>
+		/// <returns></returns>
+		public static async Task<string> GetTemplateAsync(string filename, string theme = null, string mainDirectory = null, string subDirectory = null, CancellationToken cancellationToken = default)
+		{
+			var filePath = Path.Combine(Utility.DataFilesDirectory, "themes", (theme ?? "default").Trim().ToLower(), "templates");
+			if (!string.IsNullOrWhiteSpace(mainDirectory))
+				filePath = Path.Combine(filePath, mainDirectory.Trim().ToLower());
+			if (!string.IsNullOrWhiteSpace(subDirectory))
+				filePath = Path.Combine(filePath, subDirectory.Trim().ToLower());
+			filePath = Path.Combine(filePath, filename.Trim().ToLower());
+			return File.Exists(filePath) ? await UtilityService.ReadTextFileAsync(filePath, null, cancellationToken).ConfigureAwait(false) : null;
 		}
 	}
 

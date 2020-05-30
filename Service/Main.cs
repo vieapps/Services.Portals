@@ -222,6 +222,10 @@ namespace net.vieapps.Services.Portals
 								json = await this.GetThemesAsync(cancellationToken).ConfigureAwait(false);
 								break;
 
+							case "template":
+								json = await this.ProcessTemplateAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+								break;
+
 							case "organization":
 							case "core.organization":
 								json = this.GenerateFormControls<Organization>();
@@ -461,13 +465,13 @@ namespace net.vieapps.Services.Portals
 						: await requestInfo.GetPortletAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreatePortletAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreatePortletAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdatePortletAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdatePortletAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeletePortletAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeletePortletAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -668,6 +672,25 @@ namespace net.vieapps.Services.Portals
 				}
 			else
 				throw new MethodNotAllowedException(requestInfo.Verb);
+		}
+
+		async Task<JToken> ProcessTemplateAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			var request = requestInfo.GetRequestExpando();
+			if ("Zones".IsEquals(request.Get<string>("Mode")))
+			{
+				var desktop = await request.Get("DesktopID", "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (desktop == null)
+					return null;
+				var template = desktop.Template;
+				if (string.IsNullOrWhiteSpace(template))
+					template = await Utility.GetTemplateAsync("desktop.xml", desktop.Theme ?? desktop.Organization.DefaultSite?.Theme ?? desktop.Organization.Theme ?? "default", null, null, cancellationToken).ConfigureAwait(false);
+				return template.GetXDocument().GetZoneNames().ToJArray();
+			}
+			return new JObject
+			{
+				{ "Template", await Utility.GetTemplateAsync(request.Get<string>("Name"), null, request.Get<string>("MainDirectory"), request.Get<string>("SubDirectory"), cancellationToken).ConfigureAwait(false) }
+			};
 		}
 
 		#region Process communicate message of Portals service

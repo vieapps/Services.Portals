@@ -9,10 +9,12 @@ namespace net.vieapps.Services.Portals.Portlets
 	{
 		public CommonSettings() { }
 
+		[FormControl(ControlType = "TextArea")]
 		public string Template { get; set; }
 
 		public bool HideTitle { get; set; } = false;
 
+		[FormControl(DataType = "url")]
 		public string TitleURL { get; set; }
 
 		[FormControl(ControlType = "Lookup")]
@@ -40,6 +42,7 @@ namespace net.vieapps.Services.Portals.Portlets
 	{
 		public ListSettings() { }
 
+		[FormControl(ControlType = "TextArea")]
 		public string Template { get; set; }
 
 		[FormControl(ControlType = "Lookup")]
@@ -49,7 +52,7 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public bool AutoPageNumber { get; set; } = true;
 
-		[FormControl(Hidden = true)]
+		[FormControl(ControlType = "TextArea")]
 		public string Options { get; set; }
 
 		public bool ShowBreadcrumbs { get; set; } = true;
@@ -70,9 +73,10 @@ namespace net.vieapps.Services.Portals.Portlets
 	{
 		public ViewSettings() { }
 
+		[FormControl(ControlType = "TextArea")]
 		public string Template { get; set; }
 
-		[FormControl(Hidden = true)]
+		[FormControl(ControlType = "TextArea")]
 		public string Options { get; set; }
 
 		public bool ShowBreadcrumbs { get; set; } = true;
@@ -92,6 +96,7 @@ namespace net.vieapps.Services.Portals.Portlets
 	{
 		public PaginationSettings() { }
 
+		[FormControl(ControlType = "TextArea")]
 		public string Template { get; set; }
 
 		public string PreviousPageLabel { get; set; } = "Previous";
@@ -117,36 +122,43 @@ namespace net.vieapps.Services.Portals.Portlets
 	{
 		public BreadcrumbSettings() { }
 
+		[FormControl(ControlType = "TextArea")]
 		public string Template { get; set; }
 
 		public string SeperatedLabel { get; set; } = ">";
 
 		public string HomeLabel { get; set; } = "Home";
 
+		[FormControl(DataType = "url")]
 		public string HomeURL { get; set; }
 
 		public string HomeAdditionalLabel { get; set; }
 
+		[FormControl(DataType = "url")]
 		public string HomeAdditionalURL { get; set; }
 
 		public bool ShowModuleLink { get; set; } = false;
 
 		public string ModuleLabel { get; set; }
 
+		[FormControl(DataType = "url")]
 		public string ModuleURL { get; set; }
 
 		public string ModuleAdditionalLabel { get; set; }
 
+		[FormControl(DataType = "url")]
 		public string ModuleAdditionalURL { get; set; }
 
 		public bool ShowContentTypeLink { get; set; } = false;
 
 		public string ContentTypeLabel { get; set; }
 
+		[FormControl(DataType = "url")]
 		public string ContentTypeURL { get; set; }
 
 		public string ContentTypeAdditionalLabel { get; set; }
 
+		[FormControl(DataType = "url")]
 		public string ContentTypeAdditionalURL { get; set; }
 
 		public void Normalize(Action<BreadcrumbSettings> onCompleted = null)

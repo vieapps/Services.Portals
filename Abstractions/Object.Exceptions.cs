@@ -57,4 +57,18 @@ namespace net.vieapps.Services.Portals.Exceptions
 
 		public ScriptsAreInvalidException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
+
+	[Serializable]
+	public class OptionsAreInvalidException : AppException
+	{
+		public OptionsAreInvalidException() : this("The options are invalid") { }
+
+		public OptionsAreInvalidException(Exception innerException) : base($"The options are invalid => {innerException.Message}", innerException) { }
+
+		public OptionsAreInvalidException(string message) : base(message) { }
+
+		public OptionsAreInvalidException(string message, Exception innerException) : base(message, innerException) { }
+
+		public OptionsAreInvalidException(SerializationInfo info, StreamingContext context) : base(info, context) { }
+	}
 }
