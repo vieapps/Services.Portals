@@ -680,12 +680,9 @@ namespace net.vieapps.Services.Portals
 			if ("Zones".IsEquals(request.Get<string>("Mode")))
 			{
 				var desktop = await request.Get("DesktopID", "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (desktop == null)
-					return null;
-				var template = desktop.Template;
-				if (string.IsNullOrWhiteSpace(template))
-					template = await Utility.GetTemplateAsync("desktop.xml", desktop.Theme ?? desktop.Organization.DefaultSite?.Theme ?? desktop.Organization.Theme ?? "default", null, null, cancellationToken).ConfigureAwait(false);
-				return template.GetXDocument().GetZoneNames().ToJArray();
+				return desktop != null
+					? (await desktop.GetTemplateAsync(cancellationToken).ConfigureAwait(false)).GetXDocument().GetZoneNames().ToJArray()
+					: null;
 			}
 			return new JObject
 			{

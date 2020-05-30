@@ -163,6 +163,9 @@ namespace net.vieapps.Services.Portals
 		INestedObject INestedObject.Parent => this.ParentDesktop;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public string WorkingTheme => this.Theme ?? this.Organization?.DefaultSite?.Theme ?? this.Organization?.Theme ?? "default";
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string FullTitle
 		{
 			get
@@ -267,5 +270,10 @@ namespace net.vieapps.Services.Portals
 			else if (name.IsEquals("ChildrenIDs") || name.IsEquals("Portlets"))
 				Utility.Cache.Set(this);
 		}
+
+		public async Task<string> GetTemplateAsync(CancellationToken cancellationToken = default)
+			=> string.IsNullOrWhiteSpace(this.Template)
+				? await Utility.GetTemplateAsync("desktop.xml", this.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false)
+				: this.Template;
 	}
 }

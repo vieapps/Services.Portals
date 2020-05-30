@@ -242,5 +242,10 @@ namespace net.vieapps.Services.Portals
 				json.Remove("OriginalPrivileges");
 				onCompleted?.Invoke(json);
 			});
+
+		public async Task<string> GetTemplateAsync(CancellationToken cancellationToken = default)
+			=> string.IsNullOrWhiteSpace(this.CommonSettings?.Template)
+				? await Utility.GetTemplateAsync("portlet.xml", this.Desktop?.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false)
+				: this.CommonSettings.Template;
 	}
 }
