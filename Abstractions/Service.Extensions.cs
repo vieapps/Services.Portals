@@ -9,7 +9,7 @@ namespace net.vieapps.Services.Portals
 		internal static ConcurrentDictionary<string, ICmsPortalsService> Services { get; } = new ConcurrentDictionary<string, ICmsPortalsService>(StringComparer.OrdinalIgnoreCase);
 
 		/// <summary>
-		/// Gets a service of CMS Portals by a specified name
+		/// Gets a service of CMS Portals that specified by a name
 		/// </summary>
 		/// <param name="name">The string that presents the name of a service in CMS Portals</param>
 		/// <returns></returns>
@@ -26,6 +26,22 @@ namespace net.vieapps.Services.Portals
 
 			return service ?? throw new ServiceNotFoundException($"The service \"{name.ToLower()}\" is not found");
 		}
+
+		/// <summary>
+		/// Gets a service of CMS Portals that specified by a name
+		/// </summary>
+		/// <param name="contentTypeDefinition"></param>
+		/// <returns></returns>
+		public static ICmsPortalsService GetService(this ContentTypeDefinition contentTypeDefinition)
+			=> CmsPortalsServiceExtensions.GetService(contentTypeDefinition.ModuleDefinition.ServiceName);
+
+		/// <summary>
+		/// Gets a service of CMS Portals that specified by a name
+		/// </summary>
+		/// <param name="contentType"></param>
+		/// <returns></returns>
+		public static ICmsPortalsService GetService(this IPortalContentType contentType)
+			=> contentType.ContentTypeDefinition.GetService();
 
 		/// <summary>
 		/// Registers the communicator to the commnunicating subject of CMS Portals service (URI: messages.services.cms.portals)

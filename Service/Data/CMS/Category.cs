@@ -63,10 +63,10 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public string SpecifiedURI { get; set; }
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
 		[NonSerialized]

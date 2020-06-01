@@ -150,31 +150,34 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop SearchDesktop => (this.SearchDesktopID ?? "").GetDesktopByID() ?? this.DefaultDesktop;
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Dictionary<string, Dictionary<string, Settings.Instruction>> Instructions { get; set; } = new Dictionary<string, Dictionary<string, Settings.Instruction>>();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public List<string> Socials { get; set; } = new List<string>();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Dictionary<string, string> Trackings { get; set; } = new Dictionary<string, string>();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public string MetaTags { get; set; }
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public string Scripts { get; set; }
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
+		public bool AlwaysUseHtmlSuffix { get; set; } = true;
+
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.RefreshUrls RefreshUrls { get; set; } = new Settings.RefreshUrls();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.RedirectUrls RedirectUrls { get; set; } = new Settings.RedirectUrls();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
 		internal List<string> _moduleIDs;
@@ -254,6 +257,7 @@ namespace net.vieapps.Services.Portals
 				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
 				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
 				this.Scripts = this._json["Scripts"]?.FromJson<string>();
+				this.AlwaysUseHtmlSuffix = this._json["AlwaysUseHtmlSuffix"] != null && this._json["AlwaysUseHtmlSuffix"].FromJson<bool>();
 				this.RefreshUrls = this._json["RefreshUrls"]?.FromJson<Settings.RefreshUrls>();
 				this.RedirectUrls = this._json["RedirectUrls"]?.FromJson<Settings.RedirectUrls>();
 				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();

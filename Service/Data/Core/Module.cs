@@ -45,13 +45,13 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "Lookup", Label = "{{portals.modules.controls.[name].label}}", PlaceHolder = "{{portals.modules.controls.[name].placeholder}}", Description = "{{portals.modules.controls.[name].description}}")]
 		public string DesktopID { get; set; }
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Dictionary<string, string> Trackings { get; set; } = new Dictionary<string, string>();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
 		[NonSerialized]

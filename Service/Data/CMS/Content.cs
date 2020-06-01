@@ -37,6 +37,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "management", ControlType = "Lookup", Multiple = false, LookupObjectIsNested = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string CategoryID { get; set; }
 
+		[XmlIgnore]
 		[MultipleParentMappings(TableName = "T_Portals_CMS_Contents_Categories", LinkColumn = "ContentID", MapColumn = "CategoryID")]
 		[FormControl(Segment = "management", ControlType = "Lookup", Multiple = true, LookupObjectIsNested = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public List<string> OtherCategories { get; set; }
@@ -108,10 +109,12 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "TextEditor", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Details { get; set; }
 
+		[XmlIgnore]
 		[ChildrenMappings(TableName = "T_Portals_CMS_Contents_Relateds", LinkColumn = "FromID", MapColumn = "ToID", Type = typeof(Content))]
 		[FormControl(Segment = "related", ControlType = "Lookup", Multiple = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public List<string> Relateds { get; set; }
 
+		[XmlIgnore]
 		[AsJson]
 		[FormControl(Segment = "related", AsArray = true, Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public List<ExternalRelated> ExternalRelateds { get; set; }

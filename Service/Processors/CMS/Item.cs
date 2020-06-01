@@ -327,5 +327,10 @@ namespace net.vieapps.Services.Portals
 			})).ConfigureAwait(false);
 			return response;
 		}
+
+		internal static Task<JObject> GenerateAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			return Task.FromResult(requestInfo.ToJson() as JObject);
+		}
 	}
 }

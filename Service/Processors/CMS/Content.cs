@@ -1,11 +1,12 @@
 ﻿#region Related components
 using System;
 using System.Linq;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
+using System.Xml.Linq;
+using System.Dynamic;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Dynamic;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -148,7 +149,7 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.Select(@object => @object.ToJson(false, cjson => cjson["Thumbnails"] = objects.Count == 1 ? thumbnails : thumbnails[@object.ID])).ToJArray() }
+				{ "Objects", objects.Select(@object => @object.ToJson(false, cjson => cjson["Thumbnails"] = objects.Count == 1 ? thumbnails : thumbnails[@object.ID] ?? thumbnails["@" + @object.ID])).ToJArray() }
 			};
 
 			// update cache
@@ -430,6 +431,197 @@ namespace net.vieapps.Services.Portals
 				Data = response
 			})).ConfigureAwait(false);
 			return response;
+		}
+
+		static JArray GenerateBreadcrumb(this Category category, ExpandoObject @params)
+		{
+			var breadcrumbs = new List<Tuple<string, string>>();
+			var desktop = @params.Get<string>("ContentType.Desktop") ?? @params.Get<string>("Module.Desktop") ?? @params.Get<string>("Organization.DefaultDesktop") ?? @params.Get<string>("Desktop");
+
+			var url = category.OpenBy.Equals(OpenBy.DesktopOnly)
+				? $"~/{category.Desktop?.Alias ?? desktop ?? "-default"}"
+				: category.OpenBy.Equals(OpenBy.SpecifiedURI)
+					? category.SpecifiedURI ?? "~/"
+					: $"~/{category.Desktop?.Alias ?? desktop ?? "-default"}/{category.Alias}";
+			breadcrumbs.Add(new Tuple<string, string>(category.Title, url));
+
+			var parentCategory = category.ParentCategory;
+			while (parentCategory != null)
+			{
+				url = parentCategory.OpenBy.Equals(OpenBy.DesktopOnly)
+				? $"~/{parentCategory.Desktop?.Alias ?? desktop ?? "-default"}"
+				: parentCategory.OpenBy.Equals(OpenBy.SpecifiedURI)
+					? parentCategory.SpecifiedURI ?? "~/"
+					: $"~/{parentCategory.Desktop?.Alias ?? desktop ?? "-default"}/{parentCategory.Alias}";
+				breadcrumbs.Insert(0, new Tuple<string, string>(parentCategory.Title, url));
+				parentCategory = parentCategory.ParentCategory;
+			}
+
+			return breadcrumbs.Select(breadcrumb => new JObject
+			{
+				{ "Text", breadcrumb.Item1 },
+				{ "URL", breadcrumb.Item2 }
+			}).ToJArray();
+		}
+
+		static JObject GeneratePagination(long totalRecords, int totalPages, int pageSize, int pageNumber, string urlPattern)
+		{
+			var pages = new List<JObject>(totalPages);
+			if (totalPages > 1)
+				for (var page = 1; page <= totalPages; page++)
+					pages.Add(new JObject
+					{
+						{ "Text", $"{page}" },
+						{ "URL", urlPattern.Replace("{{pageNumber}}", $"{page}") }
+					});
+			else
+				pages = null;
+			return new JObject
+			{
+				{ "TotalRecords", totalRecords },
+				{ "TotalPages", totalPages },
+				{ "PageSize", pageSize },
+				{ "PageNumber", pageNumber },
+				{ "URLPattern", urlPattern },
+				{ "Pages", pages?.ToJArray() }
+			};
+		}
+
+		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default, string validationKey = null)
+		{
+			// prepare
+			var paramsJson = requestInfo.GetBodyJson();
+			var @params = paramsJson.ToExpandoObject();
+
+			var organizationID = @params.Get<string>("Organization.ID");
+			var moduleID = @params.Get<string>("Module.ID");
+			var contentTypeID = @params.Get<string>("ContentType.ID");
+
+			var category = await @params.Get<string>("ParentContentType.ID").GetCategoryByAliasAsync(@params.Get<string>("ParentIdentity"), cancellationToken).ConfigureAwait(false);
+			var desktop = @params.Get<string>("ContentType.Desktop") ?? @params.Get<string>("Module.Desktop") ?? @params.Get<string>("Organization.DefaultDesktop") ?? @params.Get<string>("Desktop");
+			var pageNumber = @params.Get("PageNumber", 1);
+			var action = @params.Get<string>("Action");
+
+			XDocument data;
+			JArray breadcrumb;
+			JObject pagination, seoInfo;
+
+			// generate list
+			if ("List".IsEquals(action))
+			{
+				// prepare filtering expression
+				var filter = paramsJson["FilterBy"] == null ? null : new FilterBys<Content>(paramsJson["FilterBy"] as JObject);
+				if (filter == null)
+				{
+					filter = Filters<Content>.And();
+					if (!string.IsNullOrWhiteSpace(organizationID))
+						filter.Add(Filters<Content>.Equals("SystemID", organizationID));
+					if (!string.IsNullOrWhiteSpace(moduleID))
+						filter.Add(Filters<Content>.Equals("RepositoryID", moduleID));
+					if (!string.IsNullOrWhiteSpace(contentTypeID))
+						filter.Add(Filters<Content>.Equals("RepositoryEntityID", contentTypeID));
+					if (category != null)
+						filter.Add(Filters<Content>.Equals("CategoryID", category.ID));
+					filter.Add(Filters<Content>.LessThanOrEquals("StartDate", DateTime.Now.ToDTString(false, false)));
+					filter.Add(Filters<Content>.Or(
+						Filters<Content>.GreaterOrEquals("EndDate", DateTime.Now.ToDTString(false, false)),
+						Filters<Content>.IsNull("EndDate")
+					));
+					filter.Add(Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()));
+				}
+				filter.Prepare(@params, requestInfo.Header, requestInfo.Query, (filterBys, p, h, q) => filterBys.Children?.Where(filterBy => filterBy is FilterBy).Select(filterBy => filterBy as FilterBy).ForEach(filterBy =>
+				{
+					if (filterBy.Value != null && filterBy.Value is string && (filterBy.Value as string).IsStartsWith("@parentIdentity"))
+						filterBy.Value = category?.ID;
+				}));
+
+				// prepare sorting expression
+				var sort = paramsJson["SortBy"] == null ? null : new SortBy<Content>(paramsJson["SortBy"] as JObject);
+				if (sort == null)
+					sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime").ThenByDescending("Created");
+
+				// prepare pagination
+				var pageSize = @params.Get("PageSize", 7);
+				var totalRecords = await Content.CountAsync(filter, contentTypeID, true, Extensions.GetCacheKeyOfTotalObjects(filter, sort), 0, cancellationToken).ConfigureAwait(false);
+				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+				if (totalPages > 0 && pageNumber > totalPages)
+					pageNumber = totalPages;
+
+				// find the matched objects
+				var objects = totalRecords > 0
+					? await Content.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					: new List<Content>();
+
+				// find the thumbnails
+				JToken thumbnails = null;
+				var options = paramsJson["Options"];
+				if (options != null && options["ShowThumbnail"] != null && options.Value<bool>("ShowThumbnail"))
+				{
+					requestInfo.Header["x-as-attachments"] = "true";
+					thumbnails = objects.Count < 1
+						? null
+						: objects.Count == 1
+							? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
+							: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+				}
+
+				// generate xml
+				data = XDocument.Parse("<Data/>");
+				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, xml =>
+				{
+					xml.Add(new XElement("Category", @object.Category?.Title));
+					if (thumbnails != null)
+					{
+						var thumbs = objects.Count == 1 ? thumbnails : thumbnails[@object.ID] ?? thumbnails["@" + @object.ID];
+						xml.Add(new XElement("ThumbnailURL", thumbs?.First()?.Get<JObject>("URIs")?.Get<string>("Direct")));
+					}
+					var url = $"~/{@object.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{@object.Category?.Alias ?? "-"}/{@object.Alias}";
+					xml.Add(new XElement("URL", url));
+				})));
+
+				// build others
+				breadcrumb = category?.GenerateBreadcrumb(@params) ?? new JArray();
+				pagination = ContentProcessor.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{category?.Desktop?.Alias ?? desktop ?? "-default"}/{category?.Alias}" + "/{{pageNumber}}");
+				seoInfo = new JObject
+				{
+					{ "Title", category?.Title },
+					{ "Description", category?.Description }
+				};
+			}
+
+			// generate details
+			else
+			{
+				// get object and generate XML
+				var content= await Content.GetContentByAliasAsync(contentTypeID, @params.Get<string>("ContentIdentity"), category?.ID, cancellationToken).ConfigureAwait(false);
+				data = XDocument.Parse("<Data/>");
+				data.Root.Add(content?.ToXml(false, xml =>
+				{
+					xml.Add(new XElement("Category", content.Category?.Title));
+					var url = $"~/{content.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{content.Category?.Alias ?? "-"}/{content.Alias}";
+					xml.Add(new XElement("URL", url));
+				}));
+
+				// build others
+				breadcrumb = content?.Category?.GenerateBreadcrumb(@params) ?? new JArray();
+				pagination = ContentProcessor.GeneratePagination(1, 1, 0, pageNumber, $"~/{content?.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{content?.Category?.Alias}/{content.Alias}" + "/{{pageNumber}}");
+				seoInfo = new JObject
+				{
+					{ "Title", content?.Title },
+					{ "Description", content?.Summary },
+					{ "Keywords", content?.Tags }
+				};
+			}
+
+			// response
+			data.Descendants().Attributes().Where(attribute => attribute.IsNamespaceDeclaration).Remove();
+			return new JObject
+			{
+				{ "Data", data.ToString(SaveOptions.DisableFormatting) },
+				{ "Breadcrumb", breadcrumb },
+				{ "Pagination", pagination },
+				{ "SEOInfo", seoInfo }
+			};
 		}
 	}
 }

@@ -249,6 +249,18 @@ namespace net.vieapps.Services.Portals.Settings
 			this.Css = string.IsNullOrWhiteSpace(this.Css) ? null : this.Css.Trim();
 			this.Style = string.IsNullOrWhiteSpace(this.Style) ? null : this.Style.Trim();
 		}
+
+		public string GetStyle()
+		{
+			var style = "";
+			if (!string.IsNullOrWhiteSpace(this.Padding))
+				style += $"padding:{this.Padding};";
+			if (!string.IsNullOrWhiteSpace(this.Margin))
+				style += $"margin:{this.Margin};";
+			if (!string.IsNullOrWhiteSpace(this.Style))
+				style += this.Style;
+			return style;
+		}
 	}
 
 	[Serializable]

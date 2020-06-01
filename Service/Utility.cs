@@ -6,10 +6,13 @@ using System.Xml;
 using System.Xml.Linq;
 using System.Xml.XPath;
 using System.Xml.Xsl;
+using System.Dynamic;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.StaticFiles;
+using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
@@ -150,12 +153,39 @@ namespace net.vieapps.Services.Portals
 			=> xhtmlTemplate?.XPathSelectElements("//*/*[@zone-id]");
 
 		/// <summary>
+		/// Gets the attribute that contains the identity of the zone (attriubte that named 'zone-id')
+		/// </summary>
+		/// <param name="zone"></param>
+		/// <returns></returns>
+		public static XAttribute GetZoneIDAttribute(this XElement zone)
+			=> zone.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("zone-id"));
+
+		/// <summary>
+		/// Gets a zone by identity
+		/// </summary>
+		/// <param name="zones"></param>
+		/// <param name="id"></param>
+		/// <returns></returns>
+		public static XElement GetZone(this IEnumerable<XElement> zones, string id)
+			=> string.IsNullOrWhiteSpace(id)
+				? null
+				: zones.FirstOrDefault(zone => id.IsEquals(zone.GetZoneIDAttribute()?.Value));
+
+		/// <summary>
+		/// Gets the names of the defined zones 
+		/// </summary>
+		/// <param name="zones"></param>
+		/// <returns></returns>
+		public static IEnumerable<string> GetZoneNames(this IEnumerable<XElement> zones)
+			=> zones.Select(zone => zone.GetZoneIDAttribute()).Select(attribute => attribute.Value);
+
+		/// <summary>
 		/// Gets the names of the defined zones from XHTML template
 		/// </summary>
 		/// <param name="xhtmlTemplate"></param>
 		/// <returns></returns>
 		public static IEnumerable<string> GetZoneNames(this XDocument xhtmlTemplate)
-			=> xhtmlTemplate.GetZones().Select(element => element.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("zone-id"))).Select(attribute => attribute.Value);
+			=> xhtmlTemplate.GetZones().GetZoneNames();
 
 		/// <summary>
 		/// Validates the XHTML template
@@ -177,7 +207,7 @@ namespace net.vieapps.Services.Portals
 					var zoneIDs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 					zones.ForEach(zone =>
 					{
-						var zoneID = zone.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("zone-id"))?.Value;
+						var zoneID = zone.GetZoneIDAttribute()?.Value;
 						if (string.IsNullOrWhiteSpace(zoneID))
 							throw new TemplateIsInvalidException($"The tag ({zone.Name.LocalName}) got 'zone-id' attribute but has no value");
 						else if (zoneIDs.Contains(zoneID))
@@ -317,6 +347,73 @@ namespace net.vieapps.Services.Portals
 				filePath = Path.Combine(filePath, subDirectory.Trim().ToLower());
 			filePath = Path.Combine(filePath, filename.Trim().ToLower());
 			return File.Exists(filePath) ? await UtilityService.ReadTextFileAsync(filePath, null, cancellationToken).ConfigureAwait(false) : null;
+		}
+
+		static FileExtensionContentTypeProvider MimeTypeProvider { get; } = new FileExtensionContentTypeProvider();
+
+		/// <summary>
+		/// Gets the MIME type of a file
+		/// </summary>
+		/// <param name="filename"></param>
+		/// <returns></returns>
+		public static string GetMimeType(this string filename)
+			=> Utility.MimeTypeProvider.TryGetContentType(filename, out var mimeType)
+				? mimeType
+				: "application/octet-stream";
+
+		/// <summary>
+		/// Gets the MIME type of a file
+		/// </summary>
+		/// <param name="fileInfo"></param>
+		/// <returns></returns>
+		public static string GetMimeType(this FileInfo fileInfo)
+			=> fileInfo?.Name?.GetMimeType();
+
+		/// <summary>
+		/// Prepares the filtering expression
+		/// </summary>
+		/// <param name="filterBy"></param>
+		/// <param name="params"></param>
+		/// <param name="onCompleted"></param>
+		/// <returns></returns>
+		public static FilterBys Prepare(this FilterBys filterBy, ExpandoObject @params, Dictionary<string, string> headers = null, Dictionary<string, string> query = null, Action<FilterBys, ExpandoObject, Dictionary<string, string>, Dictionary<string, string>> onCompleted = null)
+		{
+			filterBy.Children?.ForEach(filterby =>
+			{
+				if (filterby is FilterBy)
+				{
+					var filter = filterby as FilterBy;
+					if (filter.Value != null && filter.Value is string)
+					{
+						var value = filter.Value as string;
+
+						if (value.IsStartsWith("@param["))
+							filter.Value = @params.Get(value.Replace(StringComparison.OrdinalIgnoreCase, "@param[", "").Replace("]", ""));
+
+						else if (value.IsStartsWith("@headers["))
+						{
+							if (headers.TryGetValue(value.Replace(StringComparison.OrdinalIgnoreCase, "@headers[", "").Replace("]", ""), out var val))
+								filter.Value = val;
+						}
+
+						else if (value.IsStartsWith("@query["))
+						{
+							if (query.TryGetValue(value.Replace(StringComparison.OrdinalIgnoreCase, "@query[", "").Replace("]", ""), out var val))
+								filter.Value = val;
+						}
+
+						else if (value.IsStartsWith("@today"))
+							filter.Value = DateTime.Now.ToDTString(false, false);
+
+						else if (value.IsStartsWith("@now"))
+							filter.Value = DateTime.Now;
+					}
+				}
+				else
+					(filterby as FilterBys).Prepare(@params, headers, query, onCompleted);
+			});
+			onCompleted?.Invoke(filterBy, @params, headers, query);
+			return filterBy;
 		}
 	}
 

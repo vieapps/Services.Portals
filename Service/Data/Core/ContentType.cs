@@ -66,20 +66,20 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public ApprovalStatus DefaultCommentStatus { get; set; } = ApprovalStatus.Pending;
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Dictionary<string, string> Trackings { get; set; } = new Dictionary<string, string>();
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
-		[AsJson]
+		[AsJson, XmlIgnore]
 		[FormControl(Excluded = true)]
 		public List<ExtendedPropertyDefinition> ExtendedPropertyDefinitions { get; set; }
 
-		[AsJson]
+		[AsJson, XmlIgnore]
 		[FormControl(Excluded = true)]
 		public ExtendedUIDefinition ExtendedUIDefinition { get; set; }
 

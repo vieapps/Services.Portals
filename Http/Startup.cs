@@ -166,12 +166,13 @@ namespace net.vieapps.Services.Portals
 
 			Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is starting");
 			Global.Logger.LogInformation($"Version: {typeof(Startup).Assembly.GetVersion()}");
-			Global.Logger.LogInformation($"Platform: {RuntimeInformation.FrameworkDescription} @ {(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Windows" : RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "Linux" : "macOS")} {RuntimeInformation.OSArchitecture} ({(RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "Macintosh; Intel Mac OS X; " : "")}{RuntimeInformation.OSDescription.Trim()})");
 #if DEBUG
 			Global.Logger.LogInformation($"Working mode: DEBUG ({(environment.IsDevelopment() ? "Development" : "Production")})");
 #else
 			Global.Logger.LogInformation($"Working mode: RELEASE ({(environment.IsDevelopment() ? "Development" : "Production")})");
 #endif
+			Global.Logger.LogInformation($"Environment:\r\n\t{Extensions.GetRuntimeEnvironment()}");
+			Global.Logger.LogInformation($"Service URIs:\r\n\t- Round robin: services.{Global.ServiceName.ToLower()}.http\r\n\t- Single (unique): services.{Handler.NodeName}");
 
 			Global.CreateRSA();
 			Global.ServiceProvider = appBuilder.ApplicationServices;
@@ -226,17 +227,15 @@ namespace net.vieapps.Services.Portals
 			appLifetime.ApplicationStopping.Register(() =>
 			{
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
-
 				Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-				Handler.Disconnect();
-
 				Global.RSA.Dispose();
-				Global.CancellationTokenSource.Cancel();
 			});
 
 			// on stopped
 			appLifetime.ApplicationStopped.Register(() =>
 			{
+				Handler.Disconnect();
+				Global.CancellationTokenSource.Cancel();
 				Global.CancellationTokenSource.Dispose();
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is stopped");
 			});

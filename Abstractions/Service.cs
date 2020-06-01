@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using WampSharp.V2.Rpc;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
+
 namespace net.vieapps.Services.Portals
 {
 	/// <summary>
@@ -34,8 +36,17 @@ namespace net.vieapps.Services.Portals
 		/// Gets the definition
 		/// </summary>
 		/// <returns></returns>
-		[WampProcedure("cms.portals.{0}.definitions")]
+		[WampProcedure("cms.portals.{0}.definition")]
 		ModuleDefinition GetDefinition();
+
+		/// <summary>
+		/// Generates the data for CMS Portals
+		/// </summary>
+		/// <param name="requestInfo">The requesting information</param>
+		/// <param name="cancellationToken">The cancellation token</param>
+		/// <returns></returns>
+		[WampProcedure("cms.portals.{0}.generate")]
+		Task<JObject> GenerateAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default);
 	}
 
 }

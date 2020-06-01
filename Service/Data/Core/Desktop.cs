@@ -85,7 +85,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "seo", ControlType = "Select", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string MainPortletID { get; set; }
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, XmlIgnore]
 		[FormControl(Segment = "seo", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public Settings.SEO SEOSettings { get; set; }
 
@@ -215,7 +215,7 @@ namespace net.vieapps.Services.Portals
 			=> this._portlets ?? this.FindPortlets(notifyPropertyChanged, await (this.ID ?? "").FindPortletsAsync(cancellationToken).ConfigureAwait(false));
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<Portlet> Portlets => this.FindPortlets();
+		public List<Portlet> Portlets => this._portlets ?? (this._portlets = this.FindPortlets());
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
@@ -272,8 +272,8 @@ namespace net.vieapps.Services.Portals
 		}
 
 		public async Task<string> GetTemplateAsync(CancellationToken cancellationToken = default)
-			=> string.IsNullOrWhiteSpace(this.Template)
-				? await Utility.GetTemplateAsync("desktop.xml", this.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false)
-				: this.Template;
+			=> !string.IsNullOrWhiteSpace(this.Template)
+				? this.Template
+				: await Utility.GetTemplateAsync("desktop.xml", this.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false) ?? await Utility.GetTemplateAsync("desktop.xml", null, null, null, cancellationToken).ConfigureAwait(false);
 	}
 }

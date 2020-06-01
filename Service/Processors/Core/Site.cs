@@ -143,7 +143,7 @@ namespace net.vieapps.Services.Portals
 					}
 			}
 
-			if (site == null && fetchRepository)
+			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
 				var domains = domain.GetSiteDomains();
 				var filter = Filters<Site>.Or(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domains.Item1)));
@@ -166,7 +166,7 @@ namespace net.vieapps.Services.Portals
 		public static async Task<Site> GetSiteByDomainAsync(this string domain, string defaultSiteIDWhenNotFound = null, CancellationToken cancellationToken = default)
 		{
 			var site = (domain ?? "").GetSiteByDomain(defaultSiteIDWhenNotFound, false);
-			if (site == null)
+			if (site == null && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
 				var domains = domain.GetSiteDomains();
 				var filter = Filters<Site>.Or(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domains.Item1)));

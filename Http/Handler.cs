@@ -7,17 +7,14 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-
 using Microsoft.Extensions.Logging;
-
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-
+using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
@@ -27,7 +24,7 @@ namespace net.vieapps.Services.Portals
 {
 	public class Handler
 	{
-		HashSet<string> SpecialRequests { get; } = "initializer,validator,signout".ToHashSet();
+		HashSet<string> SpecialRequests { get; } = "_initializer,_validator,_logout,_signout".ToHashSet();
 
 		bool AlwaysUseSecureConnections { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("AlwaysUseSecureConnections", "false"));
 
@@ -41,53 +38,29 @@ namespace net.vieapps.Services.Portals
 
 		public async Task Invoke(HttpContext context)
 		{
-			// prepare
-			var requestUri = context.GetRequestUri();
-			var requestPath = requestUri.GetRequestPathSegments(true).First();
+			// CORS: allow origin
+			context.Response.Headers["Access-Control-Allow-Origin"] = "*";
 
-			// load balancing health check
-			if (context.Request.Path.Value.IsEquals(this.LoadBalancingHealthCheckUrl))
-				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
-
-			// request to favicon.ico file
-			else if (requestPath.IsEquals("favicon.ico"))
-				context.ShowHttpError((int)HttpStatusCode.NotFound, "Not Found", "FileNotFoundException", context.GetCorrelationID());
-
-			// request to static segments
-			else if (Global.StaticSegments.Contains(requestPath))
-				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
-
-			else if (this.UniqueHostname != "" && !requestUri.Host.IsEquals(this.UniqueHostname))
-				context.Redirect($"{(this.AlwaysUseSecureConnections ? "https://" : "http://")}{this.UniqueHostname}{requestUri.PathAndQuery}");
-
-			else if (this.AlwaysUseSecureConnections && !requestUri.Scheme.IsEquals("https"))
-				context.Redirect($"{requestUri}".Replace("http://", "https://"));
-
-			// special requests: initializer, validator
-			else if (this.SpecialRequests.Contains(requestPath))
+			// CORS: options
+			if (context.Request.Method.IsEquals("OPTIONS"))
 			{
-				context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
-				context.Response.Headers["Access-Control-Allow-Origin"] = "*";
-				switch (requestPath)
+				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					case "initializer":
-						await this.ProcessInitializerRequestAsync(context).ConfigureAwait(false);
-						break;
-
-					case "validator":
-						await this.ProcessValidatorRequestAsync(context).ConfigureAwait(false);
-						break;
-
-					default:
-						await this.ProcessSignOutRequestAsync(context).ConfigureAwait(false);
-						break;
-				}
+					["Access-Control-Allow-Methods"] = "HEAD,GET"
+				};
+				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
+					headers["Access-Control-Allow-Headers"] = requestHeaders;
+				context.SetResponseHeaders((int)HttpStatusCode.OK, headers, true);
 			}
 
-			// set headers & invoke next middleware
+			// load balancing health check
+			else if (context.Request.Path.Value.IsEquals(this.LoadBalancingHealthCheckUrl))
+				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+
+			// process portals' requests and invoke next middle ware
 			else
 			{
-				context.Response.Headers["Server"] = "VIEApps NGX";
+				await this.ProcessRequestAsync(context).ConfigureAwait(false);
 				try
 				{
 					await this.Next.Invoke(context).ConfigureAwait(false);
@@ -95,12 +68,252 @@ namespace net.vieapps.Services.Portals
 				catch (InvalidOperationException) { }
 				catch (Exception ex)
 				{
-					Global.Logger.LogCritical($"Error occurred while invoking the next middleware: {ex.Message}", ex);
+					Global.Logger.LogCritical($"Error occurred while invoking the next middleware => {ex.Message}", ex);
 				}
 			}
 		}
 
-		internal async Task ProcessInitializerRequestAsync(HttpContext context)
+		internal async Task ProcessRequestAsync(HttpContext context)
+		{
+			// prepare
+			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
+			var requestUri = context.GetRequestUri();
+			var requestPath = requestUri.GetRequestPathSegments(true).First();
+
+			if (Global.IsVisitLogEnabled)
+				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
+
+			// request to favicon.ico file
+			if (requestPath.Equals("favicon.ico"))
+				await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
+
+			// request to static segments
+			else if (Global.StaticSegments.Contains(requestPath))
+				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
+
+			else if (!this.UniqueHostname.Equals("") && !requestUri.Host.IsEquals(this.UniqueHostname))
+				context.Redirect($"{(this.AlwaysUseSecureConnections ? "https://" : "http://")}{this.UniqueHostname}{requestUri.PathAndQuery}");
+
+			else if (this.AlwaysUseSecureConnections && !requestUri.Scheme.IsEquals("https"))
+				context.Redirect($"{requestUri}".Replace("http://", "https://"));
+
+			// request of special sections (initializer, validator, log-out)
+			else if (this.SpecialRequests.Contains(requestPath))
+			{
+				context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
+				context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+				switch (requestPath)
+				{
+					case "_initializer":
+						await this.ProcessInitializerRequestAsync(context).ConfigureAwait(false);
+						break;
+
+					case "_validator":
+						await this.ProcessValidatorRequestAsync(context).ConfigureAwait(false);
+						break;
+
+					default:
+						await this.ProcessLogOutRequestAsync(context).ConfigureAwait(false);
+						break;
+				}
+			}
+
+			// request of portal
+			else
+				await this.ProcessPortalRequestAsync(context).ConfigureAwait(false);
+
+			if (Global.IsVisitLogEnabled)
+				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+		}
+
+		async Task ProcessPortalRequestAsync(HttpContext context)
+		{
+			// prepare session information
+			var header = context.Request.Headers.ToDictionary();
+			var session = context.GetSession();
+
+			// get authenticate token
+			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-passport-token");
+
+			// normalize the Bearer token
+			if (string.IsNullOrWhiteSpace(authenticateToken))
+			{
+				authenticateToken = context.GetHeaderParameter("authorization");
+				authenticateToken = authenticateToken != null && authenticateToken.IsStartsWith("Bearer") ? authenticateToken.ToArray(" ").Last() : null;
+			}
+
+			// got authenticate token => update the session
+			if (!string.IsNullOrWhiteSpace(authenticateToken))
+				try
+				{
+					// authenticate (token is expired after 15 minutes)
+					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, 90, null, null, null, Global.Logger, "Http.Authentication", context.GetCorrelationID()).ConfigureAwait(false);
+					if (Global.IsDebugLogEnabled)
+						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Formatting.Indented)}");
+
+					// perform sign-in (to create authenticate ticket cookie) when the authenticate token its came from passport service
+					if (context.GetParameter("x-passport-token") != null)
+					{
+						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
+						if (Global.IsDebugLogEnabled)
+							await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})");
+					}
+
+					// just assign user information
+					else
+						context.User = new UserPrincipal(session.User);
+				}
+				catch (Exception ex)
+				{
+					await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Failure authenticate a token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				}
+
+			// no authenticate token => update user of the session if already signed-in
+			else if (context.IsAuthenticated())
+				session.User = context.GetUser();
+
+			// update session
+			if (string.IsNullOrWhiteSpace(session.User.SessionID))
+				session.SessionID = session.User.SessionID = UtilityService.NewUUID;
+			else
+				session.SessionID = session.User.SessionID;
+
+			var appName = context.GetParameter("x-app-name");
+			if (!string.IsNullOrWhiteSpace(appName))
+				session.AppName = appName;
+
+			var appPlatform = context.GetParameter("x-app-platform");
+			if (!string.IsNullOrWhiteSpace(appPlatform))
+				session.AppPlatform = appPlatform;
+
+			var deviceID = context.GetParameter("x-device-id");
+			if (!string.IsNullOrWhiteSpace(deviceID))
+				session.DeviceID = deviceID;
+
+			// prepare the requesting information
+			var systemIdentity = "";
+			var queryString = context.Request.QueryString.ToDictionary(query =>
+			{
+				var pathSegments = context.GetRequestPathSegments();
+				var requestSegments = pathSegments;
+
+				// special parameters, like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity
+				if (pathSegments.Length > 0 && !string.IsNullOrWhiteSpace(pathSegments[0]))
+				{
+					// indicator
+					if (pathSegments[0].IsEndsWith(".txt"))
+					{
+						systemIdentity = "~indicators";
+						query["x-indicator"] = pathSegments[0].Replace(".txt", "").ToLower();
+						requestSegments = new string[] { };
+					}
+
+					// special resources (_css, _scripts, _images, ...)
+					else if (pathSegments[0].StartsWith("_"))
+					{
+						systemIdentity = "~resources";
+						query["x-resource"] = pathSegments[0].Right(pathSegments[0].Length - 1).GetANSIUri(true, true);
+						query["x-path"] = pathSegments.Skip(1).Join("/");
+						requestSegments = new string[] { };
+					}
+
+					// system/oranization identity
+					else if (pathSegments[0].StartsWith("~"))
+					{
+						systemIdentity = pathSegments[0].Right(pathSegments[0].Length - 1).Replace(".html", "").GetANSIUri(true, false);
+						query["x-system"] = systemIdentity;
+						requestSegments = pathSegments.Skip(1).ToArray();
+					}
+				}
+
+				// parameters of desktop and contents
+				if (requestSegments.Length > 0)
+				{
+					var value = requestSegments[0].Replace(".html", "");
+					value = value.Equals("") || value.StartsWith("-") || value.IsEquals("default") || value.IsEquals("index") || value.IsNumeric() ? "default" : value.GetANSIUri();
+					query["x-desktop"] = (requestSegments[0].StartsWith("-") ? "-" : "") + value;
+
+					value = requestSegments.Length > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].Replace(".html", "") : null;
+					query["x-parent"] = string.IsNullOrWhiteSpace(value) ? null : value.GetANSIUri();
+
+					if (requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]))
+					{
+						value = requestSegments[2].Replace(".html", "");
+						if (value.IsNumeric())
+							query["x-page"] = value;
+						else
+							query["x-content"] = value.GetANSIUri();
+
+						if (requestSegments.Length > 3 && !string.IsNullOrWhiteSpace(requestSegments[3]))
+						{
+							value = requestSegments[3].Replace(".html", "");
+							if (value.IsNumeric())
+								query["x-page"] = value;
+						}
+					}
+				}
+				else if (!systemIdentity.IsEquals("~indicators") && !systemIdentity.IsEquals("~resources"))
+					query["x-desktop"] = "-default";
+			});
+
+			var extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			if (queryString.Remove("x-request-extra", out var extraInfo) && !string.IsNullOrWhiteSpace(extraInfo))
+				try
+				{
+					extra = extraInfo.Url64Decode().ToExpandoObject().ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString(), StringComparer.OrdinalIgnoreCase);
+				}
+				catch { }
+
+			var headers = context.Request.Headers.ToDictionary(dictionary => Handler.ExcludedHeaders.ForEach(name => dictionary.Remove(name)));
+
+			// process the request
+			try
+			{
+				if (!context.Request.Method.IsEquals("GET"))
+					throw new MethodNotAllowedException(context.Request.Method);
+
+				using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
+				{
+					// call Portals service to identify the system
+					if (string.IsNullOrWhiteSpace(systemIdentity))
+					{
+						var info = await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token).ConfigureAwait(false) as JObject;
+						queryString["x-system"] = info?.Get<string>("ID");
+					}
+
+					// call Portals service to process the request
+					var response = (await context.CallServiceAsync(new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token).ConfigureAwait(false)).ToExpandoObject();
+
+					// response
+					var body = response.Get<string>("Body");
+					var bodyAsPlainText = body != null && "true".IsEquals(response.Get<string>("BodyAsPlainText"));
+					context.SetResponseHeaders(response.Get("StatusCode", 200), response.Get("Headers", new Dictionary<string, string>()));
+					if (body != null)
+						await context.WriteAsync(bodyAsPlainText ? body.ToBytes() : body.Base64ToBytes(), cts.Token).ConfigureAwait(false);
+					await context.FlushAsync(cts.Token).ConfigureAwait(false);
+				}
+			}
+			catch (OperationCanceledException) { }
+			catch (Exception ex)
+			{
+				await context.WriteLogsAsync("Http.Requests", $"Error occurred => {context.Request.Method} {context.GetRequestUri()}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				var query = context.ParseQuery();
+				if (ex is AccessDeniedException && !context.IsAuthenticated() && Handler.RedirectToPassportOnUnauthorized && !query.ContainsKey("x-app-token") && !query.ContainsKey("x-passport-token"))
+					context.Redirect(context.GetPassportSessionAuthenticatorUrl());
+				else
+				{
+					if (ex is WampException)
+					{
+						var wampException = (ex as WampException).GetDetails();
+						context.ShowHttpError(statusCode: wampException.Item1, message: wampException.Item2, type: wampException.Item3, correlationID: context.GetCorrelationID(), stack: wampException.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
+					}
+					else
+						context.ShowHttpError(statusCode: ex.GetHttpStatusCode(), message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
+				}
+			}
+		}
+
+		async Task ProcessInitializerRequestAsync(HttpContext context)
 		{
 			var redirectUrl = "";
 			try
@@ -127,7 +340,7 @@ namespace net.vieapps.Services.Portals
 			context.Redirect(redirectUrl);
 		}
 
-		internal async Task ProcessValidatorRequestAsync(HttpContext context)
+		async Task ProcessValidatorRequestAsync(HttpContext context)
 		{
 			try
 			{
@@ -166,7 +379,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		internal async Task ProcessSignOutRequestAsync(HttpContext context)
+		async Task ProcessLogOutRequestAsync(HttpContext context)
 		{
 			try
 			{
@@ -208,7 +421,7 @@ namespace net.vieapps.Services.Portals
 					{ "DeviceID", session.DeviceID },
 					{ "AppInfo", session.AppName + " @ " + session.AppPlatform },
 					{ "OSInfo", $"{session.AppAgent.GetOSInfo()} [{session.AppAgent}]" },
-					{ "Verification", false },
+					{ "Verified", false },
 					{ "Online", true }
 				}.ToString(Formatting.None);
 
@@ -237,7 +450,16 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		#region Helper: WAMP connections & real-time updaters
+		#region Static properties and working with Router
+		static string _RedirectToPassportOnUnauthorized = null;
+
+		internal static string NodeName => Extensions.GetUniqueName(Global.ServiceName + ".http");
+
+		internal static bool RedirectToPassportOnUnauthorized
+			=> "true".IsEquals(Handler._RedirectToPassportOnUnauthorized ?? (Handler._RedirectToPassportOnUnauthorized = UtilityService.GetAppSetting("Portals:RedirectToPassportOnUnauthorized", "true")));
+
+		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop,cf-ipcountry,cf-ray,cf-visitor,cf-connecting-ip,sec-fetch-site,sec-fetch-mode,sec-fetch-dest,sec-fetch-user").ToList();
+
 		internal static void Connect(int waitingTimes = 6789)
 		{
 			Global.Logger.LogDebug($"Attempting to connect to WAMP router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");

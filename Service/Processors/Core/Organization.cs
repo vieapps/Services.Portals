@@ -22,7 +22,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, Organization> OrganizationsByAlias { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
 
-		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,Scripts,RefreshUrls,RedirectUrls,EmailSettings".ToHashSet();
+		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,Scripts,AlwaysUseHtmlSuffix,RefreshUrls,RedirectUrls,EmailSettings".ToHashSet();
 
 		public static Dictionary<string, Dictionary<string, Settings.Instruction>> GetOrganizationInstructions(this ExpandoObject rawInstructions)
 		{

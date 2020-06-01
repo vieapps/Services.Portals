@@ -244,8 +244,8 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public async Task<string> GetTemplateAsync(CancellationToken cancellationToken = default)
-			=> string.IsNullOrWhiteSpace(this.CommonSettings?.Template)
-				? await Utility.GetTemplateAsync("portlet.xml", this.Desktop?.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false)
-				: this.CommonSettings.Template;
+			=> !string.IsNullOrWhiteSpace(this.CommonSettings?.Template)
+				? this.CommonSettings.Template
+				: await Utility.GetTemplateAsync("portlet.xml", this.Desktop?.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false) ?? await Utility.GetTemplateAsync("portlet.xml", null, null, null, cancellationToken).ConfigureAwait(false);
 	}
 }
