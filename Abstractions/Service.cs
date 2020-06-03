@@ -33,19 +33,19 @@ namespace net.vieapps.Services.Portals
 		Task UnregisterServiceAsync(IEnumerable<string> args, bool available = true, Action<IService> onSuccess = null, Action<Exception> onError = null);
 
 		/// <summary>
-		/// Gets the definition
+		/// Gets the definition for working with CMS Portals
 		/// </summary>
 		/// <returns></returns>
 		[WampProcedure("cms.portals.{0}.definition")]
 		ModuleDefinition GetDefinition();
 
 		/// <summary>
-		/// Generates the data for CMS Portals
+		/// Generates the content for working with CMS Portals
 		/// </summary>
 		/// <param name="requestInfo">The requesting information</param>
 		/// <param name="cancellationToken">The cancellation token</param>
 		/// <returns></returns>
-		[WampProcedure("cms.portals.{0}.generate")]
+		[WampProcedure("cms.portals.{0}.generate.content")]
 		Task<JObject> GenerateAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default);
 	}
 

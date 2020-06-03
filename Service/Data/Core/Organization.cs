@@ -142,13 +142,13 @@ namespace net.vieapps.Services.Portals
 		public Site DefaultSite => this.Sites.FirstOrDefault();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop DefaultDesktop => DesktopProcessor.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
+		public Desktop DefaultDesktop => this.HomeDesktop ?? DesktopProcessor.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop HomeDesktop => (this.HomeDesktopID ?? "").GetDesktopByID() ?? this.DefaultDesktop;
+		public Desktop HomeDesktop => (this.HomeDesktopID ?? "").GetDesktopByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop SearchDesktop => (this.SearchDesktopID ?? "").GetDesktopByID() ?? this.DefaultDesktop;
+		public Desktop SearchDesktop => (this.SearchDesktopID ?? "").GetDesktopByID();
 
 		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
@@ -179,6 +179,9 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
+
+		[Ignore, BsonIgnore, XmlIgnore]
+		public List<Settings.HttpIndicator> HttpIndicators { get; set; }
 
 		internal List<string> _moduleIDs;
 
@@ -241,6 +244,9 @@ namespace net.vieapps.Services.Portals
 			this.RedirectUrls = this.RedirectUrls != null && this.RedirectUrls.Addresses == null ? null : this.RedirectUrls;
 			this.EmailSettings?.Normalize();
 			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
+			this.HttpIndicators?.ForEach(indicator => indicator?.Normalize());
+			this.HttpIndicators = this.HttpIndicators?.Where(indicator => indicator != null && !string.IsNullOrWhiteSpace(indicator.Name) && !string.IsNullOrWhiteSpace(indicator.Content)).ToList();
+			this.HttpIndicators = this.HttpIndicators == null || this.HttpIndicators.Count < 1 ? null : this.HttpIndicators;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			OrganizationProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
@@ -261,6 +267,7 @@ namespace net.vieapps.Services.Portals
 				this.RefreshUrls = this._json["RefreshUrls"]?.FromJson<Settings.RefreshUrls>();
 				this.RedirectUrls = this._json["RedirectUrls"]?.FromJson<Settings.RedirectUrls>();
 				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
+				this.HttpIndicators = this._json["HttpIndicators"]?.FromJson<List<Settings.HttpIndicator>>();
 			}
 			else if (OrganizationProcessor.ExtraProperties.Contains(name))
 			{

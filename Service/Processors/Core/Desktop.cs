@@ -24,7 +24,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "UISettings,IconURI,CoverURI,MetaTags,Scripts,MainPortletID,SEOSettings".ToHashSet();
 
-		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Thumbnails,ThumbnailBigs,ThumbnailBigPngs").ToLower().ToHashSet();
+		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Thumbnails,ThumbnailBigs,ThumbnailBigPngs,Default,Index").ToLower().ToHashSet();
 
 		public static Desktop CreateDesktopInstance(this ExpandoObject requestBody, string excluded = null, Action<Desktop> onCompleted = null)
 			=> requestBody.Copy<Desktop>(excluded?.ToHashSet(), desktop =>
@@ -316,7 +316,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// validate template, meta-tags and scripts
-			request.Get("Template", "").ValidateTemplate(true, new[] { "Content" });
+			request.Get("Template", "").ValidateTemplate();
 			request.Get("MetaTags", "").ValidateMetaTagsOrScripts();
 			request.Get("Scripts", "").ValidateMetaTagsOrScripts(true);
 
@@ -466,7 +466,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// validate template, meta-tags and scripts
-			request.Get("Template", "").ValidateTemplate(true, new[] { "Content" });
+			request.Get("Template", "").ValidateTemplate();
 			request.Get("MetaTags", "").ValidateMetaTagsOrScripts();
 			request.Get("Scripts", "").ValidateMetaTagsOrScripts(true);
 

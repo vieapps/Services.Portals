@@ -104,18 +104,6 @@ namespace net.vieapps.Services.Portals
 		}
 
 		/// <summary>
-		/// Gets the value of 'Equals' filter expression
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="filter"></param>
-		/// <param name="name">The name of attribute that appeared in 'Equals' child filter expression</param>
-		/// <returns></returns>
-		public static string GetValue<T>(this IFilterBy<T> filter, string name) where T : class
-			=> filter is FilterBys<T>
-				? ((filter as FilterBys<T>).Children.FirstOrDefault(exp => (exp as FilterBy<T>).Attribute.IsEquals(name)) as FilterBy<T>)?.Value as string
-				: null;
-
-		/// <summary>
 		/// Gets the object name for working with real-time update messages
 		/// </summary>
 		/// <param name="definition"></param>
@@ -130,12 +118,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="object"></param>
 		/// <returns></returns>
 		public static string GetObjectName(this RepositoryBase @object)
-		{
-			var definition = @object != null ? RepositoryMediator.GetEntityDefinition(@object.GetType()) : null;
-			return definition != null
-				? definition.GetObjectName()
-				: @object?.GetType().GetTypeName(true);
-		}
+			=> (@object != null ? RepositoryMediator.GetEntityDefinition(@object.GetType()) : null)?.GetObjectName() ?? @object?.GetType().GetTypeName(true);
 
 		/// <summary>
 		/// Gets the XDocument of XML/XHTML
@@ -158,7 +141,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="zone"></param>
 		/// <returns></returns>
 		public static XAttribute GetZoneIDAttribute(this XElement zone)
-			=> zone.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("zone-id"));
+			=> zone?.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("zone-id"));
 
 		/// <summary>
 		/// Gets a zone by identity
@@ -169,7 +152,7 @@ namespace net.vieapps.Services.Portals
 		public static XElement GetZone(this IEnumerable<XElement> zones, string id)
 			=> string.IsNullOrWhiteSpace(id)
 				? null
-				: zones.FirstOrDefault(zone => id.IsEquals(zone.GetZoneIDAttribute()?.Value));
+				: zones?.FirstOrDefault(zone => id.IsEquals(zone.GetZoneIDAttribute()?.Value));
 
 		/// <summary>
 		/// Gets the names of the defined zones 
@@ -177,7 +160,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="zones"></param>
 		/// <returns></returns>
 		public static IEnumerable<string> GetZoneNames(this IEnumerable<XElement> zones)
-			=> zones.Select(zone => zone.GetZoneIDAttribute()).Select(attribute => attribute.Value);
+			=> zones?.Select(zone => zone.GetZoneIDAttribute()).Select(attribute => attribute.Value);
 
 		/// <summary>
 		/// Gets the names of the defined zones from XHTML template
@@ -191,9 +174,8 @@ namespace net.vieapps.Services.Portals
 		/// Validates the XHTML template
 		/// </summary>
 		/// <param name="xhtmlTemplate"></param>
-		/// <param name="mustHaveAtLeastOneZone"></param>
 		/// <param name="requiredZoneIDs"></param>
-		public static void ValidateTemplate(this string xhtmlTemplate, bool mustHaveAtLeastOneZone = true, IEnumerable<string> requiredZoneIDs = null)
+		public static void ValidateTemplate(this string xhtmlTemplate, IEnumerable<string> requiredZoneIDs = null)
 		{
 			if (!string.IsNullOrWhiteSpace(xhtmlTemplate))
 				try
@@ -201,7 +183,7 @@ namespace net.vieapps.Services.Portals
 					var template = xhtmlTemplate.GetXDocument();
 					var zones = template.GetZones();
 
-					if (mustHaveAtLeastOneZone && zones.Count() < 1)
+					if (zones.Count() < 1)
 						throw new TemplateIsInvalidException("The template got no zone (means no any tag with 'zone-id' attribute)");
 
 					var zoneIDs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -215,10 +197,10 @@ namespace net.vieapps.Services.Portals
 						zoneIDs.Add(zoneID);
 					});
 
-					requiredZoneIDs?.ForEach(zoneID =>
+					(requiredZoneIDs ?? new[] { "Content" }).ForEach(zoneID =>
 					{
 						if (!zoneIDs.Contains(zoneID))
-							throw new TemplateIsInvalidException($"The template is required a zone with specified identity ({zoneID}) but not found");
+							throw new TemplateIsInvalidException($"The template is required a zone that identitied as '{zoneID}' but not found");
 					});
 				}
 				catch (Exception ex)
@@ -370,50 +352,37 @@ namespace net.vieapps.Services.Portals
 			=> fileInfo?.Name?.GetMimeType();
 
 		/// <summary>
-		/// Prepares the filtering expression
+		/// Generates the pagination
 		/// </summary>
-		/// <param name="filterBy"></param>
-		/// <param name="params"></param>
-		/// <param name="onCompleted"></param>
+		/// <param name="totalRecords"></param>
+		/// <param name="totalPages"></param>
+		/// <param name="pageSize"></param>
+		/// <param name="pageNumber"></param>
+		/// <param name="urlPattern"></param>
 		/// <returns></returns>
-		public static FilterBys Prepare(this FilterBys filterBy, ExpandoObject @params, Dictionary<string, string> headers = null, Dictionary<string, string> query = null, Action<FilterBys, ExpandoObject, Dictionary<string, string>, Dictionary<string, string>> onCompleted = null)
+		public static JObject GeneratePagination(long totalRecords, int totalPages, int pageSize, int pageNumber, string urlPattern)
 		{
-			filterBy.Children?.ForEach(filterby =>
-			{
-				if (filterby is FilterBy)
-				{
-					var filter = filterby as FilterBy;
-					if (filter.Value != null && filter.Value is string)
+			var pages = new List<JObject>(totalPages);
+
+			if (totalPages > 1)
+				for (var page = 1; page <= totalPages; page++)
+					pages.Add(new JObject
 					{
-						var value = filter.Value as string;
+						{ "Text", $"{page}" },
+						{ "URL", urlPattern.Replace("{{pageNumber}}", $"{page}") }
+					});
+			else
+				pages = null;
 
-						if (value.IsStartsWith("@param["))
-							filter.Value = @params.Get(value.Replace(StringComparison.OrdinalIgnoreCase, "@param[", "").Replace("]", ""));
-
-						else if (value.IsStartsWith("@headers["))
-						{
-							if (headers.TryGetValue(value.Replace(StringComparison.OrdinalIgnoreCase, "@headers[", "").Replace("]", ""), out var val))
-								filter.Value = val;
-						}
-
-						else if (value.IsStartsWith("@query["))
-						{
-							if (query.TryGetValue(value.Replace(StringComparison.OrdinalIgnoreCase, "@query[", "").Replace("]", ""), out var val))
-								filter.Value = val;
-						}
-
-						else if (value.IsStartsWith("@today"))
-							filter.Value = DateTime.Now.ToDTString(false, false);
-
-						else if (value.IsStartsWith("@now"))
-							filter.Value = DateTime.Now;
-					}
-				}
-				else
-					(filterby as FilterBys).Prepare(@params, headers, query, onCompleted);
-			});
-			onCompleted?.Invoke(filterBy, @params, headers, query);
-			return filterBy;
+			return new JObject
+			{
+				{ "TotalRecords", totalRecords },
+				{ "TotalPages", totalPages },
+				{ "PageSize", pageSize },
+				{ "PageNumber", pageNumber },
+				{ "URLPattern", urlPattern },
+				{ "Pages", pages?.ToJArray() }
+			};
 		}
 	}
 

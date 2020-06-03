@@ -202,6 +202,24 @@ namespace net.vieapps.Services.Portals.Settings
 	}
 
 	[Serializable]
+	public sealed class HttpIndicator
+	{
+		public HttpIndicator() { }
+
+		[FormControl(MaxLength = 100)]
+		public string Name { get; set; }
+
+		[FormControl(ControlType = "TextArea", MaxLength = 4000)]
+		public string Content { get; set; }
+
+		public void Normalize()
+		{
+			this.Name = string.IsNullOrWhiteSpace(this.Name) ? null : this.Name.Trim();
+			this.Content = string.IsNullOrWhiteSpace(this.Content) ? null : this.Content.Trim();
+		}
+	}
+
+	[Serializable]
 	public class UI
 	{
 		public UI() { }

@@ -208,7 +208,7 @@ namespace net.vieapps.Services.Portals
 						requestSegments = new string[] { };
 					}
 
-					// special resources (_css, _scripts, _images, ...)
+					// special resources (_assets, _images, _css, _js)
 					else if (pathSegments[0].StartsWith("_"))
 					{
 						systemIdentity = "~resources";
@@ -231,7 +231,7 @@ namespace net.vieapps.Services.Portals
 				{
 					var value = requestSegments[0].Replace(".html", "");
 					value = value.Equals("") || value.StartsWith("-") || value.IsEquals("default") || value.IsEquals("index") || value.IsNumeric() ? "default" : value.GetANSIUri();
-					query["x-desktop"] = (requestSegments[0].StartsWith("-") ? "-" : "") + value;
+					query["x-desktop"] = (value.Equals("default") ? "-" : "") + value;
 
 					value = requestSegments.Length > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].Replace(".html", "") : null;
 					query["x-parent"] = string.IsNullOrWhiteSpace(value) ? null : value.GetANSIUri();
@@ -462,11 +462,11 @@ namespace net.vieapps.Services.Portals
 
 		internal static void Connect(int waitingTimes = 6789)
 		{
-			Global.Logger.LogDebug($"Attempting to connect to WAMP router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
+			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.Connect(
 				(sender, arguments) =>
 				{
-					Global.Logger.LogDebug($"Incoming channel to WAMP router is established - Session ID: {arguments.SessionId}");
+					Global.Logger.LogDebug($"Incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
 					Task.Run(() => Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)")).ConfigureAwait(false);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
@@ -522,7 +522,7 @@ namespace net.vieapps.Services.Portals
 				},
 				(sender, arguments) =>
 				{
-					Global.Logger.LogDebug($"Outgoing channel to WAMP router is established - Session ID: {arguments.SessionId}");
+					Global.Logger.LogDebug($"Outgoing channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
 					Task.Run(async () =>
 					{
 						await Router.OutgoingChannel.UpdateAsync(Router.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
@@ -554,7 +554,8 @@ namespace net.vieapps.Services.Portals
 			Global.Disconnect();
 		}
 
-		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message) => Task.CompletedTask;
+		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
+			=> Task.CompletedTask;
 		#endregion
 
 	}

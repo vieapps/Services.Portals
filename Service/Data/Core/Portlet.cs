@@ -158,7 +158,7 @@ namespace net.vieapps.Services.Portals
 			else
 				this.Action = this.AlternativeAction = null;
 
-			this.CommonSettings?.Normalize(settings => (settings.Template ?? "").ValidateTemplate(false));
+			this.CommonSettings?.Normalize(settings => (settings.Template ?? "").ValidateTemplate());
 
 			this.ListSettings?.Normalize(settings =>
 			{

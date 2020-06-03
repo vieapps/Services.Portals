@@ -71,4 +71,18 @@ namespace net.vieapps.Services.Portals.Exceptions
 
 		public OptionsAreInvalidException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
+
+	[Serializable]
+	public class DesktopNotFounndException : AppException
+	{
+		public DesktopNotFounndException() : this("The requested desktop is not found") { }
+
+		public DesktopNotFounndException(Exception innerException) : base($"The requested desktop is not found => {innerException.Message}", innerException) { }
+
+		public DesktopNotFounndException(string message) : base(message) { }
+
+		public DesktopNotFounndException(string message, Exception innerException) : base(message, innerException) { }
+
+		public DesktopNotFounndException(SerializationInfo info, StreamingContext context) : base(info, context) { }
+	}
 }
