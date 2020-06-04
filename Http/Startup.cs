@@ -219,7 +219,7 @@ namespace net.vieapps.Services.Portals
 				Global.Logger.LogInformation($"Request limit: {UtilityService.GetAppSetting("Limits:Body", "10")} MB");
 
 				stopwatch.Stop();
-				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is started - PID: {Process.GetCurrentProcess().Id} - Execution times: {stopwatch.GetElapsedTimes()}");
+				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service was started - PID: {Process.GetCurrentProcess().Id} - Execution times: {stopwatch.GetElapsedTimes()}");
 				Global.Logger = loggerFactory.CreateLogger<Handler>();
 			});
 
@@ -237,7 +237,7 @@ namespace net.vieapps.Services.Portals
 				Handler.Disconnect();
 				Global.CancellationTokenSource.Cancel();
 				Global.CancellationTokenSource.Dispose();
-				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service is stopped");
+				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service was stopped");
 			});
 
 			// don't terminate the process immediately, wait for the Main thread to exit gracefully
