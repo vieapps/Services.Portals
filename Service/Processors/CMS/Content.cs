@@ -492,31 +492,33 @@ namespace net.vieapps.Services.Portals
 			var requestJson = requestInfo.GetBodyJson();
 			var contentTypeID = requestJson.Get<JObject>("ContentType")?.Get<string>("ID");
 			var category = await (requestJson.Get<JObject>("ParentContentType")?.Get<string>("ID") ?? "").GetCategoryByAliasAsync(requestJson.Get<string>("ParentIdentity"), cancellationToken).ConfigureAwait(false);
-			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("DefaultDesktop") ?? requestJson.Get<string>("Desktop");
+			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("Desktop") ?? requestJson.Get<string>("Desktop");
 			var pageNumber = requestJson.Get("PageNumber", 1);
-			var filter = requestJson["FilterBy"] == null ? null : new FilterBys<Content>(requestJson.Get<JObject>("FilterBy"));
-			var sort = requestJson["SortBy"] == null ? null : new SortBy<Content>(requestJson.Get<JObject>("SortBy"));
 			var alwaysUseHtmlSuffix = requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true;
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
 
 			XDocument data;
 			JArray breadcrumb;
-			JObject pagination, seoInfo;
+			JObject pagination, seoInfo, filterBy = null, sortBy = null;
 			string coverURI = null;
 
 			// generate list
 			if (isList)
 			{
 				// check permission
-				var organization = await (requestJson.Get<JObject>("Organization")?.Get<string>("ID") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 				var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-				var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization?.OwnerID) || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, contentType?.WorkingPrivileges);
+				var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, contentType?.WorkingPrivileges);
+				if (!gotRights)
+				{
+					var organization = contentType?.Organization ?? await (requestJson.Get<JObject>("Organization")?.Get<string>("ID") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = requestInfo.Session.User.ID.IsEquals(organization?.OwnerID);
+				}
 				if (!gotRights)
 					throw new AccessDeniedException();
 
 				// prepare filtering expression
-				if (filter == null || filter.Children == null || filter.Children.Count < 1)
+				if (!(requestJson.Get<JObject>("FilterBy")?.ToFilter<Content>() is FilterBys<Content> filter) || filter.Children == null || filter.Children.Count < 1)
 				{
 					filter = Filters<Content>.And(
 						Filters<Content>.Equals("SystemID", "@body[Organization.ID]"),
@@ -532,22 +534,31 @@ namespace net.vieapps.Services.Portals
 					if (category != null)
 						filter.Children.Insert(3, Filters<Content>.Equals("CategoryID", category.ID));
 				}
-				else
+
+				if (filter.GetChild("StartDate") == null)
+					filter.Add(Filters<Content>.LessThanOrEquals("StartDate", "@today"));
+
+				if (filter.GetChild("Status") == null)
+					filter.Add(Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()));
+
+				filterBy = new JObject
 				{
-					if (filter.GetChild("StartDate") == null)
-						filter.Add(Filters<Content>.LessThanOrEquals("StartDate", "@today"));
-					if (filter.GetChild("Status") == null)
-						filter.Add(Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()));
-				}
+					{ "API", filter.ToJson().ToString(Formatting.None) },
+				};
 				filter.Prepare(requestInfo, filterBys =>
 				{
-					var filters = (filterBys as FilterBys).Children.Where(filterby => filterby is FilterBy filterBy && filterBy.Value != null && filterBy.Value is string).Select(filterby => filterby as FilterBy);
-					filters.Where(filterBy => filterBy.Value is string value && (value.IsEquals("@[parentIdentity]") || value.IsEquals("@[parent-identity]"))).ForEach(filterBy => filterBy.Value = category?.ID);
+					var filters = (filterBys as FilterBys).Children.Where(filterby => filterby is FilterBy thefilterby && thefilterby.Value != null && thefilterby.Value is string).Select(filterby => filterby as FilterBy);
+					filters.Where(thefilterby => thefilterby.Value is string value && (value.IsEquals("@[parentIdentity]") || value.IsEquals("@[parent-identity]"))).ForEach(filterby => filterby.Value = category?.ID);
 				});
+				filterBy["App"] = filter.ToClientJson().ToString(Formatting.None);
 
 				// prepare sorting expression
-				if (sort == null)
-					sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime").ThenByDescending("Created");
+				var sort = requestJson.Get<JObject>("SortBy")?.ToSort<Content>() ?? Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime").ThenByDescending("Created");
+				sortBy = new JObject
+				{
+					{ "API", sort.ToJson().ToString(Formatting.None) },
+					{ "App", sort.ToClientJson().ToString(Formatting.None) }
+				};
 
 				// search the matched objects
 				var pageSize = requestJson.Get("PageSize", 7);
@@ -567,25 +578,18 @@ namespace net.vieapps.Services.Portals
 				{
 					xml.Add(new XElement("Category", @object.Category?.Title));
 					xml.Add(new XElement("URL", $"~/{@object.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{@object.Category?.Alias ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
-					if (thumbnails != null)
-					{
-						var thumbs = objects.Count == 1 ? thumbnails : thumbnails[@object.ID] ?? thumbnails["@" + @object.ID];
-						xml.Add(new XElement("ThumbnailURL", thumbs?.First()?.Get<JObject>("URIs")?.Get<string>("Direct")));
-					}
+					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
 				})));
 
 				// build others
 				breadcrumb = category?.GenerateBreadcrumb(requestJson, alwaysUseHtmlSuffix) ?? new JArray();
-				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{category?.Desktop?.Alias ?? desktop ?? "-default"}/{category?.Alias}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
+				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{category?.Desktop?.Alias ?? desktop ?? "-default"}/{category?.Alias ?? "-"}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
 				seoInfo = new JObject
 				{
 					{ "Title", category?.Title },
 					{ "Description", category?.Description }
 				};
-
-				thumbnails = category != null
-					? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
-					: null;
+				thumbnails = category != null ? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false) : null;
 				coverURI = (thumbnails as JArray)?.First()?.Get<string>("URI");
 			}
 
@@ -631,7 +635,7 @@ namespace net.vieapps.Services.Portals
 						{ "ContentType", attachment["ContentType"] },
 						{ "Downloads", attachment["Downloads"] },
 						{ "URIs", attachment["URIs"] }
-					}).ForEach(attachment => attachments.Add(JsonConvert.DeserializeXNode(attachment.ToString(), "Attachment")?.Root));
+					}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment")));
 					xml.Add(attachments);
 				}));
 
@@ -653,11 +657,51 @@ namespace net.vieapps.Services.Portals
 				{ "Data", data.ToString(SaveOptions.DisableFormatting) },
 				{ "Breadcrumb", breadcrumb },
 				{ "Pagination", pagination },
-				{ "FilterBy", filter?.ToClientJson() },
-				{ "SortBy", sort?.ToClientJson() },
+				{ "FilterBy", filterBy },
+				{ "SortBy", sortBy },
 				{ "SEOInfo", seoInfo },
 				{ "CoverURI", coverURI }
 			};
+		}
+
+		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Category category, string thumbnailURL, int level, string validationKey = null, CancellationToken cancellationToken = default)
+		{
+			// prepare
+			var alwaysUseHtmlSuffix = category.Organization != null && category.Organization.AlwaysUseHtmlSuffix;
+			var url = category.OpenBy.Equals(OpenBy.DesktopOnly)
+				? $"~/{category.Desktop?.Alias ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
+				: category.OpenBy.Equals(OpenBy.SpecifiedURI)
+					? category.SpecifiedURI ?? "~/"
+					: $"~/{category.Desktop?.Alias ?? "-default"}/{category.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}";
+
+			// generate the menu item
+			var menu = new JObject
+			{
+				{ "Text", category.Title },
+				{ "Description", category.Description },
+				{ "Image", thumbnailURL },
+				{ "URL", url },
+				{ "Target", null },
+				{ "Level", level }
+			};
+
+			// generate children
+			if (category._childrenIDs == null)
+				await category.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
+			var children = category.Children;
+			if (children.Count > 0)
+			{
+				requestInfo.Header["x-as-attachments"] = "true";
+				var thumbnails = children.Count == 1
+					? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
+					: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+				var subMenu = new JArray();
+				await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID), level + 1, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+				menu["SubMenu"] = new JObject { { "Menu", subMenu } };
+			}
+
+			// return the menu item
+			return menu;
 		}
 	}
 }

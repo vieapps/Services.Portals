@@ -36,7 +36,7 @@ namespace net.vieapps.Services.Portals
 		/// Gets the definition for working with CMS Portals
 		/// </summary>
 		/// <returns></returns>
-		[WampProcedure("cms.portals.{0}.definition")]
+		[WampProcedure("cms.portals.get.definition.{0}")]
 		ModuleDefinition GetDefinition();
 
 		/// <summary>
@@ -45,8 +45,17 @@ namespace net.vieapps.Services.Portals
 		/// <param name="requestInfo">The requesting information</param>
 		/// <param name="cancellationToken">The cancellation token</param>
 		/// <returns></returns>
-		[WampProcedure("cms.portals.{0}.generate.content")]
+		[WampProcedure("cms.portals.generate.content.{0}")]
 		Task<JObject> GenerateAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default);
+
+		/// <summary>
+		/// Generates the menu for working with CMS Portals
+		/// </summary>
+		/// <param name="requestInfo">The requesting information</param>
+		/// <param name="cancellationToken">The cancellation token</param>
+		/// <returns></returns>
+		[WampProcedure("cms.portals.generate.menu.{0}")]
+		Task<JArray> GenerateMenuAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default);
 	}
 
 }

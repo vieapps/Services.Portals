@@ -593,117 +593,78 @@ namespace net.vieapps.Services.Portals
 			// prepare
 			var requestJson = requestInfo.GetBodyJson();
 			var contentTypeID = requestJson.Get<JObject>("ContentType")?.Get<string>("ID");
-			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("DefaultDesktop") ?? requestJson.Get<string>("Desktop");
+			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("Desktop") ?? requestJson.Get<string>("Desktop");
 			var pageNumber = requestJson.Get("PageNumber", 1);
-			var filter = requestJson["FilterBy"] == null ? null : new FilterBys<Link>(requestJson.Get<JObject>("FilterBy"));
-			var sort = requestJson["SortBy"] == null ? null : new SortBy<Link>(requestJson.Get<JObject>("SortBy"));
-			var alwaysUseHtmlSuffix = requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true;
-			var action = requestJson.Get<string>("Action");
-			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
+			var options = requestJson.Get<JObject>("Options");
+			var asMenu = options?.Get<bool>("AsMenu") ?? options?.Get<bool>("ShowAsMenu") ?? options?.Get<bool>("GenerateAsMenu") ?? false;
+			var asBanner = !asMenu && (options?.Get<bool>("AsBanner") ?? options?.Get<bool>("ShowAsBanner") ?? options?.Get<bool>("GenerateAsBanner") ?? false);
+			var xslFilename = asMenu ? "menu.xsl" : asBanner ? "banner.xsl" : null;
 
-			XDocument data;
-			JObject pagination, seoInfo;
-			string coverURI = null;
-
-			// generate list
-			if (isList)
+			// check permission
+			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(contentType?.WorkingPrivileges);
+			if (!gotRights)
 			{
-				// check permission
-				var organization = await (requestJson.Get<JObject>("Organization")?.Get<string>("ID") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-				var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-				var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization?.OwnerID) || requestInfo.Session.User.IsViewer(contentType?.WorkingPrivileges);
-				if (!gotRights)
-					throw new AccessDeniedException();
-
-				// prepare filtering expression
-				if (filter == null || filter.Children == null || filter.Children.Count < 1)
-					filter = Filters<Link>.And(
-						Filters<Link>.Equals("SystemID", "@body[Organization.ID]"),
-						Filters<Link>.Equals("RepositoryID", "@body[Module.ID]"),
-						Filters<Link>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
-						Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString())
-					);
-				else if (filter.GetChild("Status") == null)
-					filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()));
-
-				if (filter.GetChild("ParentID") == null)
-				{
-					var parentID = requestJson.Get<string>("ContentIdentity");
-					filter.Add(string.IsNullOrWhiteSpace(parentID) ? Filters<Link>.IsNull("ParentID") : Filters<Link>.Equals("ParentID", parentID));
-				}
-				filter.Prepare(requestInfo);
-
-				// prepare sorting expression
-				if (sort == null)
-					sort = Sorts<Link>.Descending("Created");
-
-				// search the matched objects
-				var pageSize = requestJson.Get("PageSize", 0);
-				var results = await requestInfo.SearchAsync(filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, requestJson.Get<JObject>("Options")?.Get<bool>("ShowThumbnail") ?? false).ConfigureAwait(false);
-				var totalRecords = results.Item1;
-				var objects = results.Item2;
-				var thumbnails = results.Item3;
-
-				// prepare pagination
-				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
-				if (totalPages > 0 && pageNumber > totalPages)
-					pageNumber = totalPages;
-
-				// generate xml
-				data = XDocument.Parse("<Data/>");
-				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, xml =>
-				{
-					xml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.ID}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
-					if (thumbnails != null)
-					{
-						var thumbs = objects.Count == 1 ? thumbnails : thumbnails[@object.ID] ?? thumbnails["@" + @object.ID];
-						xml.Add(new XElement("ThumbnailURL", thumbs?.First()?.Get<JObject>("URIs")?.Get<string>("Direct")));
-					}
-				})));
-
-				// build others
-				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
-				seoInfo = new JObject
-				{
-					{ "Title", contentType?.Title },
-					{ "Description", contentType?.Description }
-				};
+				var organization = contentType?.Organization ?? await (requestJson.Get<JObject>("Organization")?.Get<string>("ID") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+				gotRights = requestInfo.Session.User.ID.IsEquals(organization?.OwnerID);
 			}
+			if (!gotRights)
+				throw new AccessDeniedException();
 
-			// generate details
-			else
+			// prepare filtering expression
+			if (!(requestJson.Get<JObject>("FilterBy")?.ToFilter<Link>() is FilterBys<Link> filter) || filter.Children == null || filter.Children.Count < 1)
+				filter = Filters<Link>.And(
+					Filters<Link>.Equals("SystemID", "@body[Organization.ID]"),
+					Filters<Link>.Equals("RepositoryID", "@body[Module.ID]"),
+					Filters<Link>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
+					Filters<Link>.IsNull("ParentID"),
+					Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString())
+				);
+
+			if (filter.GetChild("Status") == null)
+				filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()));
+
+			if (filter.GetChild("ParentID") == null)
+				filter.Add(Filters<Link>.IsNull("ParentID"));
+
+			var filterBy = new JObject
 			{
-				// get the requested object
-				var @object = await Link.GetAsync<Link>(requestJson.Get<string>("ContentIdentity"), cancellationToken).ConfigureAwait(false);
-				if (@object == null)
-					throw new InformationNotFoundException();
-				else if (@object.Organization == null || @object.Module == null || @object.ContentType == null)
-					throw new InformationInvalidException("The organization/module/content-type is invalid");
+				{ "API", filter.ToJson().ToString(Formatting.None) },
+			};
+			filter.Prepare(requestInfo);
+			filterBy["App"] = filter.ToClientJson().ToString(Formatting.None);
 
-				// check permission
-				var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || @object.Status.Equals(ApprovalStatus.Published)
-					? requestInfo.Session.User.IsViewer(@object.WorkingPrivileges)
-					: requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges);
-				if (!gotRights)
-					throw new AccessDeniedException();
+			// prepare sorting expression
+			var sort = requestJson.Get<JObject>("SortBy")?.ToSort<Link>() ?? Sorts<Link>.Ascending("OrderIndex").ThenByDescending("Created");
+			var sortBy = new JObject
+			{
+				{ "API", sort.ToJson().ToString(Formatting.None) },
+				{ "App", sort.ToClientJson().ToString(Formatting.None) }
+			};
 
-				// get files
-				var thumbnailsTask = requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey);
-				var attachmentsTask = requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey);
-				await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+			// search the matched objects
+			var pageSize = requestJson.Get("PageSize", 0);
+			var results = await requestInfo.SearchAsync(filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, options?.Get<bool>("ShowThumbnail") ?? false).ConfigureAwait(false);
+			var totalRecords = results.Item1;
+			var objects = results.Item2;
+			var thumbnails = results.Item3;
 
-				// generate XML
-				data = XDocument.Parse("<Data/>");
-				data.Root.Add(@object.ToXml(false, xml =>
+			// prepare pagination
+			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			if (totalPages > 0 && pageNumber > totalPages)
+				pageNumber = totalPages;
+
+			// generate xml
+			var data = XDocument.Parse("<Data/>");
+			await objects.ForEachAsync(async (@object, token) =>
+			{
+				var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID);
+				var xml = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, validationKey, token).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
+				if (asBanner)
 				{
-					xml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.ID}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
-
-					var thumbnails = new XElement("Thumbnails");
-					(thumbnailsTask.Result as JArray).ForEach(thumbnail => thumbnails.Add(new XElement("Thumbnail", thumbnail.Get<string>("URI"))));
-					xml.Add(thumbnails);
-
-					var attachments = new XElement("Attachments");
-					(attachmentsTask.Result as JArray).Select(attachment => new JObject
+					var attachments = await requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
+					var attachmentsXml = new XElement("Attachments");
+					(attachments as JArray).Select(attachment => new JObject
 					{
 						{ "Title", attachment["Title"] },
 						{ "Filename", attachment["Filename"] },
@@ -711,30 +672,78 @@ namespace net.vieapps.Services.Portals
 						{ "ContentType", attachment["ContentType"] },
 						{ "Downloads", attachment["Downloads"] },
 						{ "URIs", attachment["URIs"] }
-					}).ForEach(attachment => attachments.Add(JsonConvert.DeserializeXNode(attachment.ToString(), "Attachment")?.Root));
-					xml.Add(attachments);
-				}));
-
-				// build others
-				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.ID}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
-				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI");
-				seoInfo = new JObject
-				{
-					{ "Title", @object.Title },
-					{ "Description", @object.Summary }
-				};
-			}
+					}).ForEach(attachment => attachmentsXml.Add(attachment.ToXml("Attachment")));
+					xml.Add(attachmentsXml);
+				}
+				data.Root.Add(xml);
+			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			// response
 			return new JObject
 			{
 				{ "Data", data.ToString(SaveOptions.DisableFormatting) },
-				{ "Pagination", pagination },
-				{ "FilterBy", filter?.ToClientJson() },
-				{ "SortBy", sort?.ToClientJson() },
-				{ "SEOInfo", seoInfo },
-				{ "CoverURI", coverURI }
+				{ "XslFilename", xslFilename },
+				{ "FilterBy", filterBy },
+				{ "SortBy", sortBy }
 			};
+		}
+
+		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, int level, string validationKey = null, CancellationToken cancellationToken = default)
+		{
+			// generate the menu item
+			var menu = new JObject
+			{
+				{ "Text", link.Title },
+				{ "Description", link.Summary },
+				{ "Image", thumbnailURL },
+				{ "URL", link.URL },
+				{ "Target", link.Target },
+				{ "Level", level }
+			};
+
+			// generate children
+			JArray subMenu = null;
+
+			// normal children
+			if (link.ChildrenMode.Equals(ChildrenMode.Normal))
+			{
+				if (link._childrenIDs == null)
+					await link.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
+
+				var children = link.Children;
+				if (children.Count > 0)
+				{
+					requestInfo.Header["x-as-attachments"] = "true";
+					var thumbnails = children.Count == 1
+						? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
+						: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+					subMenu = new JArray();
+					await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID), level + 1, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+				}
+			}
+
+			// children that looked-up from other module/content-type
+			else if (!string.IsNullOrWhiteSpace(link.LookupRepositoryID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
+			{
+				var contentType = await link.LookupRepositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+				subMenu = contentType == null ? null : await contentType.GetService().GenerateMenuAsync(new RequestInfo(requestInfo)
+				{
+					Header = new Dictionary<string, string>(requestInfo.Header, StringComparer.OrdinalIgnoreCase)
+					{
+						{ "x-menu-repository-id", link.LookupRepositoryID },
+						{ "x-menu-repository-entity-id", link.LookupRepositoryEntityID },
+						{ "x-menu-repository-object-id", link.LookupRepositoryObjectID },
+						{ "x-menu-level", $"{level + 1}" }
+					}
+				}, cancellationToken).ConfigureAwait(false);
+			}
+
+			// update children
+			if (subMenu != null && subMenu.Count > 0)
+				menu["SubMenu"] = new JObject { { "Menu", subMenu } };
+
+			// return the menu item
+			return menu;
 		}
 	}
 }

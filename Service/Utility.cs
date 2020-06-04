@@ -384,6 +384,11 @@ namespace net.vieapps.Services.Portals
 				{ "Pages", pages?.ToJArray() }
 			};
 		}
+
+		internal static string GetThumbnailURL(this JToken thumbnails, string objectID)
+			=> thumbnails != null && thumbnails is JArray thumbnailsJson
+				? (thumbnailsJson.Count == 1 ? thumbnailsJson : thumbnailsJson[objectID] ?? thumbnailsJson[$"@{@objectID}"])?.First()?.Get<JObject>("URIs")?.Get<string>("Direct")
+				: null;
 	}
 
 	//  --------------------------------------------------------------------------------------------

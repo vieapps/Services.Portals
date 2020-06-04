@@ -73,6 +73,20 @@ namespace net.vieapps.Services.Portals.Exceptions
 	}
 
 	[Serializable]
+	public class SiteNotRecognizedException : AppException
+	{
+		public SiteNotRecognizedException() : this("The requested site is not recognized") { }
+
+		public SiteNotRecognizedException(Exception innerException) : base($"The requested site is not recognized => {innerException.Message}", innerException) { }
+
+		public SiteNotRecognizedException(string message) : base(message) { }
+
+		public SiteNotRecognizedException(string message, Exception innerException) : base(message, innerException) { }
+
+		public SiteNotRecognizedException(SerializationInfo info, StreamingContext context) : base(info, context) { }
+	}
+
+	[Serializable]
 	public class DesktopNotFounndException : AppException
 	{
 		public DesktopNotFounndException() : this("The requested desktop is not found") { }
