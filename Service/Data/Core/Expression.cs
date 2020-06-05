@@ -137,14 +137,19 @@ namespace net.vieapps.Services.Portals
 
 		internal void Normalize(JObject filterBy = null, JArray sortBy = null)
 		{
-			this.Filter = filterBy != null && filterBy["Operator"] != null
+			this.Filter = filterBy != null && filterBy.Get("Operator") != null
 				? new FilterBys(filterBy)
 				: new FilterBys(GroupOperator.And, new List<IFilterBy> { new FilterBy("SystemID", CompareOperator.Equals, this.Organization.ID) });
 			this.FilterBy = this.Filter.ToJson().ToString(Formatting.None);
 			this.Sorts = sortBy?.Select(sort => sort["Attribute"] != null ? new SortBy(sort as JObject) : null).Where(sort => sort != null).ToList();
 			this.Sorts = this.Sorts != null && this.Sorts.Count > 0
 				? this.Sorts
-				: new[] { new SortBy("Created", SortMode.Descending) }.ToList();
+				: new[]
+				{
+					(this.ContentTypeDefinition?.EntityDefinition?.Type ?? AssemblyLoader.GetType(this.ContentTypeDefinition.EntityDefinitionTypeName))?.CreateInstance() is INestedObject
+						? new SortBy("OrderIndex", SortMode.Ascending)
+						: new SortBy("Created", SortMode.Descending)
+				}.ToList();
 			this.SortBy = this.Sorts.Select(sort => sort.ToJson()).ToJArray().ToString(Formatting.None);
 		}
 
