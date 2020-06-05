@@ -523,7 +523,13 @@ namespace net.vieapps.Services.Portals
 					filter = Filters<Content>.And(
 						Filters<Content>.Equals("SystemID", "@body[Organization.ID]"),
 						Filters<Content>.Equals("RepositoryID", "@body[Module.ID]"),
-						Filters<Content>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
+						Filters<Content>.Equals("RepositoryEntityID", "@body[ContentType.ID]")
+					);
+
+					if (category != null)
+						filter.Add(Filters<Content>.Equals("CategoryID", category.ID));
+
+					filter.Add(
 						Filters<Content>.LessThanOrEquals("StartDate", "@today"),
 						Filters<Content>.Or(
 							Filters<Content>.GreaterOrEquals("EndDate", "@today"),
@@ -531,8 +537,6 @@ namespace net.vieapps.Services.Portals
 						),
 						Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString())
 					);
-					if (category != null)
-						filter.Children.Insert(3, Filters<Content>.Equals("CategoryID", category.ID));
 				}
 
 				if (filter.GetChild("StartDate") == null)
@@ -578,7 +582,7 @@ namespace net.vieapps.Services.Portals
 				{
 					xml.Add(new XElement("Category", @object.Category?.Title));
 					xml.Add(new XElement("URL", $"~/{@object.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{@object.Category?.Alias ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
-					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
+					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID, objects.Count == 1)));
 				})));
 
 				// build others
@@ -696,7 +700,7 @@ namespace net.vieapps.Services.Portals
 					? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
 					: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
 				var subMenu = new JArray();
-				await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID), level + 1, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+				await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level + 1, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 				menu["SubMenu"] = new JObject { { "Menu", subMenu } };
 			}
 

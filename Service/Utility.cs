@@ -390,10 +390,20 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		internal static string GetThumbnailURL(this JToken thumbnails, string objectID)
-			=> thumbnails != null && thumbnails is JArray thumbnailsJson
-				? (thumbnailsJson.Count == 1 ? thumbnailsJson : thumbnailsJson[objectID] ?? thumbnailsJson[$"@{@objectID}"])?.First()?.Get<JObject>("URIs")?.Get<string>("Direct")
+		internal static string GetThumbnailURL(this JToken thumbnails, string objectID, bool isSingle)
+			=> thumbnails != null && thumbnails is JArray thumbnailsJson && thumbnailsJson.Count > 0
+				? (isSingle ? thumbnailsJson : thumbnailsJson[objectID] ?? thumbnailsJson[$"@{@objectID}"])?.First()?.Get<JObject>("URIs")?.Get<string>("Direct")
 				: null;
+
+		internal static Cache GetDesktopHtmlCache(this Organization organization)
+		{
+			if (!Utility.DesktopHtmlCaches.TryGetValue(organization.Alias, out var cache))
+			{
+				cache = new Cache($"VIEApps-Portals-Desktops-{organization.Alias.GetCapitalizedFirstLetter()}", organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval - 2 : Utility.Cache.ExpirationTime / 2, true, Logger.GetLoggerFactory());
+				Utility.DesktopHtmlCaches[organization.Alias] = cache;
+			}
+			return cache;
+		}
 	}
 
 	//  --------------------------------------------------------------------------------------------

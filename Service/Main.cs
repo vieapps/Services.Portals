@@ -901,9 +901,11 @@ namespace net.vieapps.Services.Portals
 			throw new InformationNotFoundException($"The requested resource is not found [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 		}
 
-		bool WriteDesktopLogs => this.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops"));
+		bool WriteDesktopLogs => this.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
 
-		bool CacheDesktopHtmls => "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Desktops", "false"));
+		bool CacheDesktopHtmls => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:CacheHtmls", "false"));
+
+		bool RemoveDesktopHtmlWhitespaces => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:RemoveWhitespaces", "true"));
 
 		async Task<JToken> ProcessHttpDesktopsRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
@@ -1025,20 +1027,14 @@ namespace net.vieapps.Services.Portals
 				{ "X-Correlation-ID", requestInfo.CorrelationID }
 			};
 
-			Cache cache = null;
-			if (this.CacheDesktopHtmls && !Utility.DesktopHtmlCaches.TryGetValue(organization.Alias, out cache))
-			{
-				cache = new Cache($"VIEApps-Portals-Desktops-{organization.Alias.GetCapitalizedFirstLetter()}", organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval - 2 : Utility.Cache.ExpirationTime / 2, true, Components.Utility.Logger.GetLoggerFactory());
-				Utility.DesktopHtmlCaches[organization.Alias] = cache;
-			}
-
 			// check "If-Modified-Since" request to reduce traffict
+			var cache = this.CacheDesktopHtmls ? organization.GetDesktopHtmlCache() : null;
 			var eTag = $"desktop#{key.GenerateUUID()}";
 			var lastModified = "";
 			var ifModifiedSince = this.CacheDesktopHtmls ? requestInfo.GetParameter("If-Modified-Since") : null;
 			if (this.CacheDesktopHtmls && eTag.IsEquals(requestInfo.GetParameter("If-None-Match")) && ifModifiedSince != null)
 			{
-				lastModified = cache == null ? null : await cache.GetAsync<string>(timeCacheKey, cancellationToken).ConfigureAwait(false);
+				lastModified = await cache.GetAsync<string>(timeCacheKey, cancellationToken).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(lastModified) && ifModifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 				{
 					headers = new Dictionary<string, string>(headers)
@@ -1059,7 +1055,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// response as cached HTML
-			var html = this.CacheDesktopHtmls && cache != null ? await cache.GetAsync<string>(htmlCacheKey, cancellationToken).ConfigureAwait(false) : null;
+			var html = cache != null ? await cache.GetAsync<string>(htmlCacheKey, cancellationToken).ConfigureAwait(false) : null;
 			if (!string.IsNullOrWhiteSpace(html))
 			{
 				lastModified = string.IsNullOrWhiteSpace(lastModified) ? await cache.GetAsync<string>(timeCacheKey, cancellationToken).ConfigureAwait(false) : lastModified;
@@ -1098,6 +1094,8 @@ namespace net.vieapps.Services.Portals
 				json.Remove("Privileges");
 				OrganizationProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 				json["Desktop"] = organization.DefaultDesktop?.Alias;
+				json["Home"] = organization.HomeDesktop?.Alias;
+				json["Search"] = organization.SearchDesktop?.Alias;
 				json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
 			});
 
@@ -1108,6 +1106,8 @@ namespace net.vieapps.Services.Portals
 				var domain = $"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.");
 				json["Domain"] = domain;
 				json["Host"] = domain;
+				json["Home"] = site.HomeDesktop?.Alias;
+				json["Search"] = site.SearchDesktop?.Alias;
 			});
 
 			// prepare data of portlets
@@ -1121,6 +1121,10 @@ namespace net.vieapps.Services.Portals
 				stepwatch.Restart();
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {desktop.Portlets.Count} portlet(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
 			}
+
+			var parentIdentity = requestInfo.GetQueryParameter("x-parent");
+			var contentIdentity = requestInfo.GetQueryParameter("x-content");
+			var pageNumber = requestInfo.GetQueryParameter("x-page");
 
 			await desktop.Portlets.ForEachAsync(async (theportlet, token) =>
 			{
@@ -1143,25 +1147,24 @@ namespace net.vieapps.Services.Portals
 					return;
 				}
 
-				// prepare action & expression
-				var action = requestInfo.GetQueryParameter("x-parent") != null && requestInfo.GetQueryParameter("x-content") != null ? portlet.AlternativeAction : portlet.Action;
+				// prepare the JSON that contains the requesting information for generating content
+				var action = !string.IsNullOrWhiteSpace(parentIdentity) && !string.IsNullOrWhiteSpace(contentIdentity) ? portlet.AlternativeAction : portlet.Action;
 				var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
 				var expresion = isList && !string.IsNullOrWhiteSpace(portlet.ListSettings.ExpressionID)
 					? await portlet.ListSettings.ExpressionID.GetExpressionByIDAsync(token).ConfigureAwait(false)
 					: null;
 
-				// prepare the JSON that contains the requesting information for generating
 				var requestJson = new JObject
 				{
 					{ "ID", theportlet.ID },
 					{ "Title", theportlet.Title },
 					{ "Action", isList ? "List" : "View" },
-					{ "ParentIdentity", requestInfo.GetQueryParameter("x-parent") },
-					{ "ContentIdentity", requestInfo.GetQueryParameter("x-content") },
+					{ "ParentIdentity", parentIdentity },
+					{ "ContentIdentity", contentIdentity },
 					{ "FilterBy", expresion?.Filter?.ToJson() },
 					{ "SortBy", expresion?.Sort?.ToJson() },
 					{ "PageSize", isList ? portlet.ListSettings.PageSize : 0 },
-					{ "PageNumber", isList ? portlet.ListSettings.AutoPageNumber ? (requestInfo.GetQueryParameter("x-page") ?? "1").CastAs<int>() : 1 : (requestInfo.GetQueryParameter("x-page") ?? "1").CastAs<int>() },
+					{ "PageNumber", isList ? portlet.ListSettings.AutoPageNumber ? (pageNumber ?? "1").CastAs<int>() : 1 : (pageNumber ?? "1").CastAs<int>() },
 					{ "Options", isList ? JObject.Parse(portlet.ListSettings.Options ?? "{}") : JObject.Parse(portlet.ViewSettings.Options ?? "{}") },
 					{ "Desktop", desktop.Alias },
 					{ "Site", siteJson },
@@ -1398,7 +1401,7 @@ namespace net.vieapps.Services.Portals
 										if (string.IsNullOrWhiteSpace(xslPagination))
 											xslPagination = await Utility.GetTemplateAsync("pagination.xml", "default", null, null, token).ConfigureAwait(false);
 									}
-									xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{pagination-holder}}", xslPagination);
+									xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{pagination-holder}}", xslPagination ?? "");
 								}
 
 								if (xslTemplate.PositionOf("{{breadcrumb-holder}}") > 0)
@@ -1410,7 +1413,7 @@ namespace net.vieapps.Services.Portals
 										if (string.IsNullOrWhiteSpace(xslBreadcrumb))
 											xslBreadcrumb = await Utility.GetTemplateAsync("breadcrumb.xml", "default", null, null, token).ConfigureAwait(false);
 									}
-									xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{breadcrumb-holder}}", xslBreadcrumb);
+									xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{breadcrumb-holder}}", xslBreadcrumb ?? "");
 								}
 
 								// prepare XML
@@ -1469,7 +1472,7 @@ namespace net.vieapps.Services.Portals
 
 								var paginationJson = json.Get<JObject>("Pagination") ?? new JObject();
 								paginationJson["ShowPageLinks"] = portlet.PaginationSettings.ShowPageLinks;
-								paginationJson["Lables"] = new JObject
+								paginationJson["Labels"] = new JObject
 								{
 									{ "Previous", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel) ? portlet.PaginationSettings.PreviousPageLabel : "Previous" },
 									{ "Next", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel) ? portlet.PaginationSettings.NextPageLabel : "Next" },
@@ -1798,7 +1801,7 @@ namespace net.vieapps.Services.Portals
 			var desktopZones = desktopContainer.GetZones().ToList();
 
 			if (writeDesktopLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Update portlets' HTMLs into zone(s) of '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {desktopZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Update portlets' HTMLs into zone(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {desktopZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
 
 			var desktopZonesGotPortlet = desktop.Portlets.Select(portlet => portlet.Zone).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var removedZones = new List<XElement>();
@@ -1818,7 +1821,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 			if (writeDesktopLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove empty zone(s) of '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {removedZones?.GetZoneNames().Join(", ")}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove empty zone(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {removedZones?.GetZoneNames().Join(", ")}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
 
 			removedZones.ForEach(zone => desktopZones.Remove(zone));
 
@@ -1882,15 +1885,18 @@ namespace net.vieapps.Services.Portals
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\n=>\r\n{html}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
 			}
 
+			// remove white spaces
+			if (this.RemoveDesktopHtmlWhitespaces || !this.IsDebugLogEnabled)
+				html = UtilityService.RemoveWhitespaces(html);
+
 			// prepare headers & caching
 			if (this.CacheDesktopHtmls && !gotError)
 			{
-				html = UtilityService.RemoveWhitespaces(html);
 				lastModified = DateTime.Now.ToHttpString();
-				await (cache == null ? Task.CompletedTask : Task.WhenAll(
+				await Task.WhenAll(
 					cache.SetAsync(timeCacheKey, lastModified, cancellationToken),
 					cache.SetAsync(htmlCacheKey, html, cancellationToken)
-				)).ConfigureAwait(false);
+				).ConfigureAwait(false);
 				headers = new Dictionary<string, string>(headers)
 				{
 					{ "ETag", eTag },
@@ -1987,9 +1993,9 @@ namespace net.vieapps.Services.Portals
 			await children.ForEachAsync(async (child, token) =>
 			{
 				if (child is Category category)
-					menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID), level, this.ValidationKey, token).ConfigureAwait(false));
+					menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level, this.ValidationKey, token).ConfigureAwait(false));
 				else if (child is Link link)
-					menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID), level, this.ValidationKey, token).ConfigureAwait(false));
+					menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level, this.ValidationKey, token).ConfigureAwait(false));
 			}, cancellationToken, true, false).ConfigureAwait(false);
 			return menu;
 		}

@@ -415,7 +415,7 @@ namespace net.vieapps.Services.Portals
 				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, xml =>
 				{
 					xml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
-					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
+					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID, objects.Count == 1)));
 				})));
 
 				// build others

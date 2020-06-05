@@ -227,7 +227,7 @@ namespace net.vieapps.Services.Portals
 				obj.SystemID = organization.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.Normalize(request["Filter"] as JObject, request["Sorts"] as JArray);
+				obj.Normalize(request.Get<JObject>("Filter"), request.Get<JArray>("Sorts"));
 			});
 
 			await Expression.CreateAsync(expression, cancellationToken).ConfigureAwait(false);
@@ -300,7 +300,7 @@ namespace net.vieapps.Services.Portals
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.Normalize(request["Filter"] as JObject, request["Sorts"] as JArray);
+				obj.Normalize(request.Get<JObject>("Filter"), request.Get<JArray>("Sorts"));
 			});
 
 			await Task.WhenAll(

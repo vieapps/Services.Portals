@@ -245,12 +245,11 @@ namespace net.vieapps.Services.Portals
 			});
 
 			link.OrderIndex = (await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
-			if (link.ChildrenMode.Equals(ChildrenMode.Normal))
-				link.RepositoryID = link.RepositoryEntityID = link.LookupRepositoryObjectID = null;
-			else if (string.IsNullOrWhiteSpace(link.RepositoryID) || string.IsNullOrWhiteSpace(link.RepositoryEntityID) || string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
+
+			if (link.ChildrenMode.Equals(ChildrenMode.Normal) || string.IsNullOrWhiteSpace(link.LookupRepositoryID) || string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) || string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
 			{
 				link.ChildrenMode = ChildrenMode.Normal;
-				link.RepositoryID = link.RepositoryEntityID = link.LookupRepositoryObjectID = null;
+				link.LookupRepositoryID = link.LookupRepositoryEntityID = link.LookupRepositoryObjectID = null;
 			}
 
 			// create new
@@ -367,12 +366,10 @@ namespace net.vieapps.Services.Portals
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
-			if (link.ChildrenMode.Equals(ChildrenMode.Normal))
-				link.RepositoryID = link.RepositoryEntityID = link.LookupRepositoryObjectID = null;
-			else if (string.IsNullOrWhiteSpace(link.RepositoryID) || string.IsNullOrWhiteSpace(link.RepositoryEntityID) || string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
+			if (link.ChildrenMode.Equals(ChildrenMode.Normal) || string.IsNullOrWhiteSpace(link.LookupRepositoryID) || string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) || string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
 			{
 				link.ChildrenMode = ChildrenMode.Normal;
-				link.RepositoryID = link.RepositoryEntityID = link.LookupRepositoryObjectID = null;
+				link.LookupRepositoryID = link.LookupRepositoryEntityID = link.LookupRepositoryObjectID = null;
 			}
 
 			if (link.ParentLink != null && !link.ParentID.IsEquals(oldParentID))
@@ -658,7 +655,7 @@ namespace net.vieapps.Services.Portals
 			var data = XDocument.Parse("<Data/>");
 			await objects.ForEachAsync(async (@object, token) =>
 			{
-				var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID);
+				var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, objects.Count == 1);
 				var xml = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, validationKey, token).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
 				if (asBanner)
 				{
@@ -718,7 +715,7 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
 						: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
 					subMenu = new JArray();
-					await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID), level + 1, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+					await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level + 1, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 				}
 			}
 
