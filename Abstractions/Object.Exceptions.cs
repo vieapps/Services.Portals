@@ -87,16 +87,16 @@ namespace net.vieapps.Services.Portals.Exceptions
 	}
 
 	[Serializable]
-	public class DesktopNotFounndException : AppException
+	public class DesktopNotFoundException : AppException
 	{
-		public DesktopNotFounndException() : this("The requested desktop is not found") { }
+		public DesktopNotFoundException() : this("The requested desktop is not found") { }
 
-		public DesktopNotFounndException(Exception innerException) : base($"The requested desktop is not found => {innerException.Message}", innerException) { }
+		public DesktopNotFoundException(Exception innerException) : base($"The requested desktop is not found => {innerException.Message}", innerException) { }
 
-		public DesktopNotFounndException(string message) : base(message) { }
+		public DesktopNotFoundException(string message) : base(message) { }
 
-		public DesktopNotFounndException(string message, Exception innerException) : base(message, innerException) { }
+		public DesktopNotFoundException(string message, Exception innerException) : base(message, innerException) { }
 
-		public DesktopNotFounndException(SerializationInfo info, StreamingContext context) : base(info, context) { }
+		public DesktopNotFoundException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
 }

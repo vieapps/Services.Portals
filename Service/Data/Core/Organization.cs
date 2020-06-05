@@ -241,7 +241,7 @@ namespace net.vieapps.Services.Portals
 			this.RefreshUrls?.Normalize();
 			this.RefreshUrls = this.RefreshUrls != null && this.RefreshUrls.Addresses == null ? null : this.RefreshUrls;
 			this.RedirectUrls?.Normalize();
-			this.RedirectUrls = this.RedirectUrls != null && this.RedirectUrls.Addresses == null ? null : this.RedirectUrls;
+			this.RedirectUrls = this.RedirectUrls != null && this.RedirectUrls.Addresses == null && !this.RedirectUrls.AllHttp404 ? null : this.RedirectUrls;
 			this.EmailSettings?.Normalize();
 			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
 			this.HttpIndicators?.ForEach(indicator => indicator?.Normalize());
@@ -250,6 +250,7 @@ namespace net.vieapps.Services.Portals
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			OrganizationProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
+			this.PrepareRedirectAddresses();
 		}
 
 		public override void ProcessPropertyChanged(string name)
@@ -268,14 +269,29 @@ namespace net.vieapps.Services.Portals
 				this.RedirectUrls = this._json["RedirectUrls"]?.FromJson<Settings.RedirectUrls>();
 				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
 				this.HttpIndicators = this._json["HttpIndicators"]?.FromJson<List<Settings.HttpIndicator>>();
+				this.PrepareRedirectAddresses();
 			}
 			else if (OrganizationProcessor.ExtraProperties.Contains(name))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
+				if (name.IsEquals("RedirectUrls"))
+					this.PrepareRedirectAddresses();
 			}
 			else if (name.IsEquals("Modules"))
 				this.Set(true);
 		}
+
+		List<Tuple<string, string>> _redirectAddresses;
+
+		void PrepareRedirectAddresses()
+			=> this._redirectAddresses = this.RedirectUrls?.Addresses?.Select(address =>
+			{
+				var addresses = address.ToArray('|');
+				return addresses.Length > 1 ? new Tuple<string, string>(addresses[0], addresses[1]) : null;
+			}).Where(addresses => addresses != null).ToList();
+
+		internal string GetRedirectURL(string requestedURL)
+			=> string.IsNullOrWhiteSpace(requestedURL) ? null : this._redirectAddresses?.FirstOrDefault(addresses => requestedURL.IsStartsWith(addresses.Item1))?.Item2;
 	}
 }

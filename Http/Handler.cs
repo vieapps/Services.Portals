@@ -26,9 +26,44 @@ namespace net.vieapps.Services.Portals
 	{
 		HashSet<string> SpecialRequests { get; } = "_initializer,_validator,_logout,_signout".ToHashSet();
 
-		bool AlwaysUseSecureConnections { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("AlwaysUseSecureConnections", "false"));
+		string _alwaysUseSecureConnections = null, _portalsHttpURI = null, _filesHttpURI = null;
 
-		string UniqueHostname { get; set; } = UtilityService.GetAppSetting("UniqueHostname", "");
+		bool AlwaysUseSecureConnections
+		{
+			get
+			{
+				this._alwaysUseSecureConnections = this._alwaysUseSecureConnections ?? UtilityService.GetAppSetting("AlwaysUseSecureConnections", "false");
+				 return "true".IsEquals(this._alwaysUseSecureConnections);
+			}
+		}
+
+		string PortalsHttpURI
+		{
+			get
+			{
+				if (this._portalsHttpURI == null)
+				{
+					this._portalsHttpURI = UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
+					if (!this._portalsHttpURI.EndsWith("/"))
+						this._portalsHttpURI += "/";
+				}
+				return this._portalsHttpURI;
+			}
+		}
+
+		string FilesHttpURI
+		{
+			get
+			{
+				if (this._filesHttpURI == null)
+				{
+					this._filesHttpURI = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
+					if (!this._filesHttpURI.EndsWith("/"))
+						this._filesHttpURI += "/";
+				}
+				return this._filesHttpURI;
+			}
+		}
 
 		RequestDelegate Next { get; }
 
@@ -91,11 +126,8 @@ namespace net.vieapps.Services.Portals
 			else if (Global.StaticSegments.Contains(requestPath))
 				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
 
-			else if (!this.UniqueHostname.Equals("") && !requestUri.Host.IsEquals(this.UniqueHostname))
-				context.Redirect($"{(this.AlwaysUseSecureConnections ? "https://" : "http://")}{this.UniqueHostname}{requestUri.PathAndQuery}");
-
 			else if (this.AlwaysUseSecureConnections && !requestUri.Scheme.IsEquals("https"))
-				context.Redirect($"{requestUri}".Replace("http://", "https://"));
+				context.Redirect($"https://{requestUri.Host}{requestUri.PathAndQuery}");
 
 			// request of special sections (initializer, validator, log-out)
 			else if (this.SpecialRequests.Contains(requestPath))
@@ -264,7 +296,15 @@ namespace net.vieapps.Services.Portals
 				}
 				catch { }
 
-			var headers = context.Request.Headers.ToDictionary(dictionary => Handler.ExcludedHeaders.ForEach(name => dictionary.Remove(name)));
+			var requestURI = context.GetRequestUri();
+			var headers = context.Request.Headers.ToDictionary(dictionary =>
+			{
+				Handler.ExcludedHeaders.ForEach(name => dictionary.Remove(name));
+				dictionary["x-host"] = context.GetParameter("Host");
+				dictionary["x-url"] = "https".IsEquals(context.GetHeaderParameter("x-forwarded-proto") ?? context.GetHeaderParameter("x-original-proto")) && !"https".IsEquals(requestURI.Scheme)
+					? requestURI.AbsoluteUri.Replace($"{requestURI.Scheme}://", "https://")
+					: requestURI.AbsoluteUri;
+			});
 
 			// process the request
 			try
@@ -284,19 +324,44 @@ namespace net.vieapps.Services.Portals
 					// call Portals service to process the request
 					var response = (await context.CallServiceAsync(new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token).ConfigureAwait(false)).ToExpandoObject();
 
-					// response
+					// prepare to response
+					var needNormalizeURLs = response.Get("NeedNormalizeURLs", false);
+
+					var filesRootURL = this.FilesHttpURI.Replace("http://", "//").Replace("https://", "//");
+					var portalsAbsoluteHttp = requestURI.AbsoluteUri.Replace("https://", "http://");
+					var portalsAbsoluteHttps = requestURI.AbsoluteUri.Replace("http://", "https://");
+					var portalsRootURL = portalsAbsoluteHttp.IsStartsWith(this.PortalsHttpURI) || portalsAbsoluteHttps.IsStartsWith(this.PortalsHttpURI)
+						? $"{this.PortalsHttpURI}~{systemIdentity}/"
+						: $"{requestURI.Scheme}://{requestURI.Host}/";
+					portalsRootURL = portalsRootURL.Replace("http://", "//").Replace("https://", "//");
+
+					// write headers
+					headers = response.Get("Headers", new Dictionary<string, string>());
+					context.SetResponseHeaders(response.Get("StatusCode", 200), needNormalizeURLs ? headers.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Replace("~~~/", portalsRootURL).Replace("~~/", filesRootURL).Replace("~/", portalsRootURL)) : headers);
+
+					// write body
 					var body = response.Get<string>("Body");
-					var bodyAsPlainText = body != null && "true".IsEquals(response.Get<string>("BodyAsPlainText"));
-					context.SetResponseHeaders(response.Get("StatusCode", 200), response.Get("Headers", new Dictionary<string, string>()));
 					if (body != null)
-						await context.WriteAsync(bodyAsPlainText ? body.ToBytes() : body.Base64ToBytes(), cts.Token).ConfigureAwait(false);
+					{
+						var bodyAsPlainText = response.Get("BodyAsPlainText", false);
+						if (needNormalizeURLs)
+						{
+							body = bodyAsPlainText ? body : body.Base64ToBytes().GetString();
+							body = body.Replace("~~~/", portalsRootURL).Replace("~~/", filesRootURL).Replace("~/", portalsRootURL);
+							await context.WriteAsync(body.ToBytes(), cts.Token).ConfigureAwait(false);
+						}
+						else
+							await context.WriteAsync(bodyAsPlainText ? body.ToBytes() : body.Base64ToBytes(), cts.Token).ConfigureAwait(false);
+					}
+
+					// flush the response stream as final step
 					await context.FlushAsync(cts.Token).ConfigureAwait(false);
 				}
 			}
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync("Http.Requests", $"Error occurred => {context.Request.Method} {context.GetRequestUri()}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				await context.WriteLogsAsync("Http.Requests", $"Error occurred => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 				var query = context.ParseQuery();
 				if (ex is AccessDeniedException && !context.IsAuthenticated() && Handler.RedirectToPassportOnUnauthorized && !query.ContainsKey("x-app-token") && !query.ContainsKey("x-passport-token"))
 					context.Redirect(context.GetPassportSessionAuthenticatorUrl());
@@ -458,7 +523,7 @@ namespace net.vieapps.Services.Portals
 		internal static bool RedirectToPassportOnUnauthorized
 			=> "true".IsEquals(Handler._RedirectToPassportOnUnauthorized ?? (Handler._RedirectToPassportOnUnauthorized = UtilityService.GetAppSetting("Portals:RedirectToPassportOnUnauthorized", "true")));
 
-		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop,cf-ipcountry,cf-ray,cf-visitor,cf-connecting-ip,sec-fetch-site,sec-fetch-mode,sec-fetch-dest,sec-fetch-user").ToList();
+		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop,cf-ipcountry,cf-ray,cf-visitor,cf-connecting-ip,sec-fetch-site,sec-fetch-mode,sec-fetch-dest,sec-fetch-user").ToList();
 
 		internal static void Connect(int waitingTimes = 6789)
 		{

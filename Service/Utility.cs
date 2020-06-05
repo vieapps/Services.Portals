@@ -11,8 +11,8 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.StaticFiles;
 using Newtonsoft.Json.Linq;
+using Microsoft.AspNetCore.StaticFiles;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
@@ -37,6 +37,11 @@ namespace net.vieapps.Services.Portals
 		/// Gets the collection of content-type definition
 		/// </summary>
 		public static ConcurrentDictionary<string, ContentTypeDefinition> ContentTypeDefinitions { get; } = new ConcurrentDictionary<string, ContentTypeDefinition>();
+
+		/// <summary>
+		/// Gets the collection of content-type definition
+		/// </summary>
+		internal static ConcurrentDictionary<string, Cache> DesktopHtmlCaches { get; } = new ConcurrentDictionary<string, Cache>();
 
 		/// <summary>
 		/// Gets the collection of not recognized aliases

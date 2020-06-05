@@ -19,6 +19,7 @@ using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Exceptions;
+using net.vieapps.Components.Caching;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -900,7 +901,9 @@ namespace net.vieapps.Services.Portals
 			throw new InformationNotFoundException($"The requested resource is not found [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 		}
 
-		bool WriteDesktopLogs => this.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("WriteDesktopLogs"));
+		bool WriteDesktopLogs => this.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops"));
+
+		bool CacheDesktopHtmls => "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Desktops", "false"));
 
 		async Task<JToken> ProcessHttpDesktopsRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
@@ -927,37 +930,115 @@ namespace net.vieapps.Services.Portals
 				await desktops.ForEachAsync(async (des, token) => await des.SetAsync(false, true, token), cancellationToken).ConfigureAwait(false);
 			}
 
-			var site = await (requestInfo.GetParameter("Host") ?? "").GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false) ?? organization.DefaultSite;
+			// get site
+			var site = await (requestInfo.GetParameter("x-host") ?? requestInfo.GetParameter("Host") ?? "").GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false) ?? organization.DefaultSite;
 			if (site == null)
 				throw new SiteNotRecognizedException($"The requested site is not recognized ({requestInfo.GetParameter("Host") ?? "unknown"})");
+
+			// get desktop and prepare the redirecting url
+			string requestedURL = null, redirectURL = null;
+			Uri requestedURI = null;
+			var redirectCode = 0;
 
 			var desktop = "-default".IsEquals(requestInfo.GetParameter("x-desktop"))
 				? organization.DefaultDesktop
 				: await organization.ID.GetDesktopByAliasAsync(requestInfo.GetParameter("x-desktop"), cancellationToken).ConfigureAwait(false);
-			if (desktop == null)
-				throw new DesktopNotFounndException($"The requested desktop ({requestInfo.GetParameter("x-desktop")}) is not found");
 
+			// prepare redirect URL when the desktop is not found
+			if (desktop == null)
+			{
+				requestedURI = new Uri(requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri"));
+				redirectURL = organization.GetRedirectURL(requestedURI.AbsoluteUri) ?? organization.GetRedirectURL($"~{requestedURI.PathAndQuery}".Replace($"/~{organization.Alias}/", "/"));
+				if (string.IsNullOrWhiteSpace(redirectURL) && organization.RedirectUrls != null && organization.RedirectUrls.AllHttp404)
+					redirectURL = organization.GetRedirectURL("*") ?? "~/index";
+
+				if (string.IsNullOrWhiteSpace(redirectURL))
+					throw new DesktopNotFoundException($"The requested desktop ({requestInfo.GetParameter("x-desktop")}) is not found");
+
+				redirectURL += organization.AlwaysUseHtmlSuffix && !redirectURL.IsEndsWith(".html") ? ".html" : "";
+				requestedURL = requestedURI.AbsoluteUri;
+				redirectCode = 301;
+			}
+
+			// normalize the redirect url
+			if (site.AlwaysUseHTTPs || site.RedirectToNoneWWW)
+			{
+				if (string.IsNullOrWhiteSpace(redirectURL))
+				{
+					requestedURL = requestedURL ?? requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri");
+					requestedURI = requestedURI ?? (string.IsNullOrWhiteSpace(requestedURL) ? null : new Uri(requestedURL));
+					if (requestedURI != null)
+					{
+						redirectURL = (site.AlwaysUseHTTPs && !requestedURI.Scheme.IsEquals("https") ? "https" : requestedURI.Scheme) + "://" + (site.RedirectToNoneWWW ? requestedURI.Host.Replace("www.", "") : requestedURI.Host) + requestedURI.PathAndQuery;
+						redirectCode = redirectCode > 0 ? redirectCode : site.AlwaysUseHTTPs && !requestedURI.Scheme.IsEquals("https") ? 302 : 301;
+					}
+				}
+				else
+				{
+					if (site.AlwaysUseHTTPs)
+					{
+						redirectURL = redirectURL.Replace("http://", "https://");
+						redirectCode = redirectCode > 0 ? redirectCode : 302;
+					}
+					if (site.RedirectToNoneWWW)
+					{
+						redirectURL = redirectURL.Replace("://www.", "://");
+						redirectCode = redirectCode > 0 ? redirectCode : 301;
+					}
+				}
+			}
+
+			// do redirect
+			JObject response = null;
 			var writeDesktopLogs = this.WriteDesktopLogs || requestInfo.GetParameter("x-logs") != null;
+			if (!string.IsNullOrWhiteSpace(redirectURL) && !requestedURL.Equals(redirectURL))
+			{
+				response = new JObject
+				{
+					{ "StatusCode", redirectCode },
+					{ "Headers", new JObject
+						{
+							{ "Location", redirectURL }
+						}
+					},
+					{ "NeedNormalizeURLs", true }
+				};
+				stopwatch.Stop();
+				if (writeDesktopLogs)
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Redirect for matching with the settings - Execution times: {stopwatch.GetElapsedTimes()}\r\n{requestedURL} => {redirectURL} [{redirectCode}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				return response;
+			}
+
+			// start process
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to process '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
 
-			// prepare the key for working with caching
-			var key = requestInfo.Query.Select(kvp => $"{kvp.Key}={kvp.Value}").Join("&").GenerateUUID();
-			var htmlCacheKey = $"Desktop:Html:{key}";
-			var timeCacheKey = $"Desktop:Time:{key}";
+			// prepare the caching
+			if (!requestInfo.Query.TryGetValue("x-desktop", out var key) || key == null || "-default".IsEquals(key))
+				key = "default";
+			key = organization.Alias + $":{key}:" + requestInfo.Query.Where(kvp => !kvp.Key.IsEquals("x-host") && !kvp.Key.IsEquals("x-desktop") && !string.IsNullOrWhiteSpace(kvp.Value)).Select(kvp => $"{kvp.Key}={kvp.Value}").Join("&").GenerateUUID();
+
+			var htmlCacheKey = $"{key}:html";
+			var timeCacheKey = $"{key}:time";
 			var headers = new Dictionary<string, string>
 			{
 				{ "Content-Type", "text/html; charset=utf-8" },
 				{ "X-Correlation-ID", requestInfo.CorrelationID }
 			};
 
-			// check "If-Modified-Since" request to reduce traffict
-			var eTag = $"desktop#{key}";
-			var lastModified = "";
-			var ifModifiedSince = requestInfo.GetParameter("If-Modified-Since");
-			JObject response = null;
-			if (eTag.IsEquals(requestInfo.GetParameter("If-None-Match")) && ifModifiedSince != null)
+			Cache cache = null;
+			if (this.CacheDesktopHtmls && !Utility.DesktopHtmlCaches.TryGetValue(organization.Alias, out cache))
 			{
-				lastModified = await Utility.Cache.GetAsync<string>(timeCacheKey, cancellationToken).ConfigureAwait(false);
+				cache = new Cache($"VIEApps-Portals-Desktops-{organization.Alias.GetCapitalizedFirstLetter()}", organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval - 2 : Utility.Cache.ExpirationTime / 2, true, Components.Utility.Logger.GetLoggerFactory());
+				Utility.DesktopHtmlCaches[organization.Alias] = cache;
+			}
+
+			// check "If-Modified-Since" request to reduce traffict
+			var eTag = $"desktop#{key.GenerateUUID()}";
+			var lastModified = "";
+			var ifModifiedSince = this.CacheDesktopHtmls ? requestInfo.GetParameter("If-Modified-Since") : null;
+			if (this.CacheDesktopHtmls && eTag.IsEquals(requestInfo.GetParameter("If-None-Match")) && ifModifiedSince != null)
+			{
+				lastModified = cache == null ? null : await cache.GetAsync<string>(timeCacheKey, cancellationToken).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(lastModified) && ifModifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 				{
 					headers = new Dictionary<string, string>(headers)
@@ -978,10 +1059,10 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// response as cached HTML
-			var html = this.IsDebugLogEnabled ? null : await Utility.Cache.GetAsync<string>(htmlCacheKey, cancellationToken).ConfigureAwait(false);
+			var html = this.CacheDesktopHtmls && cache != null ? await cache.GetAsync<string>(htmlCacheKey, cancellationToken).ConfigureAwait(false) : null;
 			if (!string.IsNullOrWhiteSpace(html))
 			{
-				lastModified = string.IsNullOrWhiteSpace(lastModified) ? await Utility.Cache.GetAsync<string>(timeCacheKey, cancellationToken).ConfigureAwait(false) : lastModified;
+				lastModified = string.IsNullOrWhiteSpace(lastModified) ? await cache.GetAsync<string>(timeCacheKey, cancellationToken).ConfigureAwait(false) : lastModified;
 				if (string.IsNullOrWhiteSpace(lastModified))
 					lastModified = DateTime.Now.ToHttpString();
 				headers = new Dictionary<string, string>(headers)
@@ -994,10 +1075,12 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "StatusCode", 200 },
 					{ "Headers", headers.ToJson() },
-					{ "Body", html.ToBytes().ToBase64() }
+					{ "Body", html },
+					{ "BodyAsPlainText", true },
+					{ "NeedNormalizeURLs", true }
 				};
 				stopwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => Got cached HTML - Key: {htmlCacheKey} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => Got cached HTML - Key: {htmlCacheKey} - ETag: {eTag} - Timestamp: {lastModified} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
 				return response;
 			}
 
@@ -1800,14 +1883,14 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// prepare headers & caching
-			if (!gotError && !this.IsDebugLogEnabled)
+			if (this.CacheDesktopHtmls && !gotError)
 			{
 				html = UtilityService.RemoveWhitespaces(html);
 				lastModified = DateTime.Now.ToHttpString();
-				await Task.WhenAll(
-					Utility.Cache.SetAsync(timeCacheKey, lastModified, organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval - 1 : Utility.Cache.ExpirationTime / 2, cancellationToken),
-					Utility.Cache.SetAsync(htmlCacheKey, html, organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval - 2 : Utility.Cache.ExpirationTime / 2, cancellationToken)
-				).ConfigureAwait(false);
+				await (cache == null ? Task.CompletedTask : Task.WhenAll(
+					cache.SetAsync(timeCacheKey, lastModified, cancellationToken),
+					cache.SetAsync(htmlCacheKey, html, cancellationToken)
+				)).ConfigureAwait(false);
 				headers = new Dictionary<string, string>(headers)
 				{
 					{ "ETag", eTag },
@@ -1821,8 +1904,9 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "StatusCode", 200 },
 				{ "Headers", headers.ToJson() },
-				{ "Body", this.IsDebugLogEnabled ? html : html.ToBytes().ToBase64() },
-				{ "BodyAsPlainText", this.IsDebugLogEnabled.ToString() }
+				{ "Body", html },
+				{ "BodyAsPlainText", true },
+				{ "NeedNormalizeURLs", true }
 			};
 
 			stopwatch.Stop();
