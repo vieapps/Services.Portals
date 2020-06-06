@@ -361,7 +361,7 @@ namespace net.vieapps.Services.Portals
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync("Http.Requests", $"Error occurred => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				await context.WriteLogsAsync("Portals", $"Error occurred => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 				var query = context.ParseQuery();
 				if (ex is AccessDeniedException && !context.IsAuthenticated() && Handler.RedirectToPassportOnUnauthorized && !query.ContainsKey("x-app-token") && !query.ContainsKey("x-passport-token"))
 					context.Redirect(context.GetPassportSessionAuthenticatorUrl());
