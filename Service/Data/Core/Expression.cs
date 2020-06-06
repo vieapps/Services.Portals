@@ -169,14 +169,22 @@ namespace net.vieapps.Services.Portals
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				if (this.Filter == null || this.Sorts == null)
-				{
-					this.Filter = this.Filter ?? new FilterBys(JObject.Parse(this.FilterBy));
-					this.Sorts = this.Sorts ?? JArray.Parse(this.SortBy).Select(sort => new SortBy(sort as JObject)).ToList();
-					this.Set();
-					json["Filter"] = this.Filter.ToJson();
-					json["Sorts"] = this.Sorts.Select(sort => sort.ToJson()).ToJArray();
-				}
+					this.Prepare(true, json);
 				onCompleted?.Invoke(json);
 			});
+
+		internal Expression Prepare(bool set = true, JObject json = null)
+		{
+			this.Filter = this.Filter ?? new FilterBys(JObject.Parse(this.FilterBy));
+			this.Sorts = this.Sorts ?? JArray.Parse(this.SortBy).Select(sort => sort as JObject).Select(sort => new SortBy(sort)).ToList();
+			if (set)
+				this.Set();
+			if (json != null)
+			{
+				json["Filter"] = this.Filter.ToJson();
+				json["Sorts"] = this.Sorts.Select(sort => sort.ToJson()).ToJArray();
+			}
+			return this;
+		}
 	}
 }
