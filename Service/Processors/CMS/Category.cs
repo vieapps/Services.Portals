@@ -686,5 +686,60 @@ namespace net.vieapps.Services.Portals
 			});
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
+
+		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Category category, string thumbnailURL, int level, int maxLevel = 0, string validationKey = null, CancellationToken cancellationToken = default)
+		{
+			// prepare
+			var alwaysUseHtmlSuffix = category.Organization != null && category.Organization.AlwaysUseHtmlSuffix;
+			var url = category.OpenBy.Equals(OpenBy.DesktopOnly)
+				? $"~/{category.Desktop?.Alias ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
+				: category.OpenBy.Equals(OpenBy.SpecifiedURI)
+					? category.SpecifiedURI ?? "~/"
+					: $"~/{category.Desktop?.Alias ?? "-default"}/{category.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}";
+
+			// generate the menu item
+			var menu = new JObject
+			{
+				{ "ID", category.ID },
+				{ "Text", category.Title },
+				{ "Description", category.Description },
+				{ "Image", thumbnailURL },
+				{ "URL", url },
+				{ "Target", null },
+				{ "Level", level },
+				{ "Selected", false }
+			};
+
+			// generate children
+			JArray subMenu = null;
+			if (maxLevel < 1 || level < maxLevel)
+			{
+				// get children
+				if (category._childrenIDs == null)
+					await category.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
+
+				// generate children
+				var children = category.Children;
+				if (children.Count > 0)
+				{
+					requestInfo.Header["x-as-attachments"] = "true";
+					var thumbnails = children.Count == 1
+						? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
+						: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+					subMenu = new JArray();
+					await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level + 1, maxLevel, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+				}
+
+				// update children
+				if (subMenu != null && subMenu.Count > 0)
+					menu["SubMenu"] = new JObject { { "Menu", subMenu } };
+			}
+
+			// update 'Selected' state
+			menu["Selected"] = subMenu?.Select(smenu => smenu as JObject).FirstOrDefault(smenu => smenu.Get<bool>("Selected", false)) != null || requestInfo.IsSelected(url);
+
+			// return the menu item
+			return menu;
+		}
 	}
 }

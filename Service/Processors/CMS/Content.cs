@@ -667,45 +667,5 @@ namespace net.vieapps.Services.Portals
 				{ "CoverURI", coverURI }
 			};
 		}
-
-		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Category category, string thumbnailURL, int level, string validationKey = null, CancellationToken cancellationToken = default)
-		{
-			// prepare
-			var alwaysUseHtmlSuffix = category.Organization != null && category.Organization.AlwaysUseHtmlSuffix;
-			var url = category.OpenBy.Equals(OpenBy.DesktopOnly)
-				? $"~/{category.Desktop?.Alias ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
-				: category.OpenBy.Equals(OpenBy.SpecifiedURI)
-					? category.SpecifiedURI ?? "~/"
-					: $"~/{category.Desktop?.Alias ?? "-default"}/{category.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}";
-
-			// generate the menu item
-			var menu = new JObject
-			{
-				{ "Text", category.Title },
-				{ "Description", category.Description },
-				{ "Image", thumbnailURL },
-				{ "URL", url },
-				{ "Target", null },
-				{ "Level", level }
-			};
-
-			// generate children
-			if (category._childrenIDs == null)
-				await category.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
-			var children = category.Children;
-			if (children.Count > 0)
-			{
-				requestInfo.Header["x-as-attachments"] = "true";
-				var thumbnails = children.Count == 1
-					? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
-					: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
-				var subMenu = new JArray();
-				await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level + 1, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
-				menu["SubMenu"] = new JObject { { "Menu", subMenu } };
-			}
-
-			// return the menu item
-			return menu;
-		}
 	}
 }
