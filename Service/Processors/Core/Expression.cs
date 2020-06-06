@@ -64,11 +64,11 @@ namespace net.vieapps.Services.Portals
 			=> !force && !string.IsNullOrWhiteSpace(id) && ExpressionProcessor.Expressions.ContainsKey(id)
 				? ExpressionProcessor.Expressions[id]
 				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Expression.Get<Expression>(id)?.Set()
+					? Expression.Get<Expression>(id)?.Prepare()
 					: null;
 
 		public static async Task<Expression> GetExpressionByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetExpressionByID(force, false) ?? (await Expression.GetAsync<Expression>(id, cancellationToken).ConfigureAwait(false))?.Set();
+			=> (id ?? "").GetExpressionByID(force, false) ?? (await Expression.GetAsync<Expression>(id, cancellationToken).ConfigureAwait(false))?.Prepare();
 
 		public static IFilterBy<Expression> GetExpressionsFilter(this string systemID, string repositoryID = null, string repositoryEntityID = null, string contentTypeDefinitionID = null)
 		{
