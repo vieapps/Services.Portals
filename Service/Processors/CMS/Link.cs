@@ -656,7 +656,7 @@ namespace net.vieapps.Services.Portals
 			await objects.ForEachAsync(async (@object, token) =>
 			{
 				var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, objects.Count == 1);
-				var xml = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, validationKey, token).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
+				var xml = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, options.Get<int>("MaxLevel", 0), validationKey, token).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
 				if (asBanner)
 				{
 					var attachments = await requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
@@ -685,62 +685,87 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, int level, string validationKey = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, int level, int maxLevel = 0, string validationKey = null, CancellationToken cancellationToken = default)
 		{
 			// generate the menu item
 			var menu = new JObject
 			{
+				{ "ID", link.ID },
 				{ "Text", link.Title },
 				{ "Description", link.Summary },
 				{ "Image", thumbnailURL },
 				{ "URL", link.URL },
 				{ "Target", link.Target },
-				{ "Level", level }
+				{ "Level", level },
+				{ "Selected", false }
 			};
 
 			// generate children
 			JArray subMenu = null;
-
-			// normal children
-			if (link.ChildrenMode.Equals(ChildrenMode.Normal))
+			if (maxLevel < 1 || level < maxLevel)
 			{
-				if (link._childrenIDs == null)
-					await link.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
-
-				var children = link.Children;
-				if (children.Count > 0)
+				// normal children
+				if (link.ChildrenMode.Equals(ChildrenMode.Normal))
 				{
-					requestInfo.Header["x-as-attachments"] = "true";
-					var thumbnails = children.Count == 1
-						? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
-						: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
-					subMenu = new JArray();
-					await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level + 1, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
-				}
-			}
+					if (link._childrenIDs == null)
+						await link.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 
-			// children that looked-up from other module/content-type
-			else if (!string.IsNullOrWhiteSpace(link.LookupRepositoryID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
-			{
-				var contentType = await link.LookupRepositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-				subMenu = contentType == null ? null : await contentType.GetService().GenerateMenuAsync(new RequestInfo(requestInfo)
-				{
-					Header = new Dictionary<string, string>(requestInfo.Header, StringComparer.OrdinalIgnoreCase)
+					var children = link.Children;
+					if (children.Count > 0)
 					{
-						{ "x-menu-repository-id", link.LookupRepositoryID },
-						{ "x-menu-repository-entity-id", link.LookupRepositoryEntityID },
-						{ "x-menu-repository-object-id", link.LookupRepositoryObjectID },
-						{ "x-menu-level", $"{level + 1}" }
+						requestInfo.Header["x-as-attachments"] = "true";
+						var thumbnails = children.Count == 1
+							? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
+							: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+						subMenu = new JArray();
+						await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level + 1, maxLevel, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 					}
-				}, cancellationToken).ConfigureAwait(false);
+				}
+
+				// children that looked-up from other module/content-type
+				else if (!string.IsNullOrWhiteSpace(link.LookupRepositoryID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
+				{
+					var contentType = await link.LookupRepositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+					subMenu = contentType == null ? null : await contentType.GetService().GenerateMenuAsync(new RequestInfo(requestInfo)
+					{
+						Header = new Dictionary<string, string>(requestInfo.Header, StringComparer.OrdinalIgnoreCase)
+						{
+							{ "x-menu-repository-id", link.LookupRepositoryID },
+							{ "x-menu-repository-entity-id", link.LookupRepositoryEntityID },
+							{ "x-menu-repository-object-id", link.LookupRepositoryObjectID },
+							{ "x-menu-level", $"{level + 1}" },
+							{ "x-menu-maxlevel", $"{maxLevel}" }
+						}
+					}, cancellationToken).ConfigureAwait(false);
+				}
+
+				// update children
+				if (subMenu != null && subMenu.Count > 0)
+					menu["SubMenu"] = new JObject { { "Menu", subMenu } };
 			}
 
-			// update children
-			if (subMenu != null && subMenu.Count > 0)
-				menu["SubMenu"] = new JObject { { "Menu", subMenu } };
+			// update 'Selected' state
+			menu["Selected"] = subMenu?.Select(smenu => smenu as JObject).FirstOrDefault(smenu => smenu.Get<bool>("Selected", false)) != null || requestInfo.IsSelected(link.URL);
 
 			// return the menu item
 			return menu;
+		}
+
+		internal static bool IsSelected(this RequestInfo requestInfo, string url)
+		{
+			if (!string.IsNullOrWhiteSpace(url))
+			{
+				var requestedURL = requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri");
+				var requestedURI = new Uri(requestedURL);
+				requestedURL = requestedURL.Replace($"{requestedURI.Scheme}://{requestedURI.Host}/", "~/").Replace($"/~{requestInfo.GetParameter("x-system")}/", "/");
+				var position = requestedURL.IndexOf(".html");
+				if (position > 0)
+					requestedURL = requestedURL.Left(position);
+				return url.IsEquals("~/") || url.IsEquals("~/index") || url.IsEquals("~/index.html") || url.IsEquals("~/default") || url.IsEquals("~/default.html")
+					? requestedURL.IsEquals("~/") || requestedURL.IsEquals("~/index") || requestedURL.IsEquals("~/default")
+					: requestedURL.IsStartsWith(url.Replace(".html", ""));
+			}
+			return false;
 		}
 	}
 }
