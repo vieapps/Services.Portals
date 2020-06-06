@@ -125,7 +125,7 @@ namespace net.vieapps.Services.Portals.Portlets
 		[FormControl(ControlType = "TextArea")]
 		public string Template { get; set; }
 
-		public string SeperatedLabel { get; set; } = ">";
+		public string SeparatedLabel { get; set; } = ">";
 
 		public string HomeLabel { get; set; } = "Home";
 
@@ -164,7 +164,7 @@ namespace net.vieapps.Services.Portals.Portlets
 		public void Normalize(Action<BreadcrumbSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
-			this.SeperatedLabel = string.IsNullOrWhiteSpace(this.SeperatedLabel) ? ">" : this.SeperatedLabel.Trim();
+			this.SeparatedLabel = string.IsNullOrWhiteSpace(this.SeparatedLabel) ? ">" : this.SeparatedLabel.Trim();
 			this.HomeLabel = string.IsNullOrWhiteSpace(this.HomeLabel) ? null : this.HomeLabel.Trim();
 			this.HomeURL = string.IsNullOrWhiteSpace(this.HomeURL) ? null : this.HomeURL.Trim();
 			this.HomeAdditionalLabel = string.IsNullOrWhiteSpace(this.HomeAdditionalLabel) ? null : this.HomeAdditionalLabel.Trim();
