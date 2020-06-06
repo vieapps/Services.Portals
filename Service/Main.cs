@@ -1168,11 +1168,10 @@ namespace net.vieapps.Services.Portals
 				// determine the action/expression for generating content
 				var action = !string.IsNullOrWhiteSpace(parentIdentity) && !string.IsNullOrWhiteSpace(contentIdentity) ? portlet.AlternativeAction : portlet.Action;
 				var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
-				var expresion = isList && !string.IsNullOrWhiteSpace(portlet.ListSettings.ExpressionID)
-					? await portlet.ListSettings.ExpressionID.GetExpressionByIDAsync(token).ConfigureAwait(false)
-					: null;
+				var expresion = isList && !string.IsNullOrWhiteSpace(portlet.ListSettings.ExpressionID) ? await portlet.ListSettings.ExpressionID.GetExpressionByIDAsync(token).ConfigureAwait(false) : null;
+
 				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Determine the action/expression for generating content of the '{theportlet.Title}' portlet [ID: {theportlet.ID}] - Action: {(isList ? "List" : "View")} - Expression: {portlet.ListSettings.ExpressionID ?? "N/A"} ({expresion?.Title ?? "None"}{(expresion != null ? $" :: Filter: {expresion.Filter != null} :: Sort: {expresion.Sort != null}" : "")})", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Determine the action/expression for generating content of the '{theportlet.Title}' portlet [ID: {theportlet.ID}] - Action: {(isList ? "List" : "View")} - Expression: {portlet.ListSettings.ExpressionID ?? "N/A"} (Title: {expresion?.Title ?? "None"}{(expresion != null ? $" / Filter: {expresion.Filter != null} / Sort: {expresion.Sort != null}" : "")})", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 				// prepare the JSON that contains the requesting information for generating content
 				var requestJson = new JObject

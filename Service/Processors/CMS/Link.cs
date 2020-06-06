@@ -592,9 +592,9 @@ namespace net.vieapps.Services.Portals
 			var contentTypeID = requestJson.Get<JObject>("ContentType")?.Get<string>("ID");
 			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("Desktop") ?? requestJson.Get<string>("Desktop");
 			var pageNumber = requestJson.Get("PageNumber", 1);
-			var options = requestJson.Get<JObject>("Options");
-			var asMenu = options?.Get<bool>("AsMenu") ?? options?.Get<bool>("ShowAsMenu") ?? options?.Get<bool>("GenerateAsMenu") ?? false;
-			var asBanner = !asMenu && (options?.Get<bool>("AsBanner") ?? options?.Get<bool>("ShowAsBanner") ?? options?.Get<bool>("GenerateAsBanner") ?? false);
+			var options = requestJson.Get("Options", new JObject());
+			var asMenu = "Menu".IsEquals(options.Get<string>("DisplayMode")) || options.Get<bool>("AsMenu", false) || options.Get<bool>("ShowAsMenu", false) || options.Get<bool>("GenerateAsMenu", false);
+			var asBanner = !asMenu && ("Banner".IsEquals(options.Get<string>("DisplayMode")) || options.Get<bool>("AsBanner", false) || options.Get<bool>("ShowAsBanner", false) || options.Get<bool>("GenerateAsBanner", false));
 			var xslFilename = asMenu ? "menu.xsl" : asBanner ? "banner.xsl" : null;
 
 			// check permission
@@ -641,7 +641,7 @@ namespace net.vieapps.Services.Portals
 
 			// search the matched objects
 			var pageSize = requestJson.Get("PageSize", 0);
-			var results = await requestInfo.SearchAsync(filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, options?.Get<bool>("ShowThumbnail") ?? false).ConfigureAwait(false);
+			var results = await requestInfo.SearchAsync(filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, options.Get<bool>("ShowThumbnail", false)).ConfigureAwait(false);
 			var totalRecords = results.Item1;
 			var objects = results.Item2;
 			var thumbnails = results.Item3;
