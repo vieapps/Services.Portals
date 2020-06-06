@@ -96,7 +96,7 @@ namespace net.vieapps.Services.Portals
 				while (Utility.PassportsHttpURI.EndsWith("/"))
 					Utility.PassportsHttpURI = Utility.PassportsHttpURI.Left(Utility.PassportsHttpURI.Length - 1);
 
-				Utility.DefaultSite = UtilityService.GetAppSetting("Portals:DefaultSiteID", "").GetSiteByID();
+				Utility.DefaultSite = UtilityService.GetAppSetting("Portals:Default:SiteID", "").GetSiteByID();
 				Utility.DataFilesDirectory = UtilityService.GetAppSetting("Path:Portals");
 				this.StartTimer(() => this.SendDefinitionInfoAsync(this.CancellationTokenSource.Token), 15 * 60);
 
@@ -730,6 +730,16 @@ namespace net.vieapps.Services.Portals
 					: this.ProcessHttpDesktopsRequestAsync(requestInfo, cancellationToken);
 
 		#region Process requests of Portals HTTP service
+		bool WriteDesktopLogs => this.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
+
+		bool CacheDesktopResources => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:Cache", "false"));
+
+		bool AllowSrcResourceFiles => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:AllowSrcFiles", "true"));
+
+		bool CacheDesktopHtmls => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:Cache", "false"));
+
+		bool RemoveDesktopHtmlWhitespaces => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:RemoveWhitespaces", "true"));
+
 		async Task<JToken> ProcessHttpIndicatorsRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
@@ -738,20 +748,19 @@ namespace net.vieapps.Services.Portals
 
 			var name = requestInfo.Query["x-indicator"].Replace(".txt", "");
 			var indicator = organization.HttpIndicators?.FirstOrDefault(httpIndicator => httpIndicator.Name.IsEquals(name));
-			if (indicator == null)
-				throw new InformationNotFoundException();
-
-			var headers = new Dictionary<string, string>
-			{
-				{ "Content-Type", "text/plain; charset=utf-8" },
-				{ "X-Correlation-ID", requestInfo.CorrelationID }
-			};
-			return new JObject
-			{
-				{ "StatusCode", 200 },
-				{ "Headers", headers.ToJson() },
-				{ "Body", indicator.Content.ToBytes().ToBase64() }
-			};
+			return indicator != null
+				? new JObject
+				{
+					{ "StatusCode", 200 },
+					{ "Headers", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						{
+							{ "Content-Type", "text/plain; charset=utf-8" },
+							{ "X-Correlation-ID", requestInfo.CorrelationID }
+						}.ToJson()
+					},
+					{ "Body", indicator.Content.ToBytes().ToBase64() }
+				}
+				: throw new InformationNotFoundException();
 		}
 
 		async Task<JToken> ProcessHttpResourcesRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
@@ -770,18 +779,22 @@ namespace net.vieapps.Services.Portals
 					throw new InformationNotFoundException(filePath);
 
 				var eTag = $"{type.ToLower()}#{filePath.ToLower().GenerateUUID()}";
-				var headers = new Dictionary<string, string>
+				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
 					{ "Content-Type", $"{fileInfo.GetMimeType()}; charset=utf-8" },
-					{ "ETag", eTag },
-					{ "Last-Modified", fileInfo.LastWriteTime.ToHttpString() },
-					{ "Cache-Control", "public" },
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
+				if (this.CacheDesktopResources)
+					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+					{
+						{ "ETag", eTag },
+						{ "Last-Modified", fileInfo.LastWriteTime.ToHttpString() },
+						{ "Cache-Control", "public" }
+					};
 
 				// response
-				var ifModifiedSince = requestInfo.GetParameter("If-Modified-Since");
-				return eTag.IsEquals(requestInfo.GetParameter("If-None-Match")) && ifModifiedSince != null && ifModifiedSince.FromHttpDateTime() >= fileInfo.LastWriteTime      // check "If-Modified-Since" request to reduce traffict
+				var ifModifiedSince = this.CacheDesktopResources ? requestInfo.GetHeaderParameter("If-Modified-Since") : null;
+				return this.CacheDesktopResources && eTag.IsEquals(requestInfo.GetHeaderParameter("If-None-Match")) && ifModifiedSince != null && ifModifiedSince.FromHttpDateTime() >= fileInfo.LastWriteTime
 					? new JObject
 					{
 						{ "StatusCode", 304 },
@@ -813,26 +826,30 @@ namespace net.vieapps.Services.Portals
 				if (files.Length < 1)
 					lastModified = directory.LastWriteTime;
 				else
-					await files.ForEachAsync(async (fileInfo, token) =>
+					await files.OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
 					{
-						body += (this.IsDebugLogEnabled ? $"/* {fileInfo.FullName} */\n\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\n";
+						body += (this.IsDebugLogEnabled ? $"/* {fileInfo.FullName} */\r\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
 						if (fileInfo.LastWriteTime > lastModified)
 							lastModified = fileInfo.LastWriteTime;
-					}, cancellationToken).ConfigureAwait(false);
+					}, cancellationToken, true, false).ConfigureAwait(false);
 
 				var eTag = $"css#{theme.GenerateUUID()}";
 				var headers = new Dictionary<string, string>
 				{
 					{ "Content-Type", "text/css; charset=utf-8" },
-					{ "ETag", eTag },
-					{ "Last-Modified", lastModified.ToHttpString() },
-					{ "Cache-Control", "public" },
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
+				if (this.CacheDesktopResources)
+					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+					{
+						{ "ETag", eTag },
+						{ "Last-Modified", lastModified.ToHttpString() },
+						{ "Cache-Control", "public" }
+					};
 
 				// response
-				var ifModifiedSince = requestInfo.GetParameter("If-Modified-Since");
-				return eTag.IsEquals(requestInfo.GetParameter("If-None-Match")) && ifModifiedSince != null && ifModifiedSince.FromHttpDateTime() >= lastModified      // check "If-Modified-Since" request to reduce traffict
+				var ifModifiedSince = this.CacheDesktopResources ? requestInfo.GetHeaderParameter("If-Modified-Since") : null;
+				return this.CacheDesktopResources && eTag.IsEquals(requestInfo.GetHeaderParameter("If-None-Match")) && ifModifiedSince != null && ifModifiedSince.FromHttpDateTime() >= lastModified
 					? new JObject
 					{
 						{ "StatusCode", 304 },
@@ -858,32 +875,36 @@ namespace net.vieapps.Services.Portals
 				if (!directory.Exists)
 					throw new InformationNotFoundException(theme);
 
-				var body = this.IsDebugLogEnabled ? $"/* script files of '{theme}' theme */\n\n" : "";
+				var body = this.IsDebugLogEnabled ? $"/* script files of '{theme}' theme */\r\n" : "";
 				var lastModified = DateTimeService.CheckingDateTime;
 				var files = directory.GetFiles("*.js");
 				if (files.Length < 1)
 					lastModified = directory.LastWriteTime;
 				else
-					await files.ForEachAsync(async (fileInfo, token) =>
+					await files.OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
 					{
-						body += (this.IsDebugLogEnabled ? $"/* {fileInfo.FullName} */\n\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\n";
+						body += (this.IsDebugLogEnabled ? $"/* {fileInfo.FullName} */\r\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
 						if (fileInfo.LastWriteTime > lastModified)
 							lastModified = fileInfo.LastWriteTime;
-					}, cancellationToken).ConfigureAwait(false);
+					}, cancellationToken, true, false).ConfigureAwait(false);
 
 				var eTag = $"script#{theme.GenerateUUID()}";
 				var headers = new Dictionary<string, string>
 				{
 					{ "Content-Type", "application/javascript; charset=utf-8" },
-					{ "ETag", eTag },
-					{ "Last-Modified", lastModified.ToHttpString() },
-					{ "Cache-Control", "public" },
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
+				if (this.CacheDesktopResources)
+					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+					{
+						{ "ETag", eTag },
+						{ "Last-Modified", lastModified.ToHttpString() },
+						{ "Cache-Control", "public" }
+					};
 
 				// response
-				var ifModifiedSince = requestInfo.GetParameter("If-Modified-Since");
-				return eTag.IsEquals(requestInfo.GetParameter("If-None-Match")) && ifModifiedSince != null && ifModifiedSince.FromHttpDateTime() >= lastModified      // check "If-Modified-Since" request to reduce traffict
+				var ifModifiedSince = this.CacheDesktopResources ? requestInfo.GetHeaderParameter("If-Modified-Since") : null;
+				return this.CacheDesktopResources && eTag.IsEquals(requestInfo.GetHeaderParameter("If-None-Match")) && ifModifiedSince != null && ifModifiedSince.FromHttpDateTime() >= lastModified
 					? new JObject
 					{
 						{ "StatusCode", 304 },
@@ -901,12 +922,6 @@ namespace net.vieapps.Services.Portals
 			throw new InformationNotFoundException($"The requested resource is not found [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 		}
 
-		bool WriteDesktopLogs => this.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
-
-		bool CacheDesktopHtmls => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:CacheHtmls", "false"));
-
-		bool RemoveDesktopHtmlWhitespaces => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:RemoveWhitespaces", "true"));
-
 		async Task<JToken> ProcessHttpDesktopsRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			// prepare required information
@@ -918,7 +933,7 @@ namespace net.vieapps.Services.Portals
 			// prepare sites and desktops (at the first-time only)
 			if (SiteProcessor.Sites.Count < 1)
 			{
-				var filter = Filters<Site>.And();
+				var filter = Filters<Site>.And(Filters<Site>.Equals("SystemID", organization.ID));
 				var sort = Sorts<Site>.Ascending("Title");
 				var sites = await Site.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
 				await sites.ForEachAsync(async (website, token) => await website.SetAsync(false, true, token), cancellationToken).ConfigureAwait(false);
@@ -926,16 +941,16 @@ namespace net.vieapps.Services.Portals
 
 			if (DesktopProcessor.Desktops.Count < 1 || DesktopProcessor.Desktops.Count(kvp => kvp.Value.SystemID == organization.ID) < 1)
 			{
-				var filter = Filters<Desktop>.Equals("SystemID", organization.ID);
+				var filter = Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", organization.ID), Filters<Desktop>.IsNull("ParentID"));
 				var sort = Sorts<Desktop>.Ascending("Title");
 				var desktops = await Desktop.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
 				await desktops.ForEachAsync(async (des, token) => await des.SetAsync(false, true, token), cancellationToken).ConfigureAwait(false);
 			}
 
 			// get site
-			var site = await (requestInfo.GetParameter("x-host") ?? requestInfo.GetParameter("Host") ?? "").GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false) ?? organization.DefaultSite;
+			var site = await (requestInfo.GetParameter("x-host") ?? "").GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false) ?? organization.DefaultSite;
 			if (site == null)
-				throw new SiteNotRecognizedException($"The requested site is not recognized ({requestInfo.GetParameter("Host") ?? "unknown"})");
+				throw new SiteNotRecognizedException($"The requested site is not recognized ({requestInfo.GetParameter("x-host") ?? "unknown"})");
 
 			// get desktop and prepare the redirecting url
 			string requestedURL = null, redirectURL = null;
@@ -997,7 +1012,7 @@ namespace net.vieapps.Services.Portals
 			{
 				response = new JObject
 				{
-					{ "StatusCode", redirectCode },
+					{ "StatusCode", redirectCode > 0 ? redirectCode : 301 },
 					{ "Headers", new JObject
 						{
 							{ "Location", redirectURL }
@@ -1007,12 +1022,12 @@ namespace net.vieapps.Services.Portals
 				};
 				stopwatch.Stop();
 				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Redirect for matching with the settings - Execution times: {stopwatch.GetElapsedTimes()}\r\n{requestedURL} => {redirectURL} [{redirectCode}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Redirect for matching with the settings - Execution times: {stopwatch.GetElapsedTimes()}\r\n{requestedURL} => {redirectURL} [{redirectCode}]", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				return response;
 			}
 
 			// start process
-			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to process '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to process '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			// prepare the caching
 			if (!requestInfo.Query.TryGetValue("x-desktop", out var key) || key == null || "-default".IsEquals(key))
@@ -1031,8 +1046,8 @@ namespace net.vieapps.Services.Portals
 			var cache = this.CacheDesktopHtmls ? organization.GetDesktopHtmlCache() : null;
 			var eTag = $"desktop#{key.GenerateUUID()}";
 			var lastModified = "";
-			var ifModifiedSince = this.CacheDesktopHtmls ? requestInfo.GetParameter("If-Modified-Since") : null;
-			if (this.CacheDesktopHtmls && eTag.IsEquals(requestInfo.GetParameter("If-None-Match")) && ifModifiedSince != null)
+			var ifModifiedSince = this.CacheDesktopHtmls ? requestInfo.GetHeaderParameter("If-Modified-Since") : null;
+			if (this.CacheDesktopHtmls && eTag.IsEquals(requestInfo.GetHeaderParameter("If-None-Match")) && ifModifiedSince != null)
 			{
 				lastModified = await cache.GetAsync<string>(timeCacheKey, cancellationToken).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(lastModified) && ifModifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
@@ -1049,7 +1064,7 @@ namespace net.vieapps.Services.Portals
 						{ "Headers", headers.ToJson() }
 					};
 					stopwatch.Stop();
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => Got 'If-Modified-Since'/'If-None-Match' request headers - ETag: {eTag} - Timestamp: {lastModified} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => Got 'If-Modified-Since'/'If-None-Match' request headers - ETag: {eTag} - Timestamp: {lastModified} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 					return response;
 				}
 			}
@@ -1076,17 +1091,20 @@ namespace net.vieapps.Services.Portals
 					{ "NeedNormalizeURLs", true }
 				};
 				stopwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => Got cached HTML - Key: {htmlCacheKey} - ETag: {eTag} - Timestamp: {lastModified} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => Got cached of XHTML - Key: {htmlCacheKey} - ETag: {eTag} - Timestamp: {lastModified} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				return response;
 			}
 
 			// prepare portlets
 			var stepwatch = Stopwatch.StartNew();
 			if (writeDesktopLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare portlets of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare portlets of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			if (desktop._portlets == null)
-				await desktop.FindPortletsAsync(cancellationToken).ConfigureAwait(false);
+			{
+				await desktop.FindPortletsAsync(cancellationToken, false).ConfigureAwait(false);
+				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			}
 
 			// prepare required information
 			var organizationJson = organization.ToJson(false, false, json =>
@@ -1117,9 +1135,9 @@ namespace net.vieapps.Services.Portals
 			if (writeDesktopLogs)
 			{
 				stepwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete load portlets of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete load portlets of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				stepwatch.Restart();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {desktop.Portlets.Count} portlet(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {desktop.Portlets.Count} portlet(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {desktop.Portlets.Select(p => p.Title).Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 			}
 
 			var parentIdentity = requestInfo.GetQueryParameter("x-parent");
@@ -1132,7 +1150,7 @@ namespace net.vieapps.Services.Portals
 				var watch = Stopwatch.StartNew();
 				var portlet = theportlet.OriginalPortlet;
 				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}]", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 				// get content-type
 				var contentType = await (portlet.RepositoryEntityID ?? "").GetContentTypeByIDAsync(token).ConfigureAwait(false);
@@ -1143,17 +1161,20 @@ namespace net.vieapps.Services.Portals
 				{
 					watch.Stop();
 					if (writeDesktopLogs)
-						await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the preparing process of the '{theportlet.Title}' portlet [ID: {theportlet.ID}] => Static content - Execution times: {watch.GetElapsedTimes()}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+						await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the preparing process of the '{theportlet.Title}' portlet [ID: {theportlet.ID}] => Static content - Execution times: {watch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 					return;
 				}
 
-				// prepare the JSON that contains the requesting information for generating content
+				// determine the action/expression for generating content
 				var action = !string.IsNullOrWhiteSpace(parentIdentity) && !string.IsNullOrWhiteSpace(contentIdentity) ? portlet.AlternativeAction : portlet.Action;
 				var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
 				var expresion = isList && !string.IsNullOrWhiteSpace(portlet.ListSettings.ExpressionID)
 					? await portlet.ListSettings.ExpressionID.GetExpressionByIDAsync(token).ConfigureAwait(false)
 					: null;
+				if (writeDesktopLogs)
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Determine the action/expression for generating content of the '{theportlet.Title}' portlet [ID: {theportlet.ID}] - Action: {(isList ? "List" : "View")} - Expression: {portlet.ListSettings.ExpressionID ?? "N/A"} ({expresion?.Title ?? "None"}{(expresion != null ? $" :: Filter: {expresion.Filter != null} :: Sort: {expresion.Sort != null}" : "")})", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
+				// prepare the JSON that contains the requesting information for generating content
 				var requestJson = new JObject
 				{
 					{ "ID", theportlet.ID },
@@ -1205,7 +1226,7 @@ namespace net.vieapps.Services.Portals
 					var serviceName = contentType.ContentTypeDefinition.ModuleDefinition.ServiceName;
 					var objectName = contentType.ContentTypeDefinition.ObjectName;
 					if (writeDesktopLogs)
-						await this.WriteLogsAsync(requestInfo.CorrelationID, $"Call the service ({serviceName} / {objectName}) to prepare data of the '{theportlet.Title}' portlet [ID: {theportlet.ID}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+						await this.WriteLogsAsync(requestInfo.CorrelationID, $"Call the service (GET /{serviceName.ToLower()}/{objectName.ToLower()}) to prepare data of the '{theportlet.Title}' portlet [ID: {theportlet.ID}]\r\n- Request:\r\n{requestJson}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 					var responseJson = await contentType.GetService().GenerateAsync(new RequestInfo(requestInfo)
 					{
@@ -1216,7 +1237,7 @@ namespace net.vieapps.Services.Portals
 
 					portletJSONs[theportlet.ID] = responseJson;
 					if (writeDesktopLogs)
-						await this.WriteLogsAsync(requestInfo.CorrelationID, $"Data of the '{theportlet.Title}' portlet [ID: {theportlet.ID}] has been prepared - Execution times: {watch.GetElapsedTimes()}\r\n- Request: {requestJson}\r\n- Response: {responseJson}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+						await this.WriteLogsAsync(requestInfo.CorrelationID, $"Data of the '{theportlet.Title}' portlet [ID: {theportlet.ID}] has been prepared - Execution times: {watch.GetElapsedTimes()}\r\n- Response:\r\n{responseJson}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
@@ -1242,7 +1263,7 @@ namespace net.vieapps.Services.Portals
 
 					gotError = true;
 					portletJSONs[theportlet.ID] = errorJson;
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error occurred while preparing data of the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}]\r\n- Request: {requestJson}\r\n- Error: {errorJson}", ex, this.ServiceName, "Desktops", LogLevel.Error).ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error occurred while preparing data of the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}]\r\n- Request:\r\n{requestJson}\r\n- Error:\r\n{errorJson}", ex, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
 				}
 				finally
 				{
@@ -1254,23 +1275,23 @@ namespace net.vieapps.Services.Portals
 			if (writeDesktopLogs)
 			{
 				stepwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete prepare portlets' data of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete prepare portlets' data of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				stepwatch.Restart();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate portlets' HTMLs of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate portlets' XHTML codes of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 			}
 
-			var portletHTMLs = new Dictionary<string, List<string>>();
+			var portletXHtmls = new Dictionary<string, List<string>>();
 
-			await desktop.Portlets.OrderBy(portlet => portlet.Zone).ThenBy(portlet => portlet.OrderIndex).ForEachAsync(async (theportlet, index, token) =>
+			await desktop.Portlets.OrderBy(portlet => portlet.Zone).ThenBy(portlet => portlet.OrderIndex).ForEachAsync(async (theportlet, token) =>
 			{
 				// get original first
 				var watch = Stopwatch.StartNew();
 				var portlet = theportlet.OriginalPortlet;
 				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate HTML of the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate XHTML code of the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}]", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 				// prepare action to load template and related information
-				var action = requestInfo.GetQueryParameter("x-parent") != null && requestInfo.GetQueryParameter("x-content") != null ? portlet.AlternativeAction : portlet.Action;
+				var action = !string.IsNullOrWhiteSpace(parentIdentity) && !string.IsNullOrWhiteSpace(contentIdentity) ? portlet.AlternativeAction : portlet.Action;
 				var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
 
 				// prepare container and zones
@@ -1353,7 +1374,7 @@ namespace net.vieapps.Services.Portals
 							attribute.Value = $"{attribute.Value.Trim()} {css}".Trim();
 					}
 
-					var portletHTML = "";
+					var portletXHtml = "";
 					var contentType = await (portlet.RepositoryEntityID ?? "").GetContentTypeByIDAsync(token).ConfigureAwait(false);
 					if (contentType != null && portletJSONs.TryGetValue(theportlet.ID, out var json))
 					{
@@ -1363,7 +1384,7 @@ namespace net.vieapps.Services.Portals
 						var xslFilename = "";
 						var xslTemplate = "";
 
-						if (json["Error"] == null)
+						if (json.Get("Error") == null)
 							try
 							{
 								// prepare XSLT
@@ -1418,7 +1439,55 @@ namespace net.vieapps.Services.Portals
 
 								// prepare XML
 								if (!(json["Data"] is JValue xmlJson) || xmlJson.Value == null)
-									throw new InformationRequiredException("The response JSON must have the element named 'Data' that contains XML for transforming via a node that named 'Data'");
+									throw new InformationRequiredException("The response JSON must have the element named 'Data' that contains XML code for transforming via a node that named 'Data'");
+
+								var dataXml = xmlJson.Value.ToString().ToXml(x => x.Descendants().Attributes().Where(attribute => attribute.IsNamespaceDeclaration).Remove());
+
+								var otpionsXml = (isList ? JObject.Parse(portlet.ListSettings.Options ?? "{}") : JObject.Parse(portlet.ViewSettings.Options ?? "{}")).ToXml("Options");
+
+								var metaJson = new JObject
+								{
+									{ "Portlet", new JObject
+										{
+											{ "ID", portlet.ID },
+											{ "Title", portlet.Title },
+											{ "Zone", portlet.Zone }
+										}
+									},
+									{ "Site", new JObject
+										{
+											{ "ID", site.ID },
+											{ "Title", site.Title },
+											{ "Domain", $"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.") },
+											{ "Host", requestInfo.GetParameter("x-host") }
+										}
+									},
+									{ "Desktops", new JObject
+										{
+											{ "Current", desktop.Alias },
+											{ "Home", organization.HomeDesktop?.Alias },
+											{ "Search", organization.SearchDesktop?.Alias }
+										}
+									}
+								};
+								if (contentType != null)
+								{
+									var module = contentType.Module;
+									if (module != null)
+										metaJson["Module"] = new JObject
+										{
+											{ "ID", module.ID },
+											{ "Title", module.Title },
+											{ "Desktop", module.Desktop?.Alias }
+										};
+									metaJson["ContentType"] = new JObject
+									{
+										{ "ID", contentType.ID },
+										{ "Title", contentType.Title },
+										{ "Desktop", contentType.Desktop?.Alias }
+									};
+								}
+								var metaXml = metaJson.ToXml("Meta");
 
 								var breadcrumb = (json["Breadcrumb"] ?? new JArray()).Select(node => node as JObject).ToList();
 								if (portlet.BreadcrumbSettings.ShowContentTypeLink)
@@ -1466,24 +1535,27 @@ namespace net.vieapps.Services.Portals
 
 								var breadcrumbJson = new JObject
 								{
+									{ "SeparatedLabel", string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.SeparatedLabel) ? ">" : portlet.BreadcrumbSettings.SeparatedLabel },
 									{ "Nodes", breadcrumb.ToJArray() }
 								};
-								var breadcrumbXml = breadcrumbJson.ToXml("Breadcrumb", x => x.Add(new XAttribute("SeperatedLabel", string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.SeperatedLabel) ? ">" : portlet.BreadcrumbSettings.SeperatedLabel)));
+								var breadcrumbXml = breadcrumbJson.ToXml("Breadcrumb");
 
-								var paginationJson = json.Get<JObject>("Pagination") ?? new JObject();
-								paginationJson["ShowPageLinks"] = portlet.PaginationSettings.ShowPageLinks;
-								paginationJson["Labels"] = new JObject
+								var paginationJson = json.Get<JObject>("Pagination");
+								if (paginationJson != null)
 								{
-									{ "Previous", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel) ? portlet.PaginationSettings.PreviousPageLabel : "Previous" },
-									{ "Next", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel) ? portlet.PaginationSettings.NextPageLabel : "Next" },
-									{ "Current", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.CurrentPageLabel) ? portlet.PaginationSettings.CurrentPageLabel : "Current" },
-								};
-								var paginationXml = paginationJson.ToXml("Pagination");
+									paginationJson["ShowPageLinks"] = portlet.PaginationSettings.ShowPageLinks;
+									paginationJson["Labels"] = new JObject
+									{
+										{ "Previous", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel) ? portlet.PaginationSettings.PreviousPageLabel : "Previous" },
+										{ "Next", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel) ? portlet.PaginationSettings.NextPageLabel : "Next" },
+										{ "Current", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.CurrentPageLabel) ? portlet.PaginationSettings.CurrentPageLabel : "Current" },
+									};
+								}
 
-								var dataXml = xmlJson.Value.ToString().ToXml(x => x.Descendants().Attributes().Where(attribute => attribute.IsNamespaceDeclaration).Remove());
-								var otpionsXml = (isList ? JObject.Parse(portlet.ListSettings.Options ?? "{}") : JObject.Parse(portlet.ViewSettings.Options ?? "{}")).ToXml("Options");
+								var xml = new XDocument(new XElement("VIEApps", metaXml, dataXml, otpionsXml, breadcrumbXml));
 
-								var xml = new XDocument(new XElement("VIEApps", dataXml, otpionsXml, breadcrumbXml, paginationXml));
+								if (paginationJson != null)
+									xml.Root.Add(paginationJson.ToXml("Pagination"));
 
 								var filterBy = json.Get<JObject>("FilterBy");
 								if (filterBy != null)
@@ -1496,68 +1568,67 @@ namespace net.vieapps.Services.Portals
 								// transform
 								portletContent = xml.Transfrom(xslTemplate);
 								if (writeDesktopLogs)
-									await this.WriteLogsAsync(requestInfo.CorrelationID, $"XML/XSLT/XHTML of the '{theportlet.Title}' portlet [ID: {theportlet.ID}] has been transformed\r\n- XML: {xml}\r\n- XSLT: {xslTemplate}\r\n- XHTML: {portletContent}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+									await this.WriteLogsAsync(requestInfo.CorrelationID, $"XHTML of the '{theportlet.Title}' portlet [ID: {theportlet.ID}] has been transformed\r\n- XML:\r\n{xml}\r\n- XSLT:\r\n{xslTemplate}\r\n- XHTML:\r\n{portletContent}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 							}
 							catch (Exception ex)
 							{
 								errorMessage = $"Transform error => {ex.Message}";
 								errorStack = ex.StackTrace;
 								await this.WriteLogsAsync(requestInfo.CorrelationID,
-									$"Error occurred while transforming XML/XSLT/XHTML of '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}] => {ex.Message}" +
-									(!(ex is TemplateIsInvalidException) && !(ex is InformationRequiredException) ? $"\r\n- XML: {json["XML"]}\r\n- XSLT: {xslTemplate}{(string.IsNullOrWhiteSpace(isList ? portlet.ListSettings.Template : portlet.ViewSettings.Template) ? $"\r\n- XSL file: {portlet.Desktop?.WorkingTheme ?? "default"}/templates/{contentType.ContentTypeDefinition?.ModuleDefinition?.Directory?.ToLower() ?? "-"}/{contentType.ContentTypeDefinition?.ObjectName?.ToLower() ?? "-"}/{xslFilename}" : "")}" : "")
-								, ex, this.ServiceName, "Desktops", LogLevel.Error).ConfigureAwait(false);
+									$"Error occurred while transforming XHTML of the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}] => {ex.Message}" +
+									(!(ex is TemplateIsInvalidException) && !(ex is InformationRequiredException) ? $"\r\n- XML:\r\n{json["Data"]?.ToXml()}\r\n- XSLT:\r\n{xslTemplate}{(string.IsNullOrWhiteSpace(isList ? portlet.ListSettings.Template : portlet.ViewSettings.Template) ? $"\r\n- XSL file: {portlet.Desktop?.WorkingTheme ?? "default"}/templates/{contentType.ContentTypeDefinition?.ModuleDefinition?.Directory?.ToLower() ?? "-"}/{contentType.ContentTypeDefinition?.ObjectName?.ToLower() ?? "-"}/{xslFilename}" : "")}" : "")
+								, ex, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
 							}
 						else
 						{
-							errorMessage = (json["Error"] as JValue)?.Value?.ToString();
-							errorStack = (json["Stack"] as JValue)?.Value?.ToString() ?? "";
+							errorMessage = json.Get<string>("Error");
+							errorStack = json.Get<string>("Stack");
 						}
 
 						if (!string.IsNullOrWhiteSpace(errorMessage))
 							portletContent = "<div>"
-								+ $"<div style=\"color:red\">{errorMessage.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</div>"
+								+ $"<div style=\"color:red\">{errorMessage?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</div>"
 								+ $"<div style=\"font-size:80%\">CorrelationID: {requestInfo.CorrelationID} - PortletID: {portlet.ID}</div>"
-								+ (this.IsDebugLogEnabled ? $"<div style=\"font-size:80%\">Stack: {errorStack.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</div>" : $"<!-- {errorStack.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")} -->")
+								+ (this.IsDebugLogEnabled ? $"<div style=\"font-size:80%\">Stack: {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</div>" : $"<!-- {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")} -->")
 								+ "</div>";
 
 						contentZone.Value = "{{content-holder}}";
-						portletHTML = portletContainer.ToString();
-						portletHTML = portletHTML.Replace(StringComparison.OrdinalIgnoreCase, "{{content-holder}}", portletContent);
+						portletXHtml = portletContainer.ToString();
+						portletXHtml = portletXHtml.Replace(StringComparison.OrdinalIgnoreCase, "{{content-holder}}", portletContent);
 					}
 					else
-						portletHTML = portletContainer.ToString();
+						portletXHtml = portletContainer.ToString();
 
-					if (!portletHTMLs.TryGetValue(portlet.Zone, out var htmls))
+					if (!portletXHtmls.TryGetValue(portlet.Zone, out var htmls))
 					{
 						htmls = new List<string>();
-						portletHTMLs[portlet.Zone] = htmls;
+						portletXHtmls[portlet.Zone] = htmls;
 					}
 
 					var portletTitle = portlet.Title.GetANSIUri();
-					portletHTML = portletHTML.Replace(StringComparison.OrdinalIgnoreCase, "{{id}}", portlet.ID);
-					portletHTML = portletHTML.Replace(StringComparison.OrdinalIgnoreCase, "{{name}}", portletTitle);
-					portletHTML = portletHTML.Replace(StringComparison.OrdinalIgnoreCase, "{{title}}", portletTitle);
-					portletHTML = portletHTML.Replace(StringComparison.OrdinalIgnoreCase, "{{ansi-title}}", portletTitle);
-					portletHTML = portletHTML.Replace(StringComparison.OrdinalIgnoreCase, "{{title-ansi}}", portletTitle);
-					htmls.Add(portletHTML);
+					portletXHtml = portletXHtml.Replace(StringComparison.OrdinalIgnoreCase, "{{id}}", portlet.ID);
+					portletXHtml = portletXHtml.Replace(StringComparison.OrdinalIgnoreCase, "{{name}}", portletTitle);
+					portletXHtml = portletXHtml.Replace(StringComparison.OrdinalIgnoreCase, "{{title}}", portletTitle);
+					portletXHtml = portletXHtml.Replace(StringComparison.OrdinalIgnoreCase, "{{ansi-title}}", portletTitle);
+					portletXHtml = portletXHtml.Replace(StringComparison.OrdinalIgnoreCase, "{{title-ansi}}", portletTitle);
+					htmls.Add(portletXHtml);
 				}
 
 				watch.Stop();
 				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML of '{theportlet.Title}' portlet [ID: {theportlet.ID}] has been generated - Execution times: {watch.GetElapsedTimes()}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"XHTML code of the '{theportlet.Title}' portlet [ID: {theportlet.ID}] has been generated - Execution times: {watch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			if (writeDesktopLogs)
 			{
 				stepwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML of all portlets of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] has been generated - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"XHTML code of all portlets of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] has been generated - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				stepwatch.Restart();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate HTML of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate XHTML code of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 			}
 
 			// prepare meta tags
-			var metaTags = $"<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.5.0/css/bootstrap.min.css\"/>"
-				+ $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_assets/default.css\"/>"
+			var metaTags = $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_assets/default.css\"/>"
 				+ $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/default.css\"/>";
 
 			var theme = desktop.WorkingTheme ?? "default";
@@ -1788,9 +1859,24 @@ namespace net.vieapps.Services.Portals
 			title = $"<title>{title}</title>";
 
 			// prepare scripts
-			var scripts = $"<script src=\"{Utility.PortalsHttpURI}/_js/default.js\"></script>";
+			var scripts = "";
+			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", "default", "js"));
+			if (directory.Exists && this.AllowSrcResourceFiles)
+				await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
+				{
+					scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, token).ConfigureAwait(false) + "\r\n";
+				}, cancellationToken, true, false).ConfigureAwait(false);
+			scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/default.js\"></script>";
 			if (!"default".IsEquals(theme))
+			{
+				directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", theme, "js"));
+				if (directory.Exists && this.AllowSrcResourceFiles)
+					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
+					{
+						scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, token).ConfigureAwait(false) + "\r\n";
+					}, cancellationToken, true, false).ConfigureAwait(false);
 				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/{theme}.js\"></script>";
+			}
 			if (!string.IsNullOrWhiteSpace(site.Scripts))
 				scripts += site.Scripts;
 			if (!string.IsNullOrWhiteSpace(desktop.Scripts))
@@ -1801,7 +1887,7 @@ namespace net.vieapps.Services.Portals
 			var desktopZones = desktopContainer.GetZones().ToList();
 
 			if (writeDesktopLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Update portlets' HTMLs into zone(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {desktopZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Update portlets' XHTMLs into zone(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {desktopZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			var desktopZonesGotPortlet = desktop.Portlets.Select(portlet => portlet.Zone).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var removedZones = new List<XElement>();
@@ -1821,7 +1907,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 			if (writeDesktopLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove empty zone(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {removedZones?.GetZoneNames().Join(", ")}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove empty zone(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {removedZones?.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			removedZones.ForEach(zone => desktopZones.Remove(zone));
 
@@ -1836,7 +1922,7 @@ namespace net.vieapps.Services.Portals
 			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{desktop-alias}}", desktop.Alias);
 			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{desktop}}", desktop.Alias);
 			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{alias}}", desktop.Alias);
-			portletHTMLs.ForEach(kvp => body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{" + kvp.Key + "-holder}}", kvp.Value.Join("\r\n")));
+			portletXHtmls.ForEach(kvp => body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{" + kvp.Key + "-holder}}", kvp.Value.Join("\r\n")));
 
 			// generate html
 			html = "<!DOCTYPE html>\r\n"
@@ -1882,12 +1968,12 @@ namespace net.vieapps.Services.Portals
 			if (writeDesktopLogs)
 			{
 				stepwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\n=>\r\n{html}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"XHTML code of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\n- XHTML:\r\n{html}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 			}
 
 			// remove white spaces
 			if (this.RemoveDesktopHtmlWhitespaces || !this.IsDebugLogEnabled)
-				html = UtilityService.RemoveWhitespaces(html);
+				html = UtilityService.RemoveWhitespaces(html).Replace("\n\t", "").Replace("\t", "");
 
 			// prepare headers & caching
 			if (this.CacheDesktopHtmls && !gotError)
@@ -1897,7 +1983,7 @@ namespace net.vieapps.Services.Portals
 					cache.SetAsync(timeCacheKey, lastModified, cancellationToken),
 					cache.SetAsync(htmlCacheKey, html, cancellationToken)
 				).ConfigureAwait(false);
-				headers = new Dictionary<string, string>(headers)
+				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
 					{ "ETag", eTag },
 					{ "Last-Modified", lastModified },
@@ -1916,7 +2002,7 @@ namespace net.vieapps.Services.Portals
 			};
 
 			stopwatch.Stop();
-			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete process of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Desktops").ConfigureAwait(false);
+			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete process of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			return response;
 		}
@@ -1957,6 +2043,8 @@ namespace net.vieapps.Services.Portals
 			var repositoryObjectID = requestInfo.GetParameter("x-menu-repository-object-id");
 			if (!Int32.TryParse(requestInfo.GetParameter("x-menu-level") ?? "1", out var level))
 				level = 1;
+			if (!Int32.TryParse(requestInfo.GetParameter("x-menu-max-level") ?? "1", out var maxLevel))
+				maxLevel = 0;
 
 			// get the object
 			var @object = await this.GetBusinessObjectAsync(repositoryEntityID, repositoryObjectID, cancellationToken).ConfigureAwait(false);
@@ -1993,9 +2081,9 @@ namespace net.vieapps.Services.Portals
 			await children.ForEachAsync(async (child, token) =>
 			{
 				if (child is Category category)
-					menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level, this.ValidationKey, token).ConfigureAwait(false));
+					menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level, maxLevel, this.ValidationKey, token).ConfigureAwait(false));
 				else if (child is Link link)
-					menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level, this.ValidationKey, token).ConfigureAwait(false));
+					menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level, maxLevel, this.ValidationKey, token).ConfigureAwait(false));
 			}, cancellationToken, true, false).ConfigureAwait(false);
 			return menu;
 		}
