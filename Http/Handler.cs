@@ -26,7 +26,7 @@ namespace net.vieapps.Services.Portals
 	{
 		HashSet<string> SpecialRequests { get; } = "_initializer,_validator,_logout,_signout".ToHashSet();
 
-		string _alwaysUseSecureConnections = null, _portalsHttpURI = null, _filesHttpURI = null;
+		string _alwaysUseSecureConnections = null, _useRelativeURLs = null;
 
 		bool AlwaysUseSecureConnections
 		{
@@ -37,31 +37,13 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		string PortalsHttpURI
+		bool UseRelativeURLs
 		{
 			get
 			{
-				if (this._portalsHttpURI == null)
-				{
-					this._portalsHttpURI = UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
-					if (!this._portalsHttpURI.EndsWith("/"))
-						this._portalsHttpURI += "/";
-				}
-				return this._portalsHttpURI;
-			}
-		}
-
-		string FilesHttpURI
-		{
-			get
-			{
-				if (this._filesHttpURI == null)
-				{
-					this._filesHttpURI = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
-					if (!this._filesHttpURI.EndsWith("/"))
-						this._filesHttpURI += "/";
-				}
-				return this._filesHttpURI;
+				if (this._useRelativeURLs == null)
+					this._useRelativeURLs = UtilityService.GetAppSetting("Portals:UseRelativeURLs", "false");
+				return "true".IsEquals(this._useRelativeURLs);
 			}
 		}
 
@@ -304,6 +286,7 @@ namespace net.vieapps.Services.Portals
 				dictionary["x-url"] = "https".IsEquals(context.GetHeaderParameter("x-forwarded-proto") ?? context.GetHeaderParameter("x-original-proto")) && !"https".IsEquals(requestURI.Scheme)
 					? requestURI.AbsoluteUri.Replace($"{requestURI.Scheme}://", "https://")
 					: requestURI.AbsoluteUri;
+				dictionary["x-relative-urls"] = this.UseRelativeURLs.ToString().ToLower();
 			});
 
 			// process the request
@@ -324,35 +307,13 @@ namespace net.vieapps.Services.Portals
 					// call Portals service to process the request
 					var response = (await context.CallServiceAsync(new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token).ConfigureAwait(false)).ToExpandoObject();
 
-					// prepare to response
-					var needNormalizeURLs = response.Get("NeedNormalizeURLs", false);
-
-					var filesRootURL = this.FilesHttpURI.Replace("http://", "//").Replace("https://", "//");
-					var portalsAbsoluteHttp = requestURI.AbsoluteUri.Replace("https://", "http://");
-					var portalsAbsoluteHttps = requestURI.AbsoluteUri.Replace("http://", "https://");
-					var portalsRootURL = portalsAbsoluteHttp.IsStartsWith(this.PortalsHttpURI) || portalsAbsoluteHttps.IsStartsWith(this.PortalsHttpURI)
-						? $"{this.PortalsHttpURI}~{systemIdentity}/"
-						: $"{requestURI.Scheme}://{requestURI.Host}/";
-					portalsRootURL = portalsRootURL.Replace("http://", "//").Replace("https://", "//");
-
 					// write headers
-					headers = response.Get("Headers", new Dictionary<string, string>());
-					context.SetResponseHeaders(response.Get("StatusCode", 200), needNormalizeURLs ? headers.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Replace("~~~/", portalsRootURL).Replace("~~/", filesRootURL).Replace("~/", portalsRootURL)) : headers);
+					context.SetResponseHeaders(response.Get("StatusCode", 200), response.Get("Headers", new Dictionary<string, string>()));
 
 					// write body
 					var body = response.Get<string>("Body");
 					if (body != null)
-					{
-						var bodyAsPlainText = response.Get("BodyAsPlainText", false);
-						if (needNormalizeURLs)
-						{
-							body = bodyAsPlainText ? body : body.Base64ToBytes().GetString();
-							body = body.Replace("~~~/", portalsRootURL).Replace("~~/", filesRootURL).Replace("~/", portalsRootURL);
-							await context.WriteAsync(body.ToBytes(), cts.Token).ConfigureAwait(false);
-						}
-						else
-							await context.WriteAsync(bodyAsPlainText ? body.ToBytes() : body.Base64ToBytes(), cts.Token).ConfigureAwait(false);
-					}
+						await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes(), cts.Token).ConfigureAwait(false);
 
 					// flush the response stream as final step
 					await context.FlushAsync(cts.Token).ConfigureAwait(false);

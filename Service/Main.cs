@@ -20,6 +20,7 @@ using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Exceptions;
 using net.vieapps.Components.Caching;
+using System.Text.RegularExpressions;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -98,13 +99,19 @@ namespace net.vieapps.Services.Portals
 
 				Utility.DefaultSite = UtilityService.GetAppSetting("Portals:Default:SiteID", "").GetSiteByID();
 				Utility.DataFilesDirectory = UtilityService.GetAppSetting("Path:Portals");
-				this.StartTimer(() => this.SendDefinitionInfoAsync(this.CancellationTokenSource.Token), 15 * 60);
+
+				this.StartTimer(async () => await this.SendDefinitionInfoAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 15 * 60);
+				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 30 * 60);
 
 				this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
 				this.Logger?.LogDebug($"Portals' files directory: {Utility.DataFilesDirectory ?? "None"}");
 
 				Task.Run(async () =>
 				{
+					// get OEmbed providers
+					await this.GetOEmbedProvidersAsync(this.CancellationTokenSource.Token).ConfigureAwait(false);
+
+					// gathering definitions
 					try
 					{
 						await Task.Delay(UtilityService.GetRandomNumber(678, 789), this.CancellationTokenSource.Token).ConfigureAwait(false);
@@ -115,7 +122,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception ex)
 					{
-						await this.WriteLogsAsync(UtilityService.NewUUID, $"Error occurred while sending a request for gathering module definitions => {ex.Message}", ex, this.ServiceName, "CMS", Microsoft.Extensions.Logging.LogLevel.Error).ConfigureAwait(false);
+						await this.WriteLogsAsync(UtilityService.NewUUID, $"Error occurred while sending a request for gathering definitions => {ex.Message}", ex, this.ServiceName, "CMS", LogLevel.Error).ConfigureAwait(false);
 					}
 				});
 				next?.Invoke(this);
@@ -337,7 +344,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		#region Get themes
+		#region Get themes & OEmbed providers
 		async Task<JArray> GetThemesAsync(CancellationToken cancellationToken)
 		{
 			var themes = new JArray();
@@ -368,6 +375,28 @@ namespace net.vieapps.Services.Portals
 					themes.Add(packageInfo);
 				}, cancellationToken, true, false).ConfigureAwait(false);
 			return themes;
+		}
+
+		async Task GetOEmbedProvidersAsync(CancellationToken cancellationToken = default)
+		{
+			try
+			{
+				var providers = JArray.Parse(await UtilityService.GetWebPageAsync($"{Utility.APIsHttpURI}/statics/oembed.providers.json", null, null, cancellationToken).ConfigureAwait(false));
+				Utility.OEmbedProviders.Clear();
+				providers.Select(provider => provider as JObject).ForEach(provider =>
+				{
+					var name = provider.Get<string>("name");
+					var urlPatterns = provider.Get<JArray>("schemes").Select(scheme => (scheme as JValue).Value.ToString()).Select(scheme => new Regex(scheme.Replace("*", "(.*)"), RegexOptions.IgnoreCase)).ToList();
+					var pattern = provider.Get<JObject>("pattern").Get<JObject>("api");
+					var idPattern = new Tuple<Regex, int>(new Regex(pattern.Get<string>("regex"), RegexOptions.IgnoreCase), pattern.Get<int>("position"));
+					var html = provider.Get<string>("html");
+					Utility.OEmbedProviders.Add(new Tuple<string, List<Regex>, Tuple<Regex, int>, string>(name, urlPatterns, idPattern, html));
+				});
+			}
+			catch (Exception ex)
+			{
+				await this.WriteLogsAsync(UtilityService.NewUUID, $"Error occurred while gathering OEmbed providers => {ex.Message}", ex, this.ServiceName, "CMS", LogLevel.Error).ConfigureAwait(false);
+			}
 		}
 		#endregion
 
@@ -820,7 +849,7 @@ namespace net.vieapps.Services.Portals
 				if (!directory.Exists)
 					throw new InformationNotFoundException(theme);
 
-				var body = this.IsDebugLogEnabled ? $"/* css files of '{theme}' theme */\n\n" : "";
+				var body = this.IsDebugLogEnabled ? $"/* css of the '{theme}' theme */\n\n" : "";
 				var lastModified = DateTimeService.CheckingDateTime;
 				var files = directory.GetFiles("*.css");
 				if (files.Length < 1)
@@ -828,7 +857,7 @@ namespace net.vieapps.Services.Portals
 				else
 					await files.OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
 					{
-						body += (this.IsDebugLogEnabled ? $"/* {fileInfo.FullName} */\r\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
+						body += (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n\r\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
 						if (fileInfo.LastWriteTime > lastModified)
 							lastModified = fileInfo.LastWriteTime;
 					}, cancellationToken, true, false).ConfigureAwait(false);
@@ -875,7 +904,7 @@ namespace net.vieapps.Services.Portals
 				if (!directory.Exists)
 					throw new InformationNotFoundException(theme);
 
-				var body = this.IsDebugLogEnabled ? $"/* script files of '{theme}' theme */\r\n" : "";
+				var body = this.IsDebugLogEnabled ? $"/* script of the '{theme}' theme */\r\n" : "";
 				var lastModified = DateTimeService.CheckingDateTime;
 				var files = directory.GetFiles("*.js");
 				if (files.Length < 1)
@@ -883,7 +912,7 @@ namespace net.vieapps.Services.Portals
 				else
 					await files.OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
 					{
-						body += (this.IsDebugLogEnabled ? $"/* {fileInfo.FullName} */\r\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
+						body += (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n\r\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
 						if (fileInfo.LastWriteTime > lastModified)
 							lastModified = fileInfo.LastWriteTime;
 					}, cancellationToken, true, false).ConfigureAwait(false);
@@ -953,8 +982,11 @@ namespace net.vieapps.Services.Portals
 				throw new SiteNotRecognizedException($"The requested site is not recognized ({requestInfo.GetParameter("x-host") ?? "unknown"})");
 
 			// get desktop and prepare the redirecting url
-			string requestedURL = null, redirectURL = null;
-			Uri requestedURI = null;
+			var writeDesktopLogs = this.WriteDesktopLogs || requestInfo.GetParameter("x-logs") != null;
+			var useRelativeURLs = "true".IsEquals(requestInfo.GetParameter("x-relative-urls"));
+			var requestURI = new Uri(requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri"));
+			var requestURL = requestURI.AbsoluteUri;
+			var redirectURL = "";
 			var redirectCode = 0;
 
 			var desktop = "-default".IsEquals(requestInfo.GetParameter("x-desktop"))
@@ -964,8 +996,7 @@ namespace net.vieapps.Services.Portals
 			// prepare redirect URL when the desktop is not found
 			if (desktop == null)
 			{
-				requestedURI = new Uri(requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri"));
-				redirectURL = organization.GetRedirectURL(requestedURI.AbsoluteUri) ?? organization.GetRedirectURL($"~{requestedURI.PathAndQuery}".Replace($"/~{organization.Alias}/", "/"));
+				redirectURL = organization.GetRedirectURL(requestURI.AbsoluteUri) ?? organization.GetRedirectURL($"~{requestURI.PathAndQuery}".Replace($"/~{organization.Alias}/", "/"));
 				if (string.IsNullOrWhiteSpace(redirectURL) && organization.RedirectUrls != null && organization.RedirectUrls.AllHttp404)
 					redirectURL = organization.GetRedirectURL("*") ?? "~/index";
 
@@ -973,7 +1004,6 @@ namespace net.vieapps.Services.Portals
 					throw new DesktopNotFoundException($"The requested desktop ({requestInfo.GetParameter("x-desktop")}) is not found");
 
 				redirectURL += organization.AlwaysUseHtmlSuffix && !redirectURL.IsEndsWith(".html") ? ".html" : "";
-				requestedURL = requestedURI.AbsoluteUri;
 				redirectCode = 301;
 			}
 
@@ -982,13 +1012,8 @@ namespace net.vieapps.Services.Portals
 			{
 				if (string.IsNullOrWhiteSpace(redirectURL))
 				{
-					requestedURL = requestedURL ?? requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri");
-					requestedURI = requestedURI ?? (string.IsNullOrWhiteSpace(requestedURL) ? null : new Uri(requestedURL));
-					if (requestedURI != null)
-					{
-						redirectURL = (site.AlwaysUseHTTPs && !requestedURI.Scheme.IsEquals("https") ? "https" : requestedURI.Scheme) + "://" + (site.RedirectToNoneWWW ? requestedURI.Host.Replace("www.", "") : requestedURI.Host) + requestedURI.PathAndQuery;
-						redirectCode = redirectCode > 0 ? redirectCode : site.AlwaysUseHTTPs && !requestedURI.Scheme.IsEquals("https") ? 302 : 301;
-					}
+					redirectURL = (site.AlwaysUseHTTPs && !requestURI.Scheme.IsEquals("https") ? "https" : requestURI.Scheme) + "://" + (site.RedirectToNoneWWW ? requestURI.Host.Replace("www.", "") : requestURI.Host) + requestURI.PathAndQuery;
+					redirectCode = redirectCode > 0 ? redirectCode : site.AlwaysUseHTTPs && !requestURI.Scheme.IsEquals("https") ? 302 : 301;
 				}
 				else
 				{
@@ -1007,22 +1032,21 @@ namespace net.vieapps.Services.Portals
 
 			// do redirect
 			JObject response = null;
-			var writeDesktopLogs = this.WriteDesktopLogs || requestInfo.GetParameter("x-logs") != null;
-			if (!string.IsNullOrWhiteSpace(redirectURL) && !requestedURL.Equals(redirectURL))
+			if (!string.IsNullOrWhiteSpace(redirectURL) && !requestURL.Equals(redirectURL))
 			{
 				response = new JObject
 				{
 					{ "StatusCode", redirectCode > 0 ? redirectCode : 301 },
 					{ "Headers", new JObject
 						{
-							{ "Location", redirectURL }
+							{ "Location", redirectURL.NormalizeURLs(requestURI, organization.Alias, useRelativeURLs) }
 						}
 					},
 					{ "NeedNormalizeURLs", true }
 				};
 				stopwatch.Stop();
 				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Redirect for matching with the settings - Execution times: {stopwatch.GetElapsedTimes()}\r\n{requestedURL} => {redirectURL} [{redirectCode}]", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Redirect for matching with the settings - Execution times: {stopwatch.GetElapsedTimes()}\r\n{requestURL} => {redirectURL} [{redirectCode}]", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				return response;
 			}
 
@@ -1086,9 +1110,7 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "StatusCode", 200 },
 					{ "Headers", headers.ToJson() },
-					{ "Body", html },
-					{ "BodyAsPlainText", true },
-					{ "NeedNormalizeURLs", true }
+					{ "Body", html.NormalizeURLs(requestURI, organization.Alias, useRelativeURLs).ToBytes().ToBase64() }
 				};
 				stopwatch.Stop();
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => Got cached of XHTML - Key: {htmlCacheKey} - ETag: {eTag} - Timestamp: {lastModified} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
@@ -1186,6 +1208,7 @@ namespace net.vieapps.Services.Portals
 					{ "PageSize", isList ? portlet.ListSettings.PageSize : 0 },
 					{ "PageNumber", isList ? portlet.ListSettings.AutoPageNumber ? (pageNumber ?? "1").CastAs<int>() : 1 : (pageNumber ?? "1").CastAs<int>() },
 					{ "Options", isList ? JObject.Parse(portlet.ListSettings.Options ?? "{}") : JObject.Parse(portlet.ViewSettings.Options ?? "{}") },
+					{ "Language", desktop.Language ?? site.Language ?? "vi-VN" },
 					{ "Desktop", desktop.Alias },
 					{ "Site", siteJson },
 					{ "ContentTypeDefinition", contentType.ContentTypeDefinition?.ToJson() },
@@ -1325,7 +1348,7 @@ namespace net.vieapps.Services.Portals
 						if (attribute == null)
 							titleZone.Add(new XAttribute("style", style));
 						else
-							attribute.Value = (attribute.Value + " " + style).Trim();
+							attribute.Value = $"{attribute.Value.Trim()}{(attribute.Value.Trim().EndsWith(";") ? "" : ";")}{style}";
 					}
 
 					var css = portlet.CommonSettings?.TitleUISettings?.Css ?? "";
@@ -1335,7 +1358,7 @@ namespace net.vieapps.Services.Portals
 						if (attribute == null)
 							titleZone.Add(new XAttribute("class", css));
 						else
-							attribute.Value = (attribute.Value + " " + css).Trim();
+							attribute.Value = $"{attribute.Value.Trim()} {css}";
 					}
 
 					var portletTitle = "";
@@ -1370,7 +1393,7 @@ namespace net.vieapps.Services.Portals
 						if (attribute == null)
 							contentZone.Add(new XAttribute("class", css));
 						else
-							attribute.Value = $"{attribute.Value.Trim()} {css}".Trim();
+							attribute.Value = $"{attribute.Value.Trim()} {css}";
 					}
 
 					var portletXHtml = "";
@@ -1442,8 +1465,6 @@ namespace net.vieapps.Services.Portals
 
 								var dataXml = xmlJson.Value.ToString().ToXml(x => x.Descendants().Attributes().Where(attribute => attribute.IsNamespaceDeclaration).Remove());
 
-								var otpionsXml = (isList ? JObject.Parse(portlet.ListSettings.Options ?? "{}") : JObject.Parse(portlet.ViewSettings.Options ?? "{}")).ToXml("Options");
-
 								var metaJson = new JObject
 								{
 									{ "Portlet", new JObject
@@ -1488,73 +1509,96 @@ namespace net.vieapps.Services.Portals
 								}
 								var metaXml = metaJson.ToXml("Meta");
 
-								var breadcrumb = (json["Breadcrumb"] ?? new JArray()).Select(node => node as JObject).ToList();
-								if (portlet.BreadcrumbSettings.ShowContentTypeLink)
+								var showBreadcrumbs = isList ? portlet.ListSettings.ShowBreadcrumbs : portlet.ViewSettings.ShowBreadcrumbs;
+								var showPagination = isList ? portlet.ListSettings.ShowPagination : portlet.ViewSettings.ShowPagination;
+
+								var optionsJson = isList ? JObject.Parse(portlet.ListSettings.Options ?? "{}") : JObject.Parse(portlet.ViewSettings.Options ?? "{}");
+								optionsJson["ShowBreadcrumbs"] = showBreadcrumbs;
+								optionsJson["ShowPagination"] = showPagination;
+								var optionsXml = optionsJson.ToXml("Options");
+
+								JObject breadcrumbsJson = null;
+								if (showBreadcrumbs)
 								{
-									if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeAdditionalURL))
-										breadcrumb.Insert(0, new JObject
+									var breadcrumbs = (json.Get<JArray>("Breadcrumbs") ?? new JArray()).Select(node => node as JObject).ToList();
+
+									if (portlet.BreadcrumbSettings.ShowContentTypeLink)
+									{
+										if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeAdditionalURL))
+											breadcrumbs.Insert(0, new JObject
+											{
+												{ "Text", portlet.BreadcrumbSettings.ContentTypeAdditionalLabel },
+												{ "URL", portlet.BreadcrumbSettings.ContentTypeAdditionalURL }
+											});
+										breadcrumbs.Insert(0, new JObject
 										{
-											{ "Text", portlet.BreadcrumbSettings.ContentTypeAdditionalLabel },
-											{ "URL", portlet.BreadcrumbSettings.ContentTypeAdditionalURL }
+											{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeLabel) ? portlet.BreadcrumbSettings.ContentTypeLabel : contentType.Title },
+											{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeURL) ? portlet.BreadcrumbSettings.ContentTypeURL : $"~/{contentType.Desktop?.Alias}" + (contentType.GetParent() != null ? "" : $"/{contentType.Title.GetANSIUri()}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}") }
 										});
-									breadcrumb.Insert(0, new JObject
-									{
-										{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeLabel) ? portlet.BreadcrumbSettings.ContentTypeLabel : contentType.Title },
-										{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeURL) ? portlet.BreadcrumbSettings.ContentTypeURL : $"~/{contentType.Desktop?.Alias}" + (contentType.GetParent() != null ? "" : $"/{contentType.Title.GetANSIUri()}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}") }
-									});
-								}
+									}
 
-								if (portlet.BreadcrumbSettings.ShowModuleLink)
-								{
-									if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleAdditionalURL))
-										breadcrumb.Insert(0, new JObject
+									if (portlet.BreadcrumbSettings.ShowModuleLink)
+									{
+										if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleAdditionalURL))
+											breadcrumbs.Insert(0, new JObject
+											{
+												{ "Text", portlet.BreadcrumbSettings.ModuleAdditionalLabel },
+												{ "URL", portlet.BreadcrumbSettings.ModuleAdditionalURL }
+											});
+										breadcrumbs.Insert(0, new JObject
 										{
-											{ "Text", portlet.BreadcrumbSettings.ModuleAdditionalLabel },
-											{ "URL", portlet.BreadcrumbSettings.ModuleAdditionalURL }
+											{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleLabel) ? portlet.BreadcrumbSettings.ModuleLabel : contentType.Module?.Title },
+											{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleURL) ? portlet.BreadcrumbSettings.ModuleURL : $"~/{contentType.Module?.Desktop?.Alias}" + (contentType.GetParent() != null ? "" : $"/{contentType.Module?.Title.GetANSIUri()}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}") }
 										});
-									breadcrumb.Insert(0, new JObject
+									}
+
+									if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeAdditionalURL))
+										breadcrumbs.Insert(0, new JObject
+										{
+											{ "Text", portlet.BreadcrumbSettings.HomeAdditionalLabel },
+											{ "URL", portlet.BreadcrumbSettings.HomeAdditionalURL }
+										});
+
+									breadcrumbs.Insert(0, new JObject
 									{
-										{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleLabel) ? portlet.BreadcrumbSettings.ModuleLabel : contentType.Module?.Title },
-										{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleURL) ? portlet.BreadcrumbSettings.ModuleURL : $"~/{contentType.Module?.Desktop?.Alias}" + (contentType.GetParent() != null ? "" : $"/{contentType.Module?.Title.GetANSIUri()}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}") }
+										{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeLabel) ? portlet.BreadcrumbSettings.HomeLabel : "Home" },
+										{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeURL) ? portlet.BreadcrumbSettings.HomeURL : $"~/index{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}" }
 									});
-								}
 
-								if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeAdditionalURL))
-									breadcrumb.Insert(0, new JObject
+									breadcrumbsJson = new JObject
 									{
-										{ "Text", portlet.BreadcrumbSettings.HomeAdditionalLabel },
-										{ "URL", portlet.BreadcrumbSettings.HomeAdditionalURL }
-									});
-
-								breadcrumb.Insert(0, new JObject
-								{
-									{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeLabel) ? portlet.BreadcrumbSettings.HomeLabel : "Home" },
-									{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeURL) ? portlet.BreadcrumbSettings.HomeURL : $"~/index{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}" }
-								});
-
-								var breadcrumbJson = new JObject
-								{
-									{ "SeparatedLabel", string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.SeparatedLabel) ? ">" : portlet.BreadcrumbSettings.SeparatedLabel },
-									{ "Nodes", breadcrumb.ToJArray() }
-								};
-								var breadcrumbXml = breadcrumbJson.ToXml("Breadcrumb");
-
-								var paginationJson = json.Get<JObject>("Pagination");
-								if (paginationJson != null)
-								{
-									paginationJson["ShowPageLinks"] = portlet.PaginationSettings.ShowPageLinks;
-									paginationJson["Labels"] = new JObject
-									{
-										{ "Previous", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel) ? portlet.PaginationSettings.PreviousPageLabel : "Previous" },
-										{ "Next", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel) ? portlet.PaginationSettings.NextPageLabel : "Next" },
-										{ "Current", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.CurrentPageLabel) ? portlet.PaginationSettings.CurrentPageLabel : "Current" },
+										{ "SeparatedLabel", string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.SeparatedLabel) ? ">" : portlet.BreadcrumbSettings.SeparatedLabel },
+										{ "Nodes", new JObject
+											{
+												{ "Node", breadcrumbs.ToJArray() }
+											 }
+										}
 									};
 								}
 
-								var xml = new XDocument(new XElement("VIEApps", metaXml, dataXml, otpionsXml, breadcrumbXml));
+								var paginationJson = showPagination ? json.Get<JObject>("Pagination") ?? new JObject() : null;
 
-								if (paginationJson != null)
-									xml.Root.Add(paginationJson.ToXml("Pagination"));
+								var xml = new XDocument(new XElement("VIEApps", metaXml, dataXml, optionsXml));
+
+								if (breadcrumbsJson != null)
+									xml.Root.Add(breadcrumbsJson.ToXml("Breadcrumbs", breadcrumbsXml => breadcrumbsXml.Element("Nodes").Elements("Node").ForEach((node, index) => node.Add(new XAttribute("Index", index + 1)))));
+
+								if (paginationJson != null && paginationJson.Get<JObject>("Pages") != null)
+									xml.Root.Add(paginationJson.ToXml("Pagination", paginationXml =>
+									{
+										paginationXml.Element("Pages").Add(new XAttribute("Label", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.CurrentPageLabel) ? portlet.PaginationSettings.CurrentPageLabel : "Current"));
+										paginationXml.Add(new XElement("ShowPageLinks", portlet.PaginationSettings.ShowPageLinks));
+										var totalPages = paginationJson.Get<int>("TotalPages");
+										if (totalPages > 1)
+										{
+											var urlPattern = paginationJson.Get<string>("URLPattern");
+											var currentPage = paginationJson.Get<int>("PageNumber");
+											if (currentPage > 1)
+												paginationXml.Add(new XElement("PreviousPage", new XElement("Text", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel) ? portlet.PaginationSettings.PreviousPageLabel : "Previous"), new XElement("URL", urlPattern.Replace("{{pageNumber}}", $"{currentPage - 1}").Replace("/1.html", ".html").Replace("/1", ""))));
+											if (currentPage < totalPages)
+												paginationXml.Add(new XElement("NextPage", new XElement("Text", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel) ? portlet.PaginationSettings.NextPageLabel : "Next"), new XElement("URL", urlPattern.Replace("{{pageNumber}}", $"{currentPage + 1}"))));
+										}
+									}));
 
 								var filterBy = json.Get<JObject>("FilterBy");
 								if (filterBy != null)
@@ -1636,6 +1680,7 @@ namespace net.vieapps.Services.Portals
 
 			var mainPortlet = !string.IsNullOrWhiteSpace(desktop.MainPortletID) && portletJSONs.ContainsKey(desktop.MainPortletID) ? portletJSONs[desktop.MainPortletID] : null;
 			var coverURI = mainPortlet?.Get<string>("CoverURI");
+			var metaInfo = mainPortlet?.Get<JArray>("MetaTags");
 			var seoInfo = mainPortlet?.Get<JObject>("SEOInfo");
 
 			var title = "";
@@ -1849,13 +1894,18 @@ namespace net.vieapps.Services.Portals
 					+ $"<link rel=\"shortcut icon\" type=\"image/{(site.IconURI.IsEndsWith(".icon") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>";
 
 			metaTags = meta + metaTags;
+			metaInfo?.Select(m => (m as JValue).Value.ToString()).Where(m => !string.IsNullOrWhiteSpace(m)).ForEach(m => metaTags += m);
+
 			if (!string.IsNullOrWhiteSpace(site.MetaTags))
 				metaTags += site.MetaTags;
+
 			if (!string.IsNullOrWhiteSpace(desktop.MetaTags))
 				metaTags += desktop.MetaTags;
-			metaTags += $"<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js\"></script><script>var $j=$</script>";
 
-			title = $"<title>{title}</title>";
+			metaTags += $"<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js\"></script>"
+				+ "<script>var $j=$;var __vieapps={"
+				+ $"id:'{organization.ID}',home:{(site.HomeDesktop != null ? $"'{site.HomeDesktop.Alias}'" : "undefined")},search:{(site.SearchDesktop != null ? $"'{site.SearchDesktop.Alias}'" : "undefined")},language:'{desktop.Language ?? site.Language ?? "vi-VN"}'"
+				+ "};</script>";
 
 			// prepare scripts
 			var scripts = "";
@@ -1909,9 +1959,16 @@ namespace net.vieapps.Services.Portals
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove empty zone(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {removedZones?.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			removedZones.ForEach(zone => desktopZones.Remove(zone));
-
 			var emptyElements = desktopContainer.Root.Elements().Where(element => element.IsEmpty).ToList();
 			emptyElements.ForEach(element => element.Remove());
+			desktopZones.Where(zone => zone.Parent.Elements().Count() == 1).ForEach(zone =>
+			{
+				var attribute = zone.Attributes().FirstOrDefault(attr => attr.Name.LocalName.IsEquals("class"));
+				if (attribute == null)
+					zone.Add(new XAttribute("class", "full"));
+				else
+					attribute.Value = $"{attribute.Value.Trim()} full";
+			});
 
 			var body = desktopContainer.ToString();
 			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{theme}}", theme);
@@ -1930,19 +1987,10 @@ namespace net.vieapps.Services.Portals
 				+ "<body></body>\r\n"
 				+ "</html>";
 
-			var position = html.IndexOf("<head");
-			position = html.IndexOf(">", position) + 1;
-			html = html.Insert(position, title);
-
-			position = html.IndexOf("</head>");
-			html = html.Insert(position, metaTags);
-
-			position = html.IndexOf("<body");
-			position = html.IndexOf(">", position) + 1;
-			html = html.Insert(position, body);
-
-			position = html.IndexOf("</body>");
-			html = html.Insert(position, scripts);
+			html = html.Insert(html.IndexOf(">", html.IndexOf("<head")) + 1, $"<title>{title}</title>");
+			html = html.Insert(html.IndexOf("</head>"), metaTags);
+			html = html.Insert(html.IndexOf(">", html.IndexOf("<body")) + 1, body);
+			html = html.Insert(html.IndexOf("</body>"), scripts);
 
 			// final => body's css and style
 			var bodyCssStyle = desktop.UISettings?.GetStyle() ?? "";
@@ -1959,9 +2007,7 @@ namespace net.vieapps.Services.Portals
 					bodyStyle += $" class=\"{bodyCssClass}\"";
 				if (!string.IsNullOrWhiteSpace(bodyCssStyle))
 					bodyStyle += $" style=\"{bodyCssStyle}\"";
-				position = html.IndexOf("<body");
-				position = html.IndexOf(">", position);
-				html = html.Insert(position, bodyStyle);
+				html = html.Insert(html.IndexOf(">", html.IndexOf("<body")), bodyStyle);
 			}
 
 			if (writeDesktopLogs)
@@ -1971,7 +2017,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// remove white spaces
-			if (this.RemoveDesktopHtmlWhitespaces || !this.IsDebugLogEnabled)
+			if (this.RemoveDesktopHtmlWhitespaces)
 				html = UtilityService.RemoveWhitespaces(html).Replace("\n\t", "").Replace("\t", "");
 
 			// prepare headers & caching
@@ -1991,13 +2037,13 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// response
+			html = html.NormalizeURLs(requestURI, organization.Alias, useRelativeURLs);
 			response = new JObject
 			{
 				{ "StatusCode", 200 },
 				{ "Headers", headers.ToJson() },
-				{ "Body", html },
-				{ "BodyAsPlainText", true },
-				{ "NeedNormalizeURLs", true }
+				{ "Body", writeDesktopLogs ? html : html.ToBytes().ToBase64() },
+				{ "BodyAsPlainText", writeDesktopLogs }
 			};
 
 			stopwatch.Stop();
@@ -2080,9 +2126,9 @@ namespace net.vieapps.Services.Portals
 			await children.ForEachAsync(async (child, token) =>
 			{
 				if (child is Category category)
-					menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level, maxLevel, this.ValidationKey, token).ConfigureAwait(false));
+					menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID), level, maxLevel, this.ValidationKey, token).ConfigureAwait(false));
 				else if (child is Link link)
-					menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level, maxLevel, this.ValidationKey, token).ConfigureAwait(false));
+					menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID), level, maxLevel, this.ValidationKey, token).ConfigureAwait(false));
 			}, cancellationToken, true, false).ConfigureAwait(false);
 			return menu;
 		}

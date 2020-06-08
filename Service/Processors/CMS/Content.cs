@@ -314,10 +314,16 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", content.Alias }
 				};
 
-			// send update message and response
+			// prepare the response
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), cancellationToken, validationKey);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), cancellationToken, validationKey);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+
 			var response = content.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
+			response["Thumbnails"] = thumbnailsTask.Result;
+			response["Attachments"] = attachmentsTask.Result;
+
+			// send update message and response
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
@@ -455,7 +461,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		static JArray GenerateBreadcrumb(this Category category, JToken requestJson, bool alwaysUseHtmlSuffix)
+		static JArray GenerateBreadcrumbs(this Category category, JToken requestJson, bool alwaysUseHtmlSuffix)
 		{
 			var breadcrumbs = new List<Tuple<string, string>>();
 			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("DefaultDesktop") ?? requestJson.Get<string>("Desktop");
@@ -494,12 +500,14 @@ namespace net.vieapps.Services.Portals
 			var category = await (requestJson.Get<JObject>("ParentContentType")?.Get<string>("ID") ?? "").GetCategoryByAliasAsync(requestJson.Get<string>("ParentIdentity"), cancellationToken).ConfigureAwait(false);
 			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("Desktop") ?? requestJson.Get<string>("Desktop");
 			var pageNumber = requestJson.Get("PageNumber", 1);
+			var options = requestJson.Get("Options", new JObject());
 			var alwaysUseHtmlSuffix = requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true;
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
+			var language = requestJson.Get("Language", "vi-VN");
 
 			XDocument data;
-			JArray breadcrumb;
+			JArray breadcrumbs;
 			JObject pagination, seoInfo, filterBy = null, sortBy = null;
 			string coverURI = null;
 
@@ -566,7 +574,7 @@ namespace net.vieapps.Services.Portals
 
 				// search the matched objects
 				var pageSize = requestJson.Get("PageSize", 7);
-				var results = await requestInfo.SearchAsync(filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, requestJson.Get<JObject>("Options")?.Get<bool>("ShowThumbnail") ?? true).ConfigureAwait(false);
+				var results = await requestInfo.SearchAsync(filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, options.Get<bool>("ShowThumbnail", true)).ConfigureAwait(false);
 				var totalRecords = results.Item1;
 				var objects = results.Item2;
 				var thumbnails = results.Item3;
@@ -578,15 +586,17 @@ namespace net.vieapps.Services.Portals
 
 				// generate xml
 				data = XDocument.Parse("<Data/>");
-				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, xml =>
+				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, language, xml =>
 				{
+					if (!string.IsNullOrWhiteSpace(@object.Summary))
+						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
 					xml.Add(new XElement("Category", @object.Category?.Title));
 					xml.Add(new XElement("URL", $"~/{@object.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{@object.Category?.Alias ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
-					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID, objects.Count == 1)));
+					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
 				})));
 
 				// build others
-				breadcrumb = category?.GenerateBreadcrumb(requestJson, alwaysUseHtmlSuffix) ?? new JArray();
+				breadcrumbs = category?.GenerateBreadcrumbs(requestJson, alwaysUseHtmlSuffix) ?? new JArray();
 				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{category?.Desktop?.Alias ?? desktop ?? "-default"}/{category?.Alias ?? "-"}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
 				seoInfo = new JObject
 				{
@@ -601,7 +611,7 @@ namespace net.vieapps.Services.Portals
 			else
 			{
 				// get the requested object
-				var @object= await Content.GetContentByAliasAsync(contentTypeID, requestJson.Get<string>("ContentIdentity"), category?.ID, cancellationToken).ConfigureAwait(false);
+				var @object = await Content.GetContentByAliasAsync(contentTypeID, requestJson.Get<string>("ContentIdentity"), category?.ID, cancellationToken).ConfigureAwait(false);
 				if (@object == null)
 					throw new InformationNotFoundException();
 				else if (@object.Organization == null || @object.Module == null || @object.ContentType == null)
@@ -614,37 +624,150 @@ namespace net.vieapps.Services.Portals
 				if (!gotRights)
 					throw new AccessDeniedException();
 
+				var showThumbnails = options.Get<bool>("ShowThumbnail", options.Get<bool>("ShowThumbnails", false));
+				var showAttachments = options.Get<bool>("ShowAttachments", false);
+				var showRelateds = options.Get<bool>("ShowRelateds", false);
+				var showOthers = options.Get<bool>("ShowOthers", false);
+
+				// get related contents
+				var relateds = new List<Content>();
+				var relatedsTask = showRelateds && @object.Relateds != null ? @object.Relateds.ForEachAsync(async (id, token) =>
+				{
+					var related = await Content.GetAsync<Content>(id, token).ConfigureAwait(false);
+					if (related != null && related.Status.Equals(ApprovalStatus.Published))
+						relateds.Add(related);
+				}, cancellationToken) : Task.CompletedTask;
+
+				// get other contents
+				Task<List<Content>>  newersTask, oldersTask;
+				if (showOthers)
+				{
+					var pageSize = options.Get<int>("NumberOfOthers", 10) / 2;
+					var publishedTime = @object.PublishedTime.Value;
+
+					newersTask = Content.FindAsync(Filters<Content>.And(
+						Filters<Content>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
+						Filters<Content>.Equals("CategoryID", @object.CategoryID),
+						Filters<Content>.LessThanOrEquals("StartDate", "@today"),
+						Filters<Content>.Or(
+							Filters<Content>.GreaterOrEquals("EndDate", "@today"),
+							Filters<Content>.IsNull("EndDate")
+						),
+						Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()),
+						Filters<Content>.GreaterOrEquals("PublishedTime", publishedTime)
+					).Prepare(requestInfo), null, pageSize, 1, contentTypeID, null, cancellationToken);
+
+					oldersTask = Content.FindAsync(Filters<Content>.And(
+						Filters<Content>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
+						Filters<Content>.Equals("CategoryID", @object.CategoryID),
+						Filters<Content>.LessThanOrEquals("StartDate", "@today"),
+						Filters<Content>.Or(
+							Filters<Content>.GreaterOrEquals("EndDate", "@today"),
+							Filters<Content>.IsNull("EndDate")
+						),
+						Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()),
+						Filters<Content>.LessThanOrEquals("PublishedTime", publishedTime)
+					).Prepare(requestInfo), null, pageSize, 1, contentTypeID, null, cancellationToken);
+				}
+				else
+				{
+					newersTask = Task.FromResult(new List<Content>());
+					oldersTask = Task.FromResult(new List<Content>());
+				}
+
 				// get files
-				var thumbnailsTask = requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey);
-				var attachmentsTask = requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey);
-				await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+				var thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey) : Task.FromResult<JToken>(new JArray());
+				var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey) : Task.FromResult<JToken>(new JArray());
+
+				// wait for all tasks are completed
+				await Task.WhenAll(relatedsTask, newersTask, oldersTask, thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+
+				var others = new List<Content>();
+				JToken otherThumbnails = null;
+				if (showOthers)
+				{
+					newersTask.Result.ForEach(other => others.Add(other));
+					oldersTask.Result.ForEach(other => others.Add(other));
+					others = others.Where(other => other.ID != @object.ID).OrderByDescending(other => other.StartDate).ThenByDescending(other => other.PublishedTime).ToList();
+					requestInfo.Header["x-as-attachments"] = "true";
+					otherThumbnails = others.Count < 1
+						? null
+						: others.Count == 1
+							? await requestInfo.GetThumbnailsAsync(others[0].ID, others[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
+							: await requestInfo.GetThumbnailsAsync(others.Select(obj => obj.ID).Join(","), others.ToJObject("ID", obj => new JValue(obj.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+				}
 
 				// generate XML
 				data = XDocument.Parse("<Data/>");
-				data.Root.Add(@object.ToXml(false, xml =>
+				data.Root.Add(@object.ToXml(false, language, xml =>
 				{
+					if (!string.IsNullOrWhiteSpace(@object.Summary))
+						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
+
+					if (!string.IsNullOrWhiteSpace(@object.Details))
+						xml.Element("Details").Value = @object.Details.NormalizeRichHtml();
+
 					xml.Add(new XElement("Category", @object.Category?.Title));
 					xml.Add(new XElement("URL", $"~/{@object.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{@object.Category?.Alias ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
 
-					var thumbnails = new XElement("Thumbnails");
-					(thumbnailsTask.Result as JArray).ForEach(thumbnail => thumbnails.Add(new XElement("Thumbnail", thumbnail.Get<string>("URI"))));
-					xml.Add(thumbnails);
-
-					var attachments = new XElement("Attachments");
-					(attachmentsTask.Result as JArray).Select(attachment => new JObject
+					if (showThumbnails)
 					{
-						{ "Title", attachment["Title"] },
-						{ "Filename", attachment["Filename"] },
-						{ "Size", attachment["Size"] },
-						{ "ContentType", attachment["ContentType"] },
-						{ "Downloads", attachment["Downloads"] },
-						{ "URIs", attachment["URIs"] }
-					}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment")));
-					xml.Add(attachments);
+						var thumbnails = new XElement("Thumbnails");
+						(thumbnailsTask.Result as JArray).ForEach(thumbnail => thumbnails.Add(new XElement("Thumbnail", thumbnail.Get<string>("URI"))));
+						xml.Add(thumbnails);
+					}
+
+					if (showAttachments)
+					{
+						var attachments = new XElement("Attachments");
+						(attachmentsTask.Result as JArray).Select(attachment => new JObject
+						{
+							{ "Title", attachment["Title"] },
+							{ "Filename", attachment["Filename"] },
+							{ "Size", attachment["Size"] },
+							{ "ContentType", attachment["ContentType"] },
+							{ "Downloads", attachment["Downloads"] },
+							{ "URIs", attachment["URIs"] }
+						}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment")));
+						xml.Add(attachments);
+					}
+
+					if (showRelateds)
+					{
+						var relatedsXml = new XElement("Relateds");
+						relateds = relateds.Where(related => related.Status.Equals(ApprovalStatus.Published) && related.PublishedTime.Value <= DateTime.Now).ToList();
+						relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
+						{
+							var relatedXml = new XElement("Content", new XElement("ID", related.ID), new XElement("Title", related.Title), new XElement("Summary", related.Summary?.Replace("\r", "").Replace("\n", "<br/>")));
+							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value, new XAttribute("Short", related.PublishedTime.Value.ToString("hh:mm tt @ dd/MM/yyyy"))));
+							relatedXml.Add(new XElement("URL", $"~/{related.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{related.Category?.Alias ?? "-"}/{related.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+							relatedsXml.Add(relatedXml);
+						});
+						xml.Add(relatedsXml);
+
+						var externalsXml = new XElement("ExternalRelateds");
+						@object.ExternalRelateds?.ForEach(external => externalsXml.Add(external.ToXml(externalXml =>
+						{
+							if (!string.IsNullOrWhiteSpace(external.Summary))
+								externalXml.Element("Summary").Value = external.Summary?.Replace("\r", "").Replace("\n", "<br/>");
+						})));
+						xml.Add(externalsXml);
+					}
+
+					if (showOthers)
+					{
+						var othersXml = new XElement("Others");
+						others.ForEach(other => othersXml.Add(other.ToXml(false, language, otherXml =>
+						{
+							otherXml.Add(new XElement("URL", $"~/{other.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{other.Category?.Alias ?? "-"}/{other.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
+						})));
+						xml.Add(othersXml);
+					}
 				}));
 
 				// build others
-				breadcrumb = @object.Category?.GenerateBreadcrumb(requestJson, alwaysUseHtmlSuffix) ?? new JArray();
+				breadcrumbs = @object.Category?.GenerateBreadcrumbs(requestJson, alwaysUseHtmlSuffix) ?? new JArray();
 				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, $"~/{@object.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{@object.Category?.Alias}/{@object.Alias}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
 				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI");
 				seoInfo = new JObject
@@ -659,7 +782,7 @@ namespace net.vieapps.Services.Portals
 			return new JObject
 			{
 				{ "Data", data.ToString(SaveOptions.DisableFormatting) },
-				{ "Breadcrumb", breadcrumb },
+				{ "Breadcrumbs", breadcrumbs },
 				{ "Pagination", pagination },
 				{ "FilterBy", filterBy },
 				{ "SortBy", sortBy },

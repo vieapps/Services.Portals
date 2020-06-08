@@ -352,6 +352,7 @@ namespace net.vieapps.Services.Portals
 			var alwaysUseHtmlSuffix = requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true;
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
+			var language = requestJson.Get("Language", "vi-VN");
 
 			XDocument data;
 			JObject pagination, seoInfo, filterBy = null, sortBy = null;
@@ -412,10 +413,10 @@ namespace net.vieapps.Services.Portals
 
 				// generate xml
 				data = XDocument.Parse("<Data/>");
-				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, xml =>
+				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, language, xml =>
 				{
 					xml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
-					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID, objects.Count == 1)));
+					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
 				})));
 
 				// build others
@@ -451,7 +452,7 @@ namespace net.vieapps.Services.Portals
 
 				// generate XML
 				data = XDocument.Parse("<Data/>");
-				data.Root.Add(@object.ToXml(false, xml =>
+				data.Root.Add(@object.ToXml(false, language, xml =>
 				{
 					xml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
 

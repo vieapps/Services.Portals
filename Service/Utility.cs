@@ -17,6 +17,7 @@ using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Exceptions;
+using System.Text.RegularExpressions;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -47,6 +48,11 @@ namespace net.vieapps.Services.Portals
 		/// Gets the collection of not recognized aliases
 		/// </summary>
 		public static HashSet<string> NotRecognizedAliases { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		/// <summary>
+		/// Gets the collection of OEmbed providers
+		/// </summary>
+		public static List<Tuple<string, List<Regex>, Tuple<Regex, int>, string>> OEmbedProviders { get; } = new List<Tuple<string, List<Regex>, Tuple<Regex, int>, string>>();
 
 		/// <summary>
 		/// Gets the URI of the public APIS
@@ -368,7 +374,6 @@ namespace net.vieapps.Services.Portals
 		public static JObject GeneratePagination(long totalRecords, int totalPages, int pageSize, int pageNumber, string urlPattern)
 		{
 			var pages = new List<JObject>(totalPages);
-
 			if (totalPages > 1)
 				for (var page = 1; page <= totalPages; page++)
 					pages.Add(new JObject
@@ -386,14 +391,19 @@ namespace net.vieapps.Services.Portals
 				{ "PageSize", pageSize },
 				{ "PageNumber", pageNumber },
 				{ "URLPattern", urlPattern },
-				{ "Pages", pages?.ToJArray() }
+				{ "Pages", pages == null ? null : new JObject { { "Page", pages.ToJArray() } } }
 			};
 		}
 
-		internal static string GetThumbnailURL(this JToken thumbnails, string objectID, bool isSingle)
-			=> thumbnails != null && thumbnails is JArray thumbnailsJson && thumbnailsJson.Count > 0
-				? (isSingle ? thumbnailsJson : thumbnailsJson[objectID] ?? thumbnailsJson[$"@{@objectID}"])?.First()?.Get<JObject>("URIs")?.Get<string>("Direct")
+		internal static string GetThumbnailURL(this JToken thumbnails, string objectID)
+		{
+			var thumbnailImages = thumbnails != null
+				? thumbnails is JArray
+					? thumbnails as JArray
+					: (thumbnails[$"@{@objectID}"] ?? thumbnails[objectID]) as JArray
 				: null;
+			return thumbnailImages?.FirstOrDefault()?.Get<JObject>("URIs")?.Get<string>("Direct");
+		}
 
 		internal static Cache GetDesktopHtmlCache(this Organization organization)
 		{
@@ -404,11 +414,102 @@ namespace net.vieapps.Services.Portals
 			}
 			return cache;
 		}
+
+		/// <summary>
+		/// Gets the root URL for working with an organizations' resources
+		/// </summary>
+		/// <param name="requestURI"></param>
+		/// <param name="systemIdentity"></param>
+		/// <param name="useRelativeURLs"></param>
+		/// <param name="trim"></param>
+		/// <returns></returns>
+		public static string GetRootURL(this Uri requestURI, string systemIdentity, bool useRelativeURLs = false, bool trim = true)
+		{
+			var absoluteHttpUri = requestURI.AbsoluteUri.Replace("https://", "http://");
+			var absoluteHttpsUri = requestURI.AbsoluteUri.Replace("http://", "https://");
+			var rootURL = useRelativeURLs
+				? "/"
+				: absoluteHttpUri.IsStartsWith(Utility.PortalsHttpURI) || absoluteHttpsUri.IsStartsWith(Utility.PortalsHttpURI)
+					? $"{Utility.PortalsHttpURI}/~{systemIdentity}/"
+					: $"{requestURI.Scheme}://{requestURI.Host}/";
+			return trim ? rootURL.Replace(StringComparison.OrdinalIgnoreCase, "http://", "//").Replace(StringComparison.OrdinalIgnoreCase, "https://", "//") : rootURL;
+		}
+
+		/// <summary>
+		/// Normalizes all URLs of a html content
+		/// </summary>
+		/// <param name="html"></param>
+		/// <param name="requestURI"></param>
+		/// <param name="systemIdentity"></param>
+		/// <param name="useRelativeURLs"></param>
+		/// <param name="forDisplaying"></param>
+		/// <returns></returns>
+		public static string NormalizeURLs(this string html, Uri requestURI, string systemIdentity, bool useRelativeURLs = false, bool forDisplaying = true)
+		{
+			if (forDisplaying)
+			{
+				var rootURL = requestURI.GetRootURL(systemIdentity, useRelativeURLs);
+				html = html.Replace("~~~/", rootURL).Replace("~~/", Utility.FilesHttpURI.Replace(StringComparison.OrdinalIgnoreCase, "http://", "//").Replace(StringComparison.OrdinalIgnoreCase, "https://", "//") + "/").Replace("~/", rootURL);
+				if (useRelativeURLs && (requestURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI) || requestURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI)))
+					html = html.Insert(html.PositionOf(">", html.PositionOf("<head") + 1), $"<base href=\"/~{systemIdentity}/\"/>");
+			}
+			else
+			{
+				var rootURL = requestURI.GetRootURL(systemIdentity, useRelativeURLs, false);
+				html = html.Replace(StringComparison.OrdinalIgnoreCase, Utility.FilesHttpURI + "/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, rootURL, "~/");
+			}
+			return html;
+		}
+
+		/// <summary>
+		/// Normalizes the rich-html contents
+		/// </summary>
+		/// <param name="html"></param>
+		/// <returns></returns>
+		public static string NormalizeRichHtml(this string html)
+		{
+			if (string.IsNullOrWhiteSpace(html))
+				return "";
+
+			// paragraphs of CKEditor5
+			html = html.Replace("<p style=\"margin-left:0px;\"", "<p");
+
+			// normalize all 'oembed' tags
+			var start = html.PositionOf("<oembed");
+			while (start > -1)
+			{
+				var end = start < 0 ? -1 : html.PositionOf("</oembed>", start + 1);
+				if (end > -1)
+				{
+					end += 9;
+					var media = html.Substring(start, 9 + end - start);
+					var urlStart = media.IndexOf("url=") + 5;
+					var urlEnd = media.IndexOf("\"", urlStart + 1);
+					var url = media.Substring(urlStart, urlEnd - urlStart);
+					var oembedProvider = Utility.OEmbedProviders.FirstOrDefault(provider => provider.Item2.Any(regex => regex.Match(url).Success));
+					if (oembedProvider != null)
+					{
+						var match = oembedProvider.Item3.Item1.Match(url);
+						var mediaID = match.Success && match.Length > oembedProvider.Item3.Item2 ? match.Groups[oembedProvider.Item3.Item2].Value : null;
+						media = oembedProvider.Item4.Replace(StringComparison.OrdinalIgnoreCase, "{{id}}", mediaID ?? "");
+					}
+					else
+						media = url.IsEndsWith(".mp3")
+							? "<audio width=\"560\" height=\"32\" controls autoplay muted><source src=\"{{url}}\"/></audio>".Replace(StringComparison.OrdinalIgnoreCase, "{{url}}", url)
+							: "<video width=\"560\" height=\"315\" controls autoplay muted><source src=\"{{url}}\"/></video>".Replace(StringComparison.OrdinalIgnoreCase, "{{url}}", url);
+					html = html.Substring(0, start) + media + html.Substring(end);
+				}
+				start = html.PositionOf("<oembed", start + 1);
+			}
+
+			return html;
+		}
+
 	}
 
 	//  --------------------------------------------------------------------------------------------
 
 	[Serializable]
-	[Repository(ServiceName = "Portals", ID = "A0000000000000000000000000000001", Title = "CMS", Description = "Services of the Portals CMS module", Directory = "CMS", ExtendedPropertiesTableName = "T_Portals_Extended_Properties")]
+	[Repository(ServiceName = "Portals", ID = "A0000000000000000000000000000001", Title = "CMS", Description = "Services of the CMS Portals", Directory = "CMS", ExtendedPropertiesTableName = "T_Portals_Extended_Properties")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 }

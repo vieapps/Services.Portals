@@ -592,6 +592,7 @@ namespace net.vieapps.Services.Portals
 			var contentTypeID = requestJson.Get<JObject>("ContentType")?.Get<string>("ID");
 			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("Desktop") ?? requestJson.Get<string>("Desktop");
 			var pageNumber = requestJson.Get("PageNumber", 1);
+			var language = requestJson.Get("Language", "vi-VN");
 			var options = requestJson.Get("Options", new JObject());
 			var asMenu = "Menu".IsEquals(options.Get<string>("DisplayMode")) || options.Get<bool>("AsMenu", false) || options.Get<bool>("ShowAsMenu", false) || options.Get<bool>("GenerateAsMenu", false);
 			var asBanner = !asMenu && ("Banner".IsEquals(options.Get<string>("DisplayMode")) || options.Get<bool>("AsBanner", false) || options.Get<bool>("ShowAsBanner", false) || options.Get<bool>("GenerateAsBanner", false));
@@ -655,8 +656,8 @@ namespace net.vieapps.Services.Portals
 			var data = XDocument.Parse("<Data/>");
 			await objects.ForEachAsync(async (@object, token) =>
 			{
-				var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, objects.Count == 1);
-				var xml = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, options.Get<int>("MaxLevel", 0), validationKey, token).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
+				var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID);
+				var xml = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, options.Get<int>("MaxLevel", 0), validationKey, token).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, language, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
 				if (asBanner)
 				{
 					var attachments = await requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
@@ -718,7 +719,7 @@ namespace net.vieapps.Services.Portals
 							? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
 							: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
 						subMenu = new JArray();
-						await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, children.Count == 1), level + 1, maxLevel, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+						await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID), level + 1, maxLevel, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 					}
 				}
 
