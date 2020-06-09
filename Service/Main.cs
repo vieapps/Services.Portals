@@ -744,7 +744,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JToken> IdentifySystemAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
-			var site = requestInfo.Header.TryGetValue("Host", out var host) && !string.IsNullOrWhiteSpace(host)
+			var site = requestInfo.Header.TryGetValue("x-host", out var host) && !string.IsNullOrWhiteSpace(host)
 				? await host.GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false)
 				: Utility.DefaultSite;
 
@@ -775,6 +775,8 @@ namespace net.vieapps.Services.Portals
 
 		bool RemoveDesktopHtmlWhitespaces => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:RemoveWhitespaces", "true"));
 
+		string BodyEncoding => UtilityService.GetAppSetting("Portals:Desktops:Body:Encoding", "deflate");
+
 		async Task<JToken> ProcessHttpIndicatorsRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
@@ -793,7 +795,8 @@ namespace net.vieapps.Services.Portals
 							{ "X-Correlation-ID", requestInfo.CorrelationID }
 						}.ToJson()
 					},
-					{ "Body", indicator.Content.ToBytes().ToBase64() }
+					{ "Body", indicator.Content.ToBytes().Compress(this.BodyEncoding).ToBase64() },
+					{ "BodyEncoding", this.BodyEncoding }
 				}
 				: throw new InformationNotFoundException();
 		}
@@ -839,7 +842,8 @@ namespace net.vieapps.Services.Portals
 					{
 						{ "StatusCode", 200 },
 						{ "Headers", headers.ToJson() },
-						{ "Body", (await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false)).ToBase64() }
+						{ "Body", (await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false)).Compress(this.BodyEncoding).ToBase64() },
+						{ "BodyEncoding", this.BodyEncoding }
 					};
 			}
 
@@ -894,7 +898,8 @@ namespace net.vieapps.Services.Portals
 					{
 						{ "StatusCode", 200 },
 						{ "Headers", headers.ToJson() },
-						{ "Body", body.ToBytes().ToBase64() }
+						{ "Body", body.ToBytes().Compress(this.BodyEncoding).ToBase64() },
+						{ "BodyEncoding", this.BodyEncoding }
 					};
 			}
 
@@ -949,7 +954,8 @@ namespace net.vieapps.Services.Portals
 					{
 						{ "StatusCode", 200 },
 						{ "Headers", headers.ToJson() },
-						{ "Body", body.ToBytes().ToBase64() }
+						{ "Body", body.ToBytes().Compress(this.BodyEncoding).ToBase64() },
+						{ "BodyEncoding", this.BodyEncoding }
 					};
 			}
 
@@ -1914,7 +1920,7 @@ namespace net.vieapps.Services.Portals
 				metaTags += desktop.MetaTags;
 
 			// final => add the required scripts for working with HTTP front-end (jQuery - $)
-			metaTags += $"<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js\"></script>"
+			metaTags += $"<script src=\"https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js\"></script>"
 				+ "<script>var $j=$;var __vieapps={"
 				+ $"root:'{requestURI.GetRootURL(organization.Alias, useRelativeURLs)}',home:{(site.HomeDesktop != null ? $"'{site.HomeDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}'" : "undefined")},search:{(site.SearchDesktop != null ? $"'{site.SearchDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}'" : "undefined")},language:'{desktop.Language ?? site.Language ?? "vi-VN"}'"
 				+ "};</script>";
@@ -2056,7 +2062,8 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "StatusCode", 200 },
 				{ "Headers", headers.ToJson() },
-				{ "Body", writeDesktopLogs ? html : html.ToBytes().ToBase64() },
+				{ "Body", writeDesktopLogs ? html : html.ToBytes().Compress(this.BodyEncoding).ToBase64() },
+				{ "BodyEncoding", this.BodyEncoding },
 				{ "BodyAsPlainText", writeDesktopLogs }
 			};
 

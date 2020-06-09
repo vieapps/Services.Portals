@@ -429,7 +429,9 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string GetRootURL(this Uri requestURI, string systemIdentity, bool useRelativeURLs = false)
 			=> useRelativeURLs
-				? "/"
+				? requestURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI) || requestURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI)
+					? ""
+					: "/"
 				: requestURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI) || requestURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI)
 					? $"{Utility.PortalsHttpURI}/~{systemIdentity}/"
 					: $"{requestURI.Scheme}://{requestURI.Host}/";
@@ -447,14 +449,13 @@ namespace net.vieapps.Services.Portals
 		{
 			if (forDisplaying)
 			{
-				var rootURL = requestURI.GetRootURL(systemIdentity, useRelativeURLs);
-				html = html.Replace("~~~/", rootURL).Replace("~~/", Utility.FilesHttpURI.Replace(StringComparison.OrdinalIgnoreCase, "http://", "//").Replace(StringComparison.OrdinalIgnoreCase, "https://", "//") + "/").Replace("~/", rootURL);
 				if (useRelativeURLs && (requestURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI) || requestURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI)))
-					html = html.Insert(html.PositionOf(">", html.PositionOf("<head") + 1), $"<base href=\"/~{systemIdentity}/\"/>");
+					html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{Utility.PortalsHttpURI}/~{systemIdentity}/\"/>");
+				var rootURL = requestURI.GetRootURL(systemIdentity, useRelativeURLs);
+				return html.Replace("~~~/", rootURL).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~/", rootURL);
 			}
 			else
-				html = html.Replace(StringComparison.OrdinalIgnoreCase, Utility.FilesHttpURI + "/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, requestURI.GetRootURL(systemIdentity, useRelativeURLs), "~/");
-			return html;
+				return html.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, requestURI.GetRootURL(systemIdentity), "~/");
 		}
 
 		/// <summary>
@@ -474,7 +475,7 @@ namespace net.vieapps.Services.Portals
 			var start = html.PositionOf("<oembed");
 			while (start > -1)
 			{
-				var end = start < 0 ? -1 : html.PositionOf("</oembed>", start + 1);
+				var end = start < 0 ? -1 : html.PositionOf("</oembed>", start);
 				if (end > -1)
 				{
 					end += 9;
@@ -491,8 +492,8 @@ namespace net.vieapps.Services.Portals
 					}
 					else
 						media = url.IsEndsWith(".mp3")
-							? "<audio width=\"560\" height=\"32\" controls autoplay muted><source src=\"{{url}}\"/></audio>".Replace(StringComparison.OrdinalIgnoreCase, "{{url}}", url)
-							: "<video width=\"560\" height=\"315\" controls autoplay muted><source src=\"{{url}}\"/></video>".Replace(StringComparison.OrdinalIgnoreCase, "{{url}}", url);
+							? "<audio width=\"560\" height=\"32\" controls autoplay muted><source src=\"{{url}}\"/></audio>".Replace("{{url}}", url)
+							: "<video width=\"560\" height=\"315\" controls autoplay muted><source src=\"{{url}}\"/></video>".Replace("{{url}}", url);
 					html = html.Substring(0, start) + media + html.Substring(end);
 				}
 				start = html.PositionOf("<oembed", start + 1);

@@ -41,15 +41,14 @@ namespace net.vieapps.Services.Portals
 		{
 			get
 			{
-				if (this._useRelativeURLs == null)
-					this._useRelativeURLs = UtilityService.GetAppSetting("Portals:UseRelativeURLs", "false");
+				this._useRelativeURLs = this._useRelativeURLs ?? UtilityService.GetAppSetting("Portals:UseRelativeURLs", "true");
 				return "true".IsEquals(this._useRelativeURLs);
 			}
 		}
 
-		RequestDelegate Next { get; }
-
 		string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
+
+		RequestDelegate Next { get; }
 
 		public Handler(RequestDelegate next) => this.Next = next;
 
@@ -313,7 +312,7 @@ namespace net.vieapps.Services.Portals
 					// write body
 					var body = response.Get<string>("Body");
 					if (body != null)
-						await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes(), cts.Token).ConfigureAwait(false);
+						await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "deflate")), cts.Token).ConfigureAwait(false);
 
 					// flush the response stream as final step
 					await context.FlushAsync(cts.Token).ConfigureAwait(false);
