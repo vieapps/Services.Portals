@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using System.Xml.Linq;
 using System.Dynamic;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -21,8 +22,9 @@ namespace net.vieapps.Services.Portals
 		public static Content CreateContentInstance(this ExpandoObject requestBody, string excluded = null, Action<Content> onCompleted = null)
 			=> requestBody.Copy<Content>(excluded?.ToHashSet(), content =>
 			{
-				content.TrimAll();
 				content.OriginalPrivileges = content.OriginalPrivileges?.Normalize();
+				content.TrimAll();
+				content.Details = string.IsNullOrWhiteSpace(content.Details) ? null : content.Details.HtmlDecode();
 				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				onCompleted?.Invoke(content);
 			});
@@ -30,8 +32,9 @@ namespace net.vieapps.Services.Portals
 		public static Content UpdateContentInstance(this Content content, ExpandoObject requestBody, string excluded = null, Action<Content> onCompleted = null)
 		{
 			content.CopyFrom(requestBody, excluded?.ToHashSet());
-			content.TrimAll();
 			content.OriginalPrivileges = content.OriginalPrivileges?.Normalize();
+			content.TrimAll();
+			content.Details = string.IsNullOrWhiteSpace(content.Details) ? null : content.Details.HtmlDecode();
 			content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 			onCompleted?.Invoke(content);
 			return content;
@@ -319,9 +322,11 @@ namespace net.vieapps.Services.Portals
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), cancellationToken, validationKey);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 
-			var response = content.ToJson();
-			response["Thumbnails"] = thumbnailsTask.Result;
-			response["Attachments"] = attachmentsTask.Result;
+			var response = content.ToJson(json =>
+			{
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+			});
 
 			// send update message and response
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
@@ -410,10 +415,18 @@ namespace net.vieapps.Services.Portals
 				content.ClearRelatedCache(oldCategoryID, cancellationToken)
 			).ConfigureAwait(false);
 
+			// prepare the response
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), cancellationToken, validationKey);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), cancellationToken, validationKey);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+
+			var response = content.ToJson(json =>
+			{
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+			});
+
 			// send update message and response
-			var response = content.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
@@ -502,11 +515,11 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = requestJson.Get("PageNumber", 1);
 			var options = requestJson.Get("Options", new JObject());
 			var alwaysUseHtmlSuffix = requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true;
+			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
-			var language = requestJson.Get("Language", "vi-VN");
 
-			XDocument data;
+			XElement data;
 			JArray breadcrumbs;
 			JObject pagination, seoInfo, filterBy = null, sortBy = null;
 			string coverURI = null;
@@ -540,8 +553,8 @@ namespace net.vieapps.Services.Portals
 					filter.Add(
 						Filters<Content>.LessThanOrEquals("StartDate", "@today"),
 						Filters<Content>.Or(
-							Filters<Content>.GreaterOrEquals("EndDate", "@today"),
-							Filters<Content>.IsNull("EndDate")
+							Filters<Content>.IsNull("EndDate"),
+							Filters<Content>.GreaterOrEquals("EndDate", "@today")
 						),
 						Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString())
 					);
@@ -585,9 +598,11 @@ namespace net.vieapps.Services.Portals
 					pageNumber = totalPages;
 
 				// generate xml
-				data = XDocument.Parse("<Data/>");
-				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, language, xml =>
+				data = XElement.Parse("<Data/>");
+				objects.ForEach(@object => data.Add(@object.ToXml(false, cultureInfo, xml =>
 				{
+					xml.Element("StartDate")?.UpdateDateTime(cultureInfo);
+					xml.Element("EndDate")?.UpdateDateTime(cultureInfo);
 					if (!string.IsNullOrWhiteSpace(@object.Summary))
 						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
 					xml.Add(new XElement("Category", @object.Category?.Title));
@@ -650,8 +665,8 @@ namespace net.vieapps.Services.Portals
 						Filters<Content>.Equals("CategoryID", @object.CategoryID),
 						Filters<Content>.LessThanOrEquals("StartDate", "@today"),
 						Filters<Content>.Or(
-							Filters<Content>.GreaterOrEquals("EndDate", "@today"),
-							Filters<Content>.IsNull("EndDate")
+							Filters<Content>.IsNull("EndDate"),
+							Filters<Content>.GreaterOrEquals("EndDate", "@today")
 						),
 						Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()),
 						Filters<Content>.GreaterOrEquals("PublishedTime", publishedTime)
@@ -662,8 +677,8 @@ namespace net.vieapps.Services.Portals
 						Filters<Content>.Equals("CategoryID", @object.CategoryID),
 						Filters<Content>.LessThanOrEquals("StartDate", "@today"),
 						Filters<Content>.Or(
-							Filters<Content>.GreaterOrEquals("EndDate", "@today"),
-							Filters<Content>.IsNull("EndDate")
+							Filters<Content>.IsNull("EndDate"),
+							Filters<Content>.GreaterOrEquals("EndDate", "@today")
 						),
 						Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()),
 						Filters<Content>.LessThanOrEquals("PublishedTime", publishedTime)
@@ -698,9 +713,19 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// generate XML
-				data = XDocument.Parse("<Data/>");
-				data.Root.Add(@object.ToXml(false, language, xml =>
+				data = XElement.Parse("<Data/>");
+				data.Add(@object.ToXml(false, cultureInfo, xml =>
 				{
+					xml.Element("StartDate")?.UpdateDateTime(cultureInfo);
+					xml.Element("EndDate")?.UpdateDateTime(cultureInfo);
+
+					if (!string.IsNullOrWhiteSpace(@object.Tags))
+					{
+						var tagsXml = xml.Element("Tags");
+						tagsXml.Value = "";
+						@object.Tags.ToArray(",", true).ForEach(tag => tagsXml.Add(new XElement("Tag", tag)));
+					}
+
 					if (!string.IsNullOrWhiteSpace(@object.Summary))
 						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
 
@@ -713,14 +738,14 @@ namespace net.vieapps.Services.Portals
 					if (showThumbnails)
 					{
 						var thumbnails = new XElement("Thumbnails");
-						(thumbnailsTask.Result as JArray).ForEach(thumbnail => thumbnails.Add(new XElement("Thumbnail", thumbnail.Get<string>("URI"))));
+						(thumbnailsTask.Result as JArray)?.ForEach(thumbnail => thumbnails.Add(new XElement("Thumbnail", thumbnail.Get<string>("URI"))));
 						xml.Add(thumbnails);
 					}
 
 					if (showAttachments)
 					{
 						var attachments = new XElement("Attachments");
-						(attachmentsTask.Result as JArray).Select(attachment => new JObject
+						(attachmentsTask.Result as JArray)?.Select(attachment => new JObject
 						{
 							{ "Title", attachment["Title"] },
 							{ "Filename", attachment["Filename"] },
@@ -728,7 +753,7 @@ namespace net.vieapps.Services.Portals
 							{ "ContentType", attachment["ContentType"] },
 							{ "Downloads", attachment["Downloads"] },
 							{ "URIs", attachment["URIs"] }
-						}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment")));
+						}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment", x => x.Element("Size").UpdateNumber(false, cultureInfo))));
 						xml.Add(attachments);
 					}
 
@@ -739,7 +764,7 @@ namespace net.vieapps.Services.Portals
 						relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
 						{
 							var relatedXml = new XElement("Content", new XElement("ID", related.ID), new XElement("Title", related.Title), new XElement("Summary", related.Summary?.Replace("\r", "").Replace("\n", "<br/>")));
-							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value, new XAttribute("Short", related.PublishedTime.Value.ToString("hh:mm tt @ dd/MM/yyyy"))));
+							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value).UpdateDateTime(cultureInfo));
 							relatedXml.Add(new XElement("URL", $"~/{related.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{related.Category?.Alias ?? "-"}/{related.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
 							relatedsXml.Add(relatedXml);
 						});
@@ -749,7 +774,7 @@ namespace net.vieapps.Services.Portals
 						@object.ExternalRelateds?.ForEach(external => externalsXml.Add(external.ToXml(externalXml =>
 						{
 							if (!string.IsNullOrWhiteSpace(external.Summary))
-								externalXml.Element("Summary").Value = external.Summary?.Replace("\r", "").Replace("\n", "<br/>");
+								externalXml.Element("Summary").Value = external.Summary.Replace("\r", "").Replace("\n", "<br/>");
 						})));
 						xml.Add(externalsXml);
 					}
@@ -757,8 +782,12 @@ namespace net.vieapps.Services.Portals
 					if (showOthers)
 					{
 						var othersXml = new XElement("Others");
-						others.ForEach(other => othersXml.Add(other.ToXml(false, language, otherXml =>
+						others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
 						{
+							otherXml.Element("StartDate")?.UpdateDateTime(cultureInfo);
+							otherXml.Element("EndDate")?.UpdateDateTime(cultureInfo);
+							if (!string.IsNullOrWhiteSpace(other.Summary))
+								otherXml.Element("Summary").Value = other.Summary.Replace("\r", "").Replace("\n", "<br/>");
 							otherXml.Add(new XElement("URL", $"~/{other.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{other.Category?.Alias ?? "-"}/{other.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
 							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
 						})));

@@ -79,7 +79,7 @@ namespace net.vieapps.Services.Portals
 		public override string Title { get; set; }
 
 		[Property(MaxLength = 250)]
-		[Sortable(IndexName = "SubTitle")]
+		[Sortable(IndexName = "Title")]
 		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string SubTitle { get; set; }
@@ -89,6 +89,12 @@ namespace net.vieapps.Services.Portals
 		[Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Author { get; set; }
+
+		[Property(MaxLength = 250)]
+		[Sortable(IndexName = "Author")]
+		[Searchable]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
+		public string AuthorTitle { get; set; }
 
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Source")]

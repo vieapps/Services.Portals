@@ -93,6 +93,10 @@ namespace net.vieapps.Services.Portals
 				while (Utility.PortalsHttpURI.EndsWith("/"))
 					Utility.PortalsHttpURI = Utility.PortalsHttpURI.Left(Utility.PortalsHttpURI.Length - 1);
 
+				Utility.CmsPortalsHttpURI = this.GetHttpURI("CMSPortals", "https://cms.vieapps.net");
+				while (Utility.CmsPortalsHttpURI.EndsWith("/"))
+					Utility.CmsPortalsHttpURI = Utility.CmsPortalsHttpURI.Left(Utility.CmsPortalsHttpURI.Length - 1);
+
 				Utility.PassportsHttpURI = this.GetHttpURI("Passports", "https://id.vieapps.net");
 				while (Utility.PassportsHttpURI.EndsWith("/"))
 					Utility.PassportsHttpURI = Utility.PassportsHttpURI.Left(Utility.PassportsHttpURI.Length - 1);
@@ -108,13 +112,15 @@ namespace net.vieapps.Services.Portals
 
 				Task.Run(async () =>
 				{
+					// wait for a few times
+					await Task.Delay(UtilityService.GetRandomNumber(678, 789), this.CancellationTokenSource.Token).ConfigureAwait(false);
+
 					// get OEmbed providers
 					await this.GetOEmbedProvidersAsync(this.CancellationTokenSource.Token).ConfigureAwait(false);
 
 					// gathering definitions
 					try
 					{
-						await Task.Delay(UtilityService.GetRandomNumber(678, 789), this.CancellationTokenSource.Token).ConfigureAwait(false);
 						await this.SendInterCommunicateMessageAsync(new CommunicateMessage("CMS.Portals")
 						{
 							Type = "Definition#RequestInfo"
@@ -387,8 +393,8 @@ namespace net.vieapps.Services.Portals
 				{
 					var name = provider.Get<string>("name");
 					var urlPatterns = provider.Get<JArray>("schemes").Select(scheme => (scheme as JValue).Value.ToString()).Select(scheme => new Regex(scheme.Replace("*", "(.*)"), RegexOptions.IgnoreCase)).ToList();
-					var pattern = provider.Get<JObject>("pattern").Get<JObject>("api");
-					var idPattern = new Tuple<Regex, int>(new Regex(pattern.Get<string>("regex"), RegexOptions.IgnoreCase), pattern.Get<int>("position"));
+					var data = provider.Get<JObject>("pattern").Get<JObject>("api");
+					var idPattern = new Tuple<Regex, int>(new Regex(data.Get<string>("regex"), RegexOptions.IgnoreCase), data.Get<int>("position"));
 					var html = provider.Get<string>("html");
 					Utility.OEmbedProviders.Add(new Tuple<string, List<Regex>, Tuple<Regex, int>, string>(name, urlPatterns, idPattern, html));
 				});
@@ -1670,14 +1676,7 @@ namespace net.vieapps.Services.Portals
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate XHTML code of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 			}
 
-			// prepare meta tags
-			var metaTags = $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_assets/default.css\"/>"
-				+ $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/default.css\"/>";
-
-			var theme = desktop.WorkingTheme ?? "default";
-			if (!"default".IsEquals(theme))
-				metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{theme}.css\"/>";
-
+			// get main portlet and prepare SEO
 			var mainPortlet = !string.IsNullOrWhiteSpace(desktop.MainPortletID) && portletJSONs.ContainsKey(desktop.MainPortletID) ? portletJSONs[desktop.MainPortletID] : null;
 			var coverURI = mainPortlet?.Get<string>("CoverURI");
 			var metaInfo = mainPortlet?.Get<JArray>("MetaTags");
@@ -1864,51 +1863,64 @@ namespace net.vieapps.Services.Portals
 					keywords += (keywords != "" ? ", " : "") + keywordsOfSite;
 			}
 
-			var meta = "";
+			// start meta tags with information for SEO and social networks
+			var metaTags = "";
 
 			if (!string.IsNullOrWhiteSpace(description))
 			{
 				description = description.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;");
-				meta += $"<meta name=\"description\" property=\"og:description\" itemprop=\"description\" content=\"{description}\"/>";
+				metaTags += $"<meta name=\"description\" property=\"og:description\" itemprop=\"description\" content=\"{description}\"/>";
 			}
 
 			if (!string.IsNullOrWhiteSpace(keywords))
-				meta += $"<meta name=\"keywords\" content=\"{keywords.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}\"/>";
+				metaTags += $"<meta name=\"keywords\" content=\"{keywords.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}\"/>";
 
-			meta += $"<meta name=\"twitter:title\" property=\"og:title\" itemprop=\"headline\" content=\"{title}\"/>";
+			metaTags += $"<meta name=\"twitter:title\" property=\"og:title\" itemprop=\"headline\" content=\"{title}\"/>";
 			if (!string.IsNullOrWhiteSpace(description))
-				meta += $"<meta name=\"twitter:description\" content=\"{description}\"/>";
+				metaTags += $"<meta name=\"twitter:description\" content=\"{description}\"/>";
 
 			if (!string.IsNullOrWhiteSpace(coverURI))
-				meta += $"<meta name=\"twitter:image\" property=\"og:image\" itemprop=\"thumbnailUrl\" content=\"{coverURI}\"/>";
+				metaTags += $"<meta name=\"twitter:image\" property=\"og:image\" itemprop=\"thumbnailUrl\" content=\"{coverURI}\"/>";
 			if (!string.IsNullOrWhiteSpace(desktop.CoverURI))
-				meta += $"<meta name=\"twitter:image\" property=\"og:image\" itemprop=\"thumbnailUrl\" content=\"{desktop.CoverURI}\"/>";
+				metaTags += $"<meta name=\"twitter:image\" property=\"og:image\" itemprop=\"thumbnailUrl\" content=\"{desktop.CoverURI}\"/>";
 			if (!string.IsNullOrWhiteSpace(site.CoverURI))
-				meta += $"<meta name=\"twitter:image\" property=\"og:image\" itemprop=\"thumbnailUrl\" content=\"{site.CoverURI}\"/>";
+				metaTags += $"<meta name=\"twitter:image\" property=\"og:image\" itemprop=\"thumbnailUrl\" content=\"{site.CoverURI}\"/>";
 
 			if (!string.IsNullOrWhiteSpace(desktop.IconURI))
-				meta += $"<link rel=\"icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".icon") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>"
+				metaTags += $"<link rel=\"icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".icon") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>"
 					+ $"<link rel=\"shortcut icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".icon") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>";
 			if (!string.IsNullOrWhiteSpace(site.IconURI))
-				meta += $"<link rel=\"icon\" type=\"image/{(site.IconURI.IsEndsWith(".icon") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>"
+				metaTags += $"<link rel=\"icon\" type=\"image/{(site.IconURI.IsEndsWith(".icon") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>"
 					+ $"<link rel=\"shortcut icon\" type=\"image/{(site.IconURI.IsEndsWith(".icon") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>";
 
-			metaTags = meta + metaTags;
+			// add addtional meta tags of main portlet
 			metaInfo?.Select(m => (m as JValue).Value.ToString()).Where(m => !string.IsNullOrWhiteSpace(m)).ForEach(m => metaTags += m);
 
+			// add the required CSS libs
+			metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_assets/default.css\"/>"
+				+ $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/default.css\"/>";
+
+			// add the CSS of the current theme
+			var theme = desktop.WorkingTheme ?? "default";
+			if (!"default".IsEquals(theme))
+				metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{theme}.css\"/>";
+
+			// add site meta tags
 			if (!string.IsNullOrWhiteSpace(site.MetaTags))
 				metaTags += site.MetaTags;
 
+			// add desktop meta tags
 			if (!string.IsNullOrWhiteSpace(desktop.MetaTags))
 				metaTags += desktop.MetaTags;
 
+			// final => add the required scripts for working with HTTP front-end (jQuery - $)
 			metaTags += $"<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js\"></script>"
 				+ "<script>var $j=$;var __vieapps={"
-				+ $"id:'{organization.ID}',home:{(site.HomeDesktop != null ? $"'{site.HomeDesktop.Alias}'" : "undefined")},search:{(site.SearchDesktop != null ? $"'{site.SearchDesktop.Alias}'" : "undefined")},language:'{desktop.Language ?? site.Language ?? "vi-VN"}'"
+				+ $"root:'{requestURI.GetRootURL(organization.Alias, useRelativeURLs)}',home:{(site.HomeDesktop != null ? $"'{site.HomeDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}'" : "undefined")},search:{(site.SearchDesktop != null ? $"'{site.SearchDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}'" : "undefined")},language:'{desktop.Language ?? site.Language ?? "vi-VN"}'"
 				+ "};</script>";
 
 			// prepare scripts
-			var scripts = "";
+			var scripts = $"<script src=\"{Utility.PortalsHttpURI}/_assets/default.js\"></script>";
 			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", "default", "js"));
 			if (directory.Exists && this.AllowSrcResourceFiles)
 				await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
@@ -1931,12 +1943,11 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(desktop.Scripts))
 				scripts += desktop.Scripts;
 
-			// prepare desktop body
+			// prepare desktop zones
 			var desktopContainer = (await desktop.GetTemplateAsync(cancellationToken).ConfigureAwait(false)).GetXDocument();
 			var desktopZones = desktopContainer.GetZones().ToList();
-
 			if (writeDesktopLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Update portlets' XHTMLs into zone(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {desktopZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Prepare to update portlets' XHTMLs into zone(s) of the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}] => {desktopZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			var desktopZonesGotPortlet = desktop.Portlets.Select(portlet => portlet.Zone).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var removedZones = new List<XElement>();
@@ -1961,7 +1972,9 @@ namespace net.vieapps.Services.Portals
 			removedZones.ForEach(zone => desktopZones.Remove(zone));
 			var emptyElements = desktopContainer.Root.Elements().Where(element => element.IsEmpty).ToList();
 			emptyElements.ForEach(element => element.Remove());
-			desktopZones.Where(zone => zone.Parent.Elements().Count() == 1).ForEach(zone =>
+
+			// add css class '.full' to single zone to have full width
+			desktopZones.Where(zone => zone.Parent.Elements().Count() == 1).Where(zone => zone.Parent.Attribute("class") == null || !zone.Parent.Attribute("class").Value.IsContains("fixed")).ForEach(zone =>
 			{
 				var attribute = zone.Attributes().FirstOrDefault(attr => attr.Name.LocalName.IsEquals("class"));
 				if (attribute == null)
@@ -1970,6 +1983,7 @@ namespace net.vieapps.Services.Portals
 					attribute.Value = $"{attribute.Value.Trim()} full";
 			});
 
+			// prepare desktop body
 			var body = desktopContainer.ToString();
 			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{theme}}", theme);
 			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{skin}}", theme);

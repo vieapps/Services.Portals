@@ -70,6 +70,11 @@ namespace net.vieapps.Services.Portals
 		public static string PortalsHttpURI { get; internal set; }
 
 		/// <summary>
+		/// Gets the URI of the CMS Portals app
+		/// </summary>
+		public static string CmsPortalsHttpURI { get; internal set; }
+
+		/// <summary>
 		/// Gets the URI of the Passports HTTP service
 		/// </summary>
 		public static string PassportsHttpURI { get; internal set; }
@@ -421,19 +426,13 @@ namespace net.vieapps.Services.Portals
 		/// <param name="requestURI"></param>
 		/// <param name="systemIdentity"></param>
 		/// <param name="useRelativeURLs"></param>
-		/// <param name="trim"></param>
 		/// <returns></returns>
-		public static string GetRootURL(this Uri requestURI, string systemIdentity, bool useRelativeURLs = false, bool trim = true)
-		{
-			var absoluteHttpUri = requestURI.AbsoluteUri.Replace("https://", "http://");
-			var absoluteHttpsUri = requestURI.AbsoluteUri.Replace("http://", "https://");
-			var rootURL = useRelativeURLs
+		public static string GetRootURL(this Uri requestURI, string systemIdentity, bool useRelativeURLs = false)
+			=> useRelativeURLs
 				? "/"
-				: absoluteHttpUri.IsStartsWith(Utility.PortalsHttpURI) || absoluteHttpsUri.IsStartsWith(Utility.PortalsHttpURI)
+				: requestURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI) || requestURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI)
 					? $"{Utility.PortalsHttpURI}/~{systemIdentity}/"
 					: $"{requestURI.Scheme}://{requestURI.Host}/";
-			return trim ? rootURL.Replace(StringComparison.OrdinalIgnoreCase, "http://", "//").Replace(StringComparison.OrdinalIgnoreCase, "https://", "//") : rootURL;
-		}
 
 		/// <summary>
 		/// Normalizes all URLs of a html content
@@ -454,10 +453,7 @@ namespace net.vieapps.Services.Portals
 					html = html.Insert(html.PositionOf(">", html.PositionOf("<head") + 1), $"<base href=\"/~{systemIdentity}/\"/>");
 			}
 			else
-			{
-				var rootURL = requestURI.GetRootURL(systemIdentity, useRelativeURLs, false);
-				html = html.Replace(StringComparison.OrdinalIgnoreCase, Utility.FilesHttpURI + "/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, rootURL, "~/");
-			}
+				html = html.Replace(StringComparison.OrdinalIgnoreCase, Utility.FilesHttpURI + "/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, requestURI.GetRootURL(systemIdentity, useRelativeURLs), "~/");
 			return html;
 		}
 
@@ -502,9 +498,8 @@ namespace net.vieapps.Services.Portals
 				start = html.PositionOf("<oembed", start + 1);
 			}
 
-			return html;
+			return html.HtmlDecode();
 		}
-
 	}
 
 	//  --------------------------------------------------------------------------------------------

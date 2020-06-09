@@ -3,10 +3,11 @@ using System;
 using System.Linq;
 using System.Xml.Linq;
 using System.Dynamic;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -349,10 +350,11 @@ namespace net.vieapps.Services.Portals
 			var contentTypeID = requestJson.Get<JObject>("ContentType")?.Get<string>("ID");
 			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("Desktop") ?? requestJson.Get<string>("Desktop");
 			var pageNumber = requestJson.Get("PageNumber", 1);
+			var options = requestJson.Get("Options", new JObject());
 			var alwaysUseHtmlSuffix = requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true;
+			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
-			var language = requestJson.Get("Language", "vi-VN");
 
 			XDocument data;
 			JObject pagination, seoInfo, filterBy = null, sortBy = null;
@@ -401,7 +403,7 @@ namespace net.vieapps.Services.Portals
 
 				// search the matched objects
 				var pageSize = requestJson.Get("PageSize", 7);
-				var results = await requestInfo.SearchAsync(filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, requestJson.Get<JObject>("Options")?.Get<bool>("ShowThumbnail") ?? true).ConfigureAwait(false);
+				var results = await requestInfo.SearchAsync(filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, options.Get<bool>("ShowThumbnail", true)).ConfigureAwait(false);
 				var totalRecords = results.Item1;
 				var objects = results.Item2;
 				var thumbnails = results.Item3;
@@ -413,8 +415,10 @@ namespace net.vieapps.Services.Portals
 
 				// generate xml
 				data = XDocument.Parse("<Data/>");
-				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, language, xml =>
+				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, cultureInfo, xml =>
 				{
+					if (!string.IsNullOrWhiteSpace(@object.Summary))
+						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
 					xml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
 					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
 				})));
@@ -445,32 +449,104 @@ namespace net.vieapps.Services.Portals
 				if (!gotRights)
 					throw new AccessDeniedException();
 
+				var showThumbnails = options.Get<bool>("ShowThumbnail", options.Get<bool>("ShowThumbnails", false));
+				var showAttachments = options.Get<bool>("ShowAttachments", false);
+				var showOthers = options.Get<bool>("ShowOthers", false);
+
+				// get other contents
+				Task<List<Item>> newersTask, oldersTask;
+				if (showOthers)
+				{
+					var pageSize = options.Get<int>("NumberOfOthers", 10) / 2;
+
+					newersTask = Item.FindAsync(Filters<Item>.And(
+						Filters<Item>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
+						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
+						Filters<Item>.GreaterOrEquals("Created", @object.Created)
+					).Prepare(requestInfo), null, pageSize, 1, contentTypeID, null, cancellationToken);
+
+					oldersTask = Item.FindAsync(Filters<Item>.And(
+						Filters<Item>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
+						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
+						Filters<Item>.LessThanOrEquals("Created", @object.Created)
+					).Prepare(requestInfo), null, pageSize, 1, contentTypeID, null, cancellationToken);
+				}
+				else
+				{
+					newersTask = Task.FromResult(new List<Item>());
+					oldersTask = Task.FromResult(new List<Item>());
+				}
+
 				// get files
-				var thumbnailsTask = requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey);
-				var attachmentsTask = requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey);
-				await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+				var thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey) : Task.FromResult<JToken>(new JArray());
+				var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey) : Task.FromResult<JToken>(new JArray());
+
+				// wait for all tasks are completed
+				await Task.WhenAll(newersTask, oldersTask, thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+
+				var others = new List<Item>();
+				JToken otherThumbnails = null;
+				if (showOthers)
+				{
+					newersTask.Result.ForEach(other => others.Add(other));
+					oldersTask.Result.ForEach(other => others.Add(other));
+					others = others.Where(other => other.ID != @object.ID).OrderByDescending(other => other.Created).ToList();
+					requestInfo.Header["x-as-attachments"] = "true";
+					otherThumbnails = others.Count < 1
+						? null
+						: others.Count == 1
+							? await requestInfo.GetThumbnailsAsync(others[0].ID, others[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
+							: await requestInfo.GetThumbnailsAsync(others.Select(obj => obj.ID).Join(","), others.ToJObject("ID", obj => new JValue(obj.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+				}
 
 				// generate XML
 				data = XDocument.Parse("<Data/>");
-				data.Root.Add(@object.ToXml(false, language, xml =>
+				data.Root.Add(@object.ToXml(false, cultureInfo, xml =>
 				{
+					if (!string.IsNullOrWhiteSpace(@object.Tags))
+					{
+						var tagsXml = xml.Element("Tags");
+						tagsXml.Value = "";
+						@object.Tags.ToArray(",", true).ForEach(tag => tagsXml.Add(new XElement("Tag", tag)));
+					}
+
+					if (!string.IsNullOrWhiteSpace(@object.Summary))
+						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
+
 					xml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
 
-					var thumbnails = new XElement("Thumbnails");
-					(thumbnailsTask.Result as JArray).ForEach(thumbnail => thumbnails.Add(new XElement("Thumbnail", thumbnail.Get<string>("URI"))));
-					xml.Add(thumbnails);
-
-					var attachments = new XElement("Attachments");
-					(attachmentsTask.Result as JArray).Select(attachment => new JObject
+					if (showThumbnails)
 					{
-						{ "Title", attachment["Title"] },
-						{ "Filename", attachment["Filename"] },
-						{ "Size", attachment["Size"] },
-						{ "ContentType", attachment["ContentType"] },
-						{ "Downloads", attachment["Downloads"] },
-						{ "URIs", attachment["URIs"] }
-					}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment")));
-					xml.Add(attachments);
+						var thumbnails = new XElement("Thumbnails");
+						(thumbnailsTask.Result as JArray)?.ForEach(thumbnail => thumbnails.Add(new XElement("Thumbnail", thumbnail.Get<string>("URI"))));
+						xml.Add(thumbnails);
+					}
+
+					if (showAttachments)
+					{
+						var attachments = new XElement("Attachments");
+						(attachmentsTask.Result as JArray)?.Select(attachment => new JObject
+						{
+							{ "Title", attachment["Title"] },
+							{ "Filename", attachment["Filename"] },
+							{ "Size", attachment["Size"] },
+							{ "ContentType", attachment["ContentType"] },
+							{ "Downloads", attachment["Downloads"] },
+							{ "URIs", attachment["URIs"] }
+						}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment", x => x.Element("Size").UpdateNumber(false, cultureInfo))));
+						xml.Add(attachments);
+					}
+
+					if (showOthers)
+					{
+						var othersXml = new XElement("Others");
+						others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
+						{
+							otherXml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{other.ContentType?.Title.GetANSIUri() ?? "-"}/{other.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
+						})));
+						xml.Add(othersXml);
+					}
 				}));
 
 				// build others
