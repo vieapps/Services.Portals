@@ -136,12 +136,6 @@ namespace net.vieapps.Services.Portals
 		public override Privileges WorkingPrivileges => this.OriginalPrivileges ?? new Privileges(true);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<Site> Sites => SiteProcessor.Sites.Values.Where(site => site.SystemID.IsEquals(this.ID)).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ToList();
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Site DefaultSite => this.Sites.FirstOrDefault();
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop DefaultDesktop => this.HomeDesktop ?? DesktopProcessor.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -182,6 +176,32 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, BsonIgnore, XmlIgnore]
 		public List<Settings.HttpIndicator> HttpIndicators { get; set; }
+
+		internal List<string> _siteIDs = null;
+
+		internal List<Site> FindSites(List<Site> sites = null, bool notifyPropertyChanged = true)
+		{
+			if (this._siteIDs == null)
+			{
+				sites = sites ?? (this.SystemID ?? "").FindSites();
+				this._siteIDs = sites.Where(site => site != null).Select(site => site.ID).ToList();
+				if (notifyPropertyChanged)
+					this.NotifyPropertyChanged("Sites");
+				return sites;
+			}
+			return this._siteIDs.Select(id => id.GetSiteByID(false, false)).Where(site => site != null).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
+		}
+
+		internal async Task<List<Site>> FindSitesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+			=> this._siteIDs == null
+				? this.FindSites(await (this.SystemID ?? "").FindSitesAsync(cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
+				: this._siteIDs.Select(id => id.GetSiteByID(false, false)).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<Site> Sites => this.FindSites();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public Site DefaultSite => this.Sites.FirstOrDefault();
 
 		internal List<string> _moduleIDs;
 
@@ -278,8 +298,8 @@ namespace net.vieapps.Services.Portals
 				if (name.IsEquals("RedirectUrls"))
 					this.PrepareRedirectAddresses();
 			}
-			else if (name.IsEquals("Modules"))
-				this.Set(true);
+			else if (name.IsEquals("Modules") || name.IsEquals("Sites"))
+				this.Set(false, true);
 		}
 
 		List<Tuple<string, string>> _redirectAddresses;
