@@ -7,17 +7,17 @@ using System.Xml.Linq;
 using System.Xml.XPath;
 using System.Xml.Xsl;
 using System.Dynamic;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using Microsoft.AspNetCore.StaticFiles;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Exceptions;
-using System.Text.RegularExpressions;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -216,7 +216,7 @@ namespace net.vieapps.Services.Portals
 					(requiredZoneIDs ?? new[] { "Content" }).ForEach(zoneID =>
 					{
 						if (!zoneIDs.Contains(zoneID))
-							throw new TemplateIsInvalidException($"The template is required a zone that identitied as '{zoneID}' but not found");
+							throw new TemplateIsInvalidException($"The template is required a zone that identified as '{zoneID}' but not found");
 					});
 				}
 				catch (Exception ex)
@@ -400,73 +400,35 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		internal static string GetThumbnailURL(this JToken thumbnails, string objectID)
-		{
-			var thumbnailImages = thumbnails != null
+		internal static JArray GetThumbnails(this JToken thumbnails, string objectID)
+			=> thumbnails != null
 				? thumbnails is JArray
 					? thumbnails as JArray
 					: (thumbnails[$"@{@objectID}"] ?? thumbnails[objectID]) as JArray
 				: null;
-			return thumbnailImages?.FirstOrDefault()?.Get<JObject>("URIs")?.Get<string>("Direct");
-		}
 
-		internal static Cache GetDesktopHtmlCache(this Organization organization)
+		internal static string GetThumbnailURL(this JToken thumbnails, string objectID)
+			=> thumbnails?.GetThumbnails(objectID)?.FirstOrDefault()?.Get<JObject>("URIs")?.Get<string>("Direct");
+
+		internal static Cache GetCacheOfDesktopHTML(this Organization organization)
 		{
-			if (!Utility.DesktopHtmlCaches.TryGetValue(organization.Alias, out var cache))
+			if (!Utility.DesktopHtmlCaches.TryGetValue(organization.ID, out var cache))
 			{
-				cache = new Cache($"VIEApps-Portals-Desktops-{organization.Alias.GetCapitalizedFirstLetter()}", organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval - 2 : Utility.Cache.ExpirationTime / 2, true, Logger.GetLoggerFactory());
-				Utility.DesktopHtmlCaches[organization.Alias] = cache;
+				cache = new Cache($"VIEApps-Services-Portals-Desktops-{organization.ID}", organization.RefreshUrls != null && organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval - 2 : Utility.Cache.ExpirationTime / 2, true, Logger.GetLoggerFactory());
+				Utility.DesktopHtmlCaches[organization.ID] = cache;
 			}
 			return cache;
 		}
 
 		/// <summary>
-		/// Gets the root URL for working with an organizations' resources
-		/// </summary>
-		/// <param name="requestURI"></param>
-		/// <param name="systemIdentity"></param>
-		/// <param name="useRelativeURLs"></param>
-		/// <returns></returns>
-		public static string GetRootURL(this Uri requestURI, string systemIdentity, bool useRelativeURLs = false)
-			=> useRelativeURLs
-				? requestURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI) || requestURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI)
-					? ""
-					: "/"
-				: requestURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI) || requestURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI)
-					? $"{Utility.PortalsHttpURI}/~{systemIdentity}/"
-					: $"{requestURI.Scheme}://{requestURI.Host}/";
-
-		/// <summary>
-		/// Normalizes all URLs of a html content
-		/// </summary>
-		/// <param name="html"></param>
-		/// <param name="requestURI"></param>
-		/// <param name="systemIdentity"></param>
-		/// <param name="useRelativeURLs"></param>
-		/// <param name="forDisplaying"></param>
-		/// <returns></returns>
-		public static string NormalizeURLs(this string html, Uri requestURI, string systemIdentity, bool useRelativeURLs = false, bool forDisplaying = true)
-		{
-			if (forDisplaying)
-			{
-				if (useRelativeURLs && (requestURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI) || requestURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI)))
-					html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{Utility.PortalsHttpURI}/~{systemIdentity}/\"/>");
-				var rootURL = requestURI.GetRootURL(systemIdentity, useRelativeURLs);
-				return html.Replace("~~~/", rootURL).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~/", rootURL);
-			}
-			else
-				return html.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, requestURI.GetRootURL(systemIdentity), "~/");
-		}
-
-		/// <summary>
-		/// Normalizes the rich-html contents
+		/// Normalizes the HTML contents
 		/// </summary>
 		/// <param name="html"></param>
 		/// <returns></returns>
-		public static string NormalizeRichHtml(this string html)
+		public static string NormalizeHTML(this string html)
 		{
 			if (string.IsNullOrWhiteSpace(html))
-				return "";
+				return null;
 
 			// paragraphs of CKEditor5
 			html = html.Replace("<p style=\"margin-left:0px;\"", "<p");
@@ -500,6 +462,233 @@ namespace net.vieapps.Services.Portals
 			}
 
 			return html.HtmlDecode();
+		}
+
+		/// <summary>
+		/// Gets the state that determines the URI is belong to Portals HTTP service or not
+		/// </summary>
+		/// <param name="baseURI"></param>
+		/// <returns></returns>
+		public static bool IsAPIsHttpURI(this Uri baseURI)
+			=> baseURI != null && (baseURI.AbsoluteUri.IsStartsWith(Utility.APIsHttpURI) || baseURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.APIsHttpURI) || baseURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.APIsHttpURI));
+
+		/// <summary>
+		/// Gets the state that determines the URI is belong to Portals HTTP service or not
+		/// </summary>
+		/// <param name="baseURI"></param>
+		/// <returns></returns>
+		public static bool IsPortalsHttpURI(this Uri baseURI)
+			=> baseURI != null && (baseURI.AbsoluteUri.IsStartsWith(Utility.PortalsHttpURI) || baseURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI) || baseURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI));
+
+		/// <summary>
+		/// Gets the root URL for working with an organizations' resources
+		/// </summary>
+		/// <param name="baseURI"></param>
+		/// <param name="systemIdentity"></param>
+		/// <param name="useRelativeURLs"></param>
+		/// <returns></returns>
+		public static string GetRootURL(this Uri baseURI, string systemIdentity, bool useRelativeURLs = false)
+			=> useRelativeURLs
+				? baseURI.IsPortalsHttpURI() ? "" : "/"
+				: baseURI.IsPortalsHttpURI() ? $"{Utility.PortalsHttpURI}/~{systemIdentity}/" : $"{baseURI.Scheme}://{baseURI.Host}/";
+
+		/// <summary>
+		/// Normalizes all URLs of a HTML content
+		/// </summary>
+		/// <param name="html"></param>
+		/// <param name="rootURL"></param>
+		/// <param name="forDisplaying"></param>
+		/// <returns></returns>
+		public static string NormalizeURLs(this string html, string rootURL, bool forDisplaying = true)
+			=> !string.IsNullOrWhiteSpace(html)
+				? forDisplaying
+					? html.Replace("~~~/", rootURL).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~/", rootURL)
+					: html.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, rootURL, "~/")
+				: null;
+
+		/// <summary>
+		/// Normalizes all URLs of a HTML content
+		/// </summary>
+		/// <param name="html"></param>
+		/// <param name="requestURI"></param>
+		/// <param name="systemIdentity"></param>
+		/// <param name="useRelativeURLs"></param>
+		/// <param name="forDisplaying"></param>
+		/// <returns></returns>
+		public static string NormalizeURLs(this string html, Uri requestURI, string systemIdentity, bool useRelativeURLs = true, bool forDisplaying = true)
+		{
+			if (string.IsNullOrWhiteSpace(html))
+				return null;
+			html = html.NormalizeURLs(forDisplaying ? requestURI.GetRootURL(systemIdentity, useRelativeURLs) : requestURI.GetRootURL(systemIdentity), forDisplaying);
+			if (forDisplaying && useRelativeURLs && requestURI.IsPortalsHttpURI())
+				html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{Utility.PortalsHttpURI}/~{systemIdentity}/\"/>");
+			return html;
+		}
+
+		/// <summary>
+		/// Normalizes all URLs of a HTML content
+		/// </summary>
+		/// <param name="organization"></param>
+		/// <param name="html"></param>
+		/// <param name="forDisplaying"></param>
+		/// <returns></returns>
+		public static string NormalizeURLs(this Organization organization, string html, bool forDisplaying = true)
+		{
+			if (string.IsNullOrWhiteSpace(html))
+				return null;
+
+			if (organization == null)
+				return html;
+
+			if (forDisplaying)
+				return html.NormalizeURLs(new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false));
+
+			var domains = new List<string>();
+			organization.Sites.ForEach(site =>
+			{
+				domains.Add($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www."));
+				domains.Add($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", ""));
+				site.OtherDomains?.ToList(";").ForEach(domain =>
+				{
+					domains.Add(domain);
+					if (domain.IsStartsWith("www."))
+						domains.Add(domain.Replace("www.", ""));
+				});
+			});
+
+			new[] { new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false) }
+				.Concat(domains.Select(domain => $"http://{domain}/"))
+				.Concat(domains.Select(domain => $"https://{domain}/"))
+				.ForEach(rootURL => html = html.NormalizeURLs(rootURL, false));
+			return html;
+		}
+
+		/// <summary>
+		/// Gets the cache key prefix for working with collection of objects
+		/// </summary>
+		/// <param name="requestJson"></param>
+		/// <returns></returns>
+		public static string GetCacheKeyPrefix(this JToken requestJson)
+		{
+			var expressionID = requestJson.Get<JObject>("Expression")?.Get<string>("ID");
+			if (!string.IsNullOrWhiteSpace(expressionID))
+			{
+				var parentIdentity = requestJson.Get("IsAutoPageNumber", false) ?  requestJson.Get<string>("ParentIdentity") : null;
+				return $"#exp:{expressionID}{(string.IsNullOrWhiteSpace(parentIdentity) ? "" : $"~{parentIdentity}")}";
+			}
+			return null;
+		}
+
+		/// <summary>
+		/// Gets the cache key prefix for working with collection of objects
+		/// </summary>
+		/// <param name="expression"></param>
+		/// <param name="parentIdentity"></param>
+		/// <returns></returns>
+		public static string GetCacheKeyPrefix(this Expression expression, string parentIdentity = null)
+			=> $"#exp:{expression.ID}{(string.IsNullOrWhiteSpace(parentIdentity) ? "" : $"~{parentIdentity.Trim().ToLower()}")}";
+
+		/// <summary>
+		/// Sets cache of page-size (to clear related cached further)
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="filter"></param>
+		/// <param name="sort"></param>
+		/// <param name="cacheKeyPrefix"></param>
+		/// <param name="pageSize"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static async Task<string> SetCacheOfPageSizeAsync<T>(IFilterBy<T> filter, SortBy<T> sort, string cacheKeyPrefix, int pageSize, CancellationToken cancellationToken = default) where T : class
+		{
+			var cacheKey = $"{(string.IsNullOrWhiteSpace(cacheKeyPrefix) ? Extensions.GetCacheKey(filter, sort) : Extensions.GetCacheKey<T>(cacheKeyPrefix))}:size";
+			await Utility.Cache.SetAsync(cacheKey, pageSize, cancellationToken).ConfigureAwait(false);
+			return cacheKey;
+		}
+
+		/// <summary>
+		/// Sends the request to clear related cached of collecion of objects of a content type
+		/// </summary>
+		/// <param name="rtuService"></param>
+		/// <param name="contentTypeID"></param>
+		/// <param name="keyPrefix"></param>
+		/// <param name="parentIdentities"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static Task SendClearCacheRequestAsync(this IRTUService rtuService, string contentTypeID, string keyPrefix, IEnumerable<string> parentIdentities = null, CancellationToken cancellationToken = default)
+			=> rtuService == null || string.IsNullOrWhiteSpace(contentTypeID) || string.IsNullOrWhiteSpace(keyPrefix)
+				? Task.CompletedTask
+				: rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage("CMS.Portals")
+				{
+					Type = "Cache#Clear",
+					Data = new JObject
+					{
+						{ "ContentTypeID", contentTypeID },
+						{ "KeyPrefix", keyPrefix },
+						{ "ParentIdentities", parentIdentities?.Where(parentIdentity => !string.IsNullOrWhiteSpace(parentIdentity)).Distinct(StringComparer.OrdinalIgnoreCase).ToJArray() }
+					}
+				}, cancellationToken);
+
+		/// <summary>
+		/// Sends the request to clear related cached of collecion of objects of a content type
+		/// </summary>
+		/// <param name="rtuService"></param>
+		/// <param name="contentTypeID"></param>
+		/// <param name="keyPrefix"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static Task SendClearCacheRequestAsync(this IRTUService rtuService, string contentTypeID, string keyPrefix, CancellationToken cancellationToken = default)
+			=> rtuService.SendClearCacheRequestAsync(contentTypeID, keyPrefix, null, cancellationToken);
+
+		/// <summary>
+		/// Clears the related cached of collecion of objects of a content type
+		/// </summary>
+		/// <param name="contentType"></param>
+		/// <param name="cacheKeyPrefix"></param>
+		/// <param name="parentIdentities"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static async Task ClearCacheAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
+		{
+			var contentType = await message.Data.Get("ContentTypeID", "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			var keyPrefix = message.Data.Get<string>("KeyPrefix");
+			if (contentType == null || string.IsNullOrWhiteSpace(keyPrefix))
+				return;
+
+			var parentIdentities = message.Data.Get<JArray>("ParentIdentities")?.Select(identity => identity as JValue).Where(identity => identity != null && identity.Value != null).Select(identity => identity.Value.ToString()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var expressions = ExpressionProcessor.Expressions.Values.Where(expression => contentType.ID.IsEquals(expression.RepositoryEntityID)).ToList();
+
+			await expressions.ForEachAsync(async (expression, ctoken1) =>
+			{
+				var simpleKey = $"{keyPrefix}{expression.GetCacheKeyPrefix()}";
+				await Task.WhenAll
+				(
+					Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(simpleKey, await Utility.Cache.ExistsAsync($"{simpleKey}:size", cancellationToken).ConfigureAwait(false) ? await Utility.Cache.GetAsync<int>($"{simpleKey}:size", cancellationToken).ConfigureAwait(false) : 7), null, cancellationToken),
+					parentIdentities == null ? Task.CompletedTask : parentIdentities.ForEachAsync(async (parentIdentity, ctoken2) =>
+					{
+						var complexKey = $"{keyPrefix}{expression.GetCacheKeyPrefix(parentIdentity)}";
+						await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(complexKey, await Utility.Cache.ExistsAsync($"{complexKey}:size", cancellationToken).ConfigureAwait(false) ? await Utility.Cache.GetAsync<int>($"{complexKey}:size", cancellationToken).ConfigureAwait(false) : 7), null, cancellationToken).ConfigureAwait(false);
+					}, cancellationToken)
+				).ConfigureAwait(false);
+			}, cancellationToken).ConfigureAwait(false);
+		}
+
+		/// <summary>
+		/// Gets the time with quater
+		/// </summary>
+		/// <param name="time"></param>
+		/// <returns></returns>
+		public static DateTime GetTimeQuater(this DateTime time)
+		{
+			var timeQuater = time.ToString("yyyy/MM/dd HH:");
+			if (time.Minute > 44)
+				timeQuater += "45:00";
+			else if (time.Minute > 29)
+				timeQuater += "30:00";
+			else if (time.Minute > 24)
+				timeQuater += "15:00";
+			else
+				timeQuater += "00:00";
+			return DateTime.Parse(timeQuater);
 		}
 	}
 
