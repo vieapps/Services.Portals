@@ -40,16 +40,16 @@ namespace net.vieapps.Services.Portals
 		public string AlternativeAction { get; set; }
 
 		[Property(MaxLength = 32)]
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "Desktop")]
 		[FormControl(Segment = "common", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public string DesktopID { get; set; }
 
 		[Property(MaxLength = 100)]
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "Desktop")]
 		[FormControl(Segment = "common", ControlType = "Select", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public string Zone { get; set; }
 
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "Desktop")]
 		[FormControl(Hidden = true)]
 		public int OrderIndex { get; set; } = 0;
 
@@ -59,13 +59,18 @@ namespace net.vieapps.Services.Portals
 		public override string RepositoryEntityID { get; set; }
 
 		[Property(MaxLength = 32)]
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "Desktop")]
 		[FormControl(Segment = "common", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public string OriginalPortletID { get; set; }
 
 		[AsJson]
 		[FormControl(Segment = "common", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public Portlets.CommonSettings CommonSettings { get; set; }
+
+		[Property(MaxLength = 32)]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Segment = "list", ControlType = "Lookup", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
+		public string ExpressionID { get; set; }
 
 		[AsJson]
 		[FormControl(Segment = "list", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
@@ -160,6 +165,7 @@ namespace net.vieapps.Services.Portals
 
 			this.CommonSettings?.Normalize(settings => (settings.Template ?? "").ValidateTemplate());
 
+			this.ExpressionID = string.IsNullOrWhiteSpace(this.ExpressionID) ? null : this.ExpressionID;
 			this.ListSettings?.Normalize(settings =>
 			{
 				try
