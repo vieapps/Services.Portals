@@ -1,10 +1,11 @@
 ﻿using System;
+using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Portals.Portlets
 {
-	[Serializable]
+	[Serializable, BsonIgnoreExtraElements]
 	public class CommonSettings
 	{
 		public CommonSettings() { }
@@ -37,16 +38,13 @@ namespace net.vieapps.Services.Portals.Portlets
 		}
 	}
 
-	[Serializable]
+	[Serializable, BsonIgnoreExtraElements]
 	public class ListSettings
 	{
 		public ListSettings() { }
 
 		[FormControl(ControlType = "TextArea")]
 		public string Template { get; set; }
-
-		[FormControl(ControlType = "Lookup")]
-		public string ExpressionID { get; set; }
 
 		public int PageSize { get; set; } = 7;
 
@@ -62,13 +60,12 @@ namespace net.vieapps.Services.Portals.Portlets
 		public void Normalize(Action<ListSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
-			this.ExpressionID = string.IsNullOrWhiteSpace(this.ExpressionID) ? null : this.ExpressionID;
 			this.Options = string.IsNullOrWhiteSpace(this.Options) ? null : this.Options.Trim();
 			onCompleted?.Invoke(this);
 		}
 	}
 
-	[Serializable]
+	[Serializable, BsonIgnoreExtraElements]
 	public class ViewSettings
 	{
 		public ViewSettings() { }
@@ -91,7 +88,7 @@ namespace net.vieapps.Services.Portals.Portlets
 		}
 	}
 
-	[Serializable]
+	[Serializable, BsonIgnoreExtraElements]
 	public class PaginationSettings
 	{
 		public PaginationSettings() { }
@@ -117,7 +114,7 @@ namespace net.vieapps.Services.Portals.Portlets
 		}
 	}
 
-	[Serializable]
+	[Serializable, BsonIgnoreExtraElements]
 	public class BreadcrumbSettings
 	{
 		public BreadcrumbSettings() { }
