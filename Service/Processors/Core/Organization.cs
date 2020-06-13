@@ -140,7 +140,17 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var organization = message.Data.Get("ID", "").GetOrganizationByID(false, false);
-				await (organization == null ? message.Data.ToExpandoObject().CreateOrganizationInstance() : organization.UpdateOrganizationInstance(message.Data.ToExpandoObject())).SetAsync(true, false, cancellationToken).ConfigureAwait(false);
+				if (organization == null)
+					organization = message.Data.ToExpandoObject().CreateOrganizationInstance();
+				else
+					organization.UpdateOrganizationInstance(message.Data.ToExpandoObject());
+
+				organization._siteIDs = organization._moduleIDs = null;
+				await Task.WhenAll(
+					organization.FindSitesAsync(cancellationToken, false),
+					organization.FindModulesAsync(cancellationToken, false)
+				).ConfigureAwait(false);
+				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
@@ -253,6 +263,8 @@ namespace net.vieapps.Services.Portals
 				obj.NormalizeExtras();
 			});
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
+
+			// update cache
 			await Task.WhenAll(
 				organization.ClearRelatedCache(cancellationToken),
 				organization.SetAsync(false, false, cancellationToken)
@@ -294,11 +306,18 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// get modules
-			if (organization._moduleIDs == null)
+			// get site & modules
+			if (organization._siteIDs == null || organization._moduleIDs == null)
 			{
-				await organization.FindModulesAsync(cancellationToken).ConfigureAwait(false);
-				await organization.Modules.ForEachAsync(async (module, token) => await (module._contentTypeIDs == null ? module.FindContentTypesAsync(token) : Task.CompletedTask).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
+				if (organization._siteIDs == null)
+					await organization.FindSitesAsync(cancellationToken, false).ConfigureAwait(false);
+
+				if (organization._moduleIDs == null)
+				{
+					await organization.FindModulesAsync(cancellationToken).ConfigureAwait(false);
+					await organization.Modules.ForEachAsync(async (module, token) => await (module._contentTypeIDs == null ? module.FindContentTypesAsync(token) : Task.CompletedTask).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
+				}
+
 				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
@@ -347,6 +366,8 @@ namespace net.vieapps.Services.Portals
 				obj.NormalizeExtras();
 			});
 			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
+			// update cache
 			await Task.WhenAll(
 				organization.ClearRelatedCache(cancellationToken),
 				organization.SetAsync(false, false, cancellationToken)

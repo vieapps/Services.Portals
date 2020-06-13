@@ -188,14 +188,25 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var desktop = message.Data.Get("ID", "").GetDesktopByID(false, false);
-				await (desktop == null ? message.Data.ToExpandoObject().CreateDesktopInstance() : desktop.UpdateDesktopInstance(message.Data.ToExpandoObject())).SetAsync(true, false, cancellationToken).ConfigureAwait(false);
+				if (desktop == null)
+					desktop = message.Data.ToExpandoObject().CreateDesktopInstance();
+				else
+					desktop.UpdateDesktopInstance(message.Data.ToExpandoObject());
+				desktop._portlets = null;
+				desktop._childrenIDs = null;
+				await Task.WhenAll(
+					desktop.FindPortletsAsync(cancellationToken, false),
+					desktop.FindChildrenAsync(cancellationToken, false)
+				).ConfigureAwait(false);
+				await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async (portlet, token) => portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, token).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateDesktopInstance().Remove();
 		}
 
-		static Task ClearRelatedCache(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default)
+		static Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default)
 		{
 			var tasks = new List<Task> { Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(null), Sorts<Desktop>.Ascending("Title")), cancellationToken) };
 			if (!string.IsNullOrWhiteSpace(desktop.ParentID) && desktop.ParentID.IsValidUUID())
@@ -213,16 +224,16 @@ namespace net.vieapps.Services.Portals
 			var query = request.Get<string>("FilterBy.Query");
 
 			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Desktop>() ?? Filters<Desktop>.And();
-			if (filter is FilterBys<Desktop>)
+			if (filter is FilterBys<Desktop> filterBy)
 			{
 				if (!string.IsNullOrWhiteSpace(query))
 				{
-					var index = (filter as FilterBys<Desktop>).Children.FindIndex(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("ParentID"));
-					if (index > -1)
-						(filter as FilterBys<Desktop>).Children.RemoveAt(index);
+					var filterByParent = filterBy.GetChild("ParentID");
+					if (filterByParent != null)
+						filterBy.Children.Remove(filterByParent);
 				}
-				else if ((filter as FilterBys<Desktop>).Children.FirstOrDefault(exp => (exp as FilterBy<Desktop>).Attribute.IsEquals("ParentID")) == null)
-					(filter as FilterBys<Desktop>).Children.Add(Filters<Desktop>.IsNull("ParentID"));
+				else if (filterBy.GetChild("ParentID") == null)
+					filterBy.Children.Add(Filters<Desktop>.IsNull("ParentID"));
 			}
 
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Desktop>() ?? Sorts<Desktop>.Ascending("Title") : null;
@@ -333,7 +344,7 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				Desktop.CreateAsync(desktop, cancellationToken),
-				desktop.ClearRelatedCache(null, cancellationToken),
+				desktop.ClearRelatedCacheAsync(null, cancellationToken),
 				desktop.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
 
@@ -482,7 +493,7 @@ namespace net.vieapps.Services.Portals
 				Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken),
 				desktop.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
-			await desktop.ClearRelatedCache(oldParentID, cancellationToken).ConfigureAwait(false);
+			await desktop.ClearRelatedCacheAsync(oldParentID, cancellationToken).ConfigureAwait(false);
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -624,7 +635,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await desktop.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
+			await desktop.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
 			desktop.Remove();
 
 			// message to update to all other connected clients

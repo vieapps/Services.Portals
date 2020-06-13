@@ -188,6 +188,32 @@ namespace net.vieapps.Services.Portals
 		public static Task<Site> GetSiteByDomainAsync(this string domain, CancellationToken cancellationToken)
 			=> (domain ?? "").GetSiteByDomainAsync(null, cancellationToken);
 
+		public static List<Site> FindSites(this string systemID)
+		{
+			if (string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID())
+				return new List<Site>();
+
+			var filter = Filters<Site>.And(Filters<Site>.Equals("SystemID", systemID));
+			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
+			var sites = Site.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort));
+			sites.ForEach(site => site.Set());
+
+			return sites;
+		}
+
+		public static async Task<List<Site>> FindSitesAsync(this string systemID, CancellationToken cancellationToken = default)
+		{
+			if (string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID())
+				return new List<Site>();
+
+			var filter = Filters<Site>.And(Filters<Site>.Equals("SystemID", systemID));
+			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
+			var sites = await Site.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
+			await sites.ForEachAsync(async (site, token) => await site.SetAsync(false, true, token).ConfigureAwait(false), cancellationToken, true).ConfigureAwait(false);
+
+			return sites;
+		}
+
 		internal static async Task ProcessInterCommunicateMessageOfSiteAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
@@ -204,11 +230,16 @@ namespace net.vieapps.Services.Portals
 		}
 
 		static Task ClearRelatedCache(this Site site, CancellationToken cancellationToken = default)
-			=> Task.WhenAll
+		{
+			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
+			return Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")), cancellationToken)
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), sort), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), sort), cancellationToken)
 			);
+		}
 
 		internal static async Task<JObject> SearchSitesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -319,11 +350,19 @@ namespace net.vieapps.Services.Portals
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
 			});
+			await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
+
+			// update cache
 			await Task.WhenAll(
-				Site.CreateAsync(site, cancellationToken),
 				site.ClearRelatedCache(cancellationToken),
 				site.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
+
+			// update organization
+			if (organization._siteIDs == null)
+				await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false);
+			organization._siteIDs.Add(site.ID);
+			await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
 			var response = site.ToJson();
@@ -340,6 +379,12 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{objectName}#Create",
 					Data = response,
+					ExcludedNodeID = nodeID
+				}, cancellationToken),
+				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{organization.GetTypeName(true)}#Update",
+					Data = organization.ToJson(),
 					ExcludedNodeID = nodeID
 				}, cancellationToken)
 			).ConfigureAwait(false);
@@ -368,7 +413,7 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "ID", site.ID },
 					{ "Title", site.Title },
-					{ "Domain", (site.SubDomain.Equals("*") ? "" : site.SubDomain + ".") + site.PrimaryDomain }
+					{ "Domain", $"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.") }
 				};
 
 			// send update message and response
@@ -415,8 +460,10 @@ namespace net.vieapps.Services.Portals
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
 			});
+			await Site.UpdateAsync(site, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
+			// update cache
 			await Task.WhenAll(
-				Site.UpdateAsync(site, requestInfo.Session.User.ID, cancellationToken),
 				site.ClearRelatedCache(cancellationToken),
 				site.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
@@ -460,8 +507,16 @@ namespace net.vieapps.Services.Portals
 
 			// delete
 			await Site.DeleteAsync<Site>(site.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
+			// update cache
 			site.Remove();
 			await site.ClearRelatedCache(cancellationToken).ConfigureAwait(false);
+			var organization = site.Organization;
+			if (organization._siteIDs != null)
+			{
+				organization._siteIDs.Remove(site.ID);
+				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update messages
 			var response = site.ToJson();
@@ -478,6 +533,12 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{objectName}#Delete",
 					Data = response,
+					ExcludedNodeID = nodeID
+				}, cancellationToken),
+				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{site.Organization.GetTypeName(true)}#Update",
+					Data = site.Organization.ToJson(),
 					ExcludedNodeID = nodeID
 				}, cancellationToken)
 			).ConfigureAwait(false);
