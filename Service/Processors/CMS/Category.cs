@@ -160,7 +160,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateCategoryInstance().Remove();
 		}
 
-		static Task ClearRelatedCache(this Category category, string oldParentID = null, CancellationToken cancellationToken = default)
+		static Task ClearRelatedCacheAsync(this Category category, string oldParentID = null, CancellationToken cancellationToken = default)
 		{
 			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
 			var tasks = new List<Task>
@@ -326,7 +326,7 @@ namespace net.vieapps.Services.Portals
 			// create new
 			await Task.WhenAll(
 				Category.CreateAsync(category, cancellationToken),
-				category.ClearRelatedCache(null, cancellationToken),
+				category.ClearRelatedCacheAsync(null, cancellationToken),
 				category.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
 
@@ -470,7 +470,7 @@ namespace net.vieapps.Services.Portals
 			// update
 			await Task.WhenAll(
 				Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken),
-				category.ClearRelatedCache(oldParentID, cancellationToken),
+				category.ClearRelatedCacheAsync(oldParentID, cancellationToken),
 				category.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
 
@@ -557,7 +557,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> DeleteCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default, string validationKey = null)
+		internal static async Task<JObject> DeleteCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, string validationKey = null, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var category = await (requestInfo.GetObjectIdentity() ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -610,7 +610,7 @@ namespace net.vieapps.Services.Portals
 				else
 				{
 					// delete files
-					await requestInfo.DeleteFilesAsync(child.SystemID, child.RepositoryEntityID, child.ID, token, validationKey).ConfigureAwait(false);
+					await requestInfo.DeleteFilesAsync(child.SystemID, child.RepositoryEntityID, child.ID, validationKey, token).ConfigureAwait(false);
 
 					// delete objects
 					var messages = await child.DeleteChildrenAsync(requestInfo.Session.User.ID, requestInfo.ServiceName, nodeID, token).ConfigureAwait(false);
@@ -620,11 +620,11 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			// delete files of category
-			await requestInfo.DeleteFilesAsync(category.SystemID, category.RepositoryEntityID, category.ID, cancellationToken, validationKey).ConfigureAwait(false);
+			await requestInfo.DeleteFilesAsync(category.SystemID, category.RepositoryEntityID, category.ID, validationKey, cancellationToken).ConfigureAwait(false);
 
 			// delete vs
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await category.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
+			await category.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
 			category.Remove();
 
 			// message to update to all other connected clients
@@ -687,6 +687,37 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
+		internal static JArray GenerateBreadcrumbs(this Category category, JToken requestJson, bool alwaysUseHtmlSuffix)
+		{
+			var breadcrumbs = new List<Tuple<string, string>>();
+			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("DefaultDesktop") ?? requestJson.Get<string>("Desktop");
+
+			var url = category.OpenBy.Equals(OpenBy.DesktopOnly)
+				? $"~/{category.Desktop?.Alias ?? desktop ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
+				: category.OpenBy.Equals(OpenBy.SpecifiedURI)
+					? category.SpecifiedURI ?? "~/"
+					: $"~/{category.Desktop?.Alias ?? desktop ?? "-default"}/{category.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}";
+			breadcrumbs.Add(new Tuple<string, string>(category.Title, url));
+
+			var parentCategory = category.ParentCategory;
+			while (parentCategory != null)
+			{
+				url = parentCategory.OpenBy.Equals(OpenBy.DesktopOnly)
+				? $"~/{parentCategory.Desktop?.Alias ?? desktop ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
+				: parentCategory.OpenBy.Equals(OpenBy.SpecifiedURI)
+					? parentCategory.SpecifiedURI ?? "~/"
+					: $"~/{parentCategory.Desktop?.Alias ?? desktop ?? "-default"}/{parentCategory.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}";
+				breadcrumbs.Insert(0, new Tuple<string, string>(parentCategory.Title, url));
+				parentCategory = parentCategory.ParentCategory;
+			}
+
+			return breadcrumbs.Select(breadcrumb => new JObject
+			{
+				{ "Text", breadcrumb.Item1 },
+				{ "URL", breadcrumb.Item2 }
+			}).ToJArray();
+		}
+
 		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Category category, string thumbnailURL, int level, int maxLevel = 0, string validationKey = null, CancellationToken cancellationToken = default)
 		{
 			// prepare
@@ -724,8 +755,8 @@ namespace net.vieapps.Services.Portals
 				{
 					requestInfo.Header["x-as-attachments"] = "true";
 					var thumbnails = children.Count == 1
-						? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
-						: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+						? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), validationKey, cancellationToken).ConfigureAwait(false);
 					subMenu = new JArray();
 					await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID), level + 1, maxLevel, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 				}

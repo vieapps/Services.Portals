@@ -48,22 +48,27 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
-		static Task ClearRelatedCache(this Item item, SortBy<Item> sort, CancellationToken cancellationToken = default)
-			=> Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(item.SystemID.GetItemsFilter(item.RepositoryID, item.RepositoryEntityID), sort ?? Sorts<Item>.Descending("Created").ThenByAscending("Title")), cancellationToken);
+		static Task ClearRelatedCacheAsync(this Item item, SortBy<Item> sort, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+			=> Task.WhenAll
+			(
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(item.GetCacheKey()), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(item.SystemID.GetItemsFilter(item.RepositoryID, item.RepositoryEntityID), sort ?? Sorts<Item>.Descending("Created").ThenByAscending("Title")), cancellationToken),
+				rtuService == null ? Task.CompletedTask : rtuService.SendClearCacheRequestAsync(item.ContentType?.ID, Extensions.GetCacheKey<Item>(), cancellationToken)
+			);
 
-		static async Task<Tuple<long, List<Item>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, string validationKey = null, CancellationToken cancellationToken = default, bool searchThumbnails = true)
+		static async Task<Tuple<long, List<Item>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, string validationKey = null, CancellationToken cancellationToken = default, bool searchThumbnails = true, string cacheKeyPrefix = null)
 		{
 			// count
 			totalRecords = totalRecords > -1
 				? totalRecords
 				: string.IsNullOrWhiteSpace(query)
-					? await Item.CountAsync(filter, contentTypeID, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await Item.CountAsync(filter, contentTypeID, string.IsNullOrWhiteSpace(cacheKeyPrefix) ? Extensions.GetCacheKeyOfTotalObjects(filter, sort) : Extensions.GetCacheKeyOfTotalObjects<Item>(cacheKeyPrefix), cancellationToken).ConfigureAwait(false)
 					: await Item.CountAsync(query, filter, contentTypeID, cancellationToken).ConfigureAwait(false);
 
 			// search objects
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Item.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await Item.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, string.IsNullOrWhiteSpace(cacheKeyPrefix) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : Extensions.GetCacheKey<Item>(cacheKeyPrefix, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Item.SearchAsync(query, filter, pageSize, pageNumber, contentTypeID, cancellationToken).ConfigureAwait(false)
 				: new List<Item>();
 
@@ -72,15 +77,15 @@ namespace net.vieapps.Services.Portals
 			var thumbnails = objects.Count < 1 || !searchThumbnails
 				? null
 				: objects.Count == 1
-					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
-					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false)
+					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), validationKey, cancellationToken).ConfigureAwait(false);
+
+			// page size to clear related cached
+			await Utility.SetCacheOfPageSizeAsync(filter, sort, cacheKeyPrefix, pageSize, cancellationToken).ConfigureAwait(false);
 
 			// return the results
 			return new Tuple<long, List<Item>, JToken>(totalRecords, objects, thumbnails);
 		}
-
-		static Task<Tuple<long, List<Item>, JToken>> SearchAsync(this RequestInfo requestInfo, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, string validationKey = null, CancellationToken cancellationToken = default, bool searchThumbnails = true)
-			=> requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, totalRecords, validationKey, cancellationToken, searchThumbnails);
 
 		internal static async Task<JObject> SearchItemsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string validationKey = null, CancellationToken cancellationToken = default)
 		{
@@ -199,15 +204,16 @@ namespace net.vieapps.Services.Portals
 				item.Alias += $"-{DateTime.Now.ToUnixTimestamp()}";
 
 			// create new
+			await Item.CreateAsync(item, cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
-				Item.CreateAsync(item, cancellationToken),
-				item.ClearRelatedCache(null, cancellationToken)
+				Utility.Cache.SetAsync($"e:{item.ContentTypeID}#a:{item.Alias.GenerateUUID()}".GetCacheKey<Item>(), item.ID, cancellationToken),
+				item.ClearRelatedCacheAsync(null, rtuService, cancellationToken)
 			).ConfigureAwait(false);
 
 			// send update message and response
 			var response = item.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
+			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
+			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Create",
@@ -243,8 +249,8 @@ namespace net.vieapps.Services.Portals
 
 			// send update message and response
 			var response = item.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
+			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
+			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
@@ -287,15 +293,16 @@ namespace net.vieapps.Services.Portals
 				item.Alias += $"-{DateTime.Now.ToUnixTimestamp()}";
 
 			// update
+			await Item.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll(
-				Item.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken),
-				item.ClearRelatedCache(null, cancellationToken)
+				Utility.Cache.SetAsync($"e:{item.ContentTypeID}#a:{item.Alias.GenerateUUID()}".GetCacheKey<Item>(), item.ID, cancellationToken),
+				item.ClearRelatedCacheAsync(null, rtuService, cancellationToken)
 			).ConfigureAwait(false);
 
 			// send update message and response
 			var response = item.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false);
+			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
+			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
 			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
@@ -325,11 +332,11 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete files
-			await requestInfo.DeleteFilesAsync(item.SystemID, item.RepositoryEntityID, item.ID, cancellationToken, validationKey).ConfigureAwait(false);
+			await requestInfo.DeleteFilesAsync(item.SystemID, item.RepositoryEntityID, item.ID, validationKey, cancellationToken).ConfigureAwait(false);
 
 			// delete
 			await Item.DeleteAsync<Item>(item.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await item.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
+			await item.ClearRelatedCacheAsync(null, rtuService, cancellationToken).ConfigureAwait(false);
 
 			// send update message and response
 			var response = item.ToJson();
@@ -349,6 +356,8 @@ namespace net.vieapps.Services.Portals
 			var requestJson = requestInfo.GetBodyJson();
 			var contentTypeID = requestJson.Get<JObject>("ContentType")?.Get<string>("ID");
 			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("Desktop") ?? requestJson.Get<string>("Desktop");
+			var expression = requestJson.Get<JObject>("Expression");
+			var pageSize = requestJson.Get("PageSize", 7);
 			var pageNumber = requestJson.Get("PageNumber", 1);
 			var options = requestJson.Get("Options", new JObject());
 			var alwaysUseHtmlSuffix = requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true;
@@ -356,7 +365,7 @@ namespace net.vieapps.Services.Portals
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
 
-			XDocument data;
+			XElement data;
 			JObject pagination, seoInfo, filterBy = null, sortBy = null;
 			string coverURI = null;
 
@@ -375,7 +384,7 @@ namespace net.vieapps.Services.Portals
 					throw new AccessDeniedException();
 
 				// prepare filtering expression
-				if (!(requestJson.Get<JObject>("FilterBy").ToFilter<Item>() is FilterBys<Item> filter) || filter.Children == null || filter.Children.Count < 1)
+				if (!(expression?.Get<JObject>("FilterBy").ToFilter<Item>() is FilterBys<Item> filter) || filter.Children == null || filter.Children.Count < 1)
 					filter = Filters<Item>.And(
 						Filters<Item>.Equals("SystemID", "@body[Organization.ID]"),
 						Filters<Item>.Equals("RepositoryID", "@body[Module.ID]"),
@@ -394,37 +403,57 @@ namespace net.vieapps.Services.Portals
 				filterBy["App"] = filter.ToClientJson().ToString(Formatting.None);
 
 				// prepare sorting expression
-				var sort = requestJson.Get<JObject>("SortBy")?.ToSort<Item>() ?? Sorts<Item>.Descending("Created");
+				var sort = expression?.Get<JObject>("SortBy")?.ToSort<Item>() ?? Sorts<Item>.Descending("Created");
 				sortBy = new JObject
 				{
 					{ "API", sort.ToJson().ToString(Formatting.None) },
 					{ "App", sort.ToClientJson().ToString(Formatting.None) }
 				};
 
-				// search the matched objects
-				var pageSize = requestJson.Get("PageSize", 7);
-				var results = await requestInfo.SearchAsync(filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, options.Get<bool>("ShowThumbnail", true)).ConfigureAwait(false);
-				var totalRecords = results.Item1;
-				var objects = results.Item2;
-				var thumbnails = results.Item3;
+				// get XML from cache
+				var cacheKeyPrefix = requestJson.GetCacheKeyPrefix();
+				var cacheKey = cacheKeyPrefix != null ? Extensions.GetCacheKeyOfObjectsXml<Item>(cacheKeyPrefix, pageSize, pageNumber) : null;
+				var xml = cacheKey != null ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
+
+				JToken thumbnails = null;
+				long totalRecords = 0;
+
+				// search and build XML if has no cache
+				if (string.IsNullOrWhiteSpace(xml))
+				{
+					// search
+					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, options.Get<bool>("ShowThumbnail", true), cacheKeyPrefix).ConfigureAwait(false);
+					totalRecords = results.Item1;
+					var objects = results.Item2;
+					thumbnails = results.Item3;
+
+					// generate xml
+					data = XElement.Parse("<Data/>");
+					objects.ForEach(@object => data.Add(@object.ToXml(false, cultureInfo, element =>
+					{
+						if (!string.IsNullOrWhiteSpace(@object.Summary))
+							element.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
+						element.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+						element.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
+					})));
+
+					// update XML into cache
+					if (cacheKey != null)
+						await Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).ConfigureAwait(false);
+				}
+				else
+				{
+					data = XElement.Parse(xml);
+					totalRecords = await Content.CountAsync(filter, contentTypeID, true, Extensions.GetCacheKeyOfTotalObjects<Item>(cacheKeyPrefix), 0, cancellationToken).ConfigureAwait(false);
+				}
 
 				// prepare pagination
 				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 				if (totalPages > 0 && pageNumber > totalPages)
 					pageNumber = totalPages;
-
-				// generate xml
-				data = XDocument.Parse("<Data/>");
-				objects.ForEach(@object => data.Root.Add(@object.ToXml(false, cultureInfo, xml =>
-				{
-					if (!string.IsNullOrWhiteSpace(@object.Summary))
-						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
-					xml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
-					xml.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
-				})));
-
-				// build others
 				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
+
+				// prepare SEO info
 				seoInfo = new JObject
 				{
 					{ "Title", contentType?.Title },
@@ -457,19 +486,19 @@ namespace net.vieapps.Services.Portals
 				Task<List<Item>> newersTask, oldersTask;
 				if (showOthers)
 				{
-					var pageSize = options.Get<int>("NumberOfOthers", 10) / 2;
+					var numberOfOthers = options.Get<int>("NumberOfOthers", 10) / 2;
 
 					newersTask = Item.FindAsync(Filters<Item>.And(
 						Filters<Item>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
 						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
 						Filters<Item>.GreaterOrEquals("Created", @object.Created)
-					).Prepare(requestInfo), null, pageSize, 1, contentTypeID, null, cancellationToken);
+					).Prepare(requestInfo), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);
 
 					oldersTask = Item.FindAsync(Filters<Item>.And(
 						Filters<Item>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
 						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
 						Filters<Item>.LessThanOrEquals("Created", @object.Created)
-					).Prepare(requestInfo), null, pageSize, 1, contentTypeID, null, cancellationToken);
+					).Prepare(requestInfo), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);
 				}
 				else
 				{
@@ -478,8 +507,8 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// get files
-				var thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey) : Task.FromResult<JToken>(new JArray());
-				var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), cancellationToken, validationKey) : Task.FromResult<JToken>(new JArray());
+				var thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), validationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
+				var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), validationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 
 				// wait for all tasks are completed
 				await Task.WhenAll(newersTask, oldersTask, thumbnailsTask, attachmentsTask).ConfigureAwait(false);
@@ -495,13 +524,13 @@ namespace net.vieapps.Services.Portals
 					otherThumbnails = others.Count < 1
 						? null
 						: others.Count == 1
-							? await requestInfo.GetThumbnailsAsync(others[0].ID, others[0].Title.Url64Encode(), cancellationToken, validationKey).ConfigureAwait(false)
-							: await requestInfo.GetThumbnailsAsync(others.Select(obj => obj.ID).Join(","), others.ToJObject("ID", obj => new JValue(obj.Title.Url64Encode())).ToString(Formatting.None), cancellationToken, validationKey).ConfigureAwait(false);
+							? await requestInfo.GetThumbnailsAsync(others[0].ID, others[0].Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false)
+							: await requestInfo.GetThumbnailsAsync(others.Select(obj => obj.ID).Join(","), others.ToJObject("ID", obj => new JValue(obj.Title.Url64Encode())).ToString(Formatting.None), validationKey, cancellationToken).ConfigureAwait(false);
 				}
 
 				// generate XML
-				data = XDocument.Parse("<Data/>");
-				data.Root.Add(@object.ToXml(false, cultureInfo, xml =>
+				data = XElement.Parse("<Data/>");
+				data.Add(@object.ToXml(false, cultureInfo, xml =>
 				{
 					if (!string.IsNullOrWhiteSpace(@object.Tags))
 					{
