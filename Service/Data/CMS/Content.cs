@@ -244,7 +244,7 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			// get by identity (using cache)
-			var cacheKey = $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias()}".GetCacheKey<Content>();
+			var cacheKey = $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias().GenerateUUID()}".GetCacheKey<Content>();
 			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return await Content.GetAsync<Content>(id, cancellationToken).ConfigureAwait(false);
