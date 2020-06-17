@@ -14,6 +14,7 @@ using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.Logging;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
@@ -248,9 +249,9 @@ namespace net.vieapps.Services.Portals
 		/// Gets the compiled XSLT
 		/// </summary>
 		/// <param name="xslt"></param>
-		/// <param name="enableScript"></param>
+		/// <param name="enableScriptAndDocumentFunction"></param>
 		/// <returns></returns>
-		public static XslCompiledTransform GetXslCompiledTransform(this string xslt, bool enableScript = true)
+		public static XslCompiledTransform GetXslCompiledTransform(this string xslt, bool enableScriptAndDocumentFunction = false)
 		{
 			if (!string.IsNullOrWhiteSpace(xslt))
 				try
@@ -261,7 +262,7 @@ namespace net.vieapps.Services.Portals
 						using (var reader = new XmlTextReader(stream))
 						{
 							var xslTransform = new XslCompiledTransform();
-							xslTransform.Load(reader, enableScript ? new XsltSettings { EnableScript = true } : null, null);
+							xslTransform.Load(reader, enableScriptAndDocumentFunction ? new XsltSettings { EnableScript = true, EnableDocumentFunction = true } : null, null);
 							return xslTransform;
 						}
 					}
@@ -304,10 +305,10 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="xml"></param>
 		/// <param name="xmlStylesheet">The stylesheet for transfroming</param>
-		/// <param name="enableScript">true to enable inline script (like C#) while processing</param>
+		/// <param name="enableScriptAndDocumentFunction">true to enable inline script (like C#) while processing</param>
 		/// <returns></returns>
-		public static string Transfrom(this XmlDocument xml, string xslt, bool enableScript = true)
-			=> xml.Transfrom((xslt ?? "").GetXslCompiledTransform(enableScript));
+		public static string Transfrom(this XmlDocument xml, string xslt, bool enableScriptAndDocumentFunction = false)
+			=> xml.Transfrom((xslt ?? "").GetXslCompiledTransform(enableScriptAndDocumentFunction));
 
 		/// <summary>
 		/// Transforms this XML by the specified stylesheet to XHTML/XML string
@@ -323,10 +324,10 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="xml"></param>
 		/// <param name="xmlStylesheet">The stylesheet for transfroming</param>
-		/// <param name="enableScript">true to enable inline script (like C#) while processing</param>
+		/// <param name="enableScriptAndDocumentFunction">true to enable inline script (like C#) and document function while processing</param>
 		/// <returns></returns>
-		public static string Transfrom(this XDocument xml, string xslt, bool enableScript = true)
-			=> xml.ToXmlDocument().Transfrom(xslt, enableScript);
+		public static string Transfrom(this XDocument xml, string xslt, bool enableScriptAndDocumentFunction = false)
+			=> xml.ToXmlDocument().Transfrom(xslt, enableScriptAndDocumentFunction);
 
 		/// <summary>
 		/// Gets the pre-defined template
@@ -379,7 +380,7 @@ namespace net.vieapps.Services.Portals
 		public static JObject GeneratePagination(long totalRecords, int totalPages, int pageSize, int pageNumber, string urlPattern)
 		{
 			var pages = new List<JObject>(totalPages);
-			if (totalPages > 1)
+			if (totalPages > 1 && !string.IsNullOrWhiteSpace(urlPattern))
 				for (var page = 1; page <= totalPages; page++)
 					pages.Add(new JObject
 					{
@@ -500,11 +501,9 @@ namespace net.vieapps.Services.Portals
 		/// <param name="forDisplaying"></param>
 		/// <returns></returns>
 		public static string NormalizeURLs(this string html, string rootURL, bool forDisplaying = true)
-			=> !string.IsNullOrWhiteSpace(html)
-				? forDisplaying
-					? html.Replace("~~~/", rootURL).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~/", rootURL)
-					: html.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, rootURL, "~/")
-				: null;
+			=> forDisplaying
+				? html?.Replace("~~~/", rootURL).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~/", rootURL)
+				: html?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, rootURL, "~/");
 
 		/// <summary>
 		/// Normalizes all URLs of a HTML content
@@ -518,10 +517,17 @@ namespace net.vieapps.Services.Portals
 		public static string NormalizeURLs(this string html, Uri requestURI, string systemIdentity, bool useRelativeURLs = true, bool forDisplaying = true)
 		{
 			if (string.IsNullOrWhiteSpace(html))
-				return null;
+				return html;
+
+			html = forDisplaying
+				? html.Replace("~/_", Utility.PortalsHttpURI + "/_")
+				: html.Replace(Utility.PortalsHttpURI + "/_", "~/_");
+
 			html = html.NormalizeURLs(forDisplaying ? requestURI.GetRootURL(systemIdentity, useRelativeURLs) : requestURI.GetRootURL(systemIdentity), forDisplaying);
+
 			if (forDisplaying && useRelativeURLs && requestURI.IsPortalsHttpURI())
 				html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{Utility.PortalsHttpURI}/~{systemIdentity}/\"/>");
+
 			return html;
 		}
 
@@ -534,14 +540,13 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string NormalizeURLs(this Organization organization, string html, bool forDisplaying = true)
 		{
-			if (string.IsNullOrWhiteSpace(html))
-				return null;
-
-			if (organization == null)
+			if (string.IsNullOrWhiteSpace(html) || organization == null)
 				return html;
 
 			if (forDisplaying)
-				return html.NormalizeURLs(new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false));
+				return html.Replace("~/_", Utility.PortalsHttpURI + "/_").NormalizeURLs(new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false));
+
+			html = html.Replace(Utility.PortalsHttpURI + "/_", "~/_");
 
 			var domains = new List<string>();
 			organization.Sites.ForEach(site =>
@@ -560,6 +565,7 @@ namespace net.vieapps.Services.Portals
 				.Concat(domains.Select(domain => $"http://{domain}/"))
 				.Concat(domains.Select(domain => $"https://{domain}/"))
 				.ForEach(rootURL => html = html.NormalizeURLs(rootURL, false));
+
 			return html;
 		}
 
@@ -660,13 +666,21 @@ namespace net.vieapps.Services.Portals
 			await expressions.ForEachAsync(async (expression, ctoken1) =>
 			{
 				var simpleKey = $"{keyPrefix}{expression.GetCacheKeyPrefix()}";
+				var simplePageSize = await Utility.Cache.ExistsAsync($"{simpleKey}:size", cancellationToken).ConfigureAwait(false)
+					? await Utility.Cache.GetAsync<int>($"{simpleKey}:size", cancellationToken).ConfigureAwait(false)
+					: 7;
+				var simpleKeys = Extensions.GetRelatedCacheKeys(simpleKey, simplePageSize);
 				await Task.WhenAll
 				(
-					Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(simpleKey, await Utility.Cache.ExistsAsync($"{simpleKey}:size", cancellationToken).ConfigureAwait(false) ? await Utility.Cache.GetAsync<int>($"{simpleKey}:size", cancellationToken).ConfigureAwait(false) : 7), null, cancellationToken),
+					Utility.Cache.RemoveAsync(simpleKeys, null, cancellationToken),
 					parentIdentities == null ? Task.CompletedTask : parentIdentities.ForEachAsync(async (parentIdentity, ctoken2) =>
 					{
 						var complexKey = $"{keyPrefix}{expression.GetCacheKeyPrefix(parentIdentity)}";
-						await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(complexKey, await Utility.Cache.ExistsAsync($"{complexKey}:size", cancellationToken).ConfigureAwait(false) ? await Utility.Cache.GetAsync<int>($"{complexKey}:size", cancellationToken).ConfigureAwait(false) : 7), null, cancellationToken).ConfigureAwait(false);
+						var complexPageSize = await Utility.Cache.ExistsAsync($"{complexKey}:size", cancellationToken).ConfigureAwait(false)
+							? await Utility.Cache.GetAsync<int>($"{complexKey}:size", cancellationToken).ConfigureAwait(false)
+							: 7;
+						var complexKeys = Extensions.GetRelatedCacheKeys(complexKey, complexPageSize);
+						await Utility.Cache.RemoveAsync(complexKeys, null, cancellationToken).ConfigureAwait(false);
 					}, cancellationToken)
 				).ConfigureAwait(false);
 			}, cancellationToken).ConfigureAwait(false);
@@ -690,6 +704,25 @@ namespace net.vieapps.Services.Portals
 				timeQuater += "00:00";
 			return DateTime.Parse(timeQuater);
 		}
+
+		/// <summary>
+		/// Runs this task and forget its
+		/// </summary>
+		/// <param name="task"></param>
+		/// <param name="logger"></param>
+		internal static void Run(this Task task, ILogger logger = null)
+			=> Task.Run(async () =>
+			{
+				try
+				{
+					await task.ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					if (logger != null)
+						logger.LogError($"Error occurred while running a forgetable task => {ex.Message}", ex);
+				}
+			}).ConfigureAwait(false);
 	}
 
 	//  --------------------------------------------------------------------------------------------
