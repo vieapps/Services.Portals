@@ -344,9 +344,9 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				Desktop.CreateAsync(desktop, cancellationToken),
-				desktop.ClearRelatedCacheAsync(null, cancellationToken),
 				desktop.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
+			desktop.ClearRelatedCacheAsync(null, cancellationToken).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -493,7 +493,7 @@ namespace net.vieapps.Services.Portals
 				Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken),
 				desktop.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
-			await desktop.ClearRelatedCacheAsync(oldParentID, cancellationToken).ConfigureAwait(false);
+			desktop.ClearRelatedCacheAsync(oldParentID, cancellationToken).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -635,7 +635,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await desktop.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
+			desktop.ClearRelatedCacheAsync(null, cancellationToken).Run();
 			desktop.Remove();
 
 			// message to update to all other connected clients

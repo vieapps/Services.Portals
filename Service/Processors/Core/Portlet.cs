@@ -208,7 +208,7 @@ namespace net.vieapps.Services.Portals
 
 			portlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(portlet.DesktopID, portlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
 			await Portlet.CreateAsync(portlet, cancellationToken).ConfigureAwait(false);
-			await portlet.ClearRelatedCacheAsync(rtuService, cancellationToken).ConfigureAwait(false);
+			portlet.ClearRelatedCacheAsync(rtuService, cancellationToken).Run();
 
 			var response = portlet.ToJson();
 			var portletObjectName = typeof(Portlet).GetTypeName(true);
@@ -374,7 +374,7 @@ namespace net.vieapps.Services.Portals
 				portlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(portlet.DesktopID, portlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
 
 			await Portlet.UpdateAsync(portlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await portlet.ClearRelatedCacheAsync(rtuService, cancellationToken).ConfigureAwait(false);
+			portlet.ClearRelatedCacheAsync(rtuService, cancellationToken).Run();
 
 			var response = portlet.ToJson();
 			var portletObjectName = typeof(Portlet).GetTypeName(true);
@@ -471,7 +471,7 @@ namespace net.vieapps.Services.Portals
 					// create portlet
 					mappingPortlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(mappingPortlet.DesktopID, mappingPortlet.Zone, token).ConfigureAwait(false) + 1;
 					await Portlet.CreateAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
-					await mappingPortlet.ClearRelatedCacheAsync(null, token).ConfigureAwait(false);
+					mappingPortlet.ClearRelatedCacheAsync(null, token).Run();
 
 					updateMessages.Add(new UpdateMessage
 					{
@@ -508,7 +508,7 @@ namespace net.vieapps.Services.Portals
 				{
 					// remove portlet
 					await Portlet.DeleteAsync<Portlet>(mappingPortlet.ID, requestInfo.Session.User.ID, token).ConfigureAwait(false);
-					await mappingPortlet.ClearRelatedCacheAsync(null, token).ConfigureAwait(false);
+					mappingPortlet.ClearRelatedCacheAsync(null, token).Run();
 
 					updateMessages.Add(new UpdateMessage
 					{
@@ -560,7 +560,7 @@ namespace net.vieapps.Services.Portals
 						mappingPortlet.LastModified = DateTime.Now;
 						mappingPortlet.LastModifiedID = requestInfo.Session.User.ID;
 						await Portlet.UpdateAsync(mappingPortlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-						await mappingPortlet.ClearRelatedCacheAsync(null, token).ConfigureAwait(false);
+						mappingPortlet.ClearRelatedCacheAsync(null, token).Run();
 					}
 					else
 						await Utility.Cache.SetAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
@@ -638,7 +638,7 @@ namespace net.vieapps.Services.Portals
 
 			// delete portlet
 			await Portlet.DeleteAsync<Portlet>(portlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await portlet.ClearRelatedCacheAsync(rtuService, cancellationToken).ConfigureAwait(false);
+			portlet.ClearRelatedCacheAsync(rtuService, cancellationToken).Run();
 
 			var response = portlet.ToJson();
 			var portletObjectName = typeof(Portlet).GetTypeName(true);

@@ -108,7 +108,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateRoleInstance().Remove();
 		}
 
-		static Task ClearRelatedCache(this Role role, string oldParentID = null, CancellationToken cancellationToken = default)
+		static Task ClearRelatedCacheAsync(this Role role, string oldParentID = null, CancellationToken cancellationToken = default)
 		{
 			var tasks = new List<Task> { Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(null), Sorts<Role>.Ascending("Title")), cancellationToken) };
 			if (!string.IsNullOrWhiteSpace(role.ParentID) && role.ParentID.IsValidUUID())
@@ -227,9 +227,9 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				Role.CreateAsync(role, cancellationToken),
-				role.ClearRelatedCache(null, cancellationToken),
 				role.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
+			role.ClearRelatedCacheAsync(null, cancellationToken).Run();
 
 			// update users
 			var requestUser = new RequestInfo(requestInfo)
@@ -387,9 +387,9 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken),
-				role.ClearRelatedCache(oldParentID, cancellationToken),
 				role.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
+			role.ClearRelatedCacheAsync(oldParentID, cancellationToken).Run();
 
 			// update users
 			var beAddedUserIDs = (role.UserIDs ?? new List<string>()).Except(oldUserIDs).ToList();
@@ -606,7 +606,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await role.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
+			role.ClearRelatedCacheAsync(null, cancellationToken).Run();
 			role.Remove();
 
 			// update users
@@ -689,7 +689,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await role.ClearRelatedCache(null, cancellationToken).ConfigureAwait(false);
+			role.ClearRelatedCacheAsync(null, cancellationToken).Run();
 			role.Remove();
 
 			// update users

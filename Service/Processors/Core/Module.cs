@@ -127,7 +127,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateModuleInstance().Remove();
 		}
 
-		static Task ClearRelatedCache(this Module module, CancellationToken cancellationToken = default)
+		static Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default)
 			=> Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Module>.And(), Sorts<Module>.Ascending("Title")), cancellationToken),
@@ -236,9 +236,9 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				Module.CreateAsync(module, cancellationToken),
-				module.ClearRelatedCache(cancellationToken),
 				module.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
+			module.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// create new content-types
 			var contentTypeJson = new JObject
@@ -343,9 +343,9 @@ namespace net.vieapps.Services.Portals
 			});
 			await Task.WhenAll(
 				Module.UpdateAsync(module, requestInfo.Session.User.ID, cancellationToken),
-				module.ClearRelatedCache(cancellationToken),
 				module.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
+			module.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// send update messages
 			var response = module.ToJson();
@@ -390,7 +390,7 @@ namespace net.vieapps.Services.Portals
 			// delete
 			await Module.DeleteAsync<Module>(module.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			module.Remove();
-			await module.ClearRelatedCache(cancellationToken).ConfigureAwait(false);
+			module.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// update instance/cache of organization
 			if (module.Organization._moduleIDs != null)

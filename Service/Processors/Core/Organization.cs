@@ -157,7 +157,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateOrganizationInstance().Remove();
 		}
 
-		static Task ClearRelatedCache(this Organization organization, CancellationToken cancellationToken = default)
+		static Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken = default)
 			=> Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title")), cancellationToken),
@@ -265,10 +265,8 @@ namespace net.vieapps.Services.Portals
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			await Task.WhenAll(
-				organization.ClearRelatedCache(cancellationToken),
-				organization.SetAsync(false, false, cancellationToken)
-			).ConfigureAwait(false);
+			await  organization.SetAsync(false, false, cancellationToken).ConfigureAwait(false);
+			organization.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// send update messages
 			var response = organization.ToJson();
@@ -368,10 +366,8 @@ namespace net.vieapps.Services.Portals
 			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			await Task.WhenAll(
-				organization.ClearRelatedCache(cancellationToken),
-				organization.SetAsync(false, false, cancellationToken)
-			).ConfigureAwait(false);
+			await organization.SetAsync(false, false, cancellationToken).ConfigureAwait(false);
+			organization.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// send update messages
 			var response = organization.ToJson();

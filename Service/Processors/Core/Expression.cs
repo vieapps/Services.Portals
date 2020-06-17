@@ -119,7 +119,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateExpressionInstance().Remove();
 		}
 
-		static Task ClearRelatedCache(this Expression expression, CancellationToken cancellationToken = default)
+		static Task ClearRelatedCacheAsync(this Expression expression, CancellationToken cancellationToken = default)
 			=> Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Expression>.And(), Sorts<Expression>.Ascending("Title")), cancellationToken),
@@ -231,7 +231,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 			await Expression.CreateAsync(expression, cancellationToken).ConfigureAwait(false);
-			await expression.ClearRelatedCache(cancellationToken).ConfigureAwait(false);
+			expression.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// send update messages
 			var json = expression.ToJson();
@@ -305,9 +305,9 @@ namespace net.vieapps.Services.Portals
 
 			await Task.WhenAll(
 				Expression.UpdateAsync(expression, requestInfo.Session.User.ID, cancellationToken),
-				expression.ClearRelatedCache(cancellationToken),
 				expression.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
+			expression.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// send update messages
 			var response = expression.ToJson();
@@ -348,8 +348,8 @@ namespace net.vieapps.Services.Portals
 
 			// delete
 			await Expression.DeleteAsync<Expression>(expression.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await expression.ClearRelatedCache(cancellationToken).ConfigureAwait(false);
 			expression.Remove();
+			expression.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// send update messages
 			var response = expression.ToJson();
