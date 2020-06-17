@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, Site> SitesByDomain { get; } = new ConcurrentDictionary<string, Site>(StringComparer.OrdinalIgnoreCase);
 
-		internal static HashSet<string> ExtraProperties { get; } = "AlwaysUseHTTPs,UISettings,IconURI,CoverURI,MetaTags,Scripts,RedirectToNoneWWW,SEOInfo".ToHashSet();
+		internal static HashSet<string> ExtraProperties { get; } = "AlwaysUseHTTPs,UISettings,IconURI,CoverURI,Stylesheets,MetaTags,Scripts,RedirectToNoneWWW,SEOInfo".ToHashSet();
 
 		public static Site CreateSiteInstance(this ExpandoObject requestBody, string excluded = null, Action<Site> onCompleted = null)
 			=> requestBody.Copy<Site>(excluded?.ToHashSet(), site =>
@@ -229,7 +229,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateSiteInstance().Remove();
 		}
 
-		static Task ClearRelatedCache(this Site site, CancellationToken cancellationToken = default)
+		static Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken = default)
 		{
 			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
 			return Task.WhenAll
@@ -353,10 +353,8 @@ namespace net.vieapps.Services.Portals
 			await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			await Task.WhenAll(
-				site.ClearRelatedCache(cancellationToken),
-				site.SetAsync(false, false, cancellationToken)
-			).ConfigureAwait(false);
+			await site.SetAsync(false, false, cancellationToken).ConfigureAwait(false);
+			site.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// update organization
 			if (organization._siteIDs == null)
@@ -463,10 +461,8 @@ namespace net.vieapps.Services.Portals
 			await Site.UpdateAsync(site, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			await Task.WhenAll(
-				site.ClearRelatedCache(cancellationToken),
-				site.SetAsync(false, false, cancellationToken)
-			).ConfigureAwait(false);
+			await site.SetAsync(false, false, cancellationToken).ConfigureAwait(false);
+			site.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// send update messages
 			var response = site.ToJson();
@@ -510,9 +506,11 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			site.Remove();
-			await site.ClearRelatedCache(cancellationToken).ConfigureAwait(false);
+			site.ClearRelatedCacheAsync(cancellationToken).Run();
+
+			// update organization
 			var organization = site.Organization;
-			if (organization._siteIDs != null)
+			if (organization != null && organization._siteIDs != null)
 			{
 				organization._siteIDs.Remove(site.ID);
 				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
