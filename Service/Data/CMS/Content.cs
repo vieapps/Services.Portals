@@ -198,6 +198,9 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop Desktop => this.Category?.Desktop;
 
+		public string GetURL(string desktop = null, bool addPageNumberHolder = false)
+			=> $"~/{this.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{this.Category?.Alias ?? "-"}/{this.Alias}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
+
 		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
 			=> Content.GetContentByAlias(repositoryEntityID, alias, parentIdentity);
 

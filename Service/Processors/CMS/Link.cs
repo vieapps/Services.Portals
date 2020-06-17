@@ -36,9 +36,11 @@ namespace net.vieapps.Services.Portals
 			return link;
 		}
 
-		public static IFilterBy<Link> GetLinksFilter(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null)
+		public static IFilterBy<Link> GetLinksFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null)
 		{
-			var filter = Filters<Link>.And(Filters<Link>.Equals("SystemID", systemID));
+			var filter = Filters<Link>.And();
+			if (!string.IsNullOrWhiteSpace(systemID))
+				filter.Add(Filters<Link>.Equals("SystemID", systemID));
 			if (!string.IsNullOrWhiteSpace(repositoryID))
 				filter.Add(Filters<Link>.Equals("RepositoryID", repositoryID));
 			if (!string.IsNullOrWhiteSpace(repositoryEntityID))
@@ -51,7 +53,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Link>();
-			var filter = systemID.GetLinksFilter(repositoryID, repositoryEntityID, parentID);
+			var filter = LinkProcessor.GetLinksFilter(systemID, repositoryID, repositoryEntityID, parentID);
 			var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
 			return Link.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
 		}
@@ -60,7 +62,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return Task.FromResult(new List<Link>());
-			var filter = systemID.GetLinksFilter(repositoryID, repositoryEntityID, parentID);
+			var filter = LinkProcessor.GetLinksFilter(systemID, repositoryID, repositoryEntityID, parentID);
 			var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
 			return Link.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken);
 		}
@@ -77,15 +79,16 @@ namespace net.vieapps.Services.Portals
 			var tasks = new List<Task>
 			{
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.GetCacheKey()), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.SystemID.GetLinksFilter(link.RepositoryID, link.RepositoryEntityID, null), sort), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, null), sort), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(null, null, link.RepositoryEntityID, null), sort), cancellationToken),
 				rtuService == null ? Task.CompletedTask : rtuService.SendClearCacheRequestAsync(link.ContentType?.ID, Extensions.GetCacheKey<Link>(), cancellationToken)
 			};
 
-			if (!string.IsNullOrWhiteSpace(link.ParentID) && link.ParentID.IsValidUUID())
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.SystemID.GetLinksFilter(link.RepositoryID, link.RepositoryEntityID, link.ParentID), sort), cancellationToken));
-
-			if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.SystemID.GetLinksFilter(link.RepositoryID, link.RepositoryEntityID, oldParentID), sort), cancellationToken));
+			new[] { link.ParentID, oldParentID }.Where(parentID => !string.IsNullOrWhiteSpace(parentID) && parentID.IsValidUUID()).ForEach(parentID =>
+			{
+				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, parentID), sort), cancellationToken));
+				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(null, null, link.RepositoryEntityID, parentID), sort), cancellationToken));
+			});
 
 			return Task.WhenAll(tasks);
 		}
@@ -166,7 +169,7 @@ namespace net.vieapps.Services.Portals
 
 			// normalize filter
 			filter = filter == null || !(filter is FilterBys<Link>) || (filter as FilterBys<Link>).Children == null || (filter as FilterBys<Link>).Children.Count < 1
-				? organization.ID.GetLinksFilter(module.ID, contentType.ID)
+				? LinkProcessor.GetLinksFilter(organization.ID, module.ID, contentType.ID)
 				: filter.Prepare(requestInfo);
 
 			// process cached
@@ -259,10 +262,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// create new
-			await Task.WhenAll(
-				Link.CreateAsync(link, cancellationToken),
-				link.ClearRelatedCacheAsync(null, rtuService, cancellationToken)
-			).ConfigureAwait(false);
+			await Link.CreateAsync(link, cancellationToken).ConfigureAwait(false);
+			link.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -270,9 +271,9 @@ namespace net.vieapps.Services.Portals
 
 			// update parent
 			var parentLink = link.ParentLink;
-			if (parentLink != null)
+			while (parentLink != null)
 			{
-				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.SystemID.GetLinksFilter(link.RepositoryID, link.RepositoryEntityID, link.ParentID), Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
+				parentLink.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
 				parentLink._children = null;
 				parentLink._childrenIDs = null;
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -291,6 +292,7 @@ namespace net.vieapps.Services.Portals
 					Data = json,
 					ExcludedNodeID = nodeID
 				});
+				parentLink = parentLink.ParentLink;
 			}
 
 			// message to update to all other connected clients
@@ -385,10 +387,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// update
-			await Task.WhenAll(
-				Link.UpdateAsync(link, requestInfo.Session.User.ID, cancellationToken),
-				link.ClearRelatedCacheAsync(oldParentID, rtuService, cancellationToken)
-			).ConfigureAwait(false);
+			await Link.UpdateAsync(link, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			link.ClearRelatedCacheAsync(oldParentID, rtuService, cancellationToken).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -396,9 +396,9 @@ namespace net.vieapps.Services.Portals
 
 			// update parent
 			var parentLink = link.ParentLink;
-			if (parentLink != null && !link.ParentID.IsEquals(oldParentID))
+			while (parentLink != null)
 			{
-				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.SystemID.GetLinksFilter(link.RepositoryID, link.RepositoryEntityID, link.ParentID), Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
+				parentLink.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
 				parentLink._children = null;
 				parentLink._childrenIDs = null;
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -417,6 +417,7 @@ namespace net.vieapps.Services.Portals
 					Data = json,
 					ExcludedNodeID = nodeID
 				});
+				parentLink = parentLink.ParentLink;
 			}
 
 			// update old parent
@@ -425,7 +426,7 @@ namespace net.vieapps.Services.Portals
 				parentLink = await Link.GetAsync<Link>(oldParentID, cancellationToken).ConfigureAwait(false);
 				if (parentLink != null)
 				{
-					await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.SystemID.GetLinksFilter(link.RepositoryID, link.RepositoryEntityID, parentLink.ID), Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
+					parentLink.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
 					parentLink._children = null;
 					parentLink._childrenIDs = null;
 					await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -445,6 +446,7 @@ namespace net.vieapps.Services.Portals
 						Data = json,
 						ExcludedNodeID = nodeID
 					});
+					parentLink = parentLink.ParentLink;
 				}
 			}
 
@@ -531,7 +533,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Link.DeleteAsync<Link>(link.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await link.ClearRelatedCacheAsync(null, rtuService, cancellationToken).ConfigureAwait(false);
+			link.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
 
 			// message to update to all other connected clients
 			var response = link.ToJson();

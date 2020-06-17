@@ -143,5 +143,8 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		IPortalObject IPortalObject.Parent => this.ContentType;
+
+		public string GetURL(string desktop = null, bool addPageNumberHolder = false)
+			=> $"~/{this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{this.ContentType?.Title?.GetANSIUri() ?? "-"}/{this.ID}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
 	}
 }

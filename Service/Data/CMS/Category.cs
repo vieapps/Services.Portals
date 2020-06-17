@@ -242,6 +242,16 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.Set(this);
 		}
 
+		public string GetURL(string desktop = null, bool addPageNumberHolder = false)
+		{
+			var alwaysUseHtmlSuffix = this.Organization != null && this.Organization.AlwaysUseHtmlSuffix;
+			return this.OpenBy.Equals(OpenBy.DesktopOnly)
+				? $"~/{this.Desktop?.Alias ?? desktop ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
+				: this.OpenBy.Equals(OpenBy.SpecifiedURI)
+					? this.SpecifiedURI ?? "~/"
+					: $"~/{this.Desktop?.Alias ?? desktop ?? "-default"}/{this.Alias}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(alwaysUseHtmlSuffix ? ".html" : "")}";
+		}
+
 		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
 			=> (repositoryEntityID ?? "").GetCategoryByAlias(alias);
 

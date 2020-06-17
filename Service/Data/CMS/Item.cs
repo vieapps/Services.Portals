@@ -124,6 +124,9 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		IPortalObject IPortalObject.Parent => this.ContentType;
 
+		public string GetURL(string desktop = null, bool addPageNumberHolder = false)
+			=> $"~/{this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{this.ContentType?.Title?.GetANSIUri() ?? "-"}/{this.Alias}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
+
 		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
 			=> Item.GetItemByAlias(repositoryEntityID, alias);
 

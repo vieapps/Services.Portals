@@ -205,6 +205,9 @@ namespace net.vieapps.Services.Portals
 					json["Children"] = this.Children?.Select(link => link?.ToJson(true, false)).Where(link => link != null).ToJArray();
 				onPreCompleted?.Invoke(json);
 			});
+
+		public string GetURL(string desktop = null, bool addPageNumberHolder = false)
+			=> $"~/{this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{this.ContentType?.Title?.GetANSIUri() ?? "-"}/{this.ID}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
 	}
 
 	[Serializable]

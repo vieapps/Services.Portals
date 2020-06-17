@@ -205,10 +205,8 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			await Item.CreateAsync(item, cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll(
-				Utility.Cache.SetAsync($"e:{item.ContentTypeID}#a:{item.Alias.GenerateUUID()}".GetCacheKey<Item>(), item.ID, cancellationToken),
-				item.ClearRelatedCacheAsync(null, rtuService, cancellationToken)
-			).ConfigureAwait(false);
+			await Utility.Cache.SetAsync($"e:{item.ContentTypeID}#a:{item.Alias.GenerateUUID()}".GetCacheKey<Item>(), item.ID, cancellationToken).ConfigureAwait(false);
+			item.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
 
 			// send update message and response
 			var response = item.ToJson();
@@ -294,10 +292,8 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			await Item.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll(
-				Utility.Cache.SetAsync($"e:{item.ContentTypeID}#a:{item.Alias.GenerateUUID()}".GetCacheKey<Item>(), item.ID, cancellationToken),
-				item.ClearRelatedCacheAsync(null, rtuService, cancellationToken)
-			).ConfigureAwait(false);
+			await Utility.Cache.SetAsync($"e:{item.ContentTypeID}#a:{item.Alias.GenerateUUID()}".GetCacheKey<Item>(), item.ID, cancellationToken).ConfigureAwait(false);
+			item.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
 
 			// send update message and response
 			var response = item.ToJson();
@@ -336,7 +332,7 @@ namespace net.vieapps.Services.Portals
 
 			// delete
 			await Item.DeleteAsync<Item>(item.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await item.ClearRelatedCacheAsync(null, rtuService, cancellationToken).ConfigureAwait(false);
+			item.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
 
 			// send update message and response
 			var response = item.ToJson();
@@ -360,7 +356,6 @@ namespace net.vieapps.Services.Portals
 			var pageSize = requestJson.Get("PageSize", 7);
 			var pageNumber = requestJson.Get("PageNumber", 1);
 			var options = requestJson.Get("Options", new JObject());
-			var alwaysUseHtmlSuffix = requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true;
 			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
@@ -433,7 +428,7 @@ namespace net.vieapps.Services.Portals
 					{
 						if (!string.IsNullOrWhiteSpace(@object.Summary))
 							element.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
-						element.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+						element.Add(new XElement("URL", @object.GetURL(desktop)));
 						element.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
 					})));
 
@@ -451,7 +446,7 @@ namespace net.vieapps.Services.Portals
 				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 				if (totalPages > 0 && pageNumber > totalPages)
 					pageNumber = totalPages;
-				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
+				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true ? ".html" : "")}");
 
 				// prepare SEO info
 				seoInfo = new JObject
@@ -542,7 +537,7 @@ namespace net.vieapps.Services.Portals
 					if (!string.IsNullOrWhiteSpace(@object.Summary))
 						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
 
-					xml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+					xml.Add(new XElement("URL", @object.GetURL(desktop)));
 
 					if (showThumbnails)
 					{
@@ -571,7 +566,7 @@ namespace net.vieapps.Services.Portals
 						var othersXml = new XElement("Others");
 						others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
 						{
-							otherXml.Add(new XElement("URL", $"~/{desktop ?? "-default"}/{other.ContentType?.Title.GetANSIUri() ?? "-"}/{other.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+							otherXml.Add(new XElement("URL", other.GetURL(desktop)));
 							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
 						})));
 						xml.Add(othersXml);
@@ -579,7 +574,7 @@ namespace net.vieapps.Services.Portals
 				}));
 
 				// build others
-				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, $"~/{desktop ?? "-default"}/{@object.ContentType?.Title.GetANSIUri() ?? "-"}/{@object.Alias}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
+				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true));
 				seoInfo = new JObject
 				{
 					{ "Title", @object.Title },

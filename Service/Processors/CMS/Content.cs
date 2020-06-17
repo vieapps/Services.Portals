@@ -107,6 +107,7 @@ namespace net.vieapps.Services.Portals
 				: new List<Content>();
 
 			// search thumbnails
+			objects = objects.Where(@object => @object != null && !string.IsNullOrWhiteSpace(@object.ID)).ToList();
 			requestInfo.Header["x-as-attachments"] = "true";
 			var thumbnails = objects.Count < 1 || !searchThumbnails
 				? null
@@ -294,10 +295,8 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll(
-				Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken),
-				content.ClearRelatedCacheAsync(null, rtuService, cancellationToken)
-			).ConfigureAwait(false);
+			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
+			content.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
 
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), validationKey, cancellationToken);
@@ -447,10 +446,8 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			await Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll(
-				Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken),
-				content.ClearRelatedCacheAsync(new[] { oldCategoryID }.Concat(oldOtherCategories ?? new List<string>()), rtuService, cancellationToken)
-			).ConfigureAwait(false);
+			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
+			content.ClearRelatedCacheAsync(new[] { oldCategoryID }.Concat(oldOtherCategories ?? new List<string>()), rtuService, cancellationToken).Run();
 
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), validationKey, cancellationToken);
@@ -498,7 +495,7 @@ namespace net.vieapps.Services.Portals
 
 			// delete content
 			await Content.DeleteAsync<Content>(content.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await content.ClearRelatedCacheAsync(null, rtuService, cancellationToken).ConfigureAwait(false);
+			content.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
 
 			// send update message and response
 			var response = content.ToJson();
@@ -523,7 +520,6 @@ namespace net.vieapps.Services.Portals
 			var pageSize = requestJson.Get("PageSize", 7);
 			var pageNumber = requestJson.Get("PageNumber", 1);
 			var options = requestJson.Get("Options", new JObject());
-			var alwaysUseHtmlSuffix = requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true;
 			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
@@ -619,8 +615,10 @@ namespace net.vieapps.Services.Portals
 						element.Element("EndDate")?.UpdateDateTime(cultureInfo);
 						if (!string.IsNullOrWhiteSpace(@object.Summary))
 							element.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
-						element.Add(new XElement("Category", @object.Category?.Title));
-						element.Add(new XElement("URL", $"~/{@object.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{@object.Category?.Alias ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+						if (!string.IsNullOrWhiteSpace(@object.Details))
+							element.Element("Details").Remove();
+						element.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
+						element.Add(new XElement("URL", @object.GetURL(desktop)));
 						element.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
 					})));
 
@@ -635,13 +633,13 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// prepare breadcrumbs
-				breadcrumbs = category?.GenerateBreadcrumbs(requestJson, alwaysUseHtmlSuffix) ?? new JArray();
+				breadcrumbs = category?.GenerateBreadcrumbs(requestJson) ?? new JArray();
 
 				// prepare pagination
 				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 				if (totalPages > 0 && pageNumber > totalPages)
 					pageNumber = totalPages;
-				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{category?.Desktop?.Alias ?? desktop ?? "-default"}/{category?.Alias ?? "-"}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
+				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true));
 
 				// prepare SEO and other info
 				seoInfo = new JObject
@@ -677,17 +675,14 @@ namespace net.vieapps.Services.Portals
 
 				// get related contents
 				var relateds = new List<Content>();
-				var relatedsTask = showRelateds && @object.Relateds != null ? @object.Relateds.ForEachAsync(async (id, token) =>
-				{
-					var related = await Content.GetAsync<Content>(id, token).ConfigureAwait(false);
-					if (related != null && related.Status.Equals(ApprovalStatus.Published))
-						relateds.Add(related);
-				}, cancellationToken) : Task.CompletedTask;
+				var relatedsTask = showRelateds && @object.Relateds != null
+					? @object.Relateds.ForEachAsync(async (id, token) => relateds.Add(await Content.GetAsync<Content>(id, token).ConfigureAwait(false)), cancellationToken)
+					: Task.CompletedTask;
 
 				// get other contents
 				Task<List<Content>>  newersTask, oldersTask;
-				var numberOfOthers = options.Get<int>("NumberOfOthers", 10);
-				numberOfOthers = numberOfOthers > 0 ? numberOfOthers : 10;
+				var numberOfOthers = options.Get<int>("NumberOfOthers", 12);
+				numberOfOthers = numberOfOthers > 0 ? numberOfOthers : 12;
 				var others = new List<Content>();
 
 				if (showOthers)
@@ -745,9 +740,10 @@ namespace net.vieapps.Services.Portals
 					if (newersTask.Result.Count + oldersTask.Result.Count > 0)
 					{
 						numberOfOthers = newersTask.Result.Count + oldersTask.Result.Count > numberOfOthers ? numberOfOthers / 2 : numberOfOthers;
-						others = newersTask.Result.Take(numberOfOthers).Concat(oldersTask.Result.Take(numberOfOthers)).Where(other => other.ID != @object.ID && other.Status.Equals(ApprovalStatus.Published)).OrderByDescending(other => other.StartDate).ThenByDescending(other => other.PublishedTime).Take(numberOfOthers).ToList();
+						others = newersTask.Result.Take(numberOfOthers).Concat(oldersTask.Result.Take(numberOfOthers)).ToList();
 					}
 
+					others = others.Where(other => other != null && other.ID != null && other.ID != @object.ID && other.Status.Equals(ApprovalStatus.Published) && other.PublishedTime.Value <= DateTime.Now).ToList();
 					if (others.Count > 0)
 					{
 						var cacheKeyOfOthers = $"{@object.GetCacheKey()}:others";
@@ -783,8 +779,8 @@ namespace net.vieapps.Services.Portals
 					if (!string.IsNullOrWhiteSpace(@object.Details))
 						xml.Element("Details").Value = @object.Details.NormalizeHTML();
 
-					xml.Add(new XElement("Category", @object.Category?.Title));
-					xml.Add(new XElement("URL", $"~/{@object.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{@object.Category?.Alias ?? "-"}/{@object.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+					xml.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
+					xml.Add(new XElement("URL", @object.GetURL(desktop)));
 
 					if (showThumbnails)
 					{
@@ -811,12 +807,13 @@ namespace net.vieapps.Services.Portals
 					if (showRelateds)
 					{
 						var relatedsXml = new XElement("Relateds");
-						relateds = relateds.Where(related => related.Status.Equals(ApprovalStatus.Published) && related.PublishedTime.Value <= DateTime.Now).ToList();
+						relateds = relateds.Where(related => related != null && related.ID != null && related.ID != @object.ID && related.Status.Equals(ApprovalStatus.Published) && related.PublishedTime.Value <= DateTime.Now).ToList();
 						relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
 						{
-							var relatedXml = new XElement("Content", new XElement("ID", related.ID), new XElement("Title", related.Title), new XElement("Summary", related.Summary?.Replace("\r", "").Replace("\n", "<br/>")));
+							var relatedXml = new XElement("Content", new XElement("ID", related.ID));
+							relatedXml.Add(new XElement("Title", related.Title), new XElement("Summary", related.Summary?.Replace("\r", "").Replace("\n", "<br/>")));
 							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value).UpdateDateTime(cultureInfo));
-							relatedXml.Add(new XElement("URL", $"~/{related.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{related.Category?.Alias ?? "-"}/{related.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+							relatedXml.Add(new XElement("URL", related.GetURL(desktop)));
 							relatedsXml.Add(relatedXml);
 						});
 						xml.Add(relatedsXml);
@@ -833,13 +830,16 @@ namespace net.vieapps.Services.Portals
 					if (showOthers)
 					{
 						var othersXml = new XElement("Others");
-						others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
+						others.OrderByDescending(other => other.StartDate).ThenByDescending(other => other.PublishedTime).ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
 						{
 							otherXml.Element("StartDate")?.UpdateDateTime(cultureInfo);
 							otherXml.Element("EndDate")?.UpdateDateTime(cultureInfo);
 							if (!string.IsNullOrWhiteSpace(other.Summary))
 								otherXml.Element("Summary").Value = other.Summary.Replace("\r", "").Replace("\n", "<br/>");
-							otherXml.Add(new XElement("URL", $"~/{other.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{other.Category?.Alias ?? "-"}/{other.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}"));
+							if (!string.IsNullOrWhiteSpace(other.Details))
+								otherXml.Element("Details").Remove();
+							otherXml.Add(new XElement("Category", other.Category?.Title, new XAttribute("URL", other.Category?.GetURL(desktop))));
+							otherXml.Add(new XElement("URL", other.GetURL(desktop)));
 							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
 						})));
 						xml.Add(othersXml);
@@ -847,8 +847,8 @@ namespace net.vieapps.Services.Portals
 				}));
 
 				// build others
-				breadcrumbs = @object.Category?.GenerateBreadcrumbs(requestJson, alwaysUseHtmlSuffix) ?? new JArray();
-				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, $"~/{@object.Category?.Desktop?.Alias ?? desktop ?? "-default"}/{@object.Category?.Alias}/{@object.Alias}" + "/{{pageNumber}}" + $"{(alwaysUseHtmlSuffix ? ".html" : "")}");
+				breadcrumbs = @object.Category?.GenerateBreadcrumbs(requestJson) ?? new JArray();
+				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true));
 				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI");
 				seoInfo = new JObject
 				{

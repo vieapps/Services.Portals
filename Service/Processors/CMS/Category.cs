@@ -326,9 +326,9 @@ namespace net.vieapps.Services.Portals
 			// create new
 			await Task.WhenAll(
 				Category.CreateAsync(category, cancellationToken),
-				category.ClearRelatedCacheAsync(null, cancellationToken),
 				category.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
+			category.ClearRelatedCacheAsync(null, cancellationToken).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -470,9 +470,9 @@ namespace net.vieapps.Services.Portals
 			// update
 			await Task.WhenAll(
 				Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken),
-				category.ClearRelatedCacheAsync(oldParentID, cancellationToken),
 				category.SetAsync(false, false, cancellationToken)
 			).ConfigureAwait(false);
+			category.ClearRelatedCacheAsync(oldParentID, cancellationToken).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -624,7 +624,7 @@ namespace net.vieapps.Services.Portals
 
 			// delete vs
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await category.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
+			category.ClearRelatedCacheAsync(null, cancellationToken).Run();
 			category.Remove();
 
 			// message to update to all other connected clients
@@ -687,27 +687,16 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
-		internal static JArray GenerateBreadcrumbs(this Category category, JToken requestJson, bool alwaysUseHtmlSuffix)
+		internal static JArray GenerateBreadcrumbs(this Category category, JToken requestJson)
 		{
 			var breadcrumbs = new List<Tuple<string, string>>();
 			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("DefaultDesktop") ?? requestJson.Get<string>("Desktop");
-
-			var url = category.OpenBy.Equals(OpenBy.DesktopOnly)
-				? $"~/{category.Desktop?.Alias ?? desktop ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
-				: category.OpenBy.Equals(OpenBy.SpecifiedURI)
-					? category.SpecifiedURI ?? "~/"
-					: $"~/{category.Desktop?.Alias ?? desktop ?? "-default"}/{category.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}";
-			breadcrumbs.Add(new Tuple<string, string>(category.Title, url));
+			breadcrumbs.Add(new Tuple<string, string>(category.Title, category.GetURL(desktop)));
 
 			var parentCategory = category.ParentCategory;
 			while (parentCategory != null)
 			{
-				url = parentCategory.OpenBy.Equals(OpenBy.DesktopOnly)
-				? $"~/{parentCategory.Desktop?.Alias ?? desktop ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
-				: parentCategory.OpenBy.Equals(OpenBy.SpecifiedURI)
-					? parentCategory.SpecifiedURI ?? "~/"
-					: $"~/{parentCategory.Desktop?.Alias ?? desktop ?? "-default"}/{parentCategory.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}";
-				breadcrumbs.Insert(0, new Tuple<string, string>(parentCategory.Title, url));
+				breadcrumbs.Insert(0, new Tuple<string, string>(parentCategory.Title, parentCategory.GetURL(desktop)));
 				parentCategory = parentCategory.ParentCategory;
 			}
 
@@ -720,15 +709,8 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Category category, string thumbnailURL, int level, int maxLevel = 0, string validationKey = null, CancellationToken cancellationToken = default)
 		{
-			// prepare
-			var alwaysUseHtmlSuffix = category.Organization != null && category.Organization.AlwaysUseHtmlSuffix;
-			var url = category.OpenBy.Equals(OpenBy.DesktopOnly)
-				? $"~/{category.Desktop?.Alias ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
-				: category.OpenBy.Equals(OpenBy.SpecifiedURI)
-					? category.SpecifiedURI ?? "~/"
-					: $"~/{category.Desktop?.Alias ?? "-default"}/{category.Alias}{(alwaysUseHtmlSuffix ? ".html" : "")}";
-
 			// generate the menu item
+			var url = category.GetURL();
 			var menu = new JObject
 			{
 				{ "ID", category.ID },

@@ -36,5 +36,13 @@ namespace net.vieapps.Services.Portals
 		/// Gets the business content-type that this object is belong to
 		/// </summary>
 		IPortalContentType ContentType { get; }
+
+		/// <summary>
+		/// Gets the public URL
+		/// </summary>
+		/// <param name="desktop">The string that presents the alias of a desktop</param>
+		/// <param name="addPageNumberHolder">true to add the page-number holder ({{pageNumber}})</param>
+		/// <returns></returns>
+		string GetURL(string desktop = null, bool addPageNumberHolder = false);
 	}
 }
