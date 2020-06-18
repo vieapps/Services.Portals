@@ -26,7 +26,8 @@ namespace net.vieapps.Services.Portals
 				content.OriginalPrivileges = content.OriginalPrivileges?.Normalize();
 				content.TrimAll();
 				content.Details = string.IsNullOrWhiteSpace(content.Details) ? null : content.Details.HtmlDecode();
-				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
+				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
+				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
 				onCompleted?.Invoke(content);
 			});
 
@@ -36,7 +37,8 @@ namespace net.vieapps.Services.Portals
 			content.OriginalPrivileges = content.OriginalPrivileges?.Normalize();
 			content.TrimAll();
 			content.Details = string.IsNullOrWhiteSpace(content.Details) ? null : content.Details.HtmlDecode();
-			content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
+			content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
+			content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
 			onCompleted?.Invoke(content);
 			return content;
 		}
