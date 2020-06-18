@@ -115,7 +115,6 @@ namespace net.vieapps.Services.Portals
 			else if (this.SpecialRequests.Contains(requestPath))
 			{
 				context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
-				context.Response.Headers["Access-Control-Allow-Origin"] = "*";
 				switch (requestPath)
 				{
 					case "_initializer":
@@ -237,6 +236,11 @@ namespace net.vieapps.Services.Portals
 						systemIdentity = pathSegments[0].Right(pathSegments[0].Length - 1).Replace(".html", "").GetANSIUri(true, false);
 						query["x-system"] = systemIdentity;
 						requestSegments = pathSegments.Skip(1).ToArray();
+						if (requestSegments.Length > 0 && requestSegments[0].IsEndsWith(".txt"))
+						{
+							query["x-indicator"] = requestSegments[0].Replace(".txt", "").ToLower();
+							requestSegments = new string[] { };
+						}
 					}
 				}
 
