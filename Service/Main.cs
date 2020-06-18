@@ -1190,7 +1190,7 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
 					{ "Headers", headers.ToJson() },
-					{ "Body", writeDesktopLogs ? html : html.Compress(this.BodyEncoding) },
+					{ "Body", html.Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
 				};
 				stopwatch.Stop();
@@ -1837,10 +1837,19 @@ namespace net.vieapps.Services.Portals
 					catch (Exception ex)
 					{
 						gotError = true;
-						errorMessage = ex.Message.PositionOf("script") > 0 || ex.Message.PositionOf("document()") > 0
+						errorMessage = ex.Message.PositionOf("document()") > 0
 							? $"{ex.Message} => set 'EnableScriptAndDocumentFunction' of options to true to enable XSL's scripts and document() function"
 							: $"Transform error => {ex.Message}";
 						errorStack = ex.StackTrace;
+						if (ex.Message.PositionOf("See InnerException") > 0)
+						{
+							var inner = ex.InnerException;
+							while (inner != null)
+							{
+								errorStack += "\r\n\r\n" + inner.Message + " ===> " + inner.StackTrace;
+								inner = inner.InnerException;
+							}
+						}
 						await this.WriteLogsAsync(correlationID,
 							$"Error occurred while transforming XHTML of {portletInfo} => {ex.Message}" +
 							$"\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}{(string.IsNullOrWhiteSpace(isList ? portlet.ListSettings.Template : portlet.ViewSettings.Template) ? $"\r\n- XSL file: {portlet.Desktop?.WorkingTheme ?? "default"}/templates/{contentType.ContentTypeDefinition?.ModuleDefinition?.Directory?.ToLower() ?? "-"}/{contentType.ContentTypeDefinition?.ObjectName?.ToLower() ?? "-"}/{xslFilename}" : "")}"

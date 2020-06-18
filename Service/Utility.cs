@@ -19,6 +19,7 @@ using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Exceptions;
+using System.Globalization;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -285,7 +286,9 @@ namespace net.vieapps.Services.Portals
 			if (xslt != null)
 				using (var writer = new StringWriter())
 				{
-					xslt.Transform(xml, null, writer);
+					var xsltArguments = new XsltArgumentList();
+					xsltArguments.AddExtensionObject("urn:vieapps", new XslTransfromExtensions());
+					xslt.Transform(xml, xsltArguments, writer);
 					var results = writer.ToString().Replace(StringComparison.OrdinalIgnoreCase, "&#xD;", "").Replace(StringComparison.OrdinalIgnoreCase, "&#xA;", "").Replace(StringComparison.OrdinalIgnoreCase, "\t", "").Replace(StringComparison.OrdinalIgnoreCase, "&#x9;", "").Replace(StringComparison.OrdinalIgnoreCase, "<?xml version=\"1.0\" encoding=\"utf-16\"?>", "");
 					var start = results.PositionOf("xmlns:");
 					while (start > 0)
@@ -723,6 +726,23 @@ namespace net.vieapps.Services.Portals
 						logger.LogError($"Error occurred while running a forgetable task => {ex.Message}", ex);
 				}
 			}).ConfigureAwait(false);
+	}
+
+	//  --------------------------------------------------------------------------------------------
+
+	public class XslTransfromExtensions
+	{
+		public XPathNodeIterator SelectNodeSet(XPathNodeIterator node, string xPath)
+			=> node.Count == 1 && node.MoveNext()   // must be a single node
+				? node.Current.Select(xPath)
+				: null;
+
+		public string ToString(string value, string format, string cultureCode)
+			=> DateTime.TryParse(value, out var datetime)
+				? datetime.ToString(format ?? "dd/MM/yyyy", CultureInfo.GetCultureInfo(cultureCode ?? "vi-VN"))
+				: Decimal.TryParse(value, out var @decimal)
+					? @decimal.ToString(format ?? "###,###,###,###,###,##0.###", CultureInfo.GetCultureInfo(cultureCode ?? "vi-VN"))
+					: "";
 	}
 
 	//  --------------------------------------------------------------------------------------------
