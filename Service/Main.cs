@@ -792,7 +792,7 @@ namespace net.vieapps.Services.Portals
 			if (organization == null)
 				throw new InformationNotFoundException();
 
-			var name = requestInfo.Query["x-indicator"].Replace(".txt", "");
+			var name = $"{requestInfo.Query["x-indicator"]}.txt";
 			var indicator = organization.HttpIndicators?.FirstOrDefault(httpIndicator => httpIndicator.Name.IsEquals(name));
 			return indicator != null
 				? new JObject
@@ -1300,7 +1300,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception ex)
 					{
-						portletHtmls[portlet.ID] = new Tuple<string, bool>(this.GenerateErrorHtml($"Unexpected error while generating portlet HTML ({portlet.Title} [{portlet.ID}]) => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, portlet.ID), true);
+						portletHtmls[portlet.ID] = new Tuple<string, bool>(this.GenerateErrorHtml($"Unexpected error while generating portlet HTML ({portlet.Title}) => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, portlet.ID), true);
 					}
 				}, cancellationToken);
 
@@ -1316,7 +1316,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					body = this.GenerateErrorHtml($"Unexpected error while generating desktop ({desktop.Title} [{desktop.ID}]) => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID);
+					body = this.GenerateErrorHtml($"Unexpected error while generating desktop ({desktop.Title}) => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID, "Desktop ID");
 				}
 
 				// prepare HTML of portlets
@@ -1389,34 +1389,27 @@ namespace net.vieapps.Services.Portals
 						};
 				}
 
-				// response
+				// normalize URLs
 				html = html.NormalizeURLs(requestURI, organization.Alias, useRelativeURLs);
-				response = new JObject
-				{
-					{ "StatusCode", (int)HttpStatusCode.OK },
-					{ "Headers", headers.ToJson() },
-					{ "Body", writeDesktopLogs ? html : html.Compress(this.BodyEncoding) },
-					{ "BodyEncoding", this.BodyEncoding },
-					{ "BodyAsPlainText", writeDesktopLogs }
-				};
 			}
 			catch (Exception ex)
 			{
 				html = "<!DOCTYPE html>\r\n"
 					+ "<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n"
 					+ "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><title>Error: " + ex.Message + "</title></head>\r\n"
-					+ "<body>" + this.GenerateErrorHtml($"Unexpected error while processing HTTP request of {desktop.Title} [{desktop.ID}] desktop => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID) + "</body>\r\n"
+					+ "<body>" + this.GenerateErrorHtml($"Unexpected error while processing HTTP request of the {desktop.Title} desktop => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID, "Desktop ID") + "</body>\r\n"
 					+ "</html>";
-				response = new JObject
-				{
-					{ "StatusCode", (int)HttpStatusCode.OK },
-					{ "Headers", headers.ToJson() },
-					{ "Body", html.Compress(this.BodyEncoding) },
-					{ "BodyEncoding", this.BodyEncoding }
-				};
 			}
 
 			// response
+			response = new JObject
+			{
+				{ "StatusCode", (int)HttpStatusCode.OK },
+				{ "Headers", headers.ToJson() },
+				{ "Body", writeDesktopLogs ? html : html.Compress(this.BodyEncoding) },
+				{ "BodyEncoding", this.BodyEncoding },
+				{ "BodyAsPlainText", writeDesktopLogs }
+			};
 			stopwatch.Stop();
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete process of {desktopInfo} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 			return response;
@@ -2117,6 +2110,10 @@ namespace net.vieapps.Services.Portals
 			// add the stylesheet of the site
 			metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{site.ID}.css\"/>";
 
+			// add organization meta tags
+			if (!string.IsNullOrWhiteSpace(organization.MetaTags))
+				metaTags += organization.MetaTags;
+
 			// add site meta tags
 			if (!string.IsNullOrWhiteSpace(site.MetaTags))
 				metaTags += site.MetaTags;
@@ -2150,6 +2147,8 @@ namespace net.vieapps.Services.Portals
 					}, cancellationToken, true, false).ConfigureAwait(false);
 				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/{theme}.js\"></script>";
 			}
+			if (!string.IsNullOrWhiteSpace(organization.Scripts))
+				scripts += organization.Scripts;
 			if (!string.IsNullOrWhiteSpace(site.Scripts))
 				scripts += site.Scripts;
 			if (!string.IsNullOrWhiteSpace(desktop.Scripts))
@@ -2231,11 +2230,13 @@ namespace net.vieapps.Services.Portals
 			return json;
 		}
 
-		string GenerateErrorHtml(string errorMessage, string errorStack, string correlationID, string objectID)
+		string GenerateErrorHtml(string errorMessage, string errorStack, string correlationID, string objectID, string objectIDLabel = null)
 			=> "<div>"
 				+ $"<div style=\"color:red\">{errorMessage.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</div>"
-				+ $"<div style=\"font-size:80%\">Correlation ID: {correlationID} - Object ID: {objectID}</div>"
-				+ (this.IsDebugLogEnabled ? $"<div style=\"font-size:80%\">Stack: {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</div>" : $"<!-- {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")} -->")
+				+ $"<div style=\"font-size:80%\">Correlation ID: {correlationID} - {objectIDLabel ?? "Portlet ID"}: {objectID}</div>"
+				+ (this.IsDebugLogEnabled
+					? $"<blockquote style=\"font-size:80%\">Stack: {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</blockquote>"
+					: $"<!-- {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")} -->")
 				+ "</div>";
 		#endregion
 
