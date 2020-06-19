@@ -141,17 +141,17 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the XDocument of XML/XHTML
 		/// </summary>
-		/// <param name="xhtml"></param>
-		public static XDocument GetXDocument(this string xhtml)
-			=> XDocument.Parse(xhtml ?? "");
+		/// <param name="xdoc"></param>
+		public static XDocument GetXDocument(this string xdoc)
+			=> XDocument.Parse(xdoc ?? "");
 
 		/// <summary>
 		/// Gets the defined zones from XHTML template
 		/// </summary>
-		/// <param name="xhtmlTemplate"></param>
+		/// <param name="xdocTemplate"></param>
 		/// <returns></returns>
-		public static IEnumerable<XElement> GetZones(this XDocument xhtmlTemplate)
-			=> xhtmlTemplate?.XPathSelectElements("//*/*[@zone-id]");
+		public static IEnumerable<XElement> GetZones(this XDocument xdocTemplate)
+			=> xdocTemplate?.XPathSelectElements("//*/*[@zone-id]");
 
 		/// <summary>
 		/// Gets the attribute that contains the identity of the zone (attriubte that named 'zone-id')
@@ -183,22 +183,22 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the names of the defined zones from XHTML template
 		/// </summary>
-		/// <param name="xhtmlTemplate"></param>
+		/// <param name="xdocTemplate"></param>
 		/// <returns></returns>
-		public static IEnumerable<string> GetZoneNames(this XDocument xhtmlTemplate)
-			=> xhtmlTemplate.GetZones().GetZoneNames();
+		public static IEnumerable<string> GetZoneNames(this XDocument xdocTemplate)
+			=> xdocTemplate.GetZones().GetZoneNames();
 
 		/// <summary>
 		/// Validates the XHTML template
 		/// </summary>
-		/// <param name="xhtmlTemplate"></param>
+		/// <param name="xdocTemplate"></param>
 		/// <param name="requiredZoneIDs"></param>
-		public static void ValidateTemplate(this string xhtmlTemplate, IEnumerable<string> requiredZoneIDs = null)
+		public static void ValidateTemplate(this string xdocTemplate, IEnumerable<string> requiredZoneIDs = null)
 		{
-			if (!string.IsNullOrWhiteSpace(xhtmlTemplate))
+			if (!string.IsNullOrWhiteSpace(xdocTemplate))
 				try
 				{
-					var template = xhtmlTemplate.GetXDocument();
+					var template = xdocTemplate.GetXDocument();
 					var zones = template.GetZones();
 
 					if (zones.Count() < 1)
@@ -247,49 +247,87 @@ namespace net.vieapps.Services.Portals
 		}
 
 		/// <summary>
-		/// Gets the compiled XSLT
+		/// Gets the compiled XSL stylesheet
 		/// </summary>
-		/// <param name="xslt"></param>
-		/// <param name="enableScriptAndDocumentFunction"></param>
+		/// <param name="xslt">The string that presents the XSL stylesheet</param>
+		/// <param name="enableDocumentFunctionAndInlineScript">true to enable document() function and inline script (like C#) of the XSL stylesheet</param>
+		/// <param name="stylesheetResolver">Used to resolve any style sheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
 		/// <returns></returns>
-		public static XslCompiledTransform GetXslCompiledTransform(this string xslt, bool enableScriptAndDocumentFunction = false)
+		public static XslCompiledTransform GetXslCompiledTransform(this string xslt, bool enableDocumentFunctionAndInlineScript = false, XmlResolver stylesheetResolver = null)
 		{
 			if (!string.IsNullOrWhiteSpace(xslt))
 				try
 				{
-					var xml = xslt.GetXDocument();
-					using (var stream = UtilityService.CreateMemoryStream(xml.ToString().ToBytes()))
+					using (var stream = UtilityService.CreateMemoryStream(xslt.ToBytes()))
 					{
 						using (var reader = new XmlTextReader(stream))
 						{
+#if DEBUG
+							var xslTransform = new XslCompiledTransform(true);
+#else
 							var xslTransform = new XslCompiledTransform();
-							xslTransform.Load(reader, enableScriptAndDocumentFunction ? new XsltSettings { EnableScript = true, EnableDocumentFunction = true } : null, null);
+#endif
+							xslTransform.Load(reader, enableDocumentFunctionAndInlineScript ? new XsltSettings(true, true) : null, stylesheetResolver);
 							return xslTransform;
 						}
 					}
 				}
 				catch (Exception ex)
 				{
-					throw new TemplateIsInvalidException($"The XSLT template is invalid => {ex.Message}", ex);
+					if (ex.Message.IsContains("XSLT compile error"))
+						throw new XslTemplateIsNotCompiledException(ex);
+					else
+						throw new XslTemplateIsInvalidException(ex);
 				}
 			return null;
 		}
 
 		/// <summary>
-		/// Transforms this XML by the specified stylesheet to XHTML/XML string
+		/// Gets the compiled XSL stylesheet
 		/// </summary>
-		/// <param name="xml"></param>
-		/// <param name="xslt"></param>
+		/// <param name="xslt">The XML document that presents the XSL stylesheet</param>
+		/// <param name="enableDocumentFunctionAndInlineScript">true to enable document() function and inline script (like C#) of the XSL stylesheet</param>
+		/// <param name="stylesheetResolver">Used to resolve any style sheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
 		/// <returns></returns>
-		public static string Transfrom(this XmlDocument xml, XslCompiledTransform xslt)
+		public static XslCompiledTransform GetXslCompiledTransform(this XmlDocument xslt, bool enableDocumentFunctionAndInlineScript = false, XmlResolver stylesheetResolver = null)
+			=> xslt?.ToString().GetXslCompiledTransform(enableDocumentFunctionAndInlineScript, stylesheetResolver);
+
+		/// <summary>
+		/// Gets the compiled XSL stylesheet
+		/// </summary>
+		/// <param name="xslt">The XML document that presents the XSL stylesheet</param>
+		/// <param name="enableDocumentFunctionAndInlineScript">true to enable document() function and inline script (like C#) of the XSL stylesheet</param>
+		/// <param name="stylesheetResolver">Used to resolve any style sheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
+		/// <returns></returns>
+		public static XslCompiledTransform GetXslCompiledTransform(this XDocument xslt, bool enableDocumentFunctionAndInlineScript = false, XmlResolver stylesheetResolver = null)
+			=> xslt?.ToString().GetXslCompiledTransform(enableDocumentFunctionAndInlineScript, stylesheetResolver);
+
+		/// <summary>
+		/// Transforms this XML by the specified XSL stylesheet
+		/// </summary>
+		/// <param name="xml">The XML document to transform</param>
+		/// <param name="xslt">The XSL stylesheet used to transform the XML document</param>
+		/// <param name="xsltArguments">The arguments for transforming data</param>
+		/// <returns></returns>
+		public static string Transform(this XmlDocument xml, XslCompiledTransform xslt, XsltArgumentList xsltArguments = null)
 		{
-			if (xslt != null)
-				using (var writer = new StringWriter())
+			var results = "";
+			if (xml != null && xslt != null)
+				try
 				{
-					var xsltArguments = new XsltArgumentList();
-					xsltArguments.AddExtensionObject("urn:vieapps", new XslTransfromExtensions());
-					xslt.Transform(xml, xsltArguments, writer);
-					var results = writer.ToString().Replace(StringComparison.OrdinalIgnoreCase, "&#xD;", "").Replace(StringComparison.OrdinalIgnoreCase, "&#xA;", "").Replace(StringComparison.OrdinalIgnoreCase, "\t", "").Replace(StringComparison.OrdinalIgnoreCase, "&#x9;", "").Replace(StringComparison.OrdinalIgnoreCase, "<?xml version=\"1.0\" encoding=\"utf-16\"?>", "");
+					using (var writer = new StringWriter())
+					{
+						xsltArguments = xsltArguments ?? new XsltArgumentList();
+						xsltArguments.AddExtensionObject("urn:schemas-vieapps-net:xslt", new XslTransfromExtensions());
+						xslt.Transform(xml, xsltArguments, writer);
+						results = writer.ToString();
+					}
+
+					results = results.Replace(StringComparison.OrdinalIgnoreCase, "&#xD;", "").Replace(StringComparison.OrdinalIgnoreCase, "&#xA;", "");
+					results = results.Replace(StringComparison.OrdinalIgnoreCase, "&#x9;", "").Replace(StringComparison.OrdinalIgnoreCase, "\t", "");
+					results = results.Replace(StringComparison.OrdinalIgnoreCase, "<?xml version=\"1.0\" encoding=\"utf-16\"?>", "");
+					results = results.Replace(StringComparison.OrdinalIgnoreCase, "<?xml version=\"1.0\" encoding=\"utf-8\"?>", "");
+
 					var start = results.PositionOf("xmlns:");
 					while (start > 0)
 					{
@@ -298,39 +336,48 @@ namespace net.vieapps.Services.Portals
 						results = results.Remove(start, end - start + 1);
 						start = results.PositionOf("xmlns:");
 					}
-					return results;
 				}
-			return "";
+				catch (Exception ex)
+				{
+					if (ex.Message.IsContains("Execution of the 'document()'") || ex.Message.IsContains("Execution of scripts"))
+						throw new XslTemplateExecutionIsProhibitedException(ex);
+					else
+						throw ex;
+				}
+			return results;
 		}
 
 		/// <summary>
-		/// Transforms this XML by the specified stylesheet to XHTML/XML string
+		/// Transforms this XML by the specified XSL stylesheet
 		/// </summary>
-		/// <param name="xml"></param>
-		/// <param name="xmlStylesheet">The stylesheet for transfroming</param>
-		/// <param name="enableScriptAndDocumentFunction">true to enable inline script (like C#) while processing</param>
+		/// <param name="xml">The XML document to transform</param>
+		/// <param name="xslt">The XSL stylesheet used to transform the XML document</param>
+		/// <param name="xsltArguments">The arguments for transforming data</param>
 		/// <returns></returns>
-		public static string Transfrom(this XmlDocument xml, string xslt, bool enableScriptAndDocumentFunction = false)
-			=> xml.Transfrom((xslt ?? "").GetXslCompiledTransform(enableScriptAndDocumentFunction));
+		public static string Transform(this XDocument xml, XslCompiledTransform xslt, XsltArgumentList xsltArguments = null)
+			=> xml?.ToXmlDocument().Transform(xslt, xsltArguments);
 
 		/// <summary>
-		/// Transforms this XML by the specified stylesheet to XHTML/XML string
+		/// Transforms this XML by the specified XSL stylesheet
 		/// </summary>
-		/// <param name="xml"></param>
-		/// <param name="xslt"></param>
+		/// <param name="xml">The XML document to transform</param>
+		/// <param name="xmlStylesheet">The XSL stylesheet used to transform the XML document</param>
+		/// <param name="enableDocumentFunctionAndInlineScript">true to enable document() function and inline script (like C#) of the XSL stylesheet</param>
+		/// <param name="xsltArguments">The arguments for transforming data</param>
 		/// <returns></returns>
-		public static string Transfrom(this XDocument xml, XslCompiledTransform xslt)
-			=> xml.ToXmlDocument().Transfrom(xslt);
+		public static string Transform(this XmlDocument xml, string xslt, bool enableDocumentFunctionAndInlineScript = false, XsltArgumentList xsltArguments = null)
+			=> xml?.Transform((xslt ?? "").GetXslCompiledTransform(enableDocumentFunctionAndInlineScript), xsltArguments);
 
 		/// <summary>
-		/// Transforms this XML by the specified stylesheet to XHTML/XML string
+		/// Transforms this XML by the specified XSL stylesheet
 		/// </summary>
-		/// <param name="xml"></param>
-		/// <param name="xmlStylesheet">The stylesheet for transfroming</param>
-		/// <param name="enableScriptAndDocumentFunction">true to enable inline script (like C#) and document function while processing</param>
+		/// <param name="xml">The XML document to transform</param>
+		/// <param name="xmlStylesheet">The XSL stylesheet used to transform the XML document</param>
+		/// <param name="enableDocumentFunctionAndInlineScript">true to enable document() function and inline script (like C#) of the XSL stylesheet</param>
+		/// <param name="xsltArguments">The arguments for transforming data</param>
 		/// <returns></returns>
-		public static string Transfrom(this XDocument xml, string xslt, bool enableScriptAndDocumentFunction = false)
-			=> xml.ToXmlDocument().Transfrom(xslt, enableScriptAndDocumentFunction);
+		public static string Transform(this XDocument xml, string xslt, bool enableDocumentFunctionAndInlineScript = false, XsltArgumentList xsltArguments = null)
+			=> xml?.ToXmlDocument().Transform(xslt, enableDocumentFunctionAndInlineScript, xsltArguments);
 
 		/// <summary>
 		/// Gets the pre-defined template
@@ -582,7 +629,7 @@ namespace net.vieapps.Services.Portals
 			var expressionID = requestJson.Get<JObject>("Expression")?.Get<string>("ID");
 			if (!string.IsNullOrWhiteSpace(expressionID))
 			{
-				var parentIdentity = requestJson.Get("IsAutoPageNumber", false) ?  requestJson.Get<string>("ParentIdentity") : null;
+				var parentIdentity = requestJson.Get("IsAutoPageNumber", false) ? requestJson.Get<string>("ParentIdentity") : null;
 				return $"#exp:{expressionID}{(string.IsNullOrWhiteSpace(parentIdentity) ? "" : $"~{parentIdentity}")}";
 			}
 			return null;
@@ -733,7 +780,7 @@ namespace net.vieapps.Services.Portals
 	public class XslTransfromExtensions
 	{
 		public XPathNodeIterator SelectNodeSet(XPathNodeIterator node, string xPath)
-			=> node.Count == 1 && node.MoveNext()   // must be a single node
+			=> node.Count == 1 && node.MoveNext()
 				? node.Current.Select(xPath)
 				: null;
 
@@ -742,7 +789,7 @@ namespace net.vieapps.Services.Portals
 				? datetime.ToString(format ?? "dd/MM/yyyy", CultureInfo.GetCultureInfo(cultureCode ?? "vi-VN"))
 				: Decimal.TryParse(value, out var @decimal)
 					? @decimal.ToString(format ?? "###,###,###,###,###,##0.###", CultureInfo.GetCultureInfo(cultureCode ?? "vi-VN"))
-					: "";
+					: value;
 	}
 
 	//  --------------------------------------------------------------------------------------------

@@ -1334,17 +1334,8 @@ namespace net.vieapps.Services.Portals
 				zoneHtmls.ForEach(kvp => body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{" + kvp.Key + "-holder}}", kvp.Value.Join("\r\n")));
 
 				// generate html
-				html = "<!DOCTYPE html>\r\n"
-					+ "<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n"
-					+ "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/></head>\r\n"
-					+ "<body></body>\r\n"
-					+ "</html>";
+				html = "<!DOCTYPE html><html xmlns=\"http://www.w3.org/1999/xhtml\"><head></head><body></body></html>";
 
-				html = html.Insert(html.IndexOf(">", html.IndexOf("<head")) + 1, $"<title>{title}</title>");
-				html = html.Insert(html.IndexOf("</head>"), metaTags);
-				html = html.Insert(html.IndexOf(">", html.IndexOf("<body")) + 1, body + scripts);
-
-				// final => body's css and style
 				var style = desktop.UISettings?.GetStyle() ?? "";
 				if (string.IsNullOrWhiteSpace(style))
 					style = site.UISettings?.GetStyle() ?? "";
@@ -1357,11 +1348,15 @@ namespace net.vieapps.Services.Portals
 				{
 					var bodyStyle = "";
 					if (!string.IsNullOrWhiteSpace(css))
-						bodyStyle += $" class=\"{css}\"";
+						bodyStyle += $" class=\"{css.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}\"";
 					if (!string.IsNullOrWhiteSpace(style))
-						bodyStyle += $" style=\"{style}\"";
-					html = html.Insert(html.IndexOf(">", html.IndexOf("<body")), bodyStyle);
+						bodyStyle += $" style=\"{style.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}\"";
+					html = html.Insert(html.IndexOf("></body>"), bodyStyle);
 				}
+
+				html = html.Insert(html.IndexOf("</head>"), $"<title>{title}</title>" + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>");
+				html = html.Insert(html.IndexOf("</head>"), metaTags);
+				html = html.Insert(html.IndexOf("</body>"), body + scripts);
 
 				if (writeDesktopLogs)
 				{
@@ -1396,7 +1391,7 @@ namespace net.vieapps.Services.Portals
 			{
 				html = "<!DOCTYPE html>\r\n"
 					+ "<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n"
-					+ "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><title>Error: " + ex.Message + "</title></head>\r\n"
+					+ "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><title>Error: " + ex.Message.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;") + "</title></head>\r\n"
 					+ "<body>" + this.GenerateErrorHtml($"Unexpected error while processing HTTP request of the {desktop.Title} desktop => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID, "Desktop ID") + "</body>\r\n"
 					+ "</html>";
 			}
@@ -1830,26 +1825,25 @@ namespace net.vieapps.Services.Portals
 							xml.Root.Add(sortBy.ToXml("SortBy"));
 
 						// transform
-						content = xml.Transfrom(xslTemplate, optionsJson.Get<bool>("EnableScriptAndDocumentFunction", false));
+						content = xml.Transform(xslTemplate, optionsJson.Get<bool>("EnableDocumentFunctionAndInlineScripts", false));
 						if (writeLogs)
 							await this.WriteLogsAsync(correlationID, $"XHTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
-						gotError = true;
-						errorMessage = ex.Message.PositionOf("document()") > 0
-							? $"{ex.Message} => set 'EnableScriptAndDocumentFunction' of options to true to enable XSL's scripts and document() function"
+						errorMessage = ex is XslTemplateIsInvalidException || ex is XslTemplateExecutionIsProhibitedException || ex is XslTemplateIsNotCompiledException
+							? ex.Message
 							: $"Transform error => {ex.Message}";
-						errorStack = ex.StackTrace;
-						if (ex.Message.PositionOf("See InnerException") > 0)
+						errorStack = $"\r\n => {ex.Message} [{ex.GetTypeName()}]\r\n{ex.StackTrace}";
+
+						var inner = ex.InnerException;
+						while (inner != null)
 						{
-							var inner = ex.InnerException;
-							while (inner != null)
-							{
-								errorStack += "\r\n\r\n" + inner.Message + " ===> " + inner.StackTrace;
-								inner = inner.InnerException;
-							}
+							errorStack += $"\r\n\r\n ==> {inner.Message} [{inner.GetTypeName()}]\r\n{inner.StackTrace}";
+							inner = inner.InnerException;
 						}
+
+						gotError = true;
 						await this.WriteLogsAsync(correlationID,
 							$"Error occurred while transforming XHTML of {portletInfo} => {ex.Message}" +
 							$"\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}{(string.IsNullOrWhiteSpace(isList ? portlet.ListSettings.Template : portlet.ViewSettings.Template) ? $"\r\n- XSL file: {portlet.Desktop?.WorkingTheme ?? "default"}/templates/{contentType.ContentTypeDefinition?.ModuleDefinition?.Directory?.ToLower() ?? "-"}/{contentType.ContentTypeDefinition?.ObjectName?.ToLower() ?? "-"}/{xslFilename}" : "")}"
@@ -2106,7 +2100,7 @@ namespace net.vieapps.Services.Portals
 					+ $"<link rel=\"shortcut icon\" type=\"image/{(site.IconURI.IsEndsWith(".icon") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>";
 
 			// add addtional meta tags of main portlet
-			metaInfo?.Select(m => (m as JValue).Value.ToString()).Where(m => !string.IsNullOrWhiteSpace(m)).ForEach(m => metaTags += m);
+			metaInfo?.Select(meta => (meta as JValue).Value.ToString()).Where(meta => !string.IsNullOrWhiteSpace(meta)).ForEach(meta => metaTags += meta);
 
 			// add the required stylesheet libraries
 			metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_assets/default.css\"/>"
@@ -2119,15 +2113,15 @@ namespace net.vieapps.Services.Portals
 			// add the stylesheet of the site
 			metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{site.ID}.css\"/>";
 
-			// add organization meta tags
+			// add meta tags of the organization
 			if (!string.IsNullOrWhiteSpace(organization.MetaTags))
 				metaTags += organization.MetaTags;
 
-			// add site meta tags
+			// add meta tags of the site
 			if (!string.IsNullOrWhiteSpace(site.MetaTags))
 				metaTags += site.MetaTags;
 
-			// add desktop meta tags
+			// add meta tags of the desktop
 			if (!string.IsNullOrWhiteSpace(desktop.MetaTags))
 				metaTags += desktop.MetaTags;
 
@@ -2244,7 +2238,7 @@ namespace net.vieapps.Services.Portals
 				+ $"<div style=\"color:red\">{errorMessage.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</div>"
 				+ $"<div style=\"font-size:80%\">Correlation ID: {correlationID} - {objectIDLabel ?? "Portlet ID"}: {objectID}</div>"
 				+ (this.IsDebugLogEnabled
-					? $"<blockquote style=\"font-size:80%\">Stack: {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</blockquote>"
+					? $"<blockquote style=\"font-size:80%\">{errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</blockquote>"
 					: $"<!-- {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")} -->")
 				+ "</div>";
 		#endregion

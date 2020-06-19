@@ -168,16 +168,17 @@ namespace net.vieapps.Services.Portals
 			this.ExpressionID = string.IsNullOrWhiteSpace(this.ExpressionID) ? null : this.ExpressionID;
 			this.ListSettings?.Normalize(settings =>
 			{
-				try
-				{
-					(settings.Template ?? "").GetXslCompiledTransform();
-				}
-				catch (Exception ex)
-				{
-					if (ex is TemplateIsInvalidException)
-						ex = ex.InnerException;
-					throw new TemplateIsInvalidException($"List XSLT is invalid => {ex.Message}", ex);
-				}
+				if (!string.IsNullOrWhiteSpace(settings.Template))
+					try
+					{
+						settings.Template.GetXDocument().ToString().GetXslCompiledTransform();
+					}
+					catch (Exception ex)
+					{
+						if (ex is TemplateIsInvalidException)
+							ex = ex.InnerException;
+						throw new TemplateIsInvalidException($"List XSLT is invalid => {ex.Message}", ex);
+					}
 				if (!string.IsNullOrWhiteSpace(settings.Options))
 					try
 					{
@@ -191,16 +192,17 @@ namespace net.vieapps.Services.Portals
 
 			this.ViewSettings?.Normalize(settings =>
 			{
-				try
-				{
-					(settings.Template ?? "").GetXslCompiledTransform();
-				}
-				catch (Exception ex)
-				{
-					if (ex is TemplateIsInvalidException)
-						ex = ex.InnerException;
-					throw new TemplateIsInvalidException($"View XSLT is invalid => {ex.Message}", ex);
-				}
+				if (!string.IsNullOrWhiteSpace(settings.Template))
+					try
+					{
+						settings.Template.GetXDocument().ToString().GetXslCompiledTransform();
+					}
+					catch (Exception ex)
+					{
+						if (ex is TemplateIsInvalidException)
+							ex = ex.InnerException;
+						throw new TemplateIsInvalidException($"View XSLT is invalid => {ex.Message}", ex);
+					}
 				if (!string.IsNullOrWhiteSpace(settings.Options))
 					try
 					{
@@ -214,30 +216,32 @@ namespace net.vieapps.Services.Portals
 
 			this.PaginationSettings?.Normalize(settings =>
 			{
-				try
-				{
-					(settings.Template ?? "").GetXslCompiledTransform();
-				}
-				catch (Exception ex)
-				{
-					if (ex is TemplateIsInvalidException)
-						ex = ex.InnerException;
-					throw new TemplateIsInvalidException($"Pagination XSLT is invalid => {ex.Message}", ex);
-				}
+				if (!string.IsNullOrWhiteSpace(settings.Template))
+					try
+					{
+						settings.Template.GetXDocument();
+					}
+					catch (Exception ex)
+					{
+						if (ex is TemplateIsInvalidException)
+							ex = ex.InnerException;
+						throw new TemplateIsInvalidException($"Pagination XSLT is invalid => {ex.Message}", ex);
+					}
 			});
 
 			this.BreadcrumbSettings?.Normalize(settings =>
 			{
-				try
-				{
-					(settings.Template ?? "").GetXslCompiledTransform();
-				}
-				catch (Exception ex)
-				{
-					if (ex is TemplateIsInvalidException)
-						ex = ex.InnerException;
-					throw new TemplateIsInvalidException($"Breadcrumb XSLT is invalid => {ex.Message}", ex);
-				}
+				if (!string.IsNullOrWhiteSpace(settings.Template))
+					try
+					{
+						settings.Template.GetXDocument();
+					}
+					catch (Exception ex)
+					{
+						if (ex is TemplateIsInvalidException)
+							ex = ex.InnerException;
+						throw new TemplateIsInvalidException($"Breadcrumb XSLT is invalid => {ex.Message}", ex);
+					}
 			});
 		}
 
