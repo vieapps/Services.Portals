@@ -1,6 +1,7 @@
 ﻿#region Related components
 using System;
 using System.Linq;
+using System.Dynamic;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Xml.Serialization;
@@ -213,12 +214,16 @@ namespace net.vieapps.Services.Portals
 	/// Presents an UI definition for working with an extended property of a repository entity in a respository 
 	/// </summary>
 	[Serializable]
+	[DebuggerDisplay("Name = {Name}")]
 	public sealed class ExtendedUIControlDefinition
 	{
-		public ExtendedUIControlDefinition() : this(null) { }
+		public ExtendedUIControlDefinition() { }
 
-		public ExtendedUIControlDefinition(JObject json)
-			=> this.CopyFrom(json ?? new JObject());
+		public ExtendedUIControlDefinition(JObject data)
+			=> this.CopyFrom(data ?? new JObject());
+
+		public ExtendedUIControlDefinition(ExpandoObject data)
+			=> this.CopyFrom(data ?? new ExpandoObject());
 
 		public override string ToString()
 			=> this.ToJson().ToString(Formatting.None);
@@ -380,10 +385,13 @@ namespace net.vieapps.Services.Portals
 	[Serializable]
 	public sealed class ExtendedUIDefinition
 	{
-		public ExtendedUIDefinition() : this(null) { }
+		public ExtendedUIDefinition() { }
 
-		public ExtendedUIDefinition(JObject json)
-			=> this.CopyFrom(json ?? new JObject());
+		public ExtendedUIDefinition(JObject data)
+			=> this.CopyFrom(data ?? new JObject());
+
+		public ExtendedUIDefinition(ExpandoObject data)
+			=> this.CopyFrom(data ?? new ExpandoObject());
 
 		public override string ToString()
 			=> this.ToJson().ToString(Formatting.None);
@@ -391,10 +399,6 @@ namespace net.vieapps.Services.Portals
 		public List<ExtendedUIControlDefinition> Controls { get; set; }
 
 		public List<StandardUIDefinition> Specials { get; set; }
-
-		public string ListXslt { get; set; }
-
-		public string ViewXslt { get; set; }
 	}
 
 	//  ------------------------------------------------------------------------
@@ -403,12 +407,16 @@ namespace net.vieapps.Services.Portals
 	/// Presents a definition for working with a standard property of a repository entity in a respository 
 	/// </summary>
 	[Serializable]
+	[DebuggerDisplay("Name = {Name}")]
 	public sealed class StandardUIDefinition
 	{
-		public StandardUIDefinition() : this(null) { }
+		public StandardUIDefinition() { }
 
-		public StandardUIDefinition(JObject json)
-			=> this.CopyFrom(json ?? new JObject());
+		public StandardUIDefinition(JObject data)
+			=> this.CopyFrom(data ?? new JObject());
+
+		public StandardUIDefinition(ExpandoObject data)
+			=> this.CopyFrom(data ?? new ExpandoObject());
 
 		public override string ToString()
 			=> this.ToJson().ToString(Formatting.None);
