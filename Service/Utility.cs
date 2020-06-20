@@ -251,7 +251,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="xslt">The string that presents the XSL stylesheet</param>
 		/// <param name="enableDocumentFunctionAndInlineScript">true to enable document() function and inline script (like C#) of the XSL stylesheet</param>
-		/// <param name="stylesheetResolver">Used to resolve any style sheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
+		/// <param name="stylesheetResolver">Used to resolve any stylesheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
 		/// <returns></returns>
 		public static XslCompiledTransform GetXslCompiledTransform(this string xslt, bool enableDocumentFunctionAndInlineScript = false, XmlResolver stylesheetResolver = null)
 		{
@@ -260,14 +260,14 @@ namespace net.vieapps.Services.Portals
 				{
 					using (var stream = UtilityService.CreateMemoryStream(xslt.ToBytes()))
 					{
-						using (var reader = new XmlTextReader(stream))
+						using (var reader = XmlReader.Create(stream))
 						{
 #if DEBUG
 							var xslTransform = new XslCompiledTransform(true);
 #else
 							var xslTransform = new XslCompiledTransform();
 #endif
-							xslTransform.Load(reader, enableDocumentFunctionAndInlineScript ? new XsltSettings(true, true) : null, stylesheetResolver);
+							xslTransform.Load(reader, enableDocumentFunctionAndInlineScript ? new XsltSettings(true, true) : null, stylesheetResolver ?? new XmlUrlResolver());
 							return xslTransform;
 						}
 					}
@@ -287,7 +287,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="xslt">The XML document that presents the XSL stylesheet</param>
 		/// <param name="enableDocumentFunctionAndInlineScript">true to enable document() function and inline script (like C#) of the XSL stylesheet</param>
-		/// <param name="stylesheetResolver">Used to resolve any style sheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
+		/// <param name="stylesheetResolver">Used to resolve any stylesheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
 		/// <returns></returns>
 		public static XslCompiledTransform GetXslCompiledTransform(this XmlDocument xslt, bool enableDocumentFunctionAndInlineScript = false, XmlResolver stylesheetResolver = null)
 			=> xslt?.ToString().GetXslCompiledTransform(enableDocumentFunctionAndInlineScript, stylesheetResolver);
@@ -297,7 +297,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="xslt">The XML document that presents the XSL stylesheet</param>
 		/// <param name="enableDocumentFunctionAndInlineScript">true to enable document() function and inline script (like C#) of the XSL stylesheet</param>
-		/// <param name="stylesheetResolver">Used to resolve any style sheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
+		/// <param name="stylesheetResolver">Used to resolve any stylesheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
 		/// <returns></returns>
 		public static XslCompiledTransform GetXslCompiledTransform(this XDocument xslt, bool enableDocumentFunctionAndInlineScript = false, XmlResolver stylesheetResolver = null)
 			=> xslt?.ToString().GetXslCompiledTransform(enableDocumentFunctionAndInlineScript, stylesheetResolver);
@@ -308,19 +308,23 @@ namespace net.vieapps.Services.Portals
 		/// <param name="xml">The XML document to transform</param>
 		/// <param name="xslt">The XSL stylesheet used to transform the XML document</param>
 		/// <param name="xsltArguments">The arguments for transforming data</param>
+		/// <param name="stylesheetResolver">Used to resolve any stylesheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
 		/// <returns></returns>
-		public static string Transform(this XmlDocument xml, XslCompiledTransform xslt, XsltArgumentList xsltArguments = null)
+		public static string Transform(this XmlDocument xml, XslCompiledTransform xslt, XsltArgumentList xsltArguments = null, XmlResolver stylesheetResolver = null)
 		{
 			var results = "";
 			if (xml != null && xslt != null)
 				try
 				{
-					using (var writer = new StringWriter())
+					using (var stringWriter = new StringWriter())
 					{
-						xsltArguments = xsltArguments ?? new XsltArgumentList();
-						xsltArguments.AddExtensionObject("urn:schemas-vieapps-net:xslt", new XslTransfromExtensions());
-						xslt.Transform(xml, xsltArguments, writer);
-						results = writer.ToString();
+						using (var xmlWriter = XmlWriter.Create(stringWriter, xslt.OutputSettings))
+						{
+							xsltArguments = xsltArguments ?? new XsltArgumentList();
+							xsltArguments.AddExtensionObject("urn:schemas-vieapps-net:xslt", new XslTransfromExtensions());
+							xslt.Transform(xml, xsltArguments, xmlWriter, stylesheetResolver ?? new XmlUrlResolver());
+						}
+						results = stringWriter.ToString();
 					}
 
 					results = results.Replace(StringComparison.OrdinalIgnoreCase, "&#xD;", "").Replace(StringComparison.OrdinalIgnoreCase, "&#xA;", "");
@@ -353,9 +357,10 @@ namespace net.vieapps.Services.Portals
 		/// <param name="xml">The XML document to transform</param>
 		/// <param name="xslt">The XSL stylesheet used to transform the XML document</param>
 		/// <param name="xsltArguments">The arguments for transforming data</param>
+		/// <param name="stylesheetResolver">Used to resolve any stylesheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
 		/// <returns></returns>
-		public static string Transform(this XDocument xml, XslCompiledTransform xslt, XsltArgumentList xsltArguments = null)
-			=> xml?.ToXmlDocument().Transform(xslt, xsltArguments);
+		public static string Transform(this XDocument xml, XslCompiledTransform xslt, XsltArgumentList xsltArguments = null, XmlResolver stylesheetResolver = null)
+			=> xml?.ToXmlDocument().Transform(xslt, xsltArguments, stylesheetResolver);
 
 		/// <summary>
 		/// Transforms this XML by the specified XSL stylesheet
@@ -364,9 +369,10 @@ namespace net.vieapps.Services.Portals
 		/// <param name="xmlStylesheet">The XSL stylesheet used to transform the XML document</param>
 		/// <param name="enableDocumentFunctionAndInlineScript">true to enable document() function and inline script (like C#) of the XSL stylesheet</param>
 		/// <param name="xsltArguments">The arguments for transforming data</param>
+		/// <param name="stylesheetResolver">Used to resolve any stylesheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
 		/// <returns></returns>
-		public static string Transform(this XmlDocument xml, string xslt, bool enableDocumentFunctionAndInlineScript = false, XsltArgumentList xsltArguments = null)
-			=> xml?.Transform((xslt ?? "").GetXslCompiledTransform(enableDocumentFunctionAndInlineScript), xsltArguments);
+		public static string Transform(this XmlDocument xml, string xslt, bool enableDocumentFunctionAndInlineScript = false, XsltArgumentList xsltArguments = null, XmlResolver stylesheetResolver = null)
+			=> xml?.Transform((xslt ?? "").GetXslCompiledTransform(enableDocumentFunctionAndInlineScript), xsltArguments, stylesheetResolver);
 
 		/// <summary>
 		/// Transforms this XML by the specified XSL stylesheet
@@ -375,9 +381,10 @@ namespace net.vieapps.Services.Portals
 		/// <param name="xmlStylesheet">The XSL stylesheet used to transform the XML document</param>
 		/// <param name="enableDocumentFunctionAndInlineScript">true to enable document() function and inline script (like C#) of the XSL stylesheet</param>
 		/// <param name="xsltArguments">The arguments for transforming data</param>
+		/// <param name="stylesheetResolver">Used to resolve any stylesheets referenced in XSLT import and include elements (if this is null, external resources are not resolved)</param>
 		/// <returns></returns>
-		public static string Transform(this XDocument xml, string xslt, bool enableDocumentFunctionAndInlineScript = false, XsltArgumentList xsltArguments = null)
-			=> xml?.ToXmlDocument().Transform(xslt, enableDocumentFunctionAndInlineScript, xsltArguments);
+		public static string Transform(this XDocument xml, string xslt, bool enableDocumentFunctionAndInlineScript = false, XsltArgumentList xsltArguments = null, XmlResolver stylesheetResolver = null)
+			=> xml?.ToXmlDocument().Transform(xslt, enableDocumentFunctionAndInlineScript, xsltArguments, stylesheetResolver);
 
 		/// <summary>
 		/// Gets the pre-defined template
@@ -741,19 +748,8 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="time"></param>
 		/// <returns></returns>
-		public static DateTime GetTimeQuater(this DateTime time)
-		{
-			var timeQuater = time.ToString("yyyy/MM/dd HH:");
-			if (time.Minute > 44)
-				timeQuater += "45:00";
-			else if (time.Minute > 29)
-				timeQuater += "30:00";
-			else if (time.Minute > 24)
-				timeQuater += "15:00";
-			else
-				timeQuater += "00:00";
-			return DateTime.Parse(timeQuater);
-		}
+		public static DateTime GetTimeQuarter(this DateTime time) 
+			=> DateTime.Parse($"{time:yyyy/MM/dd HH:}{(time.Minute > 44 ? "45" : time.Minute > 29 ? "30" : time.Minute > 24 ? "15" : "00")}:00");
 
 		/// <summary>
 		/// Runs this task and forget its
@@ -790,6 +786,11 @@ namespace net.vieapps.Services.Portals
 				: Decimal.TryParse(value, out var @decimal)
 					? @decimal.ToString(format ?? "###,###,###,###,###,##0.###", CultureInfo.GetCultureInfo(cultureCode ?? "vi-VN"))
 					: value;
+
+		public string ToDateTimeQuarter(string value, string format, string cultureCode)
+			=> DateTime.TryParse(value, out var datetime)
+				? datetime.GetTimeQuarter().ToString(format ?? "dd/MM/yyyy hh:mm tt", CultureInfo.GetCultureInfo(cultureCode ?? "vi-VN"))
+				: value;
 	}
 
 	//  --------------------------------------------------------------------------------------------
