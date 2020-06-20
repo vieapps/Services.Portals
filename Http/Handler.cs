@@ -217,7 +217,7 @@ namespace net.vieapps.Services.Portals
 					if (pathSegments[0].IsEndsWith(".txt"))
 					{
 						systemIdentity = "~indicators";
-						query["x-indicator"] = pathSegments[0].Replace(".txt", "").ToLower();
+						query["x-indicator"] = pathSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".txt", "").ToLower();
 						requestSegments = new string[] { };
 					}
 
@@ -233,12 +233,12 @@ namespace net.vieapps.Services.Portals
 					// system/oranization identity
 					else if (pathSegments[0].StartsWith("~"))
 					{
-						systemIdentity = pathSegments[0].Right(pathSegments[0].Length - 1).Replace(".html", "").GetANSIUri(true, false);
+						systemIdentity = pathSegments[0].Right(pathSegments[0].Length - 1).Replace(StringComparison.OrdinalIgnoreCase, ".html", "").GetANSIUri(true, false);
 						query["x-system"] = systemIdentity;
 						requestSegments = pathSegments.Skip(1).ToArray();
 						if (requestSegments.Length > 0 && requestSegments[0].IsEndsWith(".txt"))
 						{
-							query["x-indicator"] = requestSegments[0].Replace(".txt", "").ToLower();
+							query["x-indicator"] = requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".txt", "").ToLower();
 							requestSegments = new string[] { };
 						}
 					}
@@ -247,7 +247,7 @@ namespace net.vieapps.Services.Portals
 				// parameters of desktop and contents
 				if (requestSegments.Length > 0)
 				{
-					var value = requestSegments[0].Replace(".html", "");
+					var value = requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
 					value = value.Equals("") || value.StartsWith("-") || value.IsEquals("default") || value.IsEquals("index") || value.IsNumeric() ? "default" : value.GetANSIUri();
 					query["x-desktop"] = (value.Equals("default") ? "-" : "") + value;
 
@@ -256,7 +256,7 @@ namespace net.vieapps.Services.Portals
 
 					if (requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]))
 					{
-						value = requestSegments[2].Replace(".html", "");
+						value = requestSegments[2].Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
 						if (value.IsNumeric())
 							query["x-page"] = value;
 						else
@@ -264,7 +264,7 @@ namespace net.vieapps.Services.Portals
 
 						if (requestSegments.Length > 3 && !string.IsNullOrWhiteSpace(requestSegments[3]))
 						{
-							value = requestSegments[3].Replace(".html", "");
+							value = requestSegments[3].Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
 							if (value.IsNumeric())
 								query["x-page"] = value;
 						}
@@ -288,7 +288,7 @@ namespace net.vieapps.Services.Portals
 				Handler.ExcludedHeaders.ForEach(name => dictionary.Remove(name));
 				dictionary["x-host"] = context.GetParameter("Host");
 				dictionary["x-url"] = "https".IsEquals(context.GetHeaderParameter("x-forwarded-proto") ?? context.GetHeaderParameter("x-original-proto")) && !"https".IsEquals(requestURI.Scheme)
-					? requestURI.AbsoluteUri.Replace($"{requestURI.Scheme}://", "https://")
+					? requestURI.AbsoluteUri.Replace(StringComparison.OrdinalIgnoreCase, $"{requestURI.Scheme}://", "https://")
 					: requestURI.AbsoluteUri;
 				dictionary["x-relative-urls"] = this.UseRelativeURLs.ToString().ToLower();
 			});
