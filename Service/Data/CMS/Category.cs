@@ -201,7 +201,7 @@ namespace net.vieapps.Services.Portals
 		List<INestedObject> INestedObject.Children => this.Children?.Select(category => category as INestedObject).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.ParentCategory?.Desktop ?? this.Module?.Desktop;
+		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID();
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
@@ -249,7 +249,7 @@ namespace net.vieapps.Services.Portals
 				? $"~/{this.Desktop?.Alias ?? desktop ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
 				: this.OpenBy.Equals(OpenBy.SpecifiedURI)
 					? this.SpecifiedURI ?? "~/"
-					: $"~/{this.Desktop?.Alias ?? desktop ?? "-default"}/{this.Alias}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(alwaysUseHtmlSuffix ? ".html" : "")}";
+					: $"~/{this.Desktop?.Alias ?? desktop ?? "-default"}/{this.Alias}" + (addPageNumberHolder ? "/{{pageNumber}}" : "") + $"{(alwaysUseHtmlSuffix ? ".html" : "")}";
 		}
 
 		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)

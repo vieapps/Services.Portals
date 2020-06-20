@@ -687,11 +687,12 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
-		internal static JArray GenerateBreadcrumbs(this Category category, JToken requestJson)
+		internal static JArray GenerateBreadcrumbs(this Category category, string desktop = null)
 		{
-			var breadcrumbs = new List<Tuple<string, string>>();
-			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("DefaultDesktop") ?? requestJson.Get<string>("Desktop");
-			breadcrumbs.Add(new Tuple<string, string>(category.Title, category.GetURL(desktop)));
+			var breadcrumbs = new List<Tuple<string, string>>
+			{
+				new Tuple<string, string>(category.Title, category.GetURL(desktop))
+			};
 
 			var parentCategory = category.ParentCategory;
 			while (parentCategory != null)

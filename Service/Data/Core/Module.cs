@@ -125,7 +125,7 @@ namespace net.vieapps.Services.Portals
 		public RepositoryDefinition RepositoryDefinition => this.ModuleDefinition?.RepositoryDefinition ?? RepositoryMediator.GetRepositoryDefinition(this.RepositoryDefinitionTypeName);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.Organization?.HomeDesktop;
+		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.Organization?.DefaultDesktop;
 
 		internal List<string> _contentTypeIDs;
 

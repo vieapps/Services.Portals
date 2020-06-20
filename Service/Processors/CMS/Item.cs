@@ -352,15 +352,27 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var requestJson = requestInfo.GetBodyJson();
-			var contentTypeID = requestJson.Get<JObject>("ContentType")?.Get<string>("ID");
-			var desktop = requestJson.Get<JObject>("ContentType")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Module")?.Get<string>("Desktop") ?? requestJson.Get<JObject>("Organization")?.Get<string>("Desktop") ?? requestJson.Get<string>("Desktop");
-			var expression = requestJson.Get<JObject>("Expression");
+
+			var organizationJson = requestJson.Get("Organization", new JObject());
+			var moduleJson = requestJson.Get("Module", new JObject());
+			var contentTypeJson = requestJson.Get("ContentType", new JObject());
+			var expressionJson = requestJson.Get("Expression", new JObject());
+
+			var desktopsJson = requestJson.Get("Desktops", new JObject());
+			var optionsJson = requestJson.Get("Options", new JObject());
+
+			var contentTypeID = contentTypeJson.Get<string>("ID");
 			var pageSize = requestJson.Get("PageSize", 7);
 			var pageNumber = requestJson.Get("PageNumber", 1);
-			var options = requestJson.Get("Options", new JObject());
+
 			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
+
+			var desktop = desktopsJson.Get<string>("Specified");
+			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("ContentType");
+			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Module");
+			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Default");
 
 			XElement data;
 			JObject pagination, seoInfo, filterBy = null, sortBy = null;
@@ -374,14 +386,14 @@ namespace net.vieapps.Services.Portals
 				var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(contentType?.WorkingPrivileges);
 				if (!gotRights)
 				{
-					var organization = contentType?.Organization ?? await (requestJson.Get<JObject>("Organization")?.Get<string>("ID") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+					var organization = contentType?.Organization ?? await organizationJson.Get<string>("ID", "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 					gotRights = requestInfo.Session.User.ID.IsEquals(organization?.OwnerID);
 				}
 				if (!gotRights)
 					throw new AccessDeniedException();
 
 				// prepare filtering expression
-				if (!(expression?.Get<JObject>("FilterBy").ToFilter<Item>() is FilterBys<Item> filter) || filter.Children == null || filter.Children.Count < 1)
+				if (!(expressionJson.Get<JObject>("FilterBy").ToFilter<Item>() is FilterBys<Item> filter) || filter.Children == null || filter.Children.Count < 1)
 					filter = Filters<Item>.And(
 						Filters<Item>.Equals("SystemID", "@body[Organization.ID]"),
 						Filters<Item>.Equals("RepositoryID", "@body[Module.ID]"),
@@ -400,7 +412,7 @@ namespace net.vieapps.Services.Portals
 				filterBy["App"] = filter.ToClientJson().ToString(Formatting.None);
 
 				// prepare sorting expression
-				var sort = expression?.Get<JObject>("SortBy")?.ToSort<Item>() ?? Sorts<Item>.Descending("Created");
+				var sort = expressionJson.Get<JObject>("SortBy")?.ToSort<Item>() ?? Sorts<Item>.Descending("Created");
 				sortBy = new JObject
 				{
 					{ "API", sort.ToJson().ToString(Formatting.None) },
@@ -419,7 +431,7 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(xml))
 				{
 					// search
-					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, options.Get<bool>("ShowThumbnail", true), cacheKeyPrefix).ConfigureAwait(false);
+					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, optionsJson.Get<bool>("ShowThumbnail", true), cacheKeyPrefix).ConfigureAwait(false);
 					totalRecords = results.Item1;
 					var objects = results.Item2;
 					thumbnails = results.Item3;
@@ -448,7 +460,7 @@ namespace net.vieapps.Services.Portals
 				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 				if (totalPages > 0 && pageNumber > totalPages)
 					pageNumber = totalPages;
-				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(requestJson.Get<JObject>("Organization")?.Get<bool>("AlwaysUseHtmlSuffix") ?? true ? ".html" : "")}");
+				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(organizationJson.Get<bool>("AlwaysUseHtmlSuffix", true) ? ".html" : "")}");
 
 				// prepare SEO info
 				seoInfo = new JObject
@@ -475,15 +487,15 @@ namespace net.vieapps.Services.Portals
 				if (!gotRights)
 					throw new AccessDeniedException();
 
-				var showThumbnails = options.Get<bool>("ShowThumbnail", options.Get<bool>("ShowThumbnails", false));
-				var showAttachments = options.Get<bool>("ShowAttachments", false);
-				var showOthers = options.Get<bool>("ShowOthers", false);
+				var showThumbnails = optionsJson.Get<bool>("ShowThumbnail", optionsJson.Get<bool>("ShowThumbnails", false));
+				var showAttachments = optionsJson.Get<bool>("ShowAttachments", false);
+				var showOthers = optionsJson.Get<bool>("ShowOthers", false);
 
 				// get other contents
 				Task<List<Item>> newersTask, oldersTask;
 				if (showOthers)
 				{
-					var numberOfOthers = options.Get<int>("NumberOfOthers", 10) / 2;
+					var numberOfOthers = optionsJson.Get<int>("NumberOfOthers", 10) / 2;
 
 					newersTask = Item.FindAsync(Filters<Item>.And(
 						Filters<Item>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
