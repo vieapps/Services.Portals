@@ -15,6 +15,7 @@ using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using System.Xml.Linq;
 #endregion
 
 namespace net.vieapps.Services.Portals

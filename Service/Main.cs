@@ -305,22 +305,22 @@ namespace net.vieapps.Services.Portals
 
 							case "content":
 							case "cms.content":
-								json = this.GenerateFormControls<Content>();
+								json = this.GenerateFormControls<Content>(requestInfo.GetParameter("x-content-type"));
 								break;
 
 							case "link":
 							case "cms.link":
-								json = this.GenerateFormControls<Link>();
+								json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type"));
 								break;
 
 							case "item":
 							case "cms.item":
-								json = this.GenerateFormControls<Item>();
+								json = this.GenerateFormControls<Item>(requestInfo.GetParameter("x-content-type"));
 								break;
 
 							case "contact":
 							case "utils.contact":
-								json = this.GenerateFormControls<Contact>();
+								json = this.GenerateFormControls<Contact>(requestInfo.GetParameter("x-content-type"));
 								break;
 
 							default:
@@ -352,6 +352,42 @@ namespace net.vieapps.Services.Portals
 				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
 			}
 		}
+
+		#region Generate form controls
+		JToken GenerateFormControls<T>(string contentTypeID) where T : class
+		{
+			// get content type
+			var contentType = contentTypeID.GetContentTypeByID();
+			if (contentType == null || contentType.ExtendedPropertyDefinitions == null || contentType.ExtendedPropertyDefinitions.Count < 1)
+				return this.GenerateFormControls<T>();
+
+			// generate standard controls
+			var controls = (this.GenerateFormControls<T>() as JArray).Select(control => control as JObject).ToList();
+
+			// generate extended controls
+			contentType.ExtendedControlDefinitions.ForEach(definition =>
+			{
+				var control = definition.GenerateFormControl(contentType.ExtendedPropertyDefinitions.Find(def => def.Name.IsEquals(definition.Name)).Mode);
+				var index = !string.IsNullOrWhiteSpace(definition.PlaceBefore)
+					? controls.FindIndex(ctrl => definition.PlaceBefore.IsEquals(ctrl.Get<string>("Name")))
+					: -1;
+				if (index > -1)
+				{
+					control["Segment"] = controls[index].Get<string>("Segment");
+					controls.Insert(index, control);
+				}
+				else
+					controls.Add(control);
+			});
+
+			// update standard controls
+			// ...
+
+			// update order-index and return the controls
+			controls.ForEach((control, order) => control["Order"] = order);
+			return controls.ToJArray();
+		}
+		#endregion
 
 		#region Get themes & OEmbed providers
 		async Task<JArray> GetThemesAsync(CancellationToken cancellationToken)
