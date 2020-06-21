@@ -769,6 +769,208 @@ namespace net.vieapps.Services.Portals
 						logger.LogError($"Error occurred while running a forgetable task => {ex.Message}", ex);
 				}
 			}).ConfigureAwait(false);
+
+		/// <summary>
+		/// Generate a form control of an extended property
+		/// </summary>
+		/// <param name="definition"></param>
+		/// <param name="mode"></param>
+		/// <returns></returns>
+		public static JObject GenerateFormControl(this ExtendedControlDefinition definition, ExtendedPropertyMode mode)
+		{
+			var controlType = mode.Equals(ExtendedPropertyMode.LargeText) || (definition.AsTextEditor != null && definition.AsTextEditor.Value)
+				? "TextEditor"
+				: mode.Equals(ExtendedPropertyMode.Select)
+					? "Select"
+					: mode.Equals(ExtendedPropertyMode.Lookup)
+						? "Lookup"
+						: mode.Equals(ExtendedPropertyMode.DateTime)
+							? "DatePicker"
+							: mode.Equals(ExtendedPropertyMode.YesNo)
+								? "YesNo"
+								: mode.Equals(ExtendedPropertyMode.MediumText) ? "TextArea" : "TextBox";
+
+			var options = new JObject();
+			if (!definition.Hidden)
+			{
+				options["Label"] = definition.Label;
+				options["PlaceHolder"] = definition.PlaceHolder;
+				options["Description"] = definition.Description;
+
+				var dataType = "Lookup".IsEquals(controlType) && !string.IsNullOrWhiteSpace(definition.LookupType)
+					? definition.LookupType
+					: "DatePicker".IsEquals(controlType)
+						? "date"
+						: mode.Equals(ExtendedPropertyMode.IntegralNumber) || mode.Equals(ExtendedPropertyMode.FloatingPointNumber)
+							? "number"
+							: null;
+				if (!string.IsNullOrWhiteSpace(dataType))
+					options["Type"] = dataType;
+
+				if (definition.Disabled != null && definition.Disabled.Value)
+					options["Disabled"] = true;
+
+				if (definition.ReadOnly != null && definition.ReadOnly.Value)
+					options["ReadOnly"] = true;
+
+				if (definition.AutoFocus != null && definition.AutoFocus.Value)
+					options["AutoFocus"] = true;
+
+				if (!string.IsNullOrWhiteSpace(definition.ValidatePattern))
+					options["ValidatePattern"] = definition.ValidatePattern;
+
+				if (!string.IsNullOrWhiteSpace(definition.MinValue))
+					try
+					{
+						if (mode.Equals(ExtendedPropertyMode.IntegralNumber))
+							options["MinValue"] = definition.MinValue.CastAs<long>();
+						else if (mode.Equals(ExtendedPropertyMode.FloatingPointNumber))
+							options["MinValue"] = definition.MinValue.CastAs<decimal>();
+						else
+							options["MinValue"] = definition.MinValue;
+					}
+					catch { }
+
+				if (!string.IsNullOrWhiteSpace(definition.MaxValue))
+					try
+					{
+						if (mode.Equals(ExtendedPropertyMode.IntegralNumber))
+							options["MaxValue"] = definition.MaxValue.CastAs<long>();
+						else if (mode.Equals(ExtendedPropertyMode.FloatingPointNumber))
+							options["MaxValue"] = definition.MaxValue.CastAs<decimal>();
+						else
+							options["MaxValue"] = definition.MaxValue;
+					}
+					catch { }
+
+				if (definition.MinLength != null && definition.MinLength.Value > 0)
+					options["MinLength"] = definition.MinLength.Value;
+
+				if (definition.MaxLength != null && definition.MaxLength.Value > 0)
+					options["MaxLength"] = definition.MaxLength.Value;
+
+				if ("DatePicker".IsEquals(controlType))
+					options["DatePickerOptions"] = new JObject
+					{
+						{ "AllowTimes", definition.DatePickerWithTimes != null && definition.DatePickerWithTimes.Value }
+					};
+
+				if ("Select".IsEquals(controlType))
+					options["SelectOptions"] = new JObject
+					{
+						{ "Values", definition.SelectValues },
+						{ "Multiple", definition.Multiple != null && definition.Multiple.Value },
+						{ "AsBoxes", definition.SelectAsBoxes != null && definition.SelectAsBoxes.Value },
+						{ "Interface", definition.SelectInterface ?? "alert" }
+					};
+
+				if ("Lookup".IsEquals(controlType) && !string.IsNullOrWhiteSpace(definition.LookupRepositoryID) && !string.IsNullOrWhiteSpace(definition.LookupRepositoryEntityID))
+				{
+					var contentType = definition.LookupRepositoryEntityID.GetContentTypeByID();
+					options["LookupOptions"] = new JObject
+					{
+						{ "Multiple", definition.Multiple != null && definition.Multiple.Value },
+						{ "ModalOptions", new JObject
+							{
+								{ "Component", null },
+								{ "ComponentProps", new JObject
+									{
+										{ "organizationID", contentType?.OrganizationID },
+										{ "moduleID", contentType?.ModuleID },
+										{ "contentTypeID", contentType?.ID },
+										{ "objectName", contentType?.GetObjectName() },
+										{ "nested", contentType?.ContentTypeDefinition.NestedObject },
+										{ "multiple", definition.Multiple != null && definition.Multiple.Value }
+									}
+								}
+							}
+						}
+					};
+				}
+			}
+
+			return new JObject
+			{
+				{ "Name", definition.Name },
+				{ "Type", controlType },
+				{ "Extras", new JObject() },
+				{ "Options", options }
+			};
+		}
+
+		/// <summary>
+		/// Normalized HTMLs (means CLOB and LargeText attributes) of this object
+		/// </summary>
+		/// <param name="object"></param>
+		/// <param name="onCompleted"></param>
+		/// <returns></returns>
+		public static IBusinessObject NormalizeHTMLs(this IBusinessObject @object, Action<IBusinessObject> onCompleted = null)
+		{
+			// get entity definition
+			var definition = RepositoryMediator.GetEntityDefinition(@object?.GetType());
+
+			// normalize
+			if (definition != null)
+			{
+				// standard properties
+				definition.Attributes.Where(attribute => attribute.IsCLOB != null && attribute.IsCLOB.Value).ForEach(attribute =>
+				{
+					var value = @object.GetAttributeValue<string>(attribute.Name);
+					if (!string.IsNullOrWhiteSpace(value))
+						@object.SetAttributeValue(attribute.Name, value.HtmlDecode());
+				});
+
+				// extended properties
+				if (@object.ExtendedProperties != null && definition.BusinessRepositoryEntities.TryGetValue(@object.RepositoryEntityID, out var repositiryEntity))
+					repositiryEntity?.ExtendedPropertyDefinitions?.Where(propertyDefinition => propertyDefinition.Mode.Equals(ExtendedPropertyMode.LargeText)).ForEach(propertyDefinition =>
+					{
+						if (@object.ExtendedProperties.TryGetValue(propertyDefinition.Name, out var value) && value is string @string && !string.IsNullOrWhiteSpace(@string))
+							@object.ExtendedProperties[propertyDefinition.Name] = @string.HtmlDecode();
+					});
+			}
+
+			// return the object
+			onCompleted?.Invoke(@object);
+			return @object;
+		}
+
+		/// <summary>
+		/// Normalized HTMLs (means CLOB and LargeText attributes) of this xml
+		/// </summary>
+		/// <param name="xml"></param>
+		/// <param name="object"></param>
+		/// <param name="onCompleted"></param>
+		/// <returns></returns>
+		public static XElement NormalizeHTMLs(this XElement xml, IBusinessObject @object, Action<XElement> onCompleted = null)
+		{
+			// get entity definition
+			var definition = RepositoryMediator.GetEntityDefinition(@object?.GetType());
+
+			// normalize
+			if (definition != null)
+			{
+				// standard properties
+				definition.Attributes.Where(attribute => attribute.IsCLOB != null && attribute.IsCLOB.Value).ForEach(attribute =>
+				{
+					var elment = xml.Element(attribute.Name);
+					if (elment != null && !string.IsNullOrWhiteSpace(elment.Value))
+						elment.Value = elment.Value.NormalizeHTML();
+				});
+
+				// extended properties
+				if (@object.ExtendedProperties != null && definition.BusinessRepositoryEntities.TryGetValue(@object.RepositoryEntityID, out var repositiryEntity))
+					repositiryEntity?.ExtendedPropertyDefinitions?.Where(propertyDefinition => propertyDefinition.Mode.Equals(ExtendedPropertyMode.LargeText)).ForEach(propertyDefinition =>
+					{
+						var elment = xml.Element(propertyDefinition.Name);
+						if (elment != null && !string.IsNullOrWhiteSpace(elment.Value))
+							elment.Value = elment.Value.NormalizeHTML();
+					});
+			}
+
+			// return the xml
+			onCompleted?.Invoke(xml);
+			return xml;
+		}
 	}
 
 	//  --------------------------------------------------------------------------------------------
