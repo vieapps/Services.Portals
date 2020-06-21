@@ -211,48 +211,27 @@ namespace net.vieapps.Services.Portals
 	//  ------------------------------------------------------------------------
 
 	/// <summary>
-	/// Presents an UI definition for working with an extended property of a repository entity in a respository 
+	/// Presents the definition of a control for working with an extended property of a repository entity in a respository 
 	/// </summary>
 	[Serializable]
 	[DebuggerDisplay("Name = {Name}")]
-	public sealed class ExtendedUIControlDefinition
+	public sealed class ExtendedControlDefinition
 	{
-		public ExtendedUIControlDefinition() { }
+		public ExtendedControlDefinition() { }
 
-		public ExtendedUIControlDefinition(JObject data)
+		public ExtendedControlDefinition(JObject data)
 			=> this.CopyFrom(data ?? new JObject());
 
-		public ExtendedUIControlDefinition(ExpandoObject data)
+		public ExtendedControlDefinition(ExpandoObject data)
 			=> this.CopyFrom(data ?? new ExpandoObject());
 
 		public override string ToString()
 			=> this.ToJson().ToString(Formatting.None);
 
-		#region Properties
 		/// <summary>
 		/// Gets or Sets the name
 		/// </summary>
 		public string Name { get; set; }
-
-		/// <summary>
-		/// Gets or Sets the excluded state
-		/// </summary>
-		public bool Excluded { get; set; } = false;
-
-		/// <summary>
-		/// Gets or Sets the hidden state
-		/// </summary>
-		public bool Hidden { get; set; } = false;
-
-		/// <summary>
-		/// Gets or Sets the state that mark this property is hidden in the view or not
-		/// </summary>
-		public bool? HiddenInView { get; set; }
-
-		/// <summary>
-		/// Gets or Sets the require state
-		/// </summary>
-		public bool Required { get; set; } = false;
 
 		/// <summary>
 		/// Gets or Sets the label - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
@@ -270,14 +249,24 @@ namespace net.vieapps.Services.Portals
 		public string Description { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the RegEx pattern for data validation
+		/// Gets or Sets the hidden state
 		/// </summary>
-		public bool ValidatePattern { get; set; }
+		public bool Hidden { get; set; } = false;
 
 		/// <summary>
-		/// Gets or Sets the name of a standard property that the UI control of extended property will place before
+		/// Gets or Sets the formula/expression for computing value when the control is hidden
 		/// </summary>
-		public string PlaceBefore { get; set; }
+		public string Formula { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the state that mark this property is hidden in the view or not
+		/// </summary>
+		public bool? HiddenInView { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the require state
+		/// </summary>
+		public bool Required { get; set; } = false;
 
 		/// <summary>
 		/// Gets or Sets the disable state
@@ -297,12 +286,12 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets or Sets the min value
 		/// </summary>
-		public double? MinValue { get; set; }
+		public string MinValue { get; set; }
 
 		/// <summary>
 		/// Gets or Sets the max value
 		/// </summary>
-		public double? MaxValue { get; set; }
+		public string MaxValue { get; set; }
 
 		/// <summary>
 		/// Gets or Sets the min-length
@@ -340,7 +329,7 @@ namespace net.vieapps.Services.Portals
 		public bool? Multiple { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the values of select control (JSON string)
+		/// Gets or Sets the values of select control, values are separated by comma (,)
 		/// </summary>
 		public string SelectValues { get; set; }
 
@@ -357,7 +346,7 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets or Sets the mode for looking-up (Address, User or Business Object)
 		/// </summary>
-		public string LookupMode { get; set; }
+		public string LookupType { get; set; }
 
 		/// <summary>
 		/// Gets or Sets the identity of the business repository for looking-up
@@ -370,69 +359,69 @@ namespace net.vieapps.Services.Portals
 		public string LookupRepositoryEntityID { get; set; }
 
 		/// <summary>
-		/// Gets or Sets the name of business entity's property for displaying while looking-up
+		/// Gets or Sets the RegEx pattern for data validation
 		/// </summary>
-		public string LookupProperty { get; set; }
-		#endregion
+		public string ValidatePattern { get; set; }
 
+		/// <summary>
+		/// Gets or Sets the name of a standard property that the control of extended property will place before
+		/// </summary>
+		public string PlaceBefore { get; set; }
 	}
 
 	//  ------------------------------------------------------------------------
 
 	/// <summary>
-	/// Presents a definition for working with the extended properties of a repository entity in a respository 
-	/// </summary>
-	[Serializable]
-	public sealed class ExtendedUIDefinition
-	{
-		public ExtendedUIDefinition() { }
-
-		public ExtendedUIDefinition(JObject data)
-			=> this.CopyFrom(data ?? new JObject());
-
-		public ExtendedUIDefinition(ExpandoObject data)
-			=> this.CopyFrom(data ?? new ExpandoObject());
-
-		public override string ToString()
-			=> this.ToJson().ToString(Formatting.None);
-
-		public List<ExtendedUIControlDefinition> Controls { get; set; }
-
-		public List<StandardUIDefinition> Specials { get; set; }
-	}
-
-	//  ------------------------------------------------------------------------
-
-	/// <summary>
-	/// Presents a definition for working with a standard property of a repository entity in a respository 
+	/// Presents the definition of a control for working with a standard property of a repository entity in a respository 
 	/// </summary>
 	[Serializable]
 	[DebuggerDisplay("Name = {Name}")]
-	public sealed class StandardUIDefinition
+	public sealed class StandardControlDefinition
 	{
-		public StandardUIDefinition() { }
+		public StandardControlDefinition() { }
 
-		public StandardUIDefinition(JObject data)
+		public StandardControlDefinition(JObject data)
 			=> this.CopyFrom(data ?? new JObject());
 
-		public StandardUIDefinition(ExpandoObject data)
+		public StandardControlDefinition(ExpandoObject data)
 			=> this.CopyFrom(data ?? new ExpandoObject());
 
 		public override string ToString()
 			=> this.ToJson().ToString(Formatting.None);
 
+		/// <summary>
+		/// Gets or Sets the name
+		/// </summary>
 		public string Name { get; set; }
 
+		/// <summary>
+		/// Gets or Sets the label - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
+		/// </summary>
 		public string Label { get; set; }
 
+		/// <summary>
+		/// Gets or Sets the place-holder - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
+		/// </summary>
 		public string PlaceHolder { get; set; }
 
+		/// <summary>
+		/// Gets or Sets the description - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
+		/// </summary>
 		public string Description { get; set; }
 
+		/// <summary>
+		/// Gets or Sets the hidden state
+		/// </summary>
 		public bool Hidden { get; set; } = false;
 
-		public bool? HiddenInView { get; set; }
-
+		/// <summary>
+		/// Gets or Sets the formula/expression for computing value when the control is hidden
+		/// </summary>
 		public string Formula { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the state that mark this property is hidden in the view or not
+		/// </summary>
+		public bool? HiddenInView { get; set; }
 	}
 }
