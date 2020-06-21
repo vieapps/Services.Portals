@@ -75,13 +75,17 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
-		[AsJson, XmlIgnore]
+		[AsJson]
 		[FormControl(Excluded = true)]
 		public List<ExtendedPropertyDefinition> ExtendedPropertyDefinitions { get; set; }
 
-		[AsJson, XmlIgnore]
+		[AsJson]
 		[FormControl(Excluded = true)]
-		public ExtendedUIDefinition ExtendedUIDefinition { get; set; }
+		public List<ExtendedControlDefinition> ExtendedControlDefinitions { get; set; }
+
+		[AsJson]
+		[FormControl(Excluded = true)]
+		public List<StandardControlDefinition> StandardControlDefinitions { get; set; }
 
 		[NonSerialized]
 		JObject _json;
