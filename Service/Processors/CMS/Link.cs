@@ -19,19 +19,17 @@ namespace net.vieapps.Services.Portals
 {
 	public static class LinkProcessor
 	{
-		public static Link CreateLinkInstance(this ExpandoObject requestBody, string excluded = null, Action<Link> onCompleted = null)
-			=> requestBody.Copy<Link>(excluded?.ToHashSet(), link =>
+		public static Link CreateLinkInstance(this ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
+			=> Link.CreateInstance(data, excluded?.ToHashSet(), link =>
 			{
-				link.OriginalPrivileges = link.OriginalPrivileges?.Normalize();
-				link.TrimAll();
+				link.NormalizeHTMLs();
 				onCompleted?.Invoke(link);
 			});
 
-		public static Link UpdateLinkInstance(this Link link, ExpandoObject requestBody, string excluded = null, Action<Link> onCompleted = null)
+		public static Link UpdateLinkInstance(this Link link, ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 		{
-			link.CopyFrom(requestBody, excluded?.ToHashSet());
-			link.OriginalPrivileges = link.OriginalPrivileges?.Normalize();
-			link.TrimAll();
+			link.Fill(data, excluded?.ToHashSet());
+			link.NormalizeHTMLs();
 			onCompleted?.Invoke(link);
 			return link;
 		}
@@ -640,6 +638,9 @@ namespace net.vieapps.Services.Portals
 					Filters<Link>.IsNull("ParentID"),
 					Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString())
 				);
+
+			if (filter.GetChild("RepositoryEntityID") == null && contentType != null)
+				filter.Add(Filters<Link>.Equals("RepositoryEntityID", contentType.ID));
 
 			if (filter.GetChild("Status") == null)
 				filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()));

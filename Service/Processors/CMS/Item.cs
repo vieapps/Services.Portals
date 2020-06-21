@@ -19,21 +19,19 @@ namespace net.vieapps.Services.Portals
 {
 	public static class ItemProcessor
 	{
-		public static Item CreateItemInstance(this ExpandoObject requestBody, string excluded = null, Action<Item> onCompleted = null)
-			=> requestBody.Copy<Item>(excluded?.ToHashSet(), item =>
+		public static Item CreateItemInstance(this ExpandoObject data, string excluded = null, Action<Item> onCompleted = null)
+			=> Item.CreateInstance(data, excluded?.ToHashSet(), item =>
 			{
-				item.TrimAll();
-				item.OriginalPrivileges = item.OriginalPrivileges?.Normalize();
+				item.NormalizeHTMLs();
 				item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				item.Tags = string.IsNullOrWhiteSpace(item.Tags) ? null : item.Tags;
 				onCompleted?.Invoke(item);
 			});
 
-		public static Item UpdateItemInstance(this Item item, ExpandoObject requestBody, string excluded = null, Action<Item> onCompleted = null)
+		public static Item UpdateItemInstance(this Item item, ExpandoObject data, string excluded = null, Action<Item> onCompleted = null)
 		{
-			item.CopyFrom(requestBody, excluded?.ToHashSet());
-			item.TrimAll();
-			item.OriginalPrivileges = item.OriginalPrivileges?.Normalize();
+			item.Fill(data, excluded?.ToHashSet());
+			item.NormalizeHTMLs();
 			item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 			item.Tags = string.IsNullOrWhiteSpace(item.Tags) ? null : item.Tags;
 			onCompleted?.Invoke(item);
@@ -401,6 +399,9 @@ namespace net.vieapps.Services.Portals
 						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString())
 					);
 
+				if (filter.GetChild("RepositoryEntityID") == null && contentType != null)
+					filter.Add(Filters<Item>.Equals("RepositoryEntityID", contentType.ID));
+
 				if (filter.GetChild("Status") == null)
 					filter.Add(Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()));
 
@@ -541,6 +542,8 @@ namespace net.vieapps.Services.Portals
 				data = XElement.Parse("<Data/>");
 				data.Add(@object.ToXml(false, cultureInfo, xml =>
 				{
+					xml.NormalizeHTMLs(@object);
+
 					if (!string.IsNullOrWhiteSpace(@object.Tags))
 					{
 						var tagsXml = xml.Element("Tags");

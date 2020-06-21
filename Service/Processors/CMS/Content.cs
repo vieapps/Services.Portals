@@ -20,23 +20,19 @@ namespace net.vieapps.Services.Portals
 {
 	public static class ContentProcessor
 	{
-		public static Content CreateContentInstance(this ExpandoObject requestBody, string excluded = null, Action<Content> onCompleted = null)
-			=> requestBody.Copy<Content>(excluded?.ToHashSet(), content =>
+		public static Content CreateContentInstance(this ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
+			=> Content.CreateInstance(data, excluded?.ToHashSet(), content =>
 			{
-				content.OriginalPrivileges = content.OriginalPrivileges?.Normalize();
-				content.TrimAll();
-				content.Details = string.IsNullOrWhiteSpace(content.Details) ? null : content.Details.HtmlDecode();
+				content.NormalizeHTMLs();
 				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
 				onCompleted?.Invoke(content);
 			});
 
-		public static Content UpdateContentInstance(this Content content, ExpandoObject requestBody, string excluded = null, Action<Content> onCompleted = null)
+		public static Content UpdateContentInstance(this Content content, ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
 		{
-			content.CopyFrom(requestBody, excluded?.ToHashSet());
-			content.OriginalPrivileges = content.OriginalPrivileges?.Normalize();
-			content.TrimAll();
-			content.Details = string.IsNullOrWhiteSpace(content.Details) ? null : content.Details.HtmlDecode();
+			content.Fill(data, excluded?.ToHashSet());
+			content.NormalizeHTMLs();
 			content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 			content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
 			onCompleted?.Invoke(content);
@@ -580,6 +576,9 @@ namespace net.vieapps.Services.Portals
 					);
 				}
 
+				if (filter.GetChild("RepositoryEntityID") == null && contentType != null)
+					filter.Add(Filters<Content>.Equals("RepositoryEntityID", contentType.ID));
+
 				if (filter.GetChild("StartDate") == null)
 					filter.Add(Filters<Content>.LessThanOrEquals("StartDate", "@today"));
 
@@ -626,12 +625,11 @@ namespace net.vieapps.Services.Portals
 					data = XElement.Parse("<Data/>");
 					objects.ForEach(@object => data.Add(@object.ToXml(false, cultureInfo, element =>
 					{
+						element.Element("Details")?.Remove();
 						element.Element("StartDate")?.UpdateDateTime(cultureInfo);
 						element.Element("EndDate")?.UpdateDateTime(cultureInfo);
 						if (!string.IsNullOrWhiteSpace(@object.Summary))
 							element.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
-						if (!string.IsNullOrWhiteSpace(@object.Details))
-							element.Element("Details").Remove();
 						element.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
 						element.Add(new XElement("URL", @object.GetURL(desktop)));
 						element.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
@@ -779,6 +777,7 @@ namespace net.vieapps.Services.Portals
 				data = XElement.Parse("<Data/>");
 				data.Add(@object.ToXml(false, cultureInfo, xml =>
 				{
+					xml.NormalizeHTMLs(@object);
 					xml.Element("StartDate")?.UpdateDateTime(cultureInfo);
 					xml.Element("EndDate")?.UpdateDateTime(cultureInfo);
 
@@ -791,9 +790,6 @@ namespace net.vieapps.Services.Portals
 
 					if (!string.IsNullOrWhiteSpace(@object.Summary))
 						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
-
-					if (!string.IsNullOrWhiteSpace(@object.Details))
-						xml.Element("Details").Value = @object.Details.NormalizeHTML();
 
 					xml.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
 					xml.Add(new XElement("URL", @object.GetURL(desktop)));
@@ -848,12 +844,11 @@ namespace net.vieapps.Services.Portals
 						var othersXml = new XElement("Others");
 						others.OrderByDescending(other => other.StartDate).ThenByDescending(other => other.PublishedTime).ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
 						{
+							otherXml.Element("Details")?.Remove();
 							otherXml.Element("StartDate")?.UpdateDateTime(cultureInfo);
 							otherXml.Element("EndDate")?.UpdateDateTime(cultureInfo);
 							if (!string.IsNullOrWhiteSpace(other.Summary))
 								otherXml.Element("Summary").Value = other.Summary.Replace("\r", "").Replace("\n", "<br/>");
-							if (!string.IsNullOrWhiteSpace(other.Details))
-								otherXml.Element("Details").Remove();
 							otherXml.Add(new XElement("Category", other.Category?.Title, new XAttribute("URL", other.Category?.GetURL(desktop))));
 							otherXml.Add(new XElement("URL", other.GetURL(desktop)));
 							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
