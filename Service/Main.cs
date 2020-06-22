@@ -368,9 +368,7 @@ namespace net.vieapps.Services.Portals
 			contentType.ExtendedControlDefinitions.ForEach(definition =>
 			{
 				var control = definition.GenerateFormControl(contentType.ExtendedPropertyDefinitions.Find(def => def.Name.IsEquals(definition.Name)).Mode);
-				var index = !string.IsNullOrWhiteSpace(definition.PlaceBefore)
-					? controls.FindIndex(ctrl => definition.PlaceBefore.IsEquals(ctrl.Get<string>("Name")))
-					: -1;
+				var index = !string.IsNullOrWhiteSpace(definition.PlaceBefore) ? controls.FindIndex(ctrl => definition.PlaceBefore.IsEquals(ctrl.Get<string>("Name"))) : -1;
 				if (index > -1)
 				{
 					control["Segment"] = controls[index].Get<string>("Segment");
@@ -1100,7 +1098,7 @@ namespace net.vieapps.Services.Portals
 
 			// get desktop and prepare the redirecting url
 			var writeDesktopLogs = this.WriteDesktopLogs || requestInfo.GetParameter("x-logs") != null || requestInfo.GetParameter("x-desktop-logs") != null;
-			var useRelativeURLs = "true".IsEquals(requestInfo.GetParameter("x-relative-urls"));
+			var useShortURLs = "true".IsEquals(requestInfo.GetParameter("x-use-short-urls"));
 			var requestURI = new Uri(requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri"));
 			var requestURL = requestURI.AbsoluteUri;
 			var redirectURL = "";
@@ -1222,7 +1220,7 @@ namespace net.vieapps.Services.Portals
 					{ "Last-Modified", lastModified },
 					{ "Cache-Control", "public" }
 				};
-				html = html.NormalizeURLs(requestURI, organization.Alias, useRelativeURLs);
+				html = html.NormalizeURLs(requestURI, organization.Alias, useShortURLs);
 				response = new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
@@ -1338,7 +1336,7 @@ namespace net.vieapps.Services.Portals
 				string title = "", metaTags = "", scripts = "", body = "";
 				try
 				{
-					var desktopData = await this.GenerateDesktopAsync(desktop, organization, site, string.IsNullOrWhiteSpace(desktop.MainPortletID) || !portletData.TryGetValue(desktop.MainPortletID, out var mainPortlet) ? null : mainPortlet, requestURI.GetRootURL(organization.Alias, useRelativeURLs), writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					var desktopData = await this.GenerateDesktopAsync(desktop, organization, site, string.IsNullOrWhiteSpace(desktop.MainPortletID) || !portletData.TryGetValue(desktop.MainPortletID, out var mainPortlet) ? null : mainPortlet, requestURI.GetRootURL(organization.Alias, useShortURLs), writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					title = desktopData.Item1;
 					metaTags = desktopData.Item2;
 					scripts = desktopData.Item3;
@@ -1415,7 +1413,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// normalize URLs
-				html = html.NormalizeURLs(requestURI, organization.Alias, useRelativeURLs);
+				html = html.NormalizeURLs(requestURI, organization.Alias, useShortURLs);
 			}
 			catch (Exception ex)
 			{
@@ -1771,9 +1769,28 @@ namespace net.vieapps.Services.Portals
 							},
 							{ "ContentType", contentType.ToJson(false, json =>
 								{
+									json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
 									ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 									json.Remove("Privileges");
-									json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
+									json.Remove("ExtendedPropertyDefinitions");
+									json.Remove("ExtendedControlDefinitions");
+									json.Remove("StandardControlDefinitions");
+									if (contentType.ExtendedPropertyDefinitions != null)
+									{
+										json["ExtendedPropertyDefinitions"] = new JObject
+										{
+											{ "ExtendedPropertyDefinition", contentType.ExtendedPropertyDefinitions.Select(definition => definition.ToJson()).ToJArray() }
+										};
+										json["ExtendedControlDefinitions"] = new JObject
+										{
+											{ "ExtendedControlDefinition", contentType.ExtendedControlDefinitions.Select(definition => definition.ToJson()).ToJArray() }
+										};
+									}
+									if (contentType.StandardControlDefinitions != null)
+										json["StandardControlDefinitions"] = new JObject
+										{
+											{ "StandardControlDefinition", contentType.StandardControlDefinitions.Select(definition => definition.ToJson()).ToJArray() }
+										};
 								})
 							}
 						}.ToXml("Meta");
