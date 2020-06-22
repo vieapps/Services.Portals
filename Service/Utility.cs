@@ -543,11 +543,11 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="baseURI"></param>
 		/// <param name="systemIdentity"></param>
-		/// <param name="useRelativeURLs"></param>
+		/// <param name="useShortURLs"></param>
 		/// <returns></returns>
-		public static string GetRootURL(this Uri baseURI, string systemIdentity, bool useRelativeURLs = false)
-			=> useRelativeURLs
-				? baseURI.IsPortalsHttpURI() ? "" : "/"
+		public static string GetRootURL(this Uri baseURI, string systemIdentity, bool useShortURLs = false)
+			=> useShortURLs
+				? baseURI.IsPortalsHttpURI() ? "./" : "/"
 				: baseURI.IsPortalsHttpURI() ? $"{Utility.PortalsHttpURI}/~{systemIdentity}/" : $"{baseURI.Scheme}://{baseURI.Host}/";
 
 		/// <summary>
@@ -568,10 +568,10 @@ namespace net.vieapps.Services.Portals
 		/// <param name="html"></param>
 		/// <param name="requestURI"></param>
 		/// <param name="systemIdentity"></param>
-		/// <param name="useRelativeURLs"></param>
+		/// <param name="useShortURLs"></param>
 		/// <param name="forDisplaying"></param>
 		/// <returns></returns>
-		public static string NormalizeURLs(this string html, Uri requestURI, string systemIdentity, bool useRelativeURLs = true, bool forDisplaying = true)
+		public static string NormalizeURLs(this string html, Uri requestURI, string systemIdentity, bool useShortURLs = true, bool forDisplaying = true)
 		{
 			if (string.IsNullOrWhiteSpace(html))
 				return html;
@@ -580,9 +580,9 @@ namespace net.vieapps.Services.Portals
 				? html.Replace("~/_", Utility.PortalsHttpURI + "/_")
 				: html.Replace(Utility.PortalsHttpURI + "/_", "~/_");
 
-			html = html.NormalizeURLs(forDisplaying ? requestURI.GetRootURL(systemIdentity, useRelativeURLs) : requestURI.GetRootURL(systemIdentity), forDisplaying);
+			html = html.NormalizeURLs(forDisplaying ? requestURI.GetRootURL(systemIdentity, useShortURLs) : requestURI.GetRootURL(systemIdentity), forDisplaying);
 
-			if (forDisplaying && useRelativeURLs && requestURI.IsPortalsHttpURI())
+			if (forDisplaying && useShortURLs && requestURI.IsPortalsHttpURI())
 				html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{Utility.PortalsHttpURI}/~{systemIdentity}/\"/>");
 
 			return html;
@@ -864,12 +864,14 @@ namespace net.vieapps.Services.Portals
 						{ "Interface", definition.SelectInterface ?? "alert" }
 					};
 
-				if ("Lookup".IsEquals(controlType) && !string.IsNullOrWhiteSpace(definition.LookupRepositoryID) && !string.IsNullOrWhiteSpace(definition.LookupRepositoryEntityID))
+				if ("Lookup".IsEquals(controlType))
 				{
-					var contentType = definition.LookupRepositoryEntityID.GetContentTypeByID();
+					var contentType = string.IsNullOrWhiteSpace(definition.LookupRepositoryEntityID) ? null : definition.LookupRepositoryEntityID.GetContentTypeByID();
 					options["LookupOptions"] = new JObject
 					{
 						{ "Multiple", definition.Multiple != null && definition.Multiple.Value },
+						{ "AsModal", !"Address".IsEquals(definition.LookupType) },
+						{ "AsCompleter", "Address".IsEquals(definition.LookupType) },
 						{ "ModalOptions", new JObject
 							{
 								{ "Component", null },
