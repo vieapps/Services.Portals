@@ -26,25 +26,7 @@ namespace net.vieapps.Services.Portals
 	{
 		HashSet<string> SpecialRequests { get; } = "_initializer,_validator,_logout,_signout".ToHashSet();
 
-		string _alwaysUseSecureConnections = null, _useRelativeURLs = null;
-
-		bool AlwaysUseSecureConnections
-		{
-			get
-			{
-				this._alwaysUseSecureConnections = this._alwaysUseSecureConnections ?? UtilityService.GetAppSetting("AlwaysUseSecureConnections", "false");
-				 return "true".IsEquals(this._alwaysUseSecureConnections);
-			}
-		}
-
-		bool UseRelativeURLs
-		{
-			get
-			{
-				this._useRelativeURLs = this._useRelativeURLs ?? UtilityService.GetAppSetting("Portals:UseRelativeURLs", "true");
-				return "true".IsEquals(this._useRelativeURLs);
-			}
-		}
+		bool UseShortURLs => "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
 
 		string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
@@ -108,13 +90,9 @@ namespace net.vieapps.Services.Portals
 			else if (Global.StaticSegments.Contains(requestPath))
 				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
 
-			else if (this.AlwaysUseSecureConnections && !requestUri.Scheme.IsEquals("https"))
-				context.Redirect($"https://{requestUri.Host}{requestUri.PathAndQuery}");
-
 			// request of special sections (initializer, validator, log-out)
 			else if (this.SpecialRequests.Contains(requestPath))
 			{
-				context.Items["PipelineStopwatch"] = Stopwatch.StartNew();
 				switch (requestPath)
 				{
 					case "_initializer":
@@ -290,7 +268,7 @@ namespace net.vieapps.Services.Portals
 				dictionary["x-url"] = "https".IsEquals(context.GetHeaderParameter("x-forwarded-proto") ?? context.GetHeaderParameter("x-original-proto")) && !"https".IsEquals(requestURI.Scheme)
 					? requestURI.AbsoluteUri.Replace(StringComparison.OrdinalIgnoreCase, $"{requestURI.Scheme}://", "https://")
 					: requestURI.AbsoluteUri;
-				dictionary["x-relative-urls"] = this.UseRelativeURLs.ToString().ToLower();
+				dictionary["x-use-short-urls"] = this.UseShortURLs.ToString().ToLower();
 			});
 
 			// process the request
@@ -304,15 +282,15 @@ namespace net.vieapps.Services.Portals
 					// call Portals service to identify the system
 					if (string.IsNullOrWhiteSpace(systemIdentity))
 					{
-						var info = await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token).ConfigureAwait(false) as JObject;
+						var info = await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 						queryString["x-system"] = info?.Get<string>("ID");
 					}
 
 					// call Portals service to process the request
-					var response = (await context.CallServiceAsync(new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token).ConfigureAwait(false)).ToExpandoObject();
+					var response = (await context.CallServiceAsync(new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
 
 					// write headers
-					context.SetResponseHeaders(response.Get("StatusCode", 200), response.Get("Headers", new Dictionary<string, string>()));
+					context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
 
 					// write body
 					var body = response.Get<string>("Body");
@@ -326,7 +304,7 @@ namespace net.vieapps.Services.Portals
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync("Portals", $"Error occurred => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 				var query = context.ParseQuery();
 				if (ex is AccessDeniedException && !context.IsAuthenticated() && Handler.RedirectToPassportOnUnauthorized && !query.ContainsKey("x-app-token") && !query.ContainsKey("x-passport-token"))
 					context.Redirect(context.GetPassportSessionAuthenticatorUrl());
@@ -364,7 +342,7 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync("Passport", $"Error occurred while initializing: {ex.Message}", ex).ConfigureAwait(false);
+				await context.WriteLogsAsync("Http.Authentication", $"Error occurred while initializing: {ex.Message}", ex).ConfigureAwait(false);
 			}
 
 			context.Redirect(redirectUrl);
@@ -404,7 +382,7 @@ namespace net.vieapps.Services.Portals
 			{
 				await Task.WhenAll(
 					context.WriteAsync($"console.error('Error occurred while validating: {ex.Message.Replace("'", @"\'")}')", "application/javascript", context.GetCorrelationID(), Global.CancellationTokenSource.Token),
-					context.WriteLogsAsync("Passport", $"Error occurred while validating: {ex.Message}", ex)
+					context.WriteLogsAsync("Http.Authentication", $"Error occurred while validating: {ex.Message}", ex)
 				).ConfigureAwait(false);
 			}
 		}
@@ -475,18 +453,15 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync("Passport", $"Error occurred while signing-out: {ex.Message}", ex).ConfigureAwait(false);
+				await context.WriteLogsAsync("Http.Authentication", $"Error occurred while logging out: {ex.Message}", ex).ConfigureAwait(false);
 				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 			}
 		}
 
-		#region Static properties and working with Router
-		static string _RedirectToPassportOnUnauthorized = null;
-
+		#region Static properties and working with API Gateway Router
 		internal static string NodeName => Extensions.GetUniqueName(Global.ServiceName + ".http");
 
-		internal static bool RedirectToPassportOnUnauthorized
-			=> "true".IsEquals(Handler._RedirectToPassportOnUnauthorized ?? (Handler._RedirectToPassportOnUnauthorized = UtilityService.GetAppSetting("Portals:RedirectToPassportOnUnauthorized", "true")));
+		internal static bool RedirectToPassportOnUnauthorized => "true".IsEquals(UtilityService.GetAppSetting("Portals:RedirectToPassportOnUnauthorized", "true"));
 
 		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop,cf-ipcountry,cf-ray,cf-visitor,cf-connecting-ip,sec-fetch-site,sec-fetch-mode,sec-fetch-dest,sec-fetch-user").ToList();
 
