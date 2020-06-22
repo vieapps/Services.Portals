@@ -19,22 +19,11 @@ namespace net.vieapps.Services.Portals
 	{
 		internal static ConcurrentDictionary<string, ContentType> ContentTypes { get; } = new ConcurrentDictionary<string, ContentType>(StringComparer.OrdinalIgnoreCase);
 
-		public static ContentType CreateContentTypeInstance(this ExpandoObject requestBody, string excluded = null, Action<ContentType> onCompleted = null)
-			=> requestBody.Copy<ContentType>(excluded?.ToHashSet(), contentType =>
-			{
-				contentType.OriginalPrivileges = contentType.OriginalPrivileges?.Normalize();
-				contentType.TrimAll();
-				onCompleted?.Invoke(contentType);
-			});
+		public static ContentType CreateContentTypeInstance(this ExpandoObject data, string excluded = null, Action<ContentType> onCompleted = null)
+			=> ContentType.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
 
-		public static ContentType UpdateContentTypeInstance(this ContentType contentType, ExpandoObject requestBody, string excluded = null, Action<ContentType> onCompleted = null)
-		{
-			contentType.CopyFrom(requestBody, excluded?.ToHashSet());
-			contentType.OriginalPrivileges = contentType.OriginalPrivileges?.Normalize();
-			contentType.TrimAll();
-			onCompleted?.Invoke(contentType);
-			return contentType;
-		}
+		public static ContentType UpdateContentTypeInstance(this ContentType contentType, ExpandoObject data, string excluded = null, Action<ContentType> onCompleted = null)
+			=> contentType?.Fill(data, excluded?.ToHashSet(), onCompleted);
 
 		internal static ContentType Set(this ContentType contentType, bool updateCache = false)
 		{
@@ -215,7 +204,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<ContentType> CreateContentTypeAsync(this ExpandoObject data, string systemID, string userID, string excludedProperties = null, string excludedDeviceID = null, string serviceName = null, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
 		{
-			// create new
+			// prepare
 			var contentType = data.CreateContentTypeInstance(excludedProperties, obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
@@ -224,6 +213,12 @@ namespace net.vieapps.Services.Portals
 				obj.CreatedID = obj.LastModifiedID = userID;
 				obj.NormalizeExtras();
 			});
+
+			// validate extended properties
+			if (contentType.ExtendedPropertyDefinitions != null)
+				contentType.ExtendedPropertyDefinitions.ForEach(propertyDefinition => ExtendedPropertyDefinition.Validate(propertyDefinition.Name));
+
+			// create new
 			await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
 			contentType.ClearRelatedCacheAsync(cancellationToken).Run();
 
@@ -271,14 +266,11 @@ namespace net.vieapps.Services.Portals
 			if (organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
-			// check permission
+			// check permission and create new
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// create new
-			var contentType = await requestBody.CreateContentTypeAsync(organization.ID, requestInfo.Session.User.ID, "SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", requestInfo.Session.DeviceID, requestInfo.ServiceName, nodeID, rtuService, cancellationToken).ConfigureAwait(false);
-			return contentType.ToJson();
+			return gotRights
+				? (await requestBody.CreateContentTypeAsync(organization.ID, requestInfo.Session.User.ID, "SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", requestInfo.Session.DeviceID, requestInfo.ServiceName, nodeID, rtuService, cancellationToken).ConfigureAwait(false)).ToJson()
+				: throw new AccessDeniedException();
 		}
 
 		internal static async Task<JObject> GetContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, CancellationToken cancellationToken = default)
@@ -321,13 +313,19 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// update
+			// gathering formation
 			contentType.UpdateContentTypeInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,ContentTypeDefinitionID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
 			});
+
+			// validate extended properties
+			if (contentType.ExtendedPropertyDefinitions != null)
+				contentType.ExtendedPropertyDefinitions.ForEach(propertyDefinition => ExtendedPropertyDefinition.Validate(propertyDefinition.Name));
+
+			// update
 			await Task.WhenAll(
 				ContentType.UpdateAsync(contentType, requestInfo.Session.User.ID, cancellationToken),
 				contentType.SetAsync(false, cancellationToken)
