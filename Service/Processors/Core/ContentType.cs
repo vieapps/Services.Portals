@@ -11,6 +11,7 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using net.vieapps.Services.Portals.Exceptions;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -215,8 +216,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 			// validate extended properties
-			if (contentType.ExtendedPropertyDefinitions != null)
-				contentType.ExtendedPropertyDefinitions.ForEach(propertyDefinition => ExtendedPropertyDefinition.Validate(propertyDefinition.Name));
+			contentType.EntityDefinition?.ValidateExtendedPropertyDefinitions(contentType.ID);
 
 			// create new
 			await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
@@ -322,14 +322,11 @@ namespace net.vieapps.Services.Portals
 			});
 
 			// validate extended properties
-			if (contentType.ExtendedPropertyDefinitions != null)
-				contentType.ExtendedPropertyDefinitions.ForEach(propertyDefinition => ExtendedPropertyDefinition.Validate(propertyDefinition.Name));
+			contentType.EntityDefinition?.ValidateExtendedPropertyDefinitions(contentType.ID);
 
 			// update
-			await Task.WhenAll(
-				ContentType.UpdateAsync(contentType, requestInfo.Session.User.ID, cancellationToken),
-				contentType.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
+			await ContentType.UpdateAsync(contentType, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			contentType.Set();
 			contentType.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// send update messages
