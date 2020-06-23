@@ -1302,7 +1302,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception ex)
 					{
-						data = this.GenerateErrorJson(ex, requestInfo.CorrelationID, writeDesktopLogs, $"Unexpected error while preparing data => {ex.Message}");
+						data = this.GenerateErrorJson(ex, requestInfo.CorrelationID, writeDesktopLogs, $"Unexpected error => {ex.Message}");
 					}
 					if (data != null)
 						portletData[portlet.ID] = data;
@@ -1328,7 +1328,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception ex)
 					{
-						portletHtmls[portlet.ID] = new Tuple<string, bool>(this.GenerateErrorHtml($"Unexpected error while generating portlet HTML => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, portlet.ID), true);
+						portletHtmls[portlet.ID] = new Tuple<string, bool>(this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, portlet.ID), true);
 					}
 				}, cancellationToken);
 
@@ -1344,7 +1344,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					body = this.GenerateErrorHtml($"Unexpected error while generating the '{desktop.Title}' desktop => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID, "Desktop ID");
+					body = this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID, "Desktop ID");
 				}
 
 				// prepare HTML of portlets
@@ -1419,8 +1419,8 @@ namespace net.vieapps.Services.Portals
 			{
 				html = "<!DOCTYPE html>\r\n"
 					+ "<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n"
-					+ "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><title>Error: " + ex.Message.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;") + "</title></head>\r\n"
-					+ "<body>" + this.GenerateErrorHtml($"Unexpected error while processing HTTP request of the {desktop.Title} desktop => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID, "Desktop ID") + "</body>\r\n"
+					+ "<head><title>Error: " + ex.Message.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;") + "</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/></head>\r\n"
+					+ "<body>" + this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID, "Desktop ID") + "</body>\r\n"
 					+ "</html>";
 			}
 
@@ -1767,7 +1767,7 @@ namespace net.vieapps.Services.Portals
 									{ "Search", desktopsJson["Search"] }
 								}
 							},
-							{ "ContentType", contentType.ToJson(false, json =>
+							{ "ContentType", contentType.ToJson(json =>
 								{
 									json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
 									ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
@@ -2308,7 +2308,7 @@ namespace net.vieapps.Services.Portals
 				+ $"<div style=\"color:red\">{errorMessage.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</div>"
 				+ $"<div style=\"font-size:80%\">Correlation ID: {correlationID} - {objectIDLabel ?? "Portlet ID"}: {objectID}</div>"
 				+ (this.IsDebugLogEnabled
-					? $"<blockquote style=\"font-size:80%\">{errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</blockquote>"
+					? $"<div style=\"font-size:80%\">{errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</div>"
 					: $"<!-- {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")} -->")
 				+ "</div>";
 		#endregion

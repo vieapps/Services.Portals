@@ -27,12 +27,11 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static Link UpdateLinkInstance(this Link link, ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
-		{
-			link.Fill(data, excluded?.ToHashSet());
-			link.NormalizeHTMLs();
-			onCompleted?.Invoke(link);
-			return link;
-		}
+			=> link.Fill(data, excluded?.ToHashSet(), _ =>
+			{
+				link.NormalizeHTMLs();
+				onCompleted?.Invoke(link);
+			});
 
 		public static IFilterBy<Link> GetLinksFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null)
 		{

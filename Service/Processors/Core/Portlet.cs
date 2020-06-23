@@ -17,22 +17,19 @@ namespace net.vieapps.Services.Portals
 {
 	public static class PortletProcessor
 	{
-		public static Portlet CreatePortletInstance(this ExpandoObject requestBody, string excluded = null, Action<Portlet> onCompleted = null)
-			=> requestBody.Copy<Portlet>(excluded?.ToHashSet(), portlet =>
+		public static Portlet CreatePortletInstance(this ExpandoObject data, string excluded = null, Action<Portlet> onCompleted = null)
+			=> Portlet.CreateInstance(data, excluded?.ToHashSet(), portlet =>
 			{
-				portlet.TrimAll();
 				portlet.Normalize();
 				onCompleted?.Invoke(portlet);
 			});
 
-		public static Portlet UpdatePortletInstance(this Portlet portlet, ExpandoObject requestBody, string excluded = null, Action<Portlet> onCompleted = null)
-		{
-			portlet.CopyFrom(requestBody, excluded?.ToHashSet());
-			portlet.TrimAll();
-			portlet.Normalize();
-			onCompleted?.Invoke(portlet);
-			return portlet;
-		}
+		public static Portlet UpdatePortletInstance(this Portlet portlet, ExpandoObject data, string excluded = null, Action<Portlet> onCompleted = null)
+			=> portlet.Fill(data, excluded?.ToHashSet(), _ =>
+			{
+				portlet.Normalize();
+				onCompleted?.Invoke(portlet);
+			});
 
 		public static List<Portlet> FindPortlets(this string desktopID)
 		{

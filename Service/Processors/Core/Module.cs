@@ -21,22 +21,11 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Trackings,EmailSettings".ToHashSet();
 
-		public static Module CreateModuleInstance(this ExpandoObject requestBody, string excluded = null, Action<Module> onCompleted = null)
-			=> requestBody.Copy<Module>(excluded?.ToHashSet(), module =>
-			{
-				module.OriginalPrivileges = module.OriginalPrivileges?.Normalize();
-				module.TrimAll();
-				onCompleted?.Invoke(module);
-			});
+		public static Module CreateModuleInstance(this ExpandoObject data, string excluded = null, Action<Module> onCompleted = null)
+			=> Module.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
 
-		public static Module UpdateModuleInstance(this Module module, ExpandoObject requestBody, string excluded = null, Action<Module> onCompleted = null)
-		{
-			module.CopyFrom(requestBody, excluded?.ToHashSet());
-			module.OriginalPrivileges = module.OriginalPrivileges?.Normalize();
-			module.TrimAll();
-			onCompleted?.Invoke(module);
-			return module;
-		}
+		public static Module UpdateModuleInstance(this Module module, ExpandoObject data, string excluded = null, Action<Module> onCompleted = null)
+			=> module.Fill(data, excluded?.ToHashSet(), onCompleted);
 
 		internal static Module Set(this Module module, bool updateCache = false)
 		{

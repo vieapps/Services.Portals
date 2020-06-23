@@ -26,38 +26,35 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Thumbnails,ThumbnailBigs,ThumbnailBigPngs,Default,Index").ToLower().ToHashSet();
 
-		public static Desktop CreateDesktopInstance(this ExpandoObject requestBody, string excluded = null, Action<Desktop> onCompleted = null)
-			=> requestBody.Copy<Desktop>(excluded?.ToHashSet(), desktop =>
+		public static Desktop CreateDesktopInstance(this ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
+			=> Desktop.CreateInstance(data, excluded?.ToHashSet(), desktop =>
 			{
 				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
 				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToList(";", true, true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
 				desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
 				"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
 				{
-					var value = requestBody.Get<string>($"SEOSettings.{name}");
+					var value = data.Get<string>($"SEOSettings.{name}");
 					desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
 				});
 				desktop.SEOSettings = desktop.SEOSettings != null && desktop.SEOSettings.SEOInfo == null && desktop.SEOSettings.TitleMode == null && desktop.SEOSettings.DescriptionMode == null && desktop.SEOSettings.KeywordsMode == null ? null : desktop.SEOSettings;
-				desktop.TrimAll();
 				onCompleted?.Invoke(desktop);
 			});
 
-		public static Desktop UpdateDesktopInstance(this Desktop desktop, ExpandoObject requestBody, string excluded = null, Action<Desktop> onCompleted = null)
-		{
-			desktop.CopyFrom(requestBody, excluded?.ToHashSet());
-			desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
-			desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToList(";", true, true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
-			desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
-			"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
+		public static Desktop UpdateDesktopInstance(this Desktop desktop, ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
+			=> desktop.Fill(data, excluded?.ToHashSet(), _ =>
 			{
-				var value = requestBody.Get<string>($"SEOSettings.{name}");
-				desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
+				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
+				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToList(";", true, true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
+				desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
+				"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
+				{
+					var value = data.Get<string>($"SEOSettings.{name}");
+					desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
+				});
+				desktop.SEOSettings = desktop.SEOSettings != null && desktop.SEOSettings.SEOInfo == null && desktop.SEOSettings.TitleMode == null && desktop.SEOSettings.DescriptionMode == null && desktop.SEOSettings.KeywordsMode == null ? null : desktop.SEOSettings;
+				onCompleted?.Invoke(desktop);
 			});
-			desktop.SEOSettings = desktop.SEOSettings != null && desktop.SEOSettings.SEOInfo == null && desktop.SEOSettings.TitleMode == null && desktop.SEOSettings.DescriptionMode == null && desktop.SEOSettings.KeywordsMode == null ? null : desktop.SEOSettings;
-			desktop.TrimAll();
-			onCompleted?.Invoke(desktop);
-			return desktop;
-		}
 
 		internal static Desktop Set(this Desktop desktop, bool clear = false, bool updateCache = false)
 		{

@@ -29,18 +29,19 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static Item UpdateItemInstance(this Item item, ExpandoObject data, string excluded = null, Action<Item> onCompleted = null)
-		{
-			item.Fill(data, excluded?.ToHashSet());
-			item.NormalizeHTMLs();
-			item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
-			item.Tags = string.IsNullOrWhiteSpace(item.Tags) ? null : item.Tags;
-			onCompleted?.Invoke(item);
-			return item;
-		}
+			=> item.Fill(data, excluded?.ToHashSet(), _ =>
+			{
+				item.NormalizeHTMLs();
+				item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
+				item.Tags = string.IsNullOrWhiteSpace(item.Tags) ? null : item.Tags;
+				onCompleted?.Invoke(item);
+			});
 
 		public static IFilterBy<Item> GetItemsFilter(this string systemID, string repositoryID = null, string repositoryEntityID = null)
 		{
-			var filter = Filters<Item>.And(Filters<Item>.Equals("SystemID", systemID));
+			var filter = Filters<Item>.And();
+			if (!string.IsNullOrWhiteSpace(systemID))
+				filter.Add(Filters<Item>.Equals("SystemID", systemID));
 			if (!string.IsNullOrWhiteSpace(repositoryID))
 				filter.Add(Filters<Item>.Equals("RepositoryID", repositoryID));
 			if (!string.IsNullOrWhiteSpace(repositoryEntityID))

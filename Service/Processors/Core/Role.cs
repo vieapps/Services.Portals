@@ -19,20 +19,11 @@ namespace net.vieapps.Services.Portals
 	{
 		internal static ConcurrentDictionary<string, Role> Roles { get; } = new ConcurrentDictionary<string, Role>(StringComparer.OrdinalIgnoreCase);
 
-		public static Role CreateRoleInstance(this ExpandoObject requestBody, string excluded = null, Action<Role> onCompleted = null)
-		{
-			var role = requestBody.Copy<Role>(excluded?.ToHashSet());
-			role.TrimAll();
-			onCompleted?.Invoke(role);
-			return role;
-		}
+		public static Role CreateRoleInstance(this ExpandoObject data, string excluded = null, Action<Role> onCompleted = null)
+			=> Role.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
 
-		public static Role UpdateRoleInstance(this Role role, ExpandoObject requestBody, string excluded = null, Action<Role> onCompleted = null)
-		{
-			role.CopyFrom(requestBody, excluded?.ToHashSet(), onCompleted);
-			role.TrimAll();
-			return role;
-		}
+		public static Role UpdateRoleInstance(this Role role, ExpandoObject data, string excluded = null, Action<Role> onCompleted = null)
+			=> role.Fill(data, excluded?.ToHashSet(), onCompleted);
 
 		internal static Role Set(this Role role, bool updateCache = false)
 		{

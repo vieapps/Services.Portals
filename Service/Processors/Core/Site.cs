@@ -23,26 +23,23 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "AlwaysUseHTTPs,UISettings,IconURI,CoverURI,Stylesheets,MetaTags,Scripts,RedirectToNoneWWW,SEOInfo".ToHashSet();
 
-		public static Site CreateSiteInstance(this ExpandoObject requestBody, string excluded = null, Action<Site> onCompleted = null)
-			=> requestBody.Copy<Site>(excluded?.ToHashSet(), site =>
+		public static Site CreateSiteInstance(this ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
+			=> Site.CreateInstance(data, excluded?.ToHashSet(), site =>
 			{
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
 				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToList(";", true, true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
-				site.TrimAll();
 				onCompleted?.Invoke(site);
 			});
 
-		public static Site UpdateSiteInstance(this Site site, ExpandoObject requestBody, string excluded = null, Action<Site> onCompleted = null)
-		{
-			site.CopyFrom(requestBody, excluded?.ToHashSet());
-			site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
-			site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
-			site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToList(";", true, true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
-			site.TrimAll();
-			onCompleted?.Invoke(site);
-			return site;
-		}
+		public static Site UpdateSiteInstance(this Site site, ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
+			=> site.Fill(data, excluded?.ToHashSet(), _ =>
+			{
+				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
+				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
+				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToList(";", true, true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
+				onCompleted?.Invoke(site);
+			});
 
 		internal static Site Set(this Site site, bool clear = false, bool updateCache = false)
 		{

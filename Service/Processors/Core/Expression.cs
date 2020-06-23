@@ -19,20 +19,11 @@ namespace net.vieapps.Services.Portals
 	{
 		internal static ConcurrentDictionary<string, Expression> Expressions { get; } = new ConcurrentDictionary<string, Expression>(StringComparer.OrdinalIgnoreCase);
 
-		public static Expression CreateExpressionInstance(this ExpandoObject requestBody, string excluded = null, Action<Expression> onCompleted = null)
-			=> requestBody.Copy<Expression>(excluded?.ToHashSet(), expression =>
-			{
-				expression.TrimAll();
-				onCompleted?.Invoke(expression);
-			});
+		public static Expression CreateExpressionInstance(this ExpandoObject data, string excluded = null, Action<Expression> onCompleted = null)
+			=> Expression.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
 
 		public static Expression UpdateExpressionInstance(this Expression expression, ExpandoObject requestBody, string excluded = null, Action<Expression> onCompleted = null)
-		{
-			expression.CopyFrom(requestBody, excluded?.ToHashSet());
-			expression.TrimAll();
-			onCompleted?.Invoke(expression);
-			return expression;
-		}
+			=> expression.Fill(requestBody, excluded?.ToHashSet(), onCompleted);
 
 		internal static Expression Set(this Expression expression, bool updateCache = false)
 		{

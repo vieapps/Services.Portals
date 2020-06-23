@@ -48,12 +48,11 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static Organization UpdateOrganizationInstance(this Organization organization, ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
-		{
-			organization.Fill(data, excluded?.ToHashSet());
-			organization.Instructions = data.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
-			onCompleted?.Invoke(organization);
-			return organization;
-		}
+			=> organization.Fill(data, excluded?.ToHashSet(), _ =>
+			{
+				organization.Instructions = data.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
+				onCompleted?.Invoke(organization);
+			});
 
 		internal static Organization Set(this Organization organization, bool clear = false, bool updateCache = false)
 		{
