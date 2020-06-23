@@ -40,19 +40,17 @@ namespace net.vieapps.Services.Portals
 			return instructions;
 		}
 
-		public static Organization CreateOrganizationInstance(this ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
-			=> requestBody.Copy<Organization>(excluded?.ToHashSet(), organization =>
+		public static Organization CreateOrganizationInstance(this ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
+			=> Organization.CreateInstance(data, excluded?.ToHashSet(), organization =>
 			{
-				organization.Instructions = requestBody.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
-				organization.TrimAll();
+				organization.Instructions = data.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
 				onCompleted?.Invoke(organization);
 			});
 
-		public static Organization UpdateOrganizationInstance(this Organization organization, ExpandoObject requestBody, string excluded = null, Action<Organization> onCompleted = null)
+		public static Organization UpdateOrganizationInstance(this Organization organization, ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
 		{
-			organization.CopyFrom(requestBody, excluded?.ToHashSet());
-			organization.Instructions = requestBody.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
-			organization.TrimAll();
+			organization.Fill(data, excluded?.ToHashSet());
+			organization.Instructions = data.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
 			onCompleted?.Invoke(organization);
 			return organization;
 		}
@@ -89,6 +87,7 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(id) || !OrganizationProcessor.Organizations.TryRemove(id, out var organization) || organization == null)
 				return null;
 			OrganizationProcessor.OrganizationsByAlias.Remove(organization.Alias);
+			Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
 			return organization;
 		}
 
@@ -265,7 +264,7 @@ namespace net.vieapps.Services.Portals
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			await  organization.SetAsync(false, false, cancellationToken).ConfigureAwait(false);
+			organization.Set();
 			organization.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// send update messages
@@ -351,6 +350,7 @@ namespace net.vieapps.Services.Portals
 				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(organization.ID))
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
+				organization.Remove();
 			}
 
 			// update
@@ -366,7 +366,7 @@ namespace net.vieapps.Services.Portals
 			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			await organization.SetAsync(false, false, cancellationToken).ConfigureAwait(false);
+			organization.Set();
 			organization.ClearRelatedCacheAsync(cancellationToken).Run();
 
 			// send update messages
