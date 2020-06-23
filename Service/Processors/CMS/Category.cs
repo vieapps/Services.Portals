@@ -23,22 +23,11 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,EmailSettings".ToHashSet();
 
-		public static Category CreateCategoryInstance(this ExpandoObject requestBody, string excluded = null, Action<Category> onCompleted = null)
-			=> requestBody.Copy<Category>(excluded?.ToHashSet(), category =>
-			{
-				category.OriginalPrivileges = category.OriginalPrivileges?.Normalize();
-				category.TrimAll();
-				onCompleted?.Invoke(category);
-			});
+		public static Category CreateCategoryInstance(this ExpandoObject data, string excluded = null, Action<Category> onCompleted = null)
+			=> Category.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
 
-		public static Category UpdateCategoryInstance(this Category category, ExpandoObject requestBody, string excluded = null, Action<Category> onCompleted = null)
-		{
-			category.CopyFrom(requestBody, excluded?.ToHashSet());
-			category.OriginalPrivileges = category.OriginalPrivileges?.Normalize();
-			category.TrimAll();
-			onCompleted?.Invoke(category);
-			return category;
-		}
+		public static Category UpdateCategoryInstance(this Category category, ExpandoObject data, string excluded = null, Action<Category> onCompleted = null)
+			=> category.Fill(data, excluded?.ToHashSet(), onCompleted);
 
 		internal static Category Set(this Category category, bool clear = false, bool updateCache = false)
 		{

@@ -30,14 +30,13 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static Content UpdateContentInstance(this Content content, ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
-		{
-			content.Fill(data, excluded?.ToHashSet());
-			content.NormalizeHTMLs();
-			content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
-			content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
-			onCompleted?.Invoke(content);
-			return content;
-		}
+			=> content.Fill(data, excluded?.ToHashSet(), _ =>
+			{
+				content.NormalizeHTMLs();
+				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
+				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
+				onCompleted?.Invoke(content);
+			});
 
 		public static IFilterBy<Content> GetContentsFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, string categoryID = null, Action<FilterBys<Content>> onCompleted = null)
 		{
