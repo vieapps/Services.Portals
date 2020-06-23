@@ -185,7 +185,7 @@ namespace net.vieapps.Services.Portals
 			var systemIdentity = "";
 			var queryString = context.Request.QueryString.ToDictionary(query =>
 			{
-				var pathSegments = context.GetRequestPathSegments();
+				var pathSegments = context.GetRequestPathSegments(true).Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx")).ToArray();
 				var requestSegments = pathSegments;
 
 				// special parameters, like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity
