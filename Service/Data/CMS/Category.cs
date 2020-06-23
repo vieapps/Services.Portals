@@ -246,10 +246,10 @@ namespace net.vieapps.Services.Portals
 		{
 			var alwaysUseHtmlSuffix = this.Organization != null && this.Organization.AlwaysUseHtmlSuffix;
 			return this.OpenBy.Equals(OpenBy.DesktopOnly)
-				? $"~/{this.Desktop?.Alias ?? desktop ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
+				? $"~/{this.Desktop?.Alias ?? desktop ?? this.Module?.Desktop?.Alias ?? "-default"}{(alwaysUseHtmlSuffix ? ".html" : "")}"
 				: this.OpenBy.Equals(OpenBy.SpecifiedURI)
 					? this.SpecifiedURI ?? "~/"
-					: $"~/{this.Desktop?.Alias ?? desktop ?? "-default"}/{this.Alias}" + (addPageNumberHolder ? "/{{pageNumber}}" : "") + $"{(alwaysUseHtmlSuffix ? ".html" : "")}";
+					: $"~/{this.Desktop?.Alias ?? desktop ?? this.Module?.Desktop?.Alias ?? "-default"}/{this.Alias}" + (addPageNumberHolder ? "/{{pageNumber}}" : "") + $"{(alwaysUseHtmlSuffix ? ".html" : "")}";
 		}
 
 		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
