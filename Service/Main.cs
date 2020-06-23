@@ -1878,9 +1878,9 @@ namespace net.vieapps.Services.Portals
 									var urlPattern = paginationJson.Get<string>("URLPattern");
 									var currentPage = paginationJson.Get<int>("PageNumber");
 									if (currentPage > 1)
-										paginationXml.Add(new XElement("PreviousPage", new XElement("Text", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel) ? portlet.PaginationSettings.PreviousPageLabel : "Previous"), new XElement("URL", urlPattern.Replace("{{pageNumber}}", $"{currentPage - 1}").Replace("/1.html", ".html").Replace("/1", ""))));
+										paginationXml.Add(new XElement("PreviousPage", new XElement("Text", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel) ? portlet.PaginationSettings.PreviousPageLabel : "Previous"), new XElement("URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{currentPage - 1}").Replace("/1.html", ".html").Replace("/1", ""))));
 									if (currentPage < totalPages)
-										paginationXml.Add(new XElement("NextPage", new XElement("Text", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel) ? portlet.PaginationSettings.NextPageLabel : "Next"), new XElement("URL", urlPattern.Replace("{{pageNumber}}", $"{currentPage + 1}"))));
+										paginationXml.Add(new XElement("NextPage", new XElement("Text", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel) ? portlet.PaginationSettings.NextPageLabel : "Next"), new XElement("URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{currentPage + 1}"))));
 								}
 							}));
 

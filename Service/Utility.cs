@@ -442,7 +442,7 @@ namespace net.vieapps.Services.Portals
 					pages.Add(new JObject
 					{
 						{ "Text", $"{page}" },
-						{ "URL", urlPattern.Replace("{{pageNumber}}", $"{page}") }
+						{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{page}") }
 					});
 			else
 				pages = null;
