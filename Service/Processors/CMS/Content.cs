@@ -523,8 +523,12 @@ namespace net.vieapps.Services.Portals
 			var contentTypeID = contentTypeJson.Get<string>("ID");
 			var category = await parentContentTypeJson.Get<string>("ID", "").GetCategoryByAliasAsync(requestJson.Get<string>("ParentIdentity"), cancellationToken).ConfigureAwait(false);
 
-			var pageSize = requestJson.Get("PageSize", 7);
-			var pageNumber = requestJson.Get("PageNumber", 1);
+			var paginationJson = requestJson.Get("Pagination", new JObject());
+			var pageSize = paginationJson.Get<int>("PageSize", 7);
+			var pageNumber = paginationJson.Get<int>("PageNumber", 1);
+			var showPageLinks = paginationJson.Get<bool>("ShowPageLinks", true);
+			var numberOfPageLinks = paginationJson.Get<int>("NumberOfPageLinks", 7);
+
 			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
@@ -651,7 +655,7 @@ namespace net.vieapps.Services.Portals
 				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 				if (totalPages > 0 && pageNumber > totalPages)
 					pageNumber = totalPages;
-				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true));
+				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true), showPageLinks, numberOfPageLinks);
 
 				// prepare SEO and other info
 				seoInfo = new JObject
@@ -858,7 +862,7 @@ namespace net.vieapps.Services.Portals
 
 				// build others
 				breadcrumbs = @object.Category?.GenerateBreadcrumbs(desktop) ?? new JArray();
-				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true));
+				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true), showPageLinks, numberOfPageLinks);
 				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI");
 				seoInfo = new JObject
 				{

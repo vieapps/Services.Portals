@@ -360,10 +360,13 @@ namespace net.vieapps.Services.Portals
 			var desktopsJson = requestJson.Get("Desktops", new JObject());
 			var optionsJson = requestJson.Get("Options", new JObject());
 
-			var contentTypeID = contentTypeJson.Get<string>("ID");
-			var pageSize = requestJson.Get("PageSize", 7);
-			var pageNumber = requestJson.Get("PageNumber", 1);
+			var paginationJson = requestJson.Get("Pagination", new JObject());
+			var pageSize = paginationJson.Get<int>("PageSize", 7);
+			var pageNumber = paginationJson.Get<int>("PageNumber", 1);
+			var showPageLinks = paginationJson.Get<bool>("ShowPageLinks", true);
+			var numberOfPageLinks = paginationJson.Get<int>("NumberOfPageLinks", 7);
 
+			var contentTypeID = contentTypeJson.Get<string>("ID");
 			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
@@ -462,7 +465,7 @@ namespace net.vieapps.Services.Portals
 				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 				if (totalPages > 0 && pageNumber > totalPages)
 					pageNumber = totalPages;
-				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(organizationJson.Get<bool>("AlwaysUseHtmlSuffix", true) ? ".html" : "")}");
+				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(organizationJson.Get<bool>("AlwaysUseHtmlSuffix", true) ? ".html" : "")}", showPageLinks, numberOfPageLinks);
 
 				// prepare SEO info
 				seoInfo = new JObject
@@ -592,7 +595,7 @@ namespace net.vieapps.Services.Portals
 				}));
 
 				// build others
-				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true));
+				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true), showPageLinks, numberOfPageLinks);
 				seoInfo = new JObject
 				{
 					{ "Title", @object.Title },

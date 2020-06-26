@@ -434,16 +434,68 @@ namespace net.vieapps.Services.Portals
 		/// <param name="pageNumber"></param>
 		/// <param name="urlPattern"></param>
 		/// <returns></returns>
-		public static JObject GeneratePagination(long totalRecords, int totalPages, int pageSize, int pageNumber, string urlPattern)
+		public static JObject GeneratePagination(long totalRecords, int totalPages, int pageSize, int pageNumber, string urlPattern, bool showPageLinks = true, int numberOfPageLinks = 0)
 		{
 			var pages = new List<JObject>(totalPages);
 			if (totalPages > 1 && !string.IsNullOrWhiteSpace(urlPattern))
-				for (var page = 1; page <= totalPages; page++)
+			{
+				if (!showPageLinks || numberOfPageLinks < 1 || totalPages <= numberOfPageLinks)
+					for (var page = 1; page <= totalPages; page++)
+						pages.Add(new JObject
+						{
+							{ "Text", $"{page}" },
+							{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{page}").Replace("/1.html", ".html").Replace("/1", "") }
+						});
+				else
+				{
+					var numberOfLinks = (numberOfPageLinks - 4) / 2;
+					if (numberOfLinks < 1)
+						numberOfLinks = 1;
+					var start = pageNumber - numberOfLinks;
+					var end = pageNumber + numberOfLinks;
+					while (start < 2)
+					{
+						start++;
+						end++;
+					}
+					if (end >= totalPages - 1)
+					{
+						end = totalPages - 1;
+						while (end - start < numberOfLinks)
+							start--;
+						if (start < 2)
+							start = 2;
+					}
 					pages.Add(new JObject
 					{
-						{ "Text", $"{page}" },
-						{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{page}") }
+						{ "Text", "1" },
+						{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", "1").Replace("/1.html", ".html").Replace("/1", "") }
 					});
+					if (start - 1 > 1)
+						pages.Add(new JObject
+						{
+							{ "Text", start - 1 > 2 ? "..." : $"{start - 1}" },
+							{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{start - 1}") }
+						});
+					for (var page = start; page <= end; page++)
+						pages.Add(new JObject
+						{
+							{ "Text", $"{page}" },
+							{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{page}") }
+						});
+					if (end + 1 < totalPages)
+						pages.Add(new JObject
+						{
+							{ "Text", end + 1 < totalPages ? "..." : $"{end + 1}" },
+							{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{end + 1}") }
+						});
+					pages.Add(new JObject
+					{
+						{ "Text", $"{totalPages}" },
+						{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{totalPages}") }
+					});
+				}
+			}
 			else
 				pages = null;
 
@@ -748,7 +800,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="time"></param>
 		/// <returns></returns>
-		public static DateTime GetTimeQuarter(this DateTime time) 
+		public static DateTime GetTimeQuarter(this DateTime time)
 			=> DateTime.Parse($"{time:yyyy/MM/dd HH:}{(time.Minute > 44 ? "45" : time.Minute > 29 ? "30" : time.Minute > 24 ? "15" : "00")}:00");
 
 		/// <summary>
@@ -790,20 +842,24 @@ namespace net.vieapps.Services.Portals
 								? "YesNo"
 								: mode.Equals(ExtendedPropertyMode.MediumText) ? "TextArea" : "TextBox";
 
+			var hidden = definition.Hidden != null && definition.Hidden.Value;
 			var options = new JObject();
-			if (!definition.Hidden)
+			if (!hidden)
 			{
 				options["Label"] = definition.Label;
 				options["PlaceHolder"] = definition.PlaceHolder;
 				options["Description"] = definition.Description;
 
-				var dataType = "Lookup".IsEquals(controlType) && !string.IsNullOrWhiteSpace(definition.LookupType)
-					? definition.LookupType
-					: "DatePicker".IsEquals(controlType)
-						? "date"
-						: mode.Equals(ExtendedPropertyMode.IntegralNumber) || mode.Equals(ExtendedPropertyMode.FloatingPointNumber)
-							? "number"
-							: null;
+				var dataType = !string.IsNullOrWhiteSpace(definition.DataType)
+					? definition.DataType
+					: "Lookup".IsEquals(controlType) && !string.IsNullOrWhiteSpace(definition.LookupType)
+						? definition.LookupType
+						: "DatePicker".IsEquals(controlType)
+							? "date"
+							: mode.Equals(ExtendedPropertyMode.IntegralNumber) || mode.Equals(ExtendedPropertyMode.FloatingPointNumber)
+								? "number"
+								: null;
+
 				if (!string.IsNullOrWhiteSpace(dataType))
 					options["Type"] = dataType;
 
@@ -895,6 +951,8 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "Name", definition.Name },
 				{ "Type", controlType },
+				{ "Hidden", hidden },
+				{ "Required", definition.Required != null && definition.Required.Value },
 				{ "Extras", new JObject() },
 				{ "Options", options }
 			};

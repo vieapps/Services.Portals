@@ -603,9 +603,13 @@ namespace net.vieapps.Services.Portals
 			var desktopsJson = requestJson.Get("Desktops", new JObject());
 			var optionsJson = requestJson.Get("Options", new JObject());
 
+			var paginationJson = requestJson.Get("Pagination", new JObject());
+			var pageSize = paginationJson.Get<int>("PageSize", 7);
+			var pageNumber = paginationJson.Get<int>("PageNumber", 1);
+			var showPageLinks = paginationJson.Get<bool>("ShowPageLinks", true);
+			var numberOfPageLinks = paginationJson.Get<int>("NumberOfPageLinks", 7);
+
 			var contentTypeID = contentTypeJson.Get<string>("ID");
-			var pageSize = requestJson.Get("PageSize", 0);
-			var pageNumber = requestJson.Get("PageNumber", 1);
 			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
 
 			var asMenu = "Menu".IsEquals(optionsJson.Get<string>("DisplayMode")) || optionsJson.Get<bool>("AsMenu", false) || optionsJson.Get<bool>("ShowAsMenu", false) || optionsJson.Get<bool>("GenerateAsMenu", false);

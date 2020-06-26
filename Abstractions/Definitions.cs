@@ -251,7 +251,7 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets or Sets the hidden state
 		/// </summary>
-		public bool Hidden { get; set; } = false;
+		public bool? Hidden { get; set; }
 
 		/// <summary>
 		/// Gets or Sets the formula/expression for computing value when the control is hidden
@@ -264,9 +264,14 @@ namespace net.vieapps.Services.Portals
 		public bool? HiddenInView { get; set; }
 
 		/// <summary>
+		/// Gets or Sets the data type of control (ex: text, url, tel, ... follow the HTML5 input controls)
+		/// </summary>
+		public string DataType { get; set; }
+
+		/// <summary>
 		/// Gets or Sets the require state
 		/// </summary>
-		public bool Required { get; set; } = false;
+		public bool? Required { get; set; }
 
 		/// <summary>
 		/// Gets or Sets the disable state

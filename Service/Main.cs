@@ -1266,7 +1266,7 @@ namespace net.vieapps.Services.Portals
 					json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
 				});
 
-				var siteJson = site.ToJson(false, json =>
+				var siteJson = site.ToJson(json =>
 				{
 					SiteProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 					json.Remove("Privileges");
@@ -1492,8 +1492,14 @@ namespace net.vieapps.Services.Portals
 						{ "SortBy", expresion?.Sort?.ToJson() },
 					}
 				},
-				{ "PageSize", isList && portlet.ListSettings != null ? portlet.ListSettings.PageSize : 0 },
-				{ "PageNumber", isList && portlet.ListSettings != null ? portlet.ListSettings.AutoPageNumber ? (pageNumber ?? "1").CastAs<int>() : 1 : (pageNumber ?? "1").CastAs<int>() },
+				{ "Pagination", new JObject
+					{
+						{ "PageSize", isList && portlet.ListSettings != null ? portlet.ListSettings.PageSize : 0 },
+						{ "PageNumber", isList && portlet.ListSettings != null ? portlet.ListSettings.AutoPageNumber ? (pageNumber ?? "1").CastAs<int>() : 1 : (pageNumber ?? "1").CastAs<int>() },
+						{ "ShowPageLinks", portlet.PaginationSettings != null && portlet.PaginationSettings.ShowPageLinks },
+						{ "NumberOfPageLinks", portlet.PaginationSettings != null ? portlet.PaginationSettings.NumberOfPageLinks : 7 }
+					}
+				},
 				{ "IsAutoPageNumber", isList && portlet.ListSettings != null && portlet.ListSettings.AutoPageNumber },
 				{ "Options", optionsJson },
 				{ "Language", language ?? "vi-VN" },
@@ -1517,21 +1523,21 @@ namespace net.vieapps.Services.Portals
 					})
 				},
 				{ "Organization", organizationJson },
-				{ "Module", contentType.Module?.ToJson(false, json =>
+				{ "Module", contentType.Module?.ToJson(json =>
 					{
 						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");
 						json["Description"] = contentType.Module.Description?.Replace("\r", "").Replace("\n", "<br/>");
 					})
 				},
-				{ "ContentType", contentType.ToJson(false, json =>
+				{ "ContentType", contentType.ToJson(json =>
 					{
 						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");
 						json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
 					})
 				},
-				{ "ParentContentType", parentContentType?.ToJson(false, json =>
+				{ "ParentContentType", parentContentType?.ToJson(json =>
 					{
 						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");

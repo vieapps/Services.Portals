@@ -104,12 +104,16 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public bool ShowPageLinks { get; set; } = true;
 
+		public int NumberOfPageLinks { get; set; } = 7;
+
 		public void Normalize(Action<PaginationSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
 			this.PreviousPageLabel = string.IsNullOrWhiteSpace(this.PreviousPageLabel) ? null : this.PreviousPageLabel.Trim();
 			this.NextPageLabel = string.IsNullOrWhiteSpace(this.NextPageLabel) ? null : this.NextPageLabel.Trim();
 			this.CurrentPageLabel = string.IsNullOrWhiteSpace(this.CurrentPageLabel) ? null : this.CurrentPageLabel.Trim();
+			if (this.NumberOfPageLinks < 0)
+				this.NumberOfPageLinks = 7;
 			onCompleted?.Invoke(this);
 		}
 	}
