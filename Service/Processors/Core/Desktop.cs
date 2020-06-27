@@ -693,5 +693,49 @@ namespace net.vieapps.Services.Portals
 			});
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
+
+		internal static async Task<JObject> SyncDesktopAsync(this RequestInfo requestInfo, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		{
+			var data = requestInfo.GetBodyExpando();
+			var desktop = await data.Get<string>("ID").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (desktop == null)
+			{
+				desktop = Desktop.CreateInstance(data);
+				desktop.Extras = data.Get<string>("Extras") ?? desktop.Extras;
+				await Desktop.CreateAsync(desktop, cancellationToken).ConfigureAwait(false);
+			}
+			else
+			{
+				desktop.Fill(data);
+				desktop.Extras = data.Get<string>("Extras") ?? desktop.Extras;
+				await Desktop.UpdateAsync(desktop, true, cancellationToken).ConfigureAwait(false);
+			}
+
+			// send update messages
+			var json = desktop.Set().ToJson();
+			var objectName = desktop.GetTypeName(true);
+			await Task.WhenAll(
+				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*"
+				}, cancellationToken),
+				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = json,
+					ExcludedNodeID = nodeID
+				}, cancellationToken)
+			).ConfigureAwait(false);
+
+			// return the response
+			return new JObject
+			{
+				{ "Sync", "Success" },
+				{ "ID", desktop.ID },
+				{ "Type", objectName }
+			};
+		}
 	}
 }

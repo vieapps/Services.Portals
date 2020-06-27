@@ -2400,6 +2400,97 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
+		#region Sync
+		public override async Task<JToken> SyncAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			var stopwatch = Stopwatch.StartNew();
+			this.WriteLogs(requestInfo, $"Start sync ({requestInfo.Verb} {requestInfo.GetURI()})");
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationTokenSource.Token))
+				try
+				{
+					// validate
+					var json = await base.SyncAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+
+					// sync
+					switch (requestInfo.ObjectName.ToLower())
+					{
+						case "organization":
+						case "core.organization":
+							json = await requestInfo.SyncOrganizationAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "module":
+						case "core.module":
+							json = await requestInfo.SyncModuleAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "contenttype":
+						case "content.type":
+						case "core.contenttype":
+						case "core.content.type":
+							json = await requestInfo.SyncContentTypeAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "site":
+						case "core.site":
+							json = await requestInfo.SyncSiteAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "desktop":
+						case "core.desktop":
+							json = await requestInfo.SyncDesktopAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "role":
+						case "core.role":
+							json = await requestInfo.SyncRoleAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "category":
+						case "cms.category":
+							json = await requestInfo.SyncCategoryAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "content":
+						case "cms.content":
+							json = await requestInfo.SyncContentAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "item":
+						case "cms.item":
+							json = await requestInfo.SyncItemAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "link":
+						case "cms.link":
+							json = await requestInfo.SyncLinkAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
+						default:
+							throw new InvalidRequestException($"The request for synchronizing is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
+					}
+
+					stopwatch.Stop();
+					this.WriteLogs(requestInfo, $"Sync success - Execution times: {stopwatch.GetElapsedTimes()}");
+					if (this.IsDebugResultsEnabled)
+						this.WriteLogs(requestInfo,
+							$"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" +
+							$"- Response: {json?.ToString(this.JsonFormat)}"
+						);
+					return json;
+				}
+				catch (Exception ex)
+				{
+					throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+				}
+		}
+
+		protected override Task SendSyncRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			return base.SendSyncRequestAsync(requestInfo, cancellationToken);
+		}
+		#endregion
+
 		#region Process communicate message of Portals service
 		protected override async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{

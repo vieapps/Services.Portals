@@ -716,5 +716,47 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 			return response;
 		}
+
+		internal static async Task<JObject> SyncPortletAsync(this RequestInfo requestInfo, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		{
+			var data = requestInfo.GetBodyExpando();
+			var portlet = await Portlet.GetAsync<Portlet>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+			if (portlet == null)
+			{
+				portlet = Portlet.CreateInstance(data);
+				await Portlet.CreateAsync(portlet, cancellationToken).ConfigureAwait(false);
+			}
+			else
+			{
+				portlet.Fill(data);
+				await Portlet.UpdateAsync(portlet, true, cancellationToken).ConfigureAwait(false);
+			}
+
+			// send update messages
+			var json = portlet.ToJson();
+			var objectName = portlet.GetTypeName(true);
+			await Task.WhenAll(
+				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*"
+				}, cancellationToken),
+				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = json,
+					ExcludedNodeID = nodeID
+				}, cancellationToken)
+			).ConfigureAwait(false);
+
+			// return the response
+			return new JObject
+			{
+				{ "Sync", "Success" },
+				{ "ID", portlet.ID },
+				{ "Type", objectName }
+			};
+		}
 	}
 }

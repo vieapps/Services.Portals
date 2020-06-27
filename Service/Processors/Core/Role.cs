@@ -738,5 +738,47 @@ namespace net.vieapps.Services.Portals
 			});
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
+
+		internal static async Task<JObject> SyncRoleAsync(this RequestInfo requestInfo, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		{
+			var data = requestInfo.GetBodyExpando();
+			var role = await data.Get<string>("ID").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (role == null)
+			{
+				role = Role.CreateInstance(data);
+				await Role.CreateAsync(role, cancellationToken).ConfigureAwait(false);
+			}
+			else
+			{
+				role.Fill(data);
+				await Role.UpdateAsync(role, true, cancellationToken).ConfigureAwait(false);
+			}
+
+			// send update messages
+			var json = role.Set().ToJson();
+			var objectName = role.GetTypeName(true);
+			await Task.WhenAll(
+				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*"
+				}, cancellationToken),
+				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = json,
+					ExcludedNodeID = nodeID
+				}, cancellationToken)
+			).ConfigureAwait(false);
+
+			// return the response
+			return new JObject
+			{
+				{ "Sync", "Success" },
+				{ "ID", role.ID },
+				{ "Type", objectName }
+			};
+		}
 	}
 }

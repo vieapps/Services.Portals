@@ -541,5 +541,49 @@ namespace net.vieapps.Services.Portals
 			// response
 			return response;
 		}
+
+		internal static async Task<JObject> SyncSiteAsync(this RequestInfo requestInfo, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		{
+			var data = requestInfo.GetBodyExpando();
+			var site = await data.Get<string>("ID").GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (site == null)
+			{
+				site = Site.CreateInstance(data);
+				site.Extras = data.Get<string>("Extras") ?? site.Extras;
+				await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
+			}
+			else
+			{
+				site.Fill(data);
+				site.Extras = data.Get<string>("Extras") ?? site.Extras;
+				await Site.UpdateAsync(site, true, cancellationToken).ConfigureAwait(false);
+			}
+
+			// send update messages
+			var json = site.Set().ToJson();
+			var objectName = site.GetTypeName(true);
+			await Task.WhenAll(
+				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*"
+				}, cancellationToken),
+				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = json,
+					ExcludedNodeID = nodeID
+				}, cancellationToken)
+			).ConfigureAwait(false);
+
+			// return the response
+			return new JObject
+			{
+				{ "Sync", "Success" },
+				{ "ID", site.ID },
+				{ "Type", objectName }
+			};
+		}
 	}
 }

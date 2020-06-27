@@ -744,5 +744,47 @@ namespace net.vieapps.Services.Portals
 			// return the menu item
 			return menu;
 		}
+
+		internal static async Task<JObject> SyncCategoryAsync(this RequestInfo requestInfo, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		{
+			var data = requestInfo.GetBodyExpando();
+			var category = await data.Get<string>("ID").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (category == null)
+			{
+				category = Category.CreateInstance(data);
+				await Category.CreateAsync(category, cancellationToken).ConfigureAwait(false);
+			}
+			else
+			{
+				category.Fill(data);
+				await Category.UpdateAsync(category, true, cancellationToken).ConfigureAwait(false);
+			}
+
+			// send update messages
+			var json = category.Set().ToJson();
+			var objectName = category.ContentType.GetObjectName();
+			await Task.WhenAll(
+				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*"
+				}, cancellationToken),
+				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = json,
+					ExcludedNodeID = nodeID
+				}, cancellationToken)
+			).ConfigureAwait(false);
+
+			// return the response
+			return new JObject
+			{
+				{ "Sync", "Success" },
+				{ "ID", category.ID },
+				{ "Type", objectName }
+			};
+		}
 	}
 }
