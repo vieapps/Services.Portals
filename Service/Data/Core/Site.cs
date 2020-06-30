@@ -216,7 +216,7 @@ namespace net.vieapps.Services.Portals
 				this.Stylesheets = this._json["Stylesheets"]?.FromJson<string>();
 				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
 				this.Scripts = this._json["Scripts"]?.FromJson<string>();
-				this.RedirectToNoneWWW = this._json["RedirectToNoneWWW"] == null && this._json["RedirectToNoneWWW"].FromJson<bool>();
+				this.RedirectToNoneWWW = this._json["RedirectToNoneWWW"] != null && this._json["RedirectToNoneWWW"].FromJson<bool>();
 				this.SEOInfo = this._json["SEOInfo"]?.FromJson<Settings.SEOInfo>();
 			}
 			else if (SiteProcessor.ExtraProperties.Contains(name))
