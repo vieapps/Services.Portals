@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.XPath;
@@ -245,6 +246,14 @@ namespace net.vieapps.Services.Portals
 					throw asScritps ? new ScriptsAreInvalidException(ex) as AppException : new MetaTagsAreInvalidException(ex);
 				}
 		}
+
+		/// <summary>
+		/// Cleans invalid XML characters
+		/// </summary>
+		/// <param name="string"></param>
+		/// <returns></returns>
+		public static string CleanInvalidXmlCharacters(this string @string)
+			=> Regex.Replace(@string, "[\x00-\x08\x0B\x0C\x0E-\x1F]", string.Empty, RegexOptions.Compiled);
 
 		/// <summary>
 		/// Gets the compiled XSL stylesheet
