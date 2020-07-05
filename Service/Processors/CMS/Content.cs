@@ -187,6 +187,7 @@ namespace net.vieapps.Services.Portals
 					{
 						cjson["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID);
 						cjson["Details"] = organization.NormalizeURLs(@object.Details);
+						//cjson.Remove("Details");
 					})).ToJArray()
 				}
 			};

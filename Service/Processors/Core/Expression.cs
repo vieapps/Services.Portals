@@ -111,15 +111,28 @@ namespace net.vieapps.Services.Portals
 		}
 
 		static Task ClearRelatedCacheAsync(this Expression expression, CancellationToken cancellationToken = default)
-			=> Task.WhenAll
-			(
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Expression>.And(), Sorts<Expression>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(null), Sorts<Expression>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID), Sorts<Expression>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, expression.ContentTypeDefinitionID), Sorts<Expression>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, null), Sorts<Expression>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, null, expression.ContentTypeDefinitionID), Sorts<Expression>.Ascending("Title")), cancellationToken)
-			);
+		{
+			var sort = Sorts<Expression>.Ascending("Title");
+			var tasks = new List<Task>
+			{
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Expression>.And(), sort), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(null), sort), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID), sort), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, expression.ContentTypeDefinitionID), sort), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, null), sort), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, null, expression.ContentTypeDefinitionID), sort), cancellationToken)
+			};
+			if (!string.IsNullOrWhiteSpace(expression.RepositoryEntityID) && !string.IsNullOrWhiteSpace(expression.ContentTypeDefinitionID))
+			{
+				var filter = Filters<Expression>.Or(
+					Filters<Expression>.Equals("ContentTypeDefinitionID", expression.ContentTypeDefinitionID),
+					Filters<Expression>.Equals("RepositoryEntityID", expression.RepositoryEntityID)
+				);
+				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Expression>.And(Filters<Expression>.Equals("RepositoryID", expression.RepositoryID), filter), sort), cancellationToken));
+				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(filter, sort), cancellationToken));
+			}
+			return Task.WhenAll(tasks);
+		}
 
 		internal static async Task<JObject> SearchExpressionsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
