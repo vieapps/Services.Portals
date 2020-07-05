@@ -31,8 +31,6 @@ namespace net.vieapps.Services.Portals
 	{
 
 		#region Definitions
-		IAsyncDisposable ServiceInstance { get; set; }
-
 		IDisposable ServiceCommunicator { get; set; }
 
 		public override string ServiceName => "Portals";
@@ -48,7 +46,7 @@ namespace net.vieapps.Services.Portals
 				async _ =>
 				{
 					onSuccess?.Invoke(this);
-					this.ServiceInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<ICmsPortalsService>(() => this, RegistrationInterceptor.Create(this.ServiceName)).ConfigureAwait(false);
+					await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<ICmsPortalsService>(() => this, RegistrationInterceptor.Create(this.ServiceName)).ConfigureAwait(false);
 					this.ServiceCommunicator?.Dispose();
 					this.ServiceCommunicator = CmsPortalsServiceExtensions.RegisterServiceCommunicator(
 						async message => await this.ProcessCommunicateMessageAsync(message).ConfigureAwait(false),
@@ -63,16 +61,9 @@ namespace net.vieapps.Services.Portals
 			=> base.UnregisterServiceAsync(
 				args,
 				available,
-				async _ =>
+				_ =>
 				{
 					onSuccess?.Invoke(this);
-					if (this.ServiceInstance != null)
-						try
-						{
-							await this.ServiceInstance.DisposeAsync().ConfigureAwait(false);
-						}
-						catch { }
-					this.ServiceInstance = null;
 					this.ServiceCommunicator?.Dispose();
 					this.ServiceCommunicator = null;
 					this.Logger?.LogDebug($"Successfully unregister the service with CMS Portals");
@@ -1088,13 +1079,25 @@ namespace net.vieapps.Services.Portals
 				await desktops.ForEachAsync(async (webdesktop, token) => await webdesktop.SetAsync(false, true, token), cancellationToken).ConfigureAwait(false);
 			}
 
-			// get site
-			if (organization._siteIDs == null || organization._siteIDs.Count < 1)
-				await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false);
+			// get site by domain
 			var host = requestInfo.GetParameter("x-host");
-			var site = await (host ?? "").GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false) ?? organization.DefaultSite;
+			var site = await (host ?? "").GetSiteByDomainAsync(Utility.DefaultSite?.ID, cancellationToken).ConfigureAwait(false);
+
+			// get default site if not found
 			if (site == null)
-				throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"})");
+			{
+				if (host.Equals(new Uri(Utility.CmsPortalsHttpURI).Host) && (organization._siteIDs == null || organization._siteIDs.Count < 1))
+				{
+					organization._siteIDs = null;
+					site = (await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault();
+				}
+				else
+					site = organization.Sites?.FirstOrDefault();
+			}
+
+			// stop if no site is found
+			if (site == null)
+				throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(this.IsDebugLogEnabled ? $" because the organization ({ organization.Title }) has no site [{organization.Sites?.Count}]" : "")}");
 
 			// get desktop and prepare the redirecting url
 			var writeDesktopLogs = this.WriteDesktopLogs || requestInfo.GetParameter("x-logs") != null || requestInfo.GetParameter("x-desktop-logs") != null;
@@ -1875,18 +1878,32 @@ namespace net.vieapps.Services.Portals
 						if (paginationJson != null && paginationJson.Get<JObject>("Pages") != null)
 							xml.Root.Add(paginationJson.ToXml("Pagination", paginationXml =>
 							{
-								paginationXml.Element("URLPattern").Remove();
-								paginationXml.Element("Pages").Add(new XAttribute("Label", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.CurrentPageLabel) ? portlet.PaginationSettings.CurrentPageLabel : "Current"));
-								paginationXml.Add(new XElement("ShowPageLinks", portlet.PaginationSettings.ShowPageLinks));
-								var totalPages = paginationJson.Get<int>("TotalPages");
-								if (totalPages > 1)
+							paginationXml.Element("URLPattern").Remove();
+							paginationXml.Element("Pages").Add(new XAttribute("Label", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.CurrentPageLabel) ? portlet.PaginationSettings.CurrentPageLabel : "Current"));
+							paginationXml.Add(new XElement("ShowPageLinks", portlet.PaginationSettings.ShowPageLinks));
+							var totalPages = paginationJson.Get<int>("TotalPages");
+							if (totalPages > 1)
+							{
+								var urlPattern = paginationJson.Get<string>("URLPattern");
+								var currentPage = paginationJson.Get<int>("PageNumber");
+								if (currentPage > 1)
 								{
-									var urlPattern = paginationJson.Get<string>("URLPattern");
-									var currentPage = paginationJson.Get<int>("PageNumber");
-									if (currentPage > 1)
-										paginationXml.Add(new XElement("PreviousPage", new XElement("Text", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel) ? portlet.PaginationSettings.PreviousPageLabel : "Previous"), new XElement("URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{currentPage - 1}").Replace("/1.html", ".html").Replace("/1", ""))));
+									var text = string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel)
+										? "Previous"
+										: portlet.PaginationSettings.PreviousPageLabel;
+										var url = urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{currentPage - 1}").Replace("/1.html", ".html");
+										if (url.EndsWith("/1"))
+											url = url.Left(url.Length - 2);
+										paginationXml.Add(new XElement("PreviousPage", new XElement("Text", text.CleanInvalidXmlCharacters()), new XElement("URL", url)));
+									}
 									if (currentPage < totalPages)
-										paginationXml.Add(new XElement("NextPage", new XElement("Text", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel) ? portlet.PaginationSettings.NextPageLabel : "Next"), new XElement("URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{currentPage + 1}"))));
+									{
+										var text = string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel)
+											? "Next"
+											: portlet.PaginationSettings.NextPageLabel;
+										var url = urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{currentPage + 1}");
+										paginationXml.Add(new XElement("NextPage", new XElement("Text", text.CleanInvalidXmlCharacters()), new XElement("URL", url)));
+									}
 								}
 							}));
 
@@ -1905,6 +1922,8 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception ex)
 					{
+						gotError = true;
+
 						errorMessage = ex is XslTemplateIsInvalidException || ex is XslTemplateExecutionIsProhibitedException || ex is XslTemplateIsNotCompiledException
 							? ex.Message
 							: ex.Message.IsContains("An error occurred while loading document ''")
@@ -1919,11 +1938,17 @@ namespace net.vieapps.Services.Portals
 							inner = inner.InnerException;
 						}
 
-						gotError = true;
-						await this.WriteLogsAsync(correlationID,
-							$"Error occurred while transforming HTML of {portletInfo} => {ex.Message}" +
-							$"\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}{(string.IsNullOrWhiteSpace(isList ? portlet.ListSettings.Template : portlet.ViewSettings.Template) ? $"\r\n- XSL file: {portlet.Desktop?.WorkingTheme ?? "default"}/templates/{contentType.ContentTypeDefinition?.ModuleDefinition?.Directory?.ToLower() ?? "-"}/{contentType.ContentTypeDefinition?.ObjectName?.ToLower() ?? "-"}/{xslFilename}" : "")}"
-						, ex, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
+						try
+						{
+							await this.WriteLogsAsync(correlationID,
+								$"Error occurred while transforming HTML of {portletInfo} => {ex.Message}" +
+								$"\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}{(string.IsNullOrWhiteSpace(isList ? portlet.ListSettings.Template : portlet.ViewSettings.Template) ? $"\r\n- XSL file: {portlet.Desktop?.WorkingTheme ?? "default"}/templates/{contentType.ContentTypeDefinition?.ModuleDefinition?.Directory?.ToLower() ?? "-"}/{contentType.ContentTypeDefinition?.ObjectName?.ToLower() ?? "-"}/{xslFilename}" : "")}"
+							, ex, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
+						}
+						catch (Exception e)
+						{
+							await this.WriteLogsAsync(correlationID, $"Error occurred while transforming HTML of {portletInfo} => {e.Message}" , e, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
+						}
 					}
 				else
 				{
@@ -2517,6 +2542,10 @@ namespace net.vieapps.Services.Portals
 			// messages of a desktop
 			else if (message.Type.StartsWith("Desktop#"))
 				await message.ProcessInterCommunicateMessageOfDesktopAsync(cancellationToken).ConfigureAwait(false);
+
+			// messages of a portlet
+			else if (message.Type.StartsWith("Portlet#"))
+				await message.ProcessInterCommunicateMessageOfPortletAsync(cancellationToken).ConfigureAwait(false);
 
 			// messages a module
 			else if (message.Type.StartsWith("Module#"))
