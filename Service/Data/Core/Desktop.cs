@@ -163,7 +163,7 @@ namespace net.vieapps.Services.Portals
 		INestedObject INestedObject.Parent => this.ParentDesktop;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public string WorkingTheme => this.Theme ?? this.Organization?.DefaultSite?.Theme ?? this.Organization?.Theme ?? "default";
+		public string WorkingTheme => this.Theme ?? this.Organization?.Sites.FirstOrDefault()?.Theme ?? this.Organization?.Theme ?? "default";
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string FullTitle

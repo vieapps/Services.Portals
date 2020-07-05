@@ -183,7 +183,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._siteIDs == null)
 			{
-				sites = sites ?? (this.SystemID ?? "").FindSites();
+				sites = sites ?? (this.ID ?? "").FindSites();
 				this._siteIDs = sites.Where(site => site != null).Select(site => site.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("Sites");
@@ -194,14 +194,11 @@ namespace net.vieapps.Services.Portals
 
 		internal async Task<List<Site>> FindSitesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._siteIDs == null
-				? this.FindSites(await (this.SystemID ?? "").FindSitesAsync(cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
+				? this.FindSites(await (this.ID ?? "").FindSitesAsync(cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
 				: this._siteIDs.Select(id => id.GetSiteByID(false, false)).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public List<Site> Sites => this.FindSites();
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Site DefaultSite => this.Sites.FirstOrDefault();
 
 		internal List<string> _moduleIDs;
 
