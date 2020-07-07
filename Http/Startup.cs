@@ -252,7 +252,7 @@ namespace net.vieapps.Services.Portals
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service was stopped");
 			});
 
-			// don't terminate the process immediately, wait for the Main thread to exit gracefully
+			// don't terminate the process immediately, wait for the main thread to exit gracefully
 			Console.CancelKeyPress += (sender, args) =>
 			{
 				appLifetime.StopApplication();

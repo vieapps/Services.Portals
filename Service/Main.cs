@@ -781,7 +781,8 @@ namespace net.vieapps.Services.Portals
 
 			return new JObject
 			{
-				{ "ID", site.Organization.Alias }
+				{ "ID", site.Organization.ID },
+				{ "Alias", site.Organization.Alias }
 			};
 		}
 
@@ -2498,10 +2499,7 @@ namespace net.vieapps.Services.Portals
 					stopwatch.Stop();
 					this.WriteLogs(requestInfo, $"Sync success - Execution times: {stopwatch.GetElapsedTimes()}");
 					if (this.IsDebugResultsEnabled)
-						this.WriteLogs(requestInfo,
-							$"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" +
-							$"- Response: {json?.ToString(this.JsonFormat)}"
-						);
+						this.WriteLogs(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}");
 					return json;
 				}
 				catch (Exception ex)
