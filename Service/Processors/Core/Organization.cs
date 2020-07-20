@@ -44,6 +44,7 @@ namespace net.vieapps.Services.Portals
 			=> Organization.CreateInstance(data, excluded?.ToHashSet(), organization =>
 			{
 				organization.Instructions = data.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
+				organization.Alias = organization.Alias?.ToLower().Trim();
 				onCompleted?.Invoke(organization);
 			});
 
@@ -51,6 +52,7 @@ namespace net.vieapps.Services.Portals
 			=> organization.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				organization.Instructions = data.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
+				organization.Alias = organization.Alias?.ToLower().Trim();
 				onCompleted?.Invoke(organization);
 			});
 

@@ -732,7 +732,7 @@ namespace net.vieapps.Services.Portals
 			var menu = new JObject
 			{
 				{ "ID", link.ID },
-				{ "Text", link.Title },
+				{ "Title", link.Title },
 				{ "Description", link.Summary },
 				{ "Image", thumbnailURL },
 				{ "URL", link.URL },
@@ -802,7 +802,10 @@ namespace net.vieapps.Services.Portals
 				var position = requestedURL.IndexOf(".html");
 				if (position > 0)
 					requestedURL = requestedURL.Left(position);
-				return url.IsEquals("~/") || url.IsEquals("~/index") || url.IsEquals("~/index.html") || url.IsEquals("~/default") || url.IsEquals("~/default.html")
+				position = requestedURL.IndexOf(".aspx");
+				if (position > 0)
+					requestedURL = requestedURL.Left(position);
+				return url.IsEquals("~/") || url.IsEquals("~/index") || url.IsEquals("~/index.html") || url.IsEquals("~/index.aspx") || url.IsEquals("~/default") || url.IsEquals("~/default.html") || url.IsEquals("~/default.aspx")
 					? requestedURL.IsEquals("~/") || requestedURL.IsEquals("~/index") || requestedURL.IsEquals("~/default")
 					: requestedURL.IsStartsWith(url.Replace(".html", ""));
 			}
@@ -826,7 +829,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var json = link.ToJson();
-			var objectName = link.ContentType.GetObjectName();
+			var objectName = link.GetObjectName();
 			await Task.WhenAll(
 				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 				{

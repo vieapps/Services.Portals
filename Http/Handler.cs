@@ -282,6 +282,8 @@ namespace net.vieapps.Services.Portals
 					? requestURI.AbsoluteUri.Replace(StringComparison.OrdinalIgnoreCase, $"{requestURI.Scheme}://", "https://")
 					: requestURI.AbsoluteUri;
 				dictionary["x-use-short-urls"] = this.UseShortURLs.ToString().ToLower();
+				dictionary["x-environment-is-mobile"] = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
+				dictionary["x-environment-os-info"] = (session.AppAgent ?? "").GetOSInfo();
 			});
 
 			// process the request

@@ -634,7 +634,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var json = item.ToJson();
-			var objectName = item.ContentType.GetObjectName();
+			var objectName = item.GetObjectName();
 			await Task.WhenAll(
 				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 				{

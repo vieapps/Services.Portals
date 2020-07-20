@@ -704,7 +704,7 @@ namespace net.vieapps.Services.Portals
 			var menu = new JObject
 			{
 				{ "ID", category.ID },
-				{ "Text", category.Title },
+				{ "Title", category.Title },
 				{ "Description", category.Description },
 				{ "Image", thumbnailURL },
 				{ "URL", url },
@@ -762,7 +762,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var json = category.Set().ToJson();
-			var objectName = category.ContentType.GetObjectName();
+			var objectName = category.GetObjectName();
 			await Task.WhenAll(
 				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 				{

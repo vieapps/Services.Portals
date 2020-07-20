@@ -639,6 +639,14 @@ namespace net.vieapps.Services.Portals
 						element.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
 					})));
 
+					// main category
+					if (category != null)
+					{
+						requestInfo.Header["x-as-attachments"] = "true";
+						thumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
+						data.Add(new XAttribute("CategoryTitle", category.Title), new XAttribute("CategoryThumbnailURL", thumbnails?.GetThumbnailURL(category.ID) ?? ""), new XAttribute("CategoryURL", category.GetURL(desktop)));
+					}
+
 					// update XML into cache
 					if (cacheKey != null)
 						await Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).ConfigureAwait(false);
@@ -871,6 +879,14 @@ namespace net.vieapps.Services.Portals
 					{ "Description", @object.Summary },
 					{ "Keywords", @object.Tags }
 				};
+
+				// main category
+				if (category != null)
+				{
+					requestInfo.Header["x-as-attachments"] = "true";
+					var thumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
+					data.Add(new XAttribute("CategoryTitle", category.Title), new XAttribute("CategoryThumbnailURL", thumbnails?.GetThumbnailURL(category.ID) ?? ""), new XAttribute("CategoryURL", category.GetURL(desktop)));
+				}
 			}
 
 			// response
@@ -903,7 +919,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var json = content.ToJson();
-			var objectName = content.ContentType.GetObjectName();
+			var objectName = content.GetObjectName();
 			await Task.WhenAll(
 				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
 				{

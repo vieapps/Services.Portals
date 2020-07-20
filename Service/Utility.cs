@@ -435,6 +435,17 @@ namespace net.vieapps.Services.Portals
 			=> fileInfo?.Name?.GetMimeType();
 
 		/// <summary>
+		/// Normalizes a pagination URL
+		/// </summary>
+		/// <param name="url"></param>
+		/// <returns></returns>
+		public static string NormalizePaginationURL(this string url)
+		{
+			url = url.Replace("/1.html", ".html");
+			return url.EndsWith("/1") ? url.Left(url.Length - 2) : url;
+		}
+
+		/// <summary>
 		/// Generates the pagination
 		/// </summary>
 		/// <param name="totalRecords"></param>
@@ -453,7 +464,7 @@ namespace net.vieapps.Services.Portals
 						pages.Add(new JObject
 						{
 							{ "Text", $"{page}" },
-							{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{page}").Replace("/1.html", ".html").Replace("/1", "") }
+							{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{page}").NormalizePaginationURL() }
 						});
 				else
 				{
@@ -478,7 +489,7 @@ namespace net.vieapps.Services.Portals
 					pages.Add(new JObject
 					{
 						{ "Text", "1" },
-						{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", "1").Replace("/1.html", ".html").Replace("/1", "") }
+						{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", "1").NormalizePaginationURL() }
 					});
 					if (start - 1 > 1)
 						pages.Add(new JObject
