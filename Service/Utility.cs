@@ -680,7 +680,7 @@ namespace net.vieapps.Services.Portals
 			var domains = new List<string>();
 			organization.Sites.ForEach(site =>
 			{
-				domains.Add($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www."));
+				domains.Add($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www."));
 				domains.Add($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", ""));
 				site.OtherDomains?.ToList(";").ForEach(domain =>
 				{
@@ -1058,7 +1058,7 @@ namespace net.vieapps.Services.Portals
 	public class XslTransfromExtensions
 	{
 		public XPathNodeIterator SelectNodeSet(XPathNodeIterator node, string xPath)
-			=> node.Count == 1 && node.MoveNext()
+			=> node != null && node.Count == 1 && node.MoveNext() && node.Current != null
 				? node.Current.Select(xPath)
 				: null;
 

@@ -24,7 +24,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "UISettings,IconURI,CoverURI,MetaTags,Scripts,MainPortletID,SEOSettings".ToHashSet();
 
-		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Thumbnails,ThumbnailBigs,ThumbnailBigPngs,Default,Index").ToLower().ToHashSet();
+		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Images,Thumbnails,ThumbnailPngs,ThumbnailBigs,ThumbnailBigPngs,Default,Index").ToLower().ToHashSet();
 
 		public static Desktop CreateDesktopInstance(this ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
 			=> Desktop.CreateInstance(data, excluded?.ToHashSet(), desktop =>
@@ -569,6 +569,56 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll(
 				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
 				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+			).ConfigureAwait(false);
+			return response;
+		}
+
+		internal static async Task<JObject> UpdateDesktopPortletsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		{
+			// prepare
+			var desktop = await (requestInfo.GetObjectIdentity() ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (desktop == null)
+				throw new InformationNotFoundException();
+			else if (desktop.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			// check
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop.Organization.OwnerID) || requestInfo.Session.User.IsModerator(desktop.Organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// update portlets
+			await desktop.FindPortletsAsync(cancellationToken, false).ConfigureAwait(false);
+			var portlets = desktop.Portlets;
+			await requestInfo.GetBodyJson().Get<JArray>("Portlets").ForEachAsync(async (portletInfo, _) =>
+			{
+				var id = portletInfo.Get<string>("ID");
+				var orderIndex = portletInfo.Get<int>("OrderIndex");
+
+				var portlet = portlets.Find(p => p.ID == id);
+				portlet.OrderIndex = orderIndex;
+				if (!string.IsNullOrWhiteSpace(portlet.OriginalPortletID) && portlet._originalPortlet == null)
+					portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false);
+				await Portlet.UpdateAsync(portlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			// send messages and response
+			var objectName = desktop.GetTypeName(true);
+			var response = desktop.ToJson(true, false);
+			await Task.WhenAll(
+				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = response,
+					DeviceID = "*",
+					ExcludedDeviceID = requestInfo.Session.DeviceID
+				}, cancellationToken),
+				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = nodeID
+				}, cancellationToken)
 			).ConfigureAwait(false);
 			return response;
 		}

@@ -540,7 +540,9 @@ namespace net.vieapps.Services.Portals
 					return await requestInfo.CreateDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update-portlets"))
+						? await requestInfo.UpdateDesktopPortletsAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.UpdateDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
 					return await requestInfo.DeleteDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
@@ -2355,8 +2357,8 @@ namespace net.vieapps.Services.Portals
 			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{language}}", language);
 			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{ismobile}}", isMobile);
 			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{osinfo}}", osInfo);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{osplatform}}", osInfo.ToLower());
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{os-platform}}", osInfo.ToLower());
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{osplatform}}", osInfo.GetANSIUri());
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{os-platform}}", osInfo.GetANSIUri());
 			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{osmode}}", osMode);
 			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{os-mode}}", osMode);
 			html = html.NormalizeURLs(requestURI, organization.Alias, useShortURLs);
@@ -2496,6 +2498,11 @@ namespace net.vieapps.Services.Portals
 							json = await requestInfo.SyncOrganizationAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
 							break;
 
+						case "role":
+						case "core.role":
+							json = await requestInfo.SyncRoleAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							break;
+
 						case "module":
 						case "core.module":
 							json = await requestInfo.SyncModuleAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
@@ -2518,9 +2525,9 @@ namespace net.vieapps.Services.Portals
 							json = await requestInfo.SyncDesktopAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
 							break;
 
-						case "role":
-						case "core.role":
-							json = await requestInfo.SyncRoleAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+						case "portlet":
+						case "core.portlet":
+							json = await requestInfo.SyncPortletAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
 							break;
 
 						case "category":
