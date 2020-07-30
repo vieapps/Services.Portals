@@ -33,7 +33,7 @@ namespace net.vieapps.Services.Portals
 			{
 				ModuleProcessor.Modules[module.ID] = module;
 				if (updateCache)
-					Utility.Cache.Set(module);
+					Utility.Cache.SetAsync(module).Run();
 				var definition = module.RepositoryDefinition;
 				if (definition != null)
 					definition.Register(module);

@@ -150,7 +150,7 @@ namespace net.vieapps.Services.Portals
 		IPortalContentType IBusinessObject.ContentType => this.ContentType;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Category ParentCategory => string.IsNullOrWhiteSpace(this.ParentID) ? null : Category.Get<Category>(this.ParentID);
+		public Category ParentCategory => CategoryProcessor.GetCategoryByID(this.ParentID);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override RepositoryBase Parent => this.ParentCategory ?? this.Module as RepositoryBase;
@@ -203,15 +203,15 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID();
 
-		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
-			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
+		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
+			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				if (addChildren)
-					json["Children"] = this.Children?.Select(category => category?.ToJson(true, false)).Where(category => category != null).ToJArray();
-				onPreCompleted?.Invoke(json);
+					json["Children"] = this.Children?.Where(category => category != null).OrderBy(category => category.OrderIndex).Select(category => category.ToJson(true, false)).ToJArray();
+				onCompleted?.Invoke(json);
 			});
 
 		internal void NormalizeExtras()
@@ -239,7 +239,7 @@ namespace net.vieapps.Services.Portals
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 			else if (name.IsEquals("ChildrenIDs"))
-				Utility.Cache.Set(this);
+				Utility.Cache.SetAsync(this).Run();
 		}
 
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false)

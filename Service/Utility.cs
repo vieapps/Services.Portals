@@ -584,8 +584,8 @@ namespace net.vieapps.Services.Portals
 					}
 					else
 						media = url.IsEndsWith(".mp3")
-							? "<audio width=\"560\" height=\"32\" controls autoplay muted><source src=\"{{url}}\"/></audio>".Replace("{{url}}", url)
-							: "<video width=\"560\" height=\"315\" controls autoplay muted><source src=\"{{url}}\"/></video>".Replace("{{url}}", url);
+							? $"<audio width=\"560\" height=\"32\" controls autoplay muted><source src=\"{url}\"/></audio>"
+							: $"<video width=\"560\" height=\"315\" controls autoplay muted><source src=\"{url}\"/></video>";
 					html = html.Substring(0, start) + media + html.Substring(end);
 				}
 				start = html.PositionOf("<oembed", start + 1);

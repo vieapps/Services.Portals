@@ -32,7 +32,7 @@ namespace net.vieapps.Services.Portals
 			{
 				ContentTypeProcessor.ContentTypes[contentType.ID] = contentType;
 				if (updateCache)
-					Utility.Cache.Set(contentType);
+					Utility.Cache.SetAsync(contentType).Run();
 				var definition = contentType.EntityDefinition;
 				if (definition != null)
 					definition.Register(contentType);

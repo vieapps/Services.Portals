@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Portals
 			{
 				RoleProcessor.Roles[role.ID] = role;
 				if (updateCache)
-					Utility.Cache.Set(role);
+					Utility.Cache.SetAsync(role).Run();
 			}
 			return role;
 		}

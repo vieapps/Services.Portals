@@ -144,17 +144,17 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = pagination.Item4;
 
 			// get organization
-			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
+			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("x-system-id");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationExistedException("The organization is invalid");
 
-			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module");
+			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("x-module");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null || !module.SystemID.IsEquals(organization.ID))
 				throw new InformationInvalidException("The module is invalid");
 
-			var contentTypeID = filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type");
+			var contentTypeID = filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
 				throw new InformationInvalidException("The content-type is invalid");
@@ -218,17 +218,17 @@ namespace net.vieapps.Services.Portals
 			// prepare
 			var request = requestInfo.GetBodyExpando();
 
-			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
+			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system-id");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
-			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module");
+			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("x-module");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null || !module.SystemID.IsEquals(organization.ID))
 				throw new InformationInvalidException("The module is invalid");
 
-			var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type");
+			var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
 				throw new InformationInvalidException("The content-type is invalid");
@@ -474,6 +474,100 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
+		internal static async Task<JObject> UpdateLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		{
+			// prepare
+			var request = requestInfo.GetBodyJson();
+
+			var link = await Link.GetAsync<Link>(request.Get<string>("LinkID") ?? requestInfo.GetParameter("x-link-id") ?? "", cancellationToken).ConfigureAwait(false);
+			var organization = link != null
+				? link.Organization
+				: await (request.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+			var module = link != null
+				? link.Module
+				: await (request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("x-module") ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (module == null || !module.SystemID.IsEquals(organization.ID))
+				throw new InformationInvalidException("The module is invalid");
+			var contentType = link != null
+				? link.ContentType
+				: await (request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type") ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
+				throw new InformationInvalidException("The content-type is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(contentType.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// update
+			var updateMessages = new List<UpdateMessage>();
+			var communicateMessages = new List<CommunicateMessage>();
+			var objectName = link != null
+				? link.GetObjectName()
+				: typeof(Link).GetTypeName(true);
+
+			var items = link != null
+				? link.Children
+				: await organization.ID.FindLinksAsync(module.ID, contentType.ID, null, cancellationToken).ConfigureAwait(false);
+
+			await request.Get<JArray>("Links").ForEachAsync(async (info, _) =>
+			{
+				var id = info.Get<string>("ID");
+				var orderIndex = info.Get<int>("OrderIndex");
+				var item = items.Find(i => i.ID.IsEquals(id));
+				if (item != null)
+				{
+					item.OrderIndex = orderIndex;
+					item.LastModified = DateTime.Now;
+					item.LastModifiedID = requestInfo.Session.User.ID;
+					await Category.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					var json = item.ToJson(true, false);
+					updateMessages.Add(new UpdateMessage
+					{
+						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+						Data = json,
+						DeviceID = "*"
+					});
+					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{objectName}#Update",
+						Data = json,
+						ExcludedNodeID = nodeID
+					});
+				}
+			});
+
+			if (link != null)
+			{
+				await link.ClearRelatedCacheAsync(null, rtuService, cancellationToken).ConfigureAwait(false);
+				link._childrenIDs = null;
+				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await Utility.Cache.SetAsync(link, cancellationToken).ConfigureAwait(false);
+				var json = link.ToJson(true, false);
+				updateMessages.Add(new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*"
+				});
+				communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = json,
+					ExcludedNodeID = nodeID
+				});
+			}
+
+			// send messages and response
+			await Task.WhenAll(
+				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+			).ConfigureAwait(false);
+			return new JObject();
+		}
+
 		internal static async Task<JObject> DeleteLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
 		{
 			// prepare
@@ -659,7 +753,7 @@ namespace net.vieapps.Services.Portals
 			filterBy["App"] = filter.ToClientJson().ToString(Formatting.None);
 
 			// prepare sorting expression
-			var sort = expressionJson.Get<JObject>("SortBy")?.ToSort<Link>() ?? Sorts<Link>.Ascending("OrderIndex").ThenByDescending("Created");
+			var sort = expressionJson.Get<JObject>("SortBy")?.ToSort<Link>() ?? Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
 			var sortBy = new JObject
 			{
 				{ "API", sort.ToJson().ToString(Formatting.None) },
@@ -697,12 +791,12 @@ namespace net.vieapps.Services.Portals
 						var attachmentsXml = new XElement("Attachments");
 						(attachments as JArray).Select(attachment => new JObject
 						{
-						{ "Title", attachment["Title"] },
-						{ "Filename", attachment["Filename"] },
-						{ "Size", attachment["Size"] },
-						{ "ContentType", attachment["ContentType"] },
-						{ "Downloads", attachment["Downloads"] },
-						{ "URIs", attachment["URIs"] }
+							{ "Title", attachment["Title"] },
+							{ "Filename", attachment["Filename"] },
+							{ "Size", attachment["Size"] },
+							{ "ContentType", attachment["ContentType"] },
+							{ "Downloads", attachment["Downloads"] },
+							{ "URIs", attachment["URIs"] }
 						}).ForEach(attachment => attachmentsXml.Add(attachment.ToXml("Attachment")));
 						element.Add(attachmentsXml);
 					}
@@ -782,7 +876,10 @@ namespace net.vieapps.Services.Portals
 
 				// update children
 				if (subMenu != null && subMenu.Count > 0)
-					menu["SubMenu"] = new JObject { { "Menu", subMenu } };
+					menu["SubMenu"] = new JObject
+					{
+						{ "Menu", subMenu }
+					};
 			}
 
 			// update 'Selected' state

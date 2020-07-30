@@ -68,7 +68,7 @@ namespace net.vieapps.Services.Portals
 				Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
 
 				if (updateCache)
-					Utility.Cache.Set(organization);
+					Utility.Cache.SetAsync(organization).Run();
 			}
 			return organization;
 		}

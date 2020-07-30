@@ -540,7 +540,7 @@ namespace net.vieapps.Services.Portals
 					return await requestInfo.CreateDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update-portlets"))
+					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update"))
 						? await requestInfo.UpdateDesktopPortletsAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.UpdateDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
@@ -664,7 +664,9 @@ namespace net.vieapps.Services.Portals
 					return await requestInfo.CreateCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update"))
+						? await requestInfo.UpdateCategoriesAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.UpdateCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
 					return await requestInfo.DeleteCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
@@ -736,7 +738,9 @@ namespace net.vieapps.Services.Portals
 					return await requestInfo.CreateLinkAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateLinkAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update"))
+						? await requestInfo.UpdateLinksAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.UpdateLinkAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
 					return await requestInfo.DeleteLinkAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);

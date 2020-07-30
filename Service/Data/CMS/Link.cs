@@ -192,18 +192,18 @@ namespace net.vieapps.Services.Portals
 		public override void ProcessPropertyChanged(string name)
 		{
 			if (name.IsEquals("ChildrenIDs"))
-				Utility.Cache.Set(this);
+				Utility.Cache.SetAsync(this).Run();
 		}
 
-		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
-			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
+		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
+			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				if (addChildren)
-					json["Children"] = this.Children?.Select(link => link?.ToJson(true, false)).Where(link => link != null).ToJArray();
-				onPreCompleted?.Invoke(json);
+					json["Children"] = this.Children?.Where(link => link != null).OrderBy(link => link.OrderIndex).Select(link => link?.ToJson(true, false)).ToJArray();
+				onCompleted?.Invoke(json);
 			});
 
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false)

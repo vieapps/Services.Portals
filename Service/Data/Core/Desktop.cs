@@ -268,7 +268,7 @@ namespace net.vieapps.Services.Portals
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 			else if (name.IsEquals("ChildrenIDs") || name.IsEquals("Portlets"))
-				Utility.Cache.Set(this);
+				Utility.Cache.SetAsync(this).Run();
 		}
 
 		public async Task<string> GetTemplateAsync(CancellationToken cancellationToken = default)
