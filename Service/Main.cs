@@ -2472,7 +2472,7 @@ namespace net.vieapps.Services.Portals
 
 			// generate and return the menu
 			var menu = new JArray();
-			await children.ForEachAsync(async (child, token) =>
+			await children.Where(child => child != null).OrderBy(child => child.OrderIndex).ForEachAsync(async (child, token) =>
 			{
 				if (child is Category category)
 					menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID), level, maxLevel, this.ValidationKey, token).ConfigureAwait(false));
