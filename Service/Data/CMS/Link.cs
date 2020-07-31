@@ -202,7 +202,7 @@ namespace net.vieapps.Services.Portals
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				if (addChildren)
-					json["Children"] = this.Children?.Where(link => link != null).OrderBy(link => link.OrderIndex).Select(link => link?.ToJson(true, false)).ToJArray();
+					json["Children"] = this.Children?.Where(link => link != null).OrderBy(link => link.OrderIndex).Select(link => link?.ToJson(addChildren, addTypeOfExtendedProperties)).ToJArray();
 				onCompleted?.Invoke(json);
 			});
 
