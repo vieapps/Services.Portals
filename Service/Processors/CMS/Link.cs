@@ -115,7 +115,7 @@ namespace net.vieapps.Services.Portals
 					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), validationKey, cancellationToken).ConfigureAwait(false);
 
 			// page size to clear related cached
-			await Utility.SetCacheOfPageSizeAsync(filter, sort, cacheKeyPrefix, pageSize, cancellationToken).ConfigureAwait(false);
+			Utility.SetCacheOfPageSizeAsync(filter, sort, cacheKeyPrefix, pageSize, cancellationToken).Run();
 
 			// return the results
 			return new Tuple<long, List<Link>, JToken>(totalRecords, objects, thumbnails);
@@ -201,12 +201,8 @@ namespace net.vieapps.Services.Portals
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
 			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
+				json = response.ToString(Formatting.None);
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).Run();
 			}
 
 			// response
@@ -336,7 +332,7 @@ namespace net.vieapps.Services.Portals
 
 			// prepare the response
 			if (link._childrenIDs == null)
-				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await link.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 
 			// send update message and response
 			var response = link.ToJson(true, false);
@@ -596,9 +592,7 @@ namespace net.vieapps.Services.Portals
 					child.ParentID = null;
 					child.LastModified = DateTime.Now;
 					child.LastModifiedID = requestInfo.Session.User.ID;
-
 					await Link.UpdateAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false);
-
 					var json = child.ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
 					{
@@ -805,7 +799,7 @@ namespace net.vieapps.Services.Portals
 
 				// update XML into cache
 				if (cacheKey != null)
-					await Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).ConfigureAwait(false);
+					Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).Run();
 			}
 			else
 				data = XElement.Parse(xml);
@@ -827,7 +821,7 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "ID", link.ID },
 				{ "Title", link.Title },
-				{ "Description", link.Summary },
+				{ "Description", link.Summary?.Replace("\r", "").Replace("\n", "<br/>") },
 				{ "Image", thumbnailURL },
 				{ "URL", link.URL },
 				{ "Target", link.Target },

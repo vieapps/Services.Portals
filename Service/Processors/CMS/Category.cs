@@ -149,11 +149,8 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateCategoryInstance().Remove();
 		}
 
-		static Task ClearRelatedCacheAsync(this Category category, string oldParentID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		static async Task ClearRelatedCacheAsync(this Category category, string oldParentID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
 		{
-			// TO DO
-			// clear cached of menu  portlet that looked-up to this module
-			// ...
 			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
 			var tasks = new List<Task>
 			{
@@ -170,7 +167,13 @@ namespace net.vieapps.Services.Portals
 				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, null, oldParentID), sort), cancellationToken));
 				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, oldParentID), sort), cancellationToken));
 			}
-			return Task.WhenAll(tasks);
+			if (rtuService != null)
+			{
+				var links = await Link.FindAsync(Filters<Link>.And(Filters<Link>.Equals("SystemID", category.SystemID), Filters<Link>.Equals("LookupRepositoryID", category.RepositoryID)), Sorts<Link>.Ascending("ParentID").ThenByAscending("OrderIndex"), 0, 1, null, cancellationToken).ConfigureAwait(false);
+				var objectName = typeof(Link).GetTypeName(true);
+				links.Select(link => link.RepositoryEntityID).Distinct(StringComparer.OrdinalIgnoreCase).ForEach(contentTypeID => tasks.Add(rtuService.SendClearCacheRequestAsync(contentTypeID, objectName, cancellationToken)));
+			}
+			await Task.WhenAll(tasks).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> SearchCategorysAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -258,12 +261,8 @@ namespace net.vieapps.Services.Portals
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
 			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
+				json = response.ToString(Formatting.None);
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).Run();
 			}
 
 			// response
@@ -295,6 +294,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// gathering information
 			var category = request.CreateCategoryInstance("SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.SystemID = organization.ID;
@@ -331,9 +331,7 @@ namespace net.vieapps.Services.Portals
 				await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				if (parentCategory._childrenIDs.IndexOf(category.ID) < 0)
 					parentCategory._childrenIDs.Add(category.ID);
-				parentCategory.SetAsync(false, true, cancellationToken).Run();
-
-				var json = parentCategory.ToJson(true, false);
+				var json = parentCategory.Set(false, true).ToJson(true, false);
 				updateMessages.Add(new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -403,7 +401,7 @@ namespace net.vieapps.Services.Portals
 			if (category._childrenIDs == null)
 			{
 				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				category.SetAsync(false, true, cancellationToken).Run();
+				category.Set(false, true);
 			}
 
 			// send update message and response
@@ -472,9 +470,7 @@ namespace net.vieapps.Services.Portals
 				await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				if (parentCategory._childrenIDs.IndexOf(category.ID) < 0)
 					parentCategory._childrenIDs.Add(category.ID);
-				parentCategory.SetAsync(false, true, cancellationToken).Run();
-
-				var json = parentCategory.ToJson(true, false);
+				var json = parentCategory.Set(false, true).ToJson(true, false);
 				updateMessages.Add(new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -498,9 +494,7 @@ namespace net.vieapps.Services.Portals
 					await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(category.SystemID.GetCategoriesFilter(category.RepositoryID, category.RepositoryEntityID, parentCategory.ID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
 					await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 					parentCategory._childrenIDs.Remove(category.ID);
-					parentCategory.SetAsync(false, true, cancellationToken).Run();
-
-					var json = parentCategory.ToJson(true, false);
+					var json = parentCategory.Set(false, true).ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -592,7 +586,7 @@ namespace net.vieapps.Services.Portals
 					item.LastModified = DateTime.Now;
 					item.LastModifiedID = requestInfo.Session.User.ID;
 					await Category.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					var json = item.Set().ToJson(true, false);
+					var json = item.Set(false, true).ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -664,13 +658,8 @@ namespace net.vieapps.Services.Portals
 					child.ParentID = null;
 					child.LastModified = DateTime.Now;
 					child.LastModifiedID = requestInfo.Session.User.ID;
-
-					await Task.WhenAll(
-						Role.UpdateAsync(child, requestInfo.Session.User.ID, token),
-						child.SetAsync(false, false, token)
-					).ConfigureAwait(false);
-
-					var json = child.ToJson(true, false);
+					await Role.UpdateAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false);
+					var json = child.Set().ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
@@ -794,7 +783,7 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "ID", category.ID },
 				{ "Title", category.Title },
-				{ "Description", category.Description },
+				{ "Description", category.Description?.Replace("\r", "").Replace("\n", "<br/>") },
 				{ "Image", thumbnailURL },
 				{ "URL", url },
 				{ "Target", null },

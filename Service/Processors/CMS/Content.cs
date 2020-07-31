@@ -113,7 +113,7 @@ namespace net.vieapps.Services.Portals
 					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), validationKey, cancellationToken).ConfigureAwait(false);
 
 			// page size to clear related cached
-			await Utility.SetCacheOfPageSizeAsync(filter, sort, cacheKeyPrefix, pageSize, cancellationToken).ConfigureAwait(false);
+			Utility.SetCacheOfPageSizeAsync(filter, sort, cacheKeyPrefix, pageSize, cancellationToken).Run();
 
 			// return the results
 			return new Tuple<long, List<Content>, JToken>(totalRecords, objects, thumbnails);
@@ -187,7 +187,6 @@ namespace net.vieapps.Services.Portals
 					{
 						cjson["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID);
 						cjson["Details"] = organization.NormalizeURLs(@object.Details);
-						//cjson.Remove("Details");
 					})).ToJArray()
 				}
 			};
@@ -195,12 +194,8 @@ namespace net.vieapps.Services.Portals
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
 			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
+				json = response.ToString(Formatting.None);
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).Run();
 			}
 
 			// response
@@ -649,7 +644,7 @@ namespace net.vieapps.Services.Portals
 
 					// update XML into cache
 					if (cacheKey != null)
-						await Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).ConfigureAwait(false);
+						Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).Run();
 				}
 				else
 				{
