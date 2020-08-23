@@ -1,13 +1,17 @@
-﻿using System;
+﻿#region Related components
+using System;
 using System.Linq;
+using System.Dynamic;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
-using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Repository;
+#endregion
 
 namespace net.vieapps.Services.Portals.Settings
 {
@@ -36,6 +40,8 @@ namespace net.vieapps.Services.Portals.Settings
 		}
 	}
 
+	// ---------------------------------------------------------------
+
 	[Serializable]
 	public class WebHookNotifications
 	{
@@ -52,6 +58,8 @@ namespace net.vieapps.Services.Portals.Settings
 		public bool SignatureAsHex { get; set; } = true;
 
 		public bool SignatureInQuery { get; set; } = false;
+
+		public bool GenerateIdentity { get; set; } = false;
 
 		[FormControl(ControlType = "TextArea")]
 		public string AdditionalQuery { get; set; }
@@ -92,6 +100,8 @@ namespace net.vieapps.Services.Portals.Settings
 		}
 	}
 
+	// ---------------------------------------------------------------
+
 	[Serializable]
 	public class Notifications
 	{
@@ -103,6 +113,10 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public EmailNotifications Emails { get; set; } = new EmailNotifications();
 
+		public Dictionary<string, EmailNotifications> EmailsByApprovalStatus { get; set; } = new Dictionary<string, EmailNotifications>();
+
+		public EmailNotifications EmailsWhenPublish { get; set; } = new EmailNotifications();
+
 		public WebHookNotifications WebHooks { get; set; } = new WebHookNotifications();
 
 		public void Normalize()
@@ -111,10 +125,23 @@ namespace net.vieapps.Services.Portals.Settings
 			this.Methods = this.Methods == null || this.Methods.Count < 1 ? null : this.Methods;
 			this.Emails?.Normalize();
 			this.Emails = this.Emails != null && string.IsNullOrWhiteSpace(this.Emails.ToAddresses) && string.IsNullOrWhiteSpace(this.Emails.CcAddresses) && string.IsNullOrWhiteSpace(this.Emails.BccAddresses) && string.IsNullOrWhiteSpace(this.Emails.Subject) && string.IsNullOrWhiteSpace(this.Emails.Body) ? null : this.Emails;
+			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus ?? new Dictionary<string, EmailNotifications>();
+			this.EmailsByApprovalStatus.Keys.ToList().ForEach(key =>
+			{
+				var notification = this.EmailsByApprovalStatus[key];
+				notification?.Normalize();
+				this.EmailsByApprovalStatus[key] = notification != null && string.IsNullOrWhiteSpace(notification.ToAddresses) && string.IsNullOrWhiteSpace(notification.CcAddresses) && string.IsNullOrWhiteSpace(notification.BccAddresses) && string.IsNullOrWhiteSpace(notification.Subject) && string.IsNullOrWhiteSpace(notification.Body) ? null : notification;
+			});
+			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus.Where(kvp => kvp.Value != null).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus.Count < 1 ? null : this.EmailsByApprovalStatus;
+			this.EmailsWhenPublish?.Normalize();
+			this.EmailsWhenPublish = this.EmailsWhenPublish != null && string.IsNullOrWhiteSpace(this.EmailsWhenPublish.ToAddresses) && string.IsNullOrWhiteSpace(this.EmailsWhenPublish.CcAddresses) && string.IsNullOrWhiteSpace(this.EmailsWhenPublish.BccAddresses) && string.IsNullOrWhiteSpace(this.EmailsWhenPublish.Subject) && string.IsNullOrWhiteSpace(this.EmailsWhenPublish.Body) ? null : this.EmailsWhenPublish;
 			this.WebHooks?.Normalize();
 			this.WebHooks = this.WebHooks != null && this.WebHooks.EndpointURLs == null ? null : this.WebHooks;
 		}
 	}
+
+	// ---------------------------------------------------------------
 
 	[Serializable]
 	public class Instruction
@@ -131,7 +158,25 @@ namespace net.vieapps.Services.Portals.Settings
 			this.Subject = string.IsNullOrWhiteSpace(this.Subject) ? null : this.Subject.Trim();
 			this.Body = string.IsNullOrWhiteSpace(this.Body) ? null : this.Body.Trim();
 		}
+
+		public static Dictionary<string, Dictionary<string, Instruction>> Parse(ExpandoObject rawInstructions)
+		{
+			var parsedInstructions = new Dictionary<string, Dictionary<string, Instruction>>();
+			rawInstructions?.ForEach(rawInstruction =>
+			{
+				var instructionsByLanguage = new Dictionary<string, Instruction>();
+				(rawInstruction.Value as ExpandoObject)?.ForEach(kvp =>
+				{
+					var instructionData = kvp.Value as ExpandoObject;
+					instructionsByLanguage[kvp.Key] = new Instruction { Subject = instructionData.Get<string>("Subject"), Body = instructionData.Get<string>("Body") };
+				});
+				parsedInstructions[rawInstruction.Key] = instructionsByLanguage;
+			});
+			return parsedInstructions;
+		}
 	}
+
+	// ---------------------------------------------------------------
 
 	[Serializable]
 	public class RefreshUrls
@@ -150,6 +195,8 @@ namespace net.vieapps.Services.Portals.Settings
 		}
 	}
 
+	// ---------------------------------------------------------------
+
 	[Serializable]
 	public class RedirectUrls
 	{
@@ -165,6 +212,8 @@ namespace net.vieapps.Services.Portals.Settings
 			this.Addresses = this.Addresses.Count < 1 ? null : this.Addresses;
 		}
 	}
+
+	// ---------------------------------------------------------------
 
 	[Serializable]
 	public class Smtp
@@ -196,10 +245,12 @@ namespace net.vieapps.Services.Portals.Settings
 		public void Normalize()
 		{
 			this.Sender = string.IsNullOrWhiteSpace(this.Sender) || this.Sender.GetMailAddress() == null ? null : this.Sender.Trim();
-			this.Signature = string.IsNullOrWhiteSpace(this.Sender)  ? null : this.Signature.Trim();
+			this.Signature = string.IsNullOrWhiteSpace(this.Sender) ? null : this.Signature.Trim();
 			this.Smtp = string.IsNullOrWhiteSpace(this.Smtp?.Host) ? null : this.Smtp;
 		}
 	}
+
+	// ---------------------------------------------------------------
 
 	[Serializable]
 	public sealed class HttpIndicator
@@ -218,6 +269,8 @@ namespace net.vieapps.Services.Portals.Settings
 			this.Content = string.IsNullOrWhiteSpace(this.Content) ? null : this.Content.Trim();
 		}
 	}
+
+	// ---------------------------------------------------------------
 
 	[Serializable]
 	public class UI
@@ -281,6 +334,8 @@ namespace net.vieapps.Services.Portals.Settings
 		}
 	}
 
+	// ---------------------------------------------------------------
+
 	[Serializable]
 	public enum SEOMode
 	{
@@ -293,6 +348,8 @@ namespace net.vieapps.Services.Portals.Settings
 		Portlet,
 		Desktop
 	}
+
+	// ---------------------------------------------------------------
 
 	[Serializable]
 	public class SEOInfo
@@ -314,6 +371,8 @@ namespace net.vieapps.Services.Portals.Settings
 			this.Keywords = string.IsNullOrWhiteSpace(this.Keywords) ? null : this.Keywords.Trim();
 		}
 	}
+
+	// ---------------------------------------------------------------
 
 	[Serializable]
 	public class SEO
