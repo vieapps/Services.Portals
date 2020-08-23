@@ -55,7 +55,7 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the collection of OEmbed providers
 		/// </summary>
-		public static List<Tuple<string, List<Regex>, Tuple<Regex, int>, string>> OEmbedProviders { get; } = new List<Tuple<string, List<Regex>, Tuple<Regex, int>, string>>();
+		public static List<Tuple<string, List<Regex>, Tuple<Regex, int, string>>> OEmbedProviders { get; } = new List<Tuple<string, List<Regex>, Tuple<Regex, int, string>>>();
 
 		/// <summary>
 		/// Gets the URI of the public APIS
@@ -578,14 +578,18 @@ namespace net.vieapps.Services.Portals
 					var oembedProvider = Utility.OEmbedProviders.FirstOrDefault(provider => provider.Item2.Any(regex => regex.Match(url).Success));
 					if (oembedProvider != null)
 					{
-						var match = oembedProvider.Item3.Item1.Match(url);
-						var mediaID = match.Success && match.Length > oembedProvider.Item3.Item2 ? match.Groups[oembedProvider.Item3.Item2].Value : null;
-						media = oembedProvider.Item4.Replace(StringComparison.OrdinalIgnoreCase, "{{id}}", mediaID ?? "");
+						var regex = oembedProvider.Item3.Item1;
+						var position = oembedProvider.Item3.Item2;
+						var xhtml = oembedProvider.Item3.Item3;
+						var match = regex.Match(url);
+						media = xhtml.Format(new Dictionary<string, object> { ["id"] = match.Success && match.Length > position ? match.Groups[position].Value : null });
 					}
 					else
-						media = url.IsEndsWith(".mp3")
-							? $"<audio width=\"560\" height=\"32\" controls autoplay muted><source src=\"{url}\"/></audio>"
-							: $"<video width=\"560\" height=\"315\" controls autoplay muted><source src=\"{url}\"/></video>";
+					{
+						var tag = url.IsEndsWith(".mp3") ? "audio" : "video";
+						var height = url.IsEndsWith(".mp3") ? "32" : "315";
+						media = ($"<{tag} width=\"560\" height=\"{height}\" controls autoplay muted>" + "<source src=\"{{url}}\"/>" + $"</{tag}>").Format(new Dictionary<string, object> { ["url"] = url });
+					}
 					html = html.Substring(0, start) + media + html.Substring(end);
 				}
 				start = html.PositionOf("<oembed", start + 1);

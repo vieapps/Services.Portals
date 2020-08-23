@@ -439,11 +439,12 @@ namespace net.vieapps.Services.Portals
 				providers.Select(provider => provider as JObject).ForEach(provider =>
 				{
 					var name = provider.Get<string>("name");
-					var urlPatterns = provider.Get<JArray>("schemes").Select(scheme => (scheme as JValue).Value.ToString()).Select(scheme => new Regex(scheme.Replace("*", "(.*)"), RegexOptions.IgnoreCase)).ToList();
-					var data = provider.Get<JObject>("pattern").Get<JObject>("api");
-					var idPattern = new Tuple<Regex, int>(new Regex(data.Get<string>("regex"), RegexOptions.IgnoreCase), data.Get<int>("position"));
-					var html = provider.Get<string>("html");
-					Utility.OEmbedProviders.Add(new Tuple<string, List<Regex>, Tuple<Regex, int>, string>(name, urlPatterns, idPattern, html));
+					var schemes = provider.Get<JArray>("schemes").Select(scheme => new Regex($"{(scheme as JValue).Value}", RegexOptions.IgnoreCase)).ToList();
+					var patternJson = provider.Get<JObject>("pattern");
+					var expression = new Regex(patternJson.Get<string>("expression"), RegexOptions.IgnoreCase);
+					var position = patternJson.Get<int>("position");
+					var html = patternJson.Get<string>("html");
+					Utility.OEmbedProviders.Add(new Tuple<string, List<Regex>, Tuple<Regex, int, string>>(name, schemes, new Tuple<Regex, int, string>(expression, position, html)));
 				});
 			}
 			catch (Exception ex)
