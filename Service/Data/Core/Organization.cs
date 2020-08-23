@@ -238,7 +238,7 @@ namespace net.vieapps.Services.Portals
 		internal void NormalizeExtras()
 		{
 			this.Notifications?.Normalize();
-			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.WebHooks == null ? null : this.Notifications;
+			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.EmailsByApprovalStatus == null && this.Notifications.WebHooks == null ? null : this.Notifications;
 			this.Instructions = this.Instructions ?? new Dictionary<string, Dictionary<string, Settings.Instruction>>();
 			this.Instructions.Keys.ToList().ForEach(key =>
 			{
@@ -276,7 +276,7 @@ namespace net.vieapps.Services.Portals
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>();
-				this.Instructions = this._json["Instructions"]?.ToExpandoObject().GetOrganizationInstructions();
+				this.Instructions = Settings.Instruction.Parse(this._json["Instructions"]?.ToExpandoObject());
 				this.Socials = this._json["Socials"]?.FromJson<List<string>>();
 				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
 				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();

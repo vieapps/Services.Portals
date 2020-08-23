@@ -24,26 +24,10 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,Scripts,AlwaysUseHtmlSuffix,RefreshUrls,RedirectUrls,EmailSettings,HttpIndicators".ToHashSet();
 
-		public static Dictionary<string, Dictionary<string, Settings.Instruction>> GetOrganizationInstructions(this ExpandoObject rawInstructions)
-		{
-			var instructions = new Dictionary<string, Dictionary<string, Settings.Instruction>>();
-			rawInstructions?.ForEach(rawInstruction =>
-			{
-				var instructionsByLanguage = new Dictionary<string, Settings.Instruction>();
-				(rawInstruction.Value as ExpandoObject)?.ForEach(kvp =>
-				{
-					var instructionData = kvp.Value as ExpandoObject;
-					instructionsByLanguage[kvp.Key] = new Settings.Instruction { Subject = instructionData.Get<string>("Subject"), Body = instructionData.Get<string>("Body") };
-				});
-				instructions[rawInstruction.Key] = instructionsByLanguage;
-			});
-			return instructions;
-		}
-
 		public static Organization CreateOrganizationInstance(this ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
 			=> Organization.CreateInstance(data, excluded?.ToHashSet(), organization =>
 			{
-				organization.Instructions = data.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
+				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
 				organization.Alias = organization.Alias?.ToLower().Trim();
 				onCompleted?.Invoke(organization);
 			});
@@ -51,7 +35,7 @@ namespace net.vieapps.Services.Portals
 		public static Organization UpdateOrganizationInstance(this Organization organization, ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
 			=> organization.Fill(data, excluded?.ToHashSet(), _ =>
 			{
-				organization.Instructions = data.Get<ExpandoObject>("Instructions")?.GetOrganizationInstructions();
+				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
 				organization.Alias = organization.Alias?.ToLower().Trim();
 				onCompleted?.Invoke(organization);
 			});
