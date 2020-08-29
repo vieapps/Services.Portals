@@ -31,10 +31,6 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "Lookup", Multiple = false, Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public string ParentID { get; set; }
 
-		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
-		public int OrderIndex { get; set; } = 0;
-
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title")]
 		[Searchable]
@@ -73,6 +69,10 @@ namespace net.vieapps.Services.Portals
 		[Sortable(IndexName = "Management")]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
+
+		[Sortable(IndexName = "Management")]
+		[FormControl(Segment = "basic", ReadOnly = true, Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		public int OrderIndex { get; set; } = 0;
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]

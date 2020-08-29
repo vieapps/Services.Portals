@@ -189,7 +189,7 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public void Normalize()
 		{
-			this.Addresses = (this.Addresses ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).ToList();
+			this.Addresses = (this.Addresses ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			this.Addresses = this.Addresses.Count < 1 ? null : this.Addresses;
 			this.Interval = this.Interval < 1 ? 15 : this.Interval;
 		}
@@ -208,7 +208,7 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public void Normalize()
 		{
-			this.Addresses = (this.Addresses ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).ToList();
+			this.Addresses = (this.Addresses ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			this.Addresses = this.Addresses.Count < 1 ? null : this.Addresses;
 		}
 	}

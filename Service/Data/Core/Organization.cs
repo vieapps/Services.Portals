@@ -238,7 +238,7 @@ namespace net.vieapps.Services.Portals
 		internal void NormalizeExtras()
 		{
 			this.Notifications?.Normalize();
-			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.EmailsByApprovalStatus == null && this.Notifications.WebHooks == null ? null : this.Notifications;
+			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.EmailsByApprovalStatus == null && this.Notifications.EmailsWhenPublish == null && this.Notifications.WebHooks == null ? null : this.Notifications;
 			this.Instructions = this.Instructions ?? new Dictionary<string, Dictionary<string, Settings.Instruction>>();
 			this.Instructions.Keys.ToList().ForEach(key =>
 			{

@@ -31,10 +31,6 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "Lookup", Multiple = false, Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public string ParentID { get; set; }
 
-		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
-		public int OrderIndex { get; set; } = 0;
-
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title")]
 		[Searchable]
@@ -62,6 +58,10 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 1000)]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public string SpecifiedURI { get; set; }
+
+		[Sortable(IndexName = "Management")]
+		[FormControl(Segment = "basic", ReadOnly = true, Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
+		public int OrderIndex { get; set; } = 0;
 
 		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
@@ -217,7 +217,7 @@ namespace net.vieapps.Services.Portals
 		internal void NormalizeExtras()
 		{
 			this.Notifications?.Normalize();
-			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.WebHooks == null ? null : this.Notifications;
+			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.EmailsByApprovalStatus == null && this.Notifications.EmailsWhenPublish == null && this.Notifications.WebHooks == null ? null : this.Notifications;
 			this.EmailSettings?.Normalize();
 			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
