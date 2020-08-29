@@ -269,7 +269,7 @@ namespace net.vieapps.Services.Portals
 			// create mapping portlets
 			if (string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
 			{
-				var otherDesktops = request.Get("OtherDesktops", new List<string>()).Except(new[] { portlet.DesktopID }).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+				var otherDesktops = request.Get<List<string>>("OtherDesktops")?.Except(new[] { portlet.DesktopID }).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
 				await otherDesktops.ForEachAsync(async (desktopID, token) =>
 				{
 					// create new
@@ -467,7 +467,7 @@ namespace net.vieapps.Services.Portals
 			// update mapping portlets
 			var mappingPortlets = await portlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? new List<Portlet>();
 			var mappingDesktops = mappingPortlets.Select(mappingPortlet => mappingPortlet.DesktopID).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			var otherDesktops = request.Get("OtherDesktops", new List<string>()).Except(new[] { portlet.DesktopID }).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var otherDesktops = request.Get<List<string>>("OtherDesktops").Except(new[] { portlet.DesktopID }).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
 
 			// add new
 			var beAdded = otherDesktops.Except(mappingDesktops).ToList();
