@@ -709,7 +709,7 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string GetCacheKeyPrefix(this JToken requestJson)
 		{
-			var expressionID = requestJson.Get<JObject>("Expression")?.Get<string>("ID");
+			var expressionID = requestJson?.Get<JObject>("Expression")?.Get<string>("ID");
 			if (!string.IsNullOrWhiteSpace(expressionID))
 			{
 				var parentIdentity = requestJson.Get("IsAutoPageNumber", false) ? requestJson.Get<string>("ParentIdentity") : null;

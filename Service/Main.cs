@@ -110,7 +110,7 @@ namespace net.vieapps.Services.Portals
 				Utility.NotRecognizedAliases.Add($"Site:{new Uri(Utility.PortalsHttpURI).Host}");
 
 				this.StartTimer(async () => await this.SendDefinitionInfoAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 15 * 60);
-				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 30 * 60);
+				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 5 * 60);
 
 				this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
 				this.Logger?.LogDebug($"Portals' files directory: {Utility.DataFilesDirectory ?? "None"}");
@@ -1810,7 +1810,8 @@ namespace net.vieapps.Services.Portals
 								{
 									{ "ID", portlet.ID },
 									{ "Title", portlet.Title },
-									{ "Zone", portlet.Zone }
+									{ "Zone", portlet.Zone },
+									{ "OrderIndex", portlet.OrderIndex }
 								}
 							},
 							{ "Desktops", new JObject
