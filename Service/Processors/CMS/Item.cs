@@ -22,6 +22,9 @@ namespace net.vieapps.Services.Portals
 		public static Item CreateItemInstance(this ExpandoObject data, string excluded = null, Action<Item> onCompleted = null)
 			=> Item.CreateInstance(data, excluded?.ToHashSet(), item =>
 			{
+				var status = data.Get<string>("Status");
+				if (status.IsNumeric())
+					item.Status = (ApprovalStatus)status.CastAs<int>();
 				item.NormalizeHTMLs();
 				item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				item.Tags = string.IsNullOrWhiteSpace(item.Tags) ? null : item.Tags;
@@ -31,6 +34,9 @@ namespace net.vieapps.Services.Portals
 		public static Item UpdateItemInstance(this Item item, ExpandoObject data, string excluded = null, Action<Item> onCompleted = null)
 			=> item.Fill(data, excluded?.ToHashSet(), _ =>
 			{
+				var status = data.Get<string>("Status");
+				if (status.IsNumeric())
+					item.Status = (ApprovalStatus)status.CastAs<int>();
 				item.NormalizeHTMLs();
 				item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				item.Tags = string.IsNullOrWhiteSpace(item.Tags) ? null : item.Tags;
@@ -397,9 +403,9 @@ namespace net.vieapps.Services.Portals
 				// prepare filtering expression
 				if (!(expressionJson.Get<JObject>("FilterBy").ToFilter<Item>() is FilterBys<Item> filter) || filter.Children == null || filter.Children.Count < 1)
 					filter = Filters<Item>.And(
-						Filters<Item>.Equals("SystemID", "@body[Organization.ID]"),
-						Filters<Item>.Equals("RepositoryID", "@body[Module.ID]"),
-						Filters<Item>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
+						Filters<Item>.Equals("SystemID", "@request.Body(Organization.ID)"),
+						Filters<Item>.Equals("RepositoryID", "@request.Body(Module.ID)"),
+						Filters<Item>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
 						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString())
 					);
 
@@ -503,13 +509,13 @@ namespace net.vieapps.Services.Portals
 					var numberOfOthers = optionsJson.Get<int>("NumberOfOthers", 10) / 2;
 
 					newersTask = Item.FindAsync(Filters<Item>.And(
-						Filters<Item>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
+						Filters<Item>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
 						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
 						Filters<Item>.GreaterOrEquals("Created", @object.Created)
 					).Prepare(requestInfo), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);
 
 					oldersTask = Item.FindAsync(Filters<Item>.And(
-						Filters<Item>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
+						Filters<Item>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
 						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
 						Filters<Item>.LessThanOrEquals("Created", @object.Created)
 					).Prepare(requestInfo), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);

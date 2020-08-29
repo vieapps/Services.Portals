@@ -22,6 +22,9 @@ namespace net.vieapps.Services.Portals
 		public static Link CreateLinkInstance(this ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 			=> Link.CreateInstance(data, excluded?.ToHashSet(), link =>
 			{
+				var status = data.Get<string>("Status");
+				if (status.IsNumeric())
+					link.Status = (ApprovalStatus)status.CastAs<int>();
 				link.NormalizeHTMLs();
 				onCompleted?.Invoke(link);
 			});
@@ -29,6 +32,9 @@ namespace net.vieapps.Services.Portals
 		public static Link UpdateLinkInstance(this Link link, ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 			=> link.Fill(data, excluded?.ToHashSet(), _ =>
 			{
+				var status = data.Get<string>("Status");
+				if (status.IsNumeric())
+					link.Status = (ApprovalStatus)status.CastAs<int>();
 				link.NormalizeHTMLs();
 				onCompleted?.Invoke(link);
 			});
@@ -723,9 +729,9 @@ namespace net.vieapps.Services.Portals
 			// prepare filtering expression
 			if (!(expressionJson.Get<JObject>("FilterBy")?.ToFilter<Link>() is FilterBys<Link> filter) || filter.Children == null || filter.Children.Count < 1)
 				filter = Filters<Link>.And(
-					Filters<Link>.Equals("SystemID", "@body[Organization.ID]"),
-					Filters<Link>.Equals("RepositoryID", "@body[Module.ID]"),
-					Filters<Link>.Equals("RepositoryEntityID", "@body[ContentType.ID]"),
+					Filters<Link>.Equals("SystemID", "@request.Body(Organization.ID)"),
+					Filters<Link>.Equals("RepositoryID", "@request.Body(Module.ID)"),
+					Filters<Link>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
 					Filters<Link>.IsNull("ParentID"),
 					Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString())
 				);
@@ -757,8 +763,8 @@ namespace net.vieapps.Services.Portals
 			// get XML from cache
 			XElement data;
 			var cacheKeyPrefix = requestJson.GetCacheKeyPrefix();
-			var cacheKey = cacheKeyPrefix != null ? Extensions.GetCacheKeyOfObjectsXml<Link>(cacheKeyPrefix, pageSize, pageNumber) : null;
-			var xml = cacheKey != null ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
+			var cacheKey = cacheKeyPrefix != null && !asMenu ? Extensions.GetCacheKeyOfObjectsXml<Link>(cacheKeyPrefix, pageSize, pageNumber) : null;
+			var xml = cacheKey != null && !asMenu ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 
 			// search and build XML if has no cache
 			if (string.IsNullOrWhiteSpace(xml))
@@ -798,7 +804,7 @@ namespace net.vieapps.Services.Portals
 				}, cancellationToken, true, false).ConfigureAwait(false);
 
 				// update XML into cache
-				if (cacheKey != null)
+				if (cacheKey != null && !asMenu)
 					Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).Run();
 			}
 			else
@@ -820,10 +826,10 @@ namespace net.vieapps.Services.Portals
 			var menu = new JObject
 			{
 				{ "ID", link.ID },
-				{ "Title", link.Title },
-				{ "Description", link.Summary?.Replace("\r", "").Replace("\n", "<br/>") },
+				{ "Title", link.Title.CleanInvalidXmlCharacters() },
+				{ "Description", link.Summary?.Replace("\r", "").Replace("\n", "<br/>").CleanInvalidXmlCharacters() },
 				{ "Image", thumbnailURL },
-				{ "URL", link.URL },
+				{ "URL", link.URL.CleanInvalidXmlCharacters() },
 				{ "Target", link.Target },
 				{ "Level", level },
 				{ "Selected", false }
@@ -889,7 +895,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var requestedURL = requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri");
 				var requestedURI = new Uri(requestedURL);
-				requestedURL = requestedURL.Replace($"{requestedURI.Scheme}://{requestedURI.Host}/", "~/").Replace($"/~{requestInfo.GetParameter("x-system")}/", "/");
+				requestedURL = requestedURL.Replace(StringComparison.OrdinalIgnoreCase, $"{requestedURI.Scheme}://{requestedURI.Host}/", "~/").Replace(StringComparison.OrdinalIgnoreCase, $"/~{requestInfo.GetParameter("x-system")}", "/").Replace("//", "/");
 				var position = requestedURL.IndexOf(".html");
 				if (position > 0)
 					requestedURL = requestedURL.Left(position);

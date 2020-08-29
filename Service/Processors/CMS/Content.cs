@@ -23,6 +23,9 @@ namespace net.vieapps.Services.Portals
 		public static Content CreateContentInstance(this ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
 			=> Content.CreateInstance(data, excluded?.ToHashSet(), content =>
 			{
+				var status = data.Get<string>("Status");
+				if (status.IsNumeric())
+					content.Status = (ApprovalStatus)status.CastAs<int>();
 				content.NormalizeHTMLs();
 				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
@@ -32,6 +35,9 @@ namespace net.vieapps.Services.Portals
 		public static Content UpdateContentInstance(this Content content, ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
 			=> content.Fill(data, excluded?.ToHashSet(), _ =>
 			{
+				var status = data.Get<string>("Status");
+				if (status.IsNumeric())
+					content.Status = (ApprovalStatus)status.CastAs<int>();
 				content.NormalizeHTMLs();
 				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
@@ -557,9 +563,9 @@ namespace net.vieapps.Services.Portals
 				if (!(expressionJson.Get<JObject>("FilterBy")?.ToFilter<Content>() is FilterBys<Content> filter) || filter.Children == null || filter.Children.Count < 1)
 				{
 					filter = Filters<Content>.And(
-						Filters<Content>.Equals("SystemID", "@body[Organization.ID]"),
-						Filters<Content>.Equals("RepositoryID", "@body[Module.ID]"),
-						Filters<Content>.Equals("RepositoryEntityID", "@body[ContentType.ID]")
+						Filters<Content>.Equals("SystemID", "@request.Body(Organization.ID)"),
+						Filters<Content>.Equals("RepositoryID", "@request.Body(Module.ID)"),
+						Filters<Content>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)")
 					);
 
 					if (category != null)
@@ -581,6 +587,12 @@ namespace net.vieapps.Services.Portals
 				if (filter.GetChild("StartDate") == null)
 					filter.Add(Filters<Content>.LessThanOrEquals("StartDate", "@today"));
 
+				if (filter.GetChild("EndDate") == null)
+					filter.Add(Filters<Content>.Or(
+						Filters<Content>.IsNull("EndDate"),
+						Filters<Content>.GreaterOrEquals("EndDate", "@today")
+					));
+
 				if (filter.GetChild("Status") == null)
 					filter.Add(Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()));
 
@@ -591,7 +603,7 @@ namespace net.vieapps.Services.Portals
 				filter.Prepare(requestInfo, filterBys =>
 				{
 					var filters = (filterBys as FilterBys).Children.Where(filterby => filterby is FilterBy thefilterby && thefilterby.Value != null && thefilterby.Value is string).Select(filterby => filterby as FilterBy);
-					filters.Where(thefilterby => thefilterby.Value is string value && (value.IsEquals("@[parentIdentity]") || value.IsEquals("@[parent-identity]"))).ForEach(filterby => filterby.Value = category?.ID);
+					filters.Where(thefilterby => thefilterby.Value is string value && value.IsStartsWith("@parent")).ForEach(filterby => filterby.Value = category?.ID);
 				});
 				filterBy["App"] = filter.ToClientJson().ToString(Formatting.None);
 
@@ -628,7 +640,7 @@ namespace net.vieapps.Services.Portals
 						element.Element("StartDate")?.UpdateDateTime(cultureInfo);
 						element.Element("EndDate")?.UpdateDateTime(cultureInfo);
 						if (!string.IsNullOrWhiteSpace(@object.Summary))
-							element.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
+							element.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>").CleanInvalidXmlCharacters();
 						element.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
 						element.Add(new XElement("URL", @object.GetURL(desktop)));
 						element.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
@@ -796,7 +808,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					if (!string.IsNullOrWhiteSpace(@object.Summary))
-						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
+						xml.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>").CleanInvalidXmlCharacters();
 
 					xml.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
 					xml.Add(new XElement("URL", @object.GetURL(desktop)));
@@ -830,7 +842,7 @@ namespace net.vieapps.Services.Portals
 						relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
 						{
 							var relatedXml = new XElement("Content", new XElement("ID", related.ID));
-							relatedXml.Add(new XElement("Title", related.Title), new XElement("Summary", related.Summary?.Replace("\r", "").Replace("\n", "<br/>")));
+							relatedXml.Add(new XElement("Title", related.Title), new XElement("Summary", related.Summary?.Replace("\r", "").Replace("\n", "<br/>").CleanInvalidXmlCharacters()));
 							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value).UpdateDateTime(cultureInfo));
 							relatedXml.Add(new XElement("URL", related.GetURL(desktop)));
 							relatedsXml.Add(relatedXml);
@@ -841,7 +853,7 @@ namespace net.vieapps.Services.Portals
 						@object.ExternalRelateds?.ForEach(external => externalsXml.Add(external.ToXml(externalXml =>
 						{
 							if (!string.IsNullOrWhiteSpace(external.Summary))
-								externalXml.Element("Summary").Value = external.Summary.Replace("\r", "").Replace("\n", "<br/>");
+								externalXml.Element("Summary").Value = external.Summary.Replace("\r", "").Replace("\n", "<br/>").CleanInvalidXmlCharacters();
 						})));
 						xml.Add(externalsXml);
 					}
@@ -855,7 +867,7 @@ namespace net.vieapps.Services.Portals
 							otherXml.Element("StartDate")?.UpdateDateTime(cultureInfo);
 							otherXml.Element("EndDate")?.UpdateDateTime(cultureInfo);
 							if (!string.IsNullOrWhiteSpace(other.Summary))
-								otherXml.Element("Summary").Value = other.Summary.Replace("\r", "").Replace("\n", "<br/>");
+								otherXml.Element("Summary").Value = other.Summary.Replace("\r", "").Replace("\n", "<br/>").CleanInvalidXmlCharacters();
 							otherXml.Add(new XElement("Category", other.Category?.Title, new XAttribute("URL", other.Category?.GetURL(desktop))));
 							otherXml.Add(new XElement("URL", other.GetURL(desktop)));
 							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));

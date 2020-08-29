@@ -782,10 +782,10 @@ namespace net.vieapps.Services.Portals
 			var menu = new JObject
 			{
 				{ "ID", category.ID },
-				{ "Title", category.Title },
-				{ "Description", category.Description?.Replace("\r", "").Replace("\n", "<br/>") },
+				{ "Title", category.Title.CleanInvalidXmlCharacters() },
+				{ "Description", category.Description?.Replace("\r", "").Replace("\n", "<br/>").CleanInvalidXmlCharacters() },
 				{ "Image", thumbnailURL },
-				{ "URL", url },
+				{ "URL", url.CleanInvalidXmlCharacters() },
 				{ "Target", null },
 				{ "Level", level },
 				{ "Selected", false }
