@@ -187,15 +187,15 @@ namespace net.vieapps.Services.Portals
 				this._siteIDs = sites.Where(site => site != null).Select(site => site.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("Sites");
-				return sites;
+				return sites.Where(site => site != null).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
 			}
-			return this._siteIDs.Select(id => id.GetSiteByID(false, false)).Where(site => site != null).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
+			return this._siteIDs.Select(siteID => siteID.GetSiteByID()).Where(site => site != null).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
 		}
 
 		internal async Task<List<Site>> FindSitesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._siteIDs == null
 				? this.FindSites(await (this.ID ?? "").FindSitesAsync(cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
-				: this._siteIDs.Select(id => id.GetSiteByID(false, false)).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
+				: this._siteIDs.Select(siteID => siteID.GetSiteByID()).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public List<Site> Sites => this.FindSites();
@@ -296,7 +296,7 @@ namespace net.vieapps.Services.Portals
 					this.PrepareRedirectAddresses();
 			}
 			else if (name.IsEquals("Modules") || name.IsEquals("Sites"))
-				this.Set(false, true);
+				this.SetAsync(false, true).Run();
 		}
 
 		List<Tuple<string, string>> _redirectAddresses;

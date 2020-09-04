@@ -1,8 +1,7 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using Newtonsoft.Json.Linq;
+using System.Collections.Concurrent;
 using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Portals

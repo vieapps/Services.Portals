@@ -93,6 +93,10 @@ namespace net.vieapps.Services.Portals
 				while (Utility.FilesHttpURI.EndsWith("/"))
 					Utility.FilesHttpURI = Utility.FilesHttpURI.Left(Utility.FilesHttpURI.Length - 1);
 
+				Utility.PassportsHttpURI = this.GetHttpURI("Passports", "https://id.vieapps.net");
+				while (Utility.PassportsHttpURI.EndsWith("/"))
+					Utility.PassportsHttpURI = Utility.PassportsHttpURI.Left(Utility.PassportsHttpURI.Length - 1);
+
 				Utility.PortalsHttpURI = this.GetHttpURI("Portals", "https://portals.vieapps.net");
 				while (Utility.PortalsHttpURI.EndsWith("/"))
 					Utility.PortalsHttpURI = Utility.PortalsHttpURI.Left(Utility.PortalsHttpURI.Length - 1);
@@ -101,9 +105,14 @@ namespace net.vieapps.Services.Portals
 				while (Utility.CmsPortalsHttpURI.EndsWith("/"))
 					Utility.CmsPortalsHttpURI = Utility.CmsPortalsHttpURI.Left(Utility.CmsPortalsHttpURI.Length - 1);
 
-				Utility.PassportsHttpURI = this.GetHttpURI("Passports", "https://id.vieapps.net");
-				while (Utility.PassportsHttpURI.EndsWith("/"))
-					Utility.PassportsHttpURI = Utility.PassportsHttpURI.Left(Utility.PassportsHttpURI.Length - 1);
+				Utility.RTUService = this.RTUService;
+				Utility.MessagingService = this.MessagingService;
+				Utility.LoggingService = this.LoggingService;
+				Utility.Logger = this.Logger;
+
+				Utility.EncryptionKey = this.EncryptionKey;
+				Utility.ValidationKey = this.ValidationKey;
+				Utility.NotificationsKey = UtilityService.GetAppSetting("Keys:Notifications");
 
 				Utility.DefaultSite = UtilityService.GetAppSetting("Portals:Default:SiteID", "").GetSiteByID();
 				Utility.DataFilesDirectory = UtilityService.GetAppSetting("Path:Portals");
@@ -111,9 +120,10 @@ namespace net.vieapps.Services.Portals
 
 				this.StartTimer(async () => await this.SendDefinitionInfoAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 15 * 60);
 				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 5 * 60);
+				this.StartTimer(async () => await this.PrepareLanguagesAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 5 * 60);
 
 				this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
-				this.Logger?.LogDebug($"Portals' files directory: {Utility.DataFilesDirectory ?? "None"}");
+				this.Logger?.LogDebug($"Portals' data files directory: {Utility.DataFilesDirectory ?? "None"}");
 
 				Task.Run(async () =>
 				{
@@ -122,6 +132,9 @@ namespace net.vieapps.Services.Portals
 
 					// get OEmbed providers
 					await this.GetOEmbedProvidersAsync(this.CancellationTokenSource.Token).ConfigureAwait(false);
+
+					// prepare multi-languges
+					await this.PrepareLanguagesAsync(this.CancellationTokenSource.Token).ConfigureAwait(false);
 
 					// gathering definitions
 					try
@@ -144,6 +157,7 @@ namespace net.vieapps.Services.Portals
 						}
 						catch { }
 				}).ConfigureAwait(false);
+
 				next?.Invoke(this);
 			});
 		#endregion
@@ -310,27 +324,27 @@ namespace net.vieapps.Services.Portals
 
 							case "category":
 							case "cms.category":
-								json = this.GenerateFormControls<Category>();
+								json = this.GenerateFormControls<Category>(requestInfo.GetParameter("x-content-type-id"));
 								break;
 
 							case "content":
 							case "cms.content":
-								json = this.GenerateFormControls<Content>(requestInfo.GetParameter("x-content-type"));
+								json = this.GenerateFormControls<Content>(requestInfo.GetParameter("x-content-type-id"));
 								break;
 
 							case "link":
 							case "cms.link":
-								json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type"));
+								json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type-id"));
 								break;
 
 							case "item":
 							case "cms.item":
-								json = this.GenerateFormControls<Item>(requestInfo.GetParameter("x-content-type"));
+								json = this.GenerateFormControls<Item>(requestInfo.GetParameter("x-content-type-id"));
 								break;
 
 							case "contact":
 							case "utils.contact":
-								json = this.GenerateFormControls<Contact>(requestInfo.GetParameter("x-content-type"));
+								json = this.GenerateFormControls<Contact>(requestInfo.GetParameter("x-content-type-id"));
 								break;
 
 							default:
@@ -348,7 +362,7 @@ namespace net.vieapps.Services.Portals
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-						#endregion
+				#endregion
 
 				}
 				stopwatch.Stop();
@@ -367,7 +381,7 @@ namespace net.vieapps.Services.Portals
 		JToken GenerateFormControls<T>(string contentTypeID) where T : class
 		{
 			// get content type
-			var contentType = contentTypeID.GetContentTypeByID();
+			var contentType = (contentTypeID ?? "").GetContentTypeByID();
 			if (contentType == null || contentType.ExtendedPropertyDefinitions == null || contentType.ExtendedPropertyDefinitions.Count < 1)
 				return this.GenerateFormControls<T>();
 
@@ -397,7 +411,7 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		#region Get themes & OEmbed providers
+		#region Get static data (themes, language resources, providers  of OEmbed media, ...)
 		async Task<JArray> GetThemesAsync(CancellationToken cancellationToken)
 		{
 			var themes = new JArray();
@@ -409,7 +423,7 @@ namespace net.vieapps.Services.Portals
 					{ "author", "System" }
 				});
 			else if (Directory.Exists(Path.Combine(Utility.DataFilesDirectory, "themes")))
-				await Directory.GetDirectories(Path.Combine(Utility.DataFilesDirectory, "themes")).ForEachAsync(async (directory, token) =>
+				await Directory.GetDirectories(Path.Combine(Utility.DataFilesDirectory, "themes")).ForEachAsync(async (directory, _) =>
 				{
 					var name = Path.GetFileName(directory).ToLower();
 					var packageInfo = new JObject
@@ -422,7 +436,7 @@ namespace net.vieapps.Services.Portals
 					if (File.Exists(filename))
 						try
 						{
-							packageInfo = JObject.Parse(await UtilityService.ReadTextFileAsync(filename).ConfigureAwait(false));
+							packageInfo = JObject.Parse(await UtilityService.ReadTextFileAsync(filename, null, cancellationToken).ConfigureAwait(false));
 						}
 						catch { }
 					themes.Add(packageInfo);
@@ -430,11 +444,36 @@ namespace net.vieapps.Services.Portals
 			return themes;
 		}
 
-		async Task GetOEmbedProvidersAsync(CancellationToken cancellationToken = default)
+		async Task PrepareLanguagesAsync(CancellationToken cancellationToken = default)
 		{
+			var correlationID = UtilityService.NewUUID;
 			try
 			{
-				var providers = JArray.Parse(await UtilityService.GetWebPageAsync($"{Utility.APIsHttpURI}/statics/oembed.providers.json", null, null, cancellationToken).ConfigureAwait(false));
+				Utility.Languages.Clear();
+				await UtilityService.GetAppSetting("Portals:Languages", "vi-VN|en-US").ToList("|", true).ForEachAsync(async (language, _) => await new[] { "common", "portals", "portals.cms", "users" }.ForEachAsync(async (module, __) =>
+				{
+					if (!Utility.Languages.TryGetValue(language, out var languages))
+					{
+						languages = new ExpandoObject();
+						Utility.Languages[language] = languages;
+					}
+					languages.Merge(JObject.Parse(await UtilityService.FetchWebResourceAsync($"{Utility.APIsHttpURI}/statics/i18n/{module}/{language}.json", cancellationToken).ConfigureAwait(false)).ToExpandoObject());
+				}, cancellationToken, true, false).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
+				if (this.IsDebugResultsEnabled)
+					await this.WriteLogsAsync(correlationID, $"Gathering i18n language resources successful => {Utility.Languages.Select(kvp => kvp.Key).Join(" - ")}", null, this.ServiceName, "CMS.Portals", LogLevel.Debug).ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				await this.WriteLogsAsync(correlationID, $"Error occurred while gathering i18n language resources => {ex.Message}", ex, this.ServiceName, "CMS.Portals", LogLevel.Error).ConfigureAwait(false);
+			}
+		}
+
+		async Task GetOEmbedProvidersAsync(CancellationToken cancellationToken = default)
+		{
+			var correlationID = UtilityService.NewUUID;
+			try
+			{
+				var providers = JArray.Parse(await UtilityService.FetchWebResourceAsync($"{Utility.APIsHttpURI}/statics/oembed.providers.json", cancellationToken).ConfigureAwait(false));
 				Utility.OEmbedProviders.Clear();
 				providers.Select(provider => provider as JObject).ForEach(provider =>
 				{
@@ -446,10 +485,12 @@ namespace net.vieapps.Services.Portals
 					var html = patternJson.Get<string>("html");
 					Utility.OEmbedProviders.Add(new Tuple<string, List<Regex>, Tuple<Regex, int, string>>(name, schemes, new Tuple<Regex, int, string>(expression, position, html)));
 				});
+				if (this.IsDebugResultsEnabled)
+					await this.WriteLogsAsync(correlationID, $"Gathering OEmbed providers successful => {Utility.OEmbedProviders.Select(info => info.Item1).Join(" - ")}", null, this.ServiceName, "CMS.Portals", LogLevel.Debug).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await this.WriteLogsAsync(UtilityService.NewUUID, $"Error occurred while gathering OEmbed providers => {ex.Message}", ex, this.ServiceName, "CMS.Portals", LogLevel.Error).ConfigureAwait(false);
+				await this.WriteLogsAsync(correlationID, $"Error occurred while gathering OEmbed providers => {ex.Message}", ex, this.ServiceName, "CMS.Portals", LogLevel.Error).ConfigureAwait(false);
 			}
 		}
 		#endregion
@@ -466,13 +507,13 @@ namespace net.vieapps.Services.Portals
 						: await requestInfo.GetOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateOrganizationAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateOrganizationAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdateOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteOrganizationAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -487,16 +528,16 @@ namespace net.vieapps.Services.Portals
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
 						? await requestInfo.SearchSitesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetSiteAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+						: await requestInfo.GetSiteAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateSiteAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateSiteAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateSiteAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdateSiteAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteSiteAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteSiteAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -511,16 +552,16 @@ namespace net.vieapps.Services.Portals
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
 						? await requestInfo.SearchRolesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetRoleAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+						: await requestInfo.GetRoleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateRoleAsync(isSystemAdministrator, this.EncryptionKey, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, Microsoft.Extensions.Logging.LogLevel.Error), this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateRoleAsync(isSystemAdministrator, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, LogLevel.Error), cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateRoleAsync(isSystemAdministrator, this.EncryptionKey, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, Microsoft.Extensions.Logging.LogLevel.Error), this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdateRoleAsync(isSystemAdministrator, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, LogLevel.Error), cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteRoleAsync(isSystemAdministrator, this.EncryptionKey, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, Microsoft.Extensions.Logging.LogLevel.Error), this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteRoleAsync(isSystemAdministrator, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, LogLevel.Error), cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -535,18 +576,18 @@ namespace net.vieapps.Services.Portals
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
 						? await requestInfo.SearchDesktopsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetDesktopAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+						: await requestInfo.GetDesktopAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateDesktopAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
 					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update"))
-						? await requestInfo.UpdateDesktopPortletsAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.UpdateDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+						? await requestInfo.UpdateDesktopPortletsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.UpdateDesktopAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteDesktopAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteDesktopAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -561,16 +602,16 @@ namespace net.vieapps.Services.Portals
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
 						? await requestInfo.SearchPortletsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetPortletAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+						: await requestInfo.GetPortletAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreatePortletAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreatePortletAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdatePortletAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdatePortletAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeletePortletAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeletePortletAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -585,16 +626,16 @@ namespace net.vieapps.Services.Portals
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
 						? await requestInfo.SearchModulesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetModuleAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+						: await requestInfo.GetModuleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateModuleAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateModuleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateModuleAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdateModuleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteModuleAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteModuleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -609,16 +650,16 @@ namespace net.vieapps.Services.Portals
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
 						? await requestInfo.SearchContentTypesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetContentTypeAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+						: await requestInfo.GetContentTypeAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateContentTypeAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateContentTypeAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateContentTypeAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdateContentTypeAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteContentTypeAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteContentTypeAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -633,16 +674,16 @@ namespace net.vieapps.Services.Portals
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
 						? await requestInfo.SearchExpressionsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetExpressionAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+						: await requestInfo.GetExpressionAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateExpressionAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateExpressionAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateExpressionAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdateExpressionAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteExpressionAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteExpressionAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -659,18 +700,18 @@ namespace net.vieapps.Services.Portals
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
 						? await requestInfo.SearchCategorysAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetCategoryAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+						: await requestInfo.GetCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
 					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update"))
-						? await requestInfo.UpdateCategoriesAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.UpdateCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+						? await requestInfo.UpdateCategoriesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.UpdateCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteCategoryAsync(isSystemAdministrator, this.NodeID, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -684,17 +725,17 @@ namespace net.vieapps.Services.Portals
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchContentsAsync(isSystemAdministrator, this.ValidationKey, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetContentAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+						? await requestInfo.SearchContentsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateContentAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateContentAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdateContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteContentAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -708,17 +749,17 @@ namespace net.vieapps.Services.Portals
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchItemsAsync(isSystemAdministrator, this.ValidationKey, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetItemAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+						? await requestInfo.SearchItemsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateItemAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
-					return await requestInfo.UpdateItemAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.UpdateItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteItemAsync(isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -732,19 +773,19 @@ namespace net.vieapps.Services.Portals
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchLinksAsync(isSystemAdministrator, this.ValidationKey, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetLinkAsync(isSystemAdministrator, this.RTUService, cancellationToken).ConfigureAwait(false);
+						? await requestInfo.SearchLinksAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
-					return await requestInfo.CreateLinkAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.CreateLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
 					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update"))
-						? await requestInfo.UpdateLinksAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.UpdateLinkAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+						? await requestInfo.UpdateLinksAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.UpdateLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteLinkAsync(isSystemAdministrator, this.NodeID, this.RTUService, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -752,7 +793,7 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		async Task<JToken> ProcessAttachmentFileAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		Task<JToken> ProcessAttachmentFileAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var systemID = requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
 			var entityInfo = requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity");
@@ -760,24 +801,24 @@ namespace net.vieapps.Services.Portals
 			var objectTitle = requestInfo.GetParameter("ObjectTitle") ?? requestInfo.GetParameter("x-object-title");
 
 			if (requestInfo.Verb.IsEquals("PATCH"))
-				return await this.MarkFilesAsOfficialAsync(requestInfo, systemID, entityInfo, objectID, objectTitle, cancellationToken).ConfigureAwait(false);
+				return this.MarkFilesAsOfficialAsync(requestInfo, systemID, entityInfo, objectID, objectTitle, cancellationToken);
 
 			else if (requestInfo.Verb.IsEquals("GET"))
 				switch ((requestInfo.GetObjectIdentity() ?? "").ToLower())
 				{
 					case "thumbnail":
 					case "thumbnails":
-						return await this.GetThumbnailsAsync(requestInfo, objectID, objectTitle, cancellationToken).ConfigureAwait(false);
+						return this.GetThumbnailsAsync(requestInfo, objectID, objectTitle, cancellationToken);
 
 					case "attachment":
 					case "attachments":
-						return await this.GetAttachmentsAsync(requestInfo, objectID, objectTitle, cancellationToken).ConfigureAwait(false);
+						return this.GetAttachmentsAsync(requestInfo, objectID, objectTitle, cancellationToken);
 
 					default:
-						return await this.GetFilesAsync(requestInfo, objectID, objectTitle, cancellationToken).ConfigureAwait(false);
+						return this.GetFilesAsync(requestInfo, objectID, objectTitle, cancellationToken);
 				}
 			else
-				throw new MethodNotAllowedException(requestInfo.Verb);
+				return Task.FromException<JToken>(new MethodNotAllowedException(requestInfo.Verb));
 		}
 
 		async Task<JToken> ProcessTemplateAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
@@ -819,7 +860,7 @@ namespace net.vieapps.Services.Portals
 					? this.ProcessHttpResourceRequestAsync(requestInfo, cancellationToken)
 					: this.ProcessHttpDesktopRequestAsync(requestInfo, cancellationToken);
 
-		#region Process requests of Portals HTTP service
+		#region Process resource  requests of Portals HTTP service
 		bool WriteDesktopLogs => this.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
 
 		HashSet<string> ExcludedThemes => UtilityService.GetAppSetting("Portals:Desktops:ExcludedThemes", "").Trim().ToLower().ToHashSet();
@@ -1078,7 +1119,9 @@ namespace net.vieapps.Services.Portals
 			// unknown
 			throw new InformationNotFoundException($"The requested resource is not found [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 		}
+		#endregion
 
+		#region Process desktop requests of Portals HTTP service
 		async Task<JToken> ProcessHttpDesktopRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			// prepare required information
@@ -2413,13 +2456,13 @@ namespace net.vieapps.Services.Portals
 				switch (requestInfo.ObjectName.ToLower().Trim())
 				{
 					case "content":
-						return await ContentProcessor.GenerateAsync(requestInfo, isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+						return await ContentProcessor.GenerateAsync(requestInfo, isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 					case "item":
-						return await ItemProcessor.GenerateAsync(requestInfo, isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+						return await ItemProcessor.GenerateAsync(requestInfo, isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 					case "link":
-						return await LinkProcessor.GenerateAsync(requestInfo, isSystemAdministrator, this.RTUService, this.ValidationKey, cancellationToken).ConfigureAwait(false);
+						return await LinkProcessor.GenerateAsync(requestInfo, isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 					default:
 						throw new InvalidRequestException();
@@ -2477,15 +2520,15 @@ namespace net.vieapps.Services.Portals
 			await children.Where(child => child != null).OrderBy(child => child.OrderIndex).ForEachAsync(async (child, token) =>
 			{
 				if (child is Category category)
-					menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID), level, maxLevel, this.ValidationKey, token).ConfigureAwait(false));
+					menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID), level, maxLevel, token).ConfigureAwait(false));
 				else if (child is Link link)
-					menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID), level, maxLevel, this.ValidationKey, token).ConfigureAwait(false));
+					menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID), level, maxLevel, token).ConfigureAwait(false));
 			}, cancellationToken, true, false).ConfigureAwait(false);
 			return menu;
 		}
 		#endregion
 
-		#region Sync
+		#region Sync objects
 		public override async Task<JToken> SyncAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
@@ -2501,59 +2544,59 @@ namespace net.vieapps.Services.Portals
 					{
 						case "organization":
 						case "core.organization":
-							json = await requestInfo.SyncOrganizationAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncOrganizationAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "role":
 						case "core.role":
-							json = await requestInfo.SyncRoleAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncRoleAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "module":
 						case "core.module":
-							json = await requestInfo.SyncModuleAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncModuleAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "contenttype":
 						case "content.type":
 						case "core.contenttype":
 						case "core.content.type":
-							json = await requestInfo.SyncContentTypeAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncContentTypeAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "site":
 						case "core.site":
-							json = await requestInfo.SyncSiteAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncSiteAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "desktop":
 						case "core.desktop":
-							json = await requestInfo.SyncDesktopAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncDesktopAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "portlet":
 						case "core.portlet":
-							json = await requestInfo.SyncPortletAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncPortletAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "category":
 						case "cms.category":
-							json = await requestInfo.SyncCategoryAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncCategoryAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "content":
 						case "cms.content":
-							json = await requestInfo.SyncContentAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncContentAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "item":
 						case "cms.item":
-							json = await requestInfo.SyncItemAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncItemAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						case "link":
 						case "cms.link":
-							json = await requestInfo.SyncLinkAsync(this.NodeID, this.RTUService, cts.Token).ConfigureAwait(false);
+							json = await requestInfo.SyncLinkAsync(cts.Token).ConfigureAwait(false);
 							break;
 
 						default:
@@ -2573,9 +2616,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		protected override Task SendSyncRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
-		{
-			return base.SendSyncRequestAsync(requestInfo, cancellationToken);
-		}
+			=> base.SendSyncRequestAsync(requestInfo, cancellationToken);
 		#endregion
 
 		#region Process communicate message of Portals service
@@ -2590,35 +2631,35 @@ namespace net.vieapps.Services.Portals
 				this.WriteLogs(correlationID, $"Process an inter-communicate message\r\n{message?.ToJson()}");
 
 			// messages of an organization
-			if (message.Type.StartsWith("Organization#"))
+			if (message.Type.IsStartsWith("Organization#"))
 				await message.ProcessInterCommunicateMessageOfOrganizationAsync(cancellationToken).ConfigureAwait(false);
 
 			// messages of a site
-			else if (message.Type.StartsWith("Site#"))
+			else if (message.Type.IsStartsWith("Site#"))
 				await message.ProcessInterCommunicateMessageOfSiteAsync(cancellationToken).ConfigureAwait(false);
 
 			// messages a role
-			else if (message.Type.StartsWith("Role#"))
+			else if (message.Type.IsStartsWith("Role#"))
 				await message.ProcessInterCommunicateMessageOfRoleAsync(cancellationToken).ConfigureAwait(false);
 
 			// messages of a desktop
-			else if (message.Type.StartsWith("Desktop#"))
+			else if (message.Type.IsStartsWith("Desktop#"))
 				await message.ProcessInterCommunicateMessageOfDesktopAsync(cancellationToken).ConfigureAwait(false);
 
 			// messages of a portlet
-			else if (message.Type.StartsWith("Portlet#"))
+			else if (message.Type.IsStartsWith("Portlet#"))
 				await message.ProcessInterCommunicateMessageOfPortletAsync(cancellationToken).ConfigureAwait(false);
 
 			// messages a module
-			else if (message.Type.StartsWith("Module#"))
+			else if (message.Type.IsStartsWith("Module#"))
 				await message.ProcessInterCommunicateMessageOfModuleAsync(cancellationToken).ConfigureAwait(false);
 
 			// messages a content-type
-			else if (message.Type.StartsWith("ContentType#"))
+			else if (message.Type.IsStartsWith("ContentType#"))
 				await message.ProcessInterCommunicateMessageOfContentTypeAsync(cancellationToken).ConfigureAwait(false);
 
 			// messages of a CMS category
-			else if (message.Type.StartsWith("Category#") || message.Type.StartsWith("CMS.Category#"))
+			else if (message.Type.IsStartsWith("Category#") || message.Type.IsStartsWith("CMS.Category#"))
 				await message.ProcessInterCommunicateMessageOfCategoryAsync(cancellationToken).ConfigureAwait(false);
 		}
 		#endregion

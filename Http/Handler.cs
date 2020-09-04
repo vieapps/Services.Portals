@@ -440,7 +440,7 @@ namespace net.vieapps.Services.Portals
 			var url = UtilityService.GetAppSetting("HttpUri:CMSPortals", "https://cms.vieapps.net");
 			while (url.EndsWith("/"))
 				url = url.Left(url.Length - 1);
-			url += "/home?redirect=" + $"/portals/initializer?x-request={("{\"ID\":\"" + systemID + "\"}").Url64Encode()}".Url64Encode();
+			url += "/home?redirect=" + $"/portals/initializer?x-request={("{\"SystemID\":\"" + systemID + "\"}").Url64Encode()}".Url64Encode();
 			context.Redirect(url);
 			await context.FlushAsync(Global.CancellationTokenSource.Token).ConfigureAwait(false);
 		}

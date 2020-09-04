@@ -192,7 +192,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> CreateRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string encryptionKey = null, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> CreateRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var request = requestInfo.GetBodyExpando();
@@ -238,7 +238,7 @@ namespace net.vieapps.Services.Portals
 				},
 				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					{ "AddedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(encryptionKey) }
+					{ "AddedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(Utility.EncryptionKey) }
 				}
 			};
 
@@ -288,7 +288,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				});
 			}
 
@@ -308,18 +308,23 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{objectName}#Create",
 				Data = response,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send the messages and response
+			// send the messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
+
+			// send notification
+			role.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> GetRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GetRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -340,19 +345,21 @@ namespace net.vieapps.Services.Portals
 				await role.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 
-			// send the update message to update to all other connected clients and response
+			// send the update message to update to all other connected clients
 			var response = role.ToJson(true, false);
-			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+			await (Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{role.GetTypeName(true)}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID
 			}, cancellationToken)).ConfigureAwait(false);
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string encryptionKey = null, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -421,7 +428,7 @@ namespace net.vieapps.Services.Portals
 			};
 
 			requestUser.Extra.Clear();
-			requestUser.Extra["RemovedRoles"] = new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(encryptionKey);
+			requestUser.Extra["RemovedRoles"] = new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(Utility.EncryptionKey);
 			await beRemovedUserIDs.ForEachAsync(async (userID, token) =>
 			{
 				try
@@ -436,7 +443,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			requestUser.Extra.Clear();
-			requestUser.Extra["AddedRoles"] = new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(encryptionKey);
+			requestUser.Extra["AddedRoles"] = new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(Utility.EncryptionKey);
 			await beAddedUserIDs.ForEachAsync(async (userID, token) =>
 			{
 				try
@@ -476,7 +483,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				});
 			}
 
@@ -505,7 +512,7 @@ namespace net.vieapps.Services.Portals
 					{
 						Type = $"{objectName}#Update",
 						Data = json,
-						ExcludedNodeID = nodeID
+						ExcludedNodeID = Utility.NodeID
 					});
 				}
 			}
@@ -526,18 +533,23 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{objectName}#Update",
 				Data = response,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send messages and response
+			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
+
+			// send notification
+			role.SendNotificationAsync("Update", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> DeleteRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string encryptionKey = null, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -557,7 +569,8 @@ namespace net.vieapps.Services.Portals
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
 			// delete
-			await (await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
+			var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
+			await children.ForEachAsync(async (child, _) =>
 			{
 				// update children to root
 				if (updateChildren)
@@ -565,40 +578,36 @@ namespace net.vieapps.Services.Portals
 					child.ParentID = null;
 					child.LastModified = DateTime.Now;
 					child.LastModifiedID = requestInfo.Session.User.ID;
-
-					await Task.WhenAll(
-						Role.UpdateAsync(child, requestInfo.Session.User.ID, token),
-						child.SetAsync(false, token)
-					).ConfigureAwait(false);
+					await Role.UpdateAsync(child, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					child.Set().SendNotificationAsync("Update", child.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
 
 					var json = child.ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
 					{
-						Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 						Data = json,
 						DeviceID = "*"
 					});
 					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
 					{
 						ServiceName = requestInfo.ServiceName,
-						Type = $"{objectName}#Delete",
+						Type = $"{objectName}#Update",
 						Data = json,
-						ExcludedNodeID = nodeID
+						ExcludedNodeID = Utility.NodeID
 					});
 				}
 
 				// delete children
 				else
 				{
-					var messages = await child.DeleteChildrenAsync(requestInfo, encryptionKey, serviceCaller, onServiceCallerGotError, nodeID, token).ConfigureAwait(false);
+					var messages = await child.DeleteChildrenAsync(requestInfo, serviceCaller, onServiceCallerGotError, cancellationToken).ConfigureAwait(false);
 					updateMessages = updateMessages.Concat(messages.Item1).ToList();
 					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
 				}
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			role.ClearRelatedCacheAsync(null, cancellationToken).Run();
-			role.Remove();
+			role.Remove().ClearRelatedCacheAsync(null, cancellationToken).Run();
 
 			// update users
 			var beRemovedUserIDs = role.UserIDs ?? new List<string>();
@@ -624,7 +633,7 @@ namespace net.vieapps.Services.Portals
 				},
 				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					{ "RemovedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(encryptionKey) }
+					{ "RemovedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(Utility.EncryptionKey) }
 				}
 			};
 			await beRemovedUserIDs.ForEachAsync(async (userID, token) =>
@@ -654,18 +663,23 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{objectName}#Delete",
 				Data = response,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send messages and response
+			// send update  messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
+
+			// send notification
+			role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Role role, RequestInfo requestInfo, string encryptionKey = null, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, string nodeID = null, CancellationToken cancellationToken = default)
+		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Role role, RequestInfo requestInfo, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, CancellationToken cancellationToken = default)
 		{
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -674,7 +688,7 @@ namespace net.vieapps.Services.Portals
 			var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 			await children.ForEachAsync(async (child, token) =>
 			{
-				var messages = await child.DeleteChildrenAsync(requestInfo, encryptionKey, serviceCaller, onServiceCallerGotError, nodeID, token).ConfigureAwait(false);
+				var messages = await child.DeleteChildrenAsync(requestInfo, serviceCaller, onServiceCallerGotError, token).ConfigureAwait(false);
 				updateMessages = updateMessages.Concat(messages.Item1).ToList();
 				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
 			}, cancellationToken, true, false).ConfigureAwait(false);
@@ -682,6 +696,9 @@ namespace net.vieapps.Services.Portals
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			role.ClearRelatedCacheAsync(null, cancellationToken).Run();
 			role.Remove();
+
+			// send notification
+			role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
 
 			// update users
 			var beRemovedUserIDs = role.UserIDs ?? new List<string>();
@@ -707,15 +724,15 @@ namespace net.vieapps.Services.Portals
 				},
 				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					{ "RemovedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(encryptionKey) }
+					{ "RemovedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(Utility.EncryptionKey) }
 				}
 			};
-			await beRemovedUserIDs.ForEachAsync(async (userID, token) =>
+			await beRemovedUserIDs.ForEachAsync(async (userID, _) =>
 			{
 				try
 				{
 					requestUser.Query["object-identity"] = userID;
-					await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, token)).ConfigureAwait(false);
+					await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, cancellationToken)).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
@@ -734,12 +751,12 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{objectName}#Delete",
 				Data = json,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
-		internal static async Task<JObject> SyncRoleAsync(this RequestInfo requestInfo, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SyncRoleAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var data = requestInfo.GetBodyExpando();
 			var role = await data.Get<string>("ID").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -758,17 +775,17 @@ namespace net.vieapps.Services.Portals
 			var json = role.Set().ToJson();
 			var objectName = role.GetTypeName(true);
 			await Task.WhenAll(
-				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
 				}, cancellationToken),
-				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken)
 			).ConfigureAwait(false);
 

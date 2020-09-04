@@ -22,9 +22,6 @@ namespace net.vieapps.Services.Portals
 		public static Link CreateLinkInstance(this ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 			=> Link.CreateInstance(data, excluded?.ToHashSet(), link =>
 			{
-				var status = data.Get<string>("Status");
-				if (status.IsNumeric())
-					link.Status = (ApprovalStatus)status.CastAs<int>();
 				link.NormalizeHTMLs();
 				onCompleted?.Invoke(link);
 			});
@@ -32,9 +29,6 @@ namespace net.vieapps.Services.Portals
 		public static Link UpdateLinkInstance(this Link link, ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 			=> link.Fill(data, excluded?.ToHashSet(), _ =>
 			{
-				var status = data.Get<string>("Status");
-				if (status.IsNumeric())
-					link.Status = (ApprovalStatus)status.CastAs<int>();
 				link.NormalizeHTMLs();
 				onCompleted?.Invoke(link);
 			});
@@ -76,7 +70,7 @@ namespace net.vieapps.Services.Portals
 			return links != null && links.Count > 0 ? links.Last().OrderIndex : -1;
 		}
 
-		static Task ClearRelatedCacheAsync(this Link link, string oldParentID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		static Task ClearRelatedCacheAsync(this Link link, string oldParentID = null, CancellationToken cancellationToken = default)
 		{
 			var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
 			var tasks = new List<Task>
@@ -84,7 +78,7 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(link.GetCacheKey()), cancellationToken),
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, null), sort), cancellationToken),
 				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(null, null, link.RepositoryEntityID, null), sort), cancellationToken),
-				rtuService == null ? Task.CompletedTask : rtuService.SendClearCacheRequestAsync(link.ContentType?.ID, Extensions.GetCacheKey<Link>(), cancellationToken)
+				Utility.RTUService.SendClearCacheRequestAsync(link.ContentType?.ID, Extensions.GetCacheKey<Link>(), cancellationToken)
 			};
 
 			new[] { link.ParentID, oldParentID }.Where(parentID => !string.IsNullOrWhiteSpace(parentID) && parentID.IsValidUUID()).ForEach(parentID =>
@@ -96,7 +90,7 @@ namespace net.vieapps.Services.Portals
 			return Task.WhenAll(tasks);
 		}
 
-		static async Task<Tuple<long, List<Link>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, string validationKey = null, CancellationToken cancellationToken = default, bool searchThumbnails = false, string cacheKeyPrefix = null)
+		static async Task<Tuple<long, List<Link>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false, string cacheKeyPrefix = null)
 		{
 			// count
 			totalRecords = totalRecords > -1
@@ -117,8 +111,8 @@ namespace net.vieapps.Services.Portals
 			var thumbnails = objects.Count < 1 || !searchThumbnails
 				? null
 				: objects.Count == 1
-					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false)
-					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), validationKey, cancellationToken).ConfigureAwait(false);
+					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
+					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 			// page size to clear related cached
 			Utility.SetCacheOfPageSizeAsync(filter, sort, cacheKeyPrefix, pageSize, cancellationToken).Run();
@@ -127,7 +121,7 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<long, List<Link>, JToken>(totalRecords, objects, thumbnails);
 		}
 
-		internal static async Task<JObject> SearchLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string validationKey = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SearchLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
@@ -155,12 +149,12 @@ namespace net.vieapps.Services.Portals
 			if (organization == null)
 				throw new InformationExistedException("The organization is invalid");
 
-			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("x-module");
+			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null || !module.SystemID.IsEquals(organization.ID))
 				throw new InformationInvalidException("The module is invalid");
 
-			var contentTypeID = filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type");
+			var contentTypeID = filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
 				throw new InformationInvalidException("The content-type is invalid");
@@ -182,7 +176,7 @@ namespace net.vieapps.Services.Portals
 				return JObject.Parse(json);
 
 			// search if has no cache
-			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, validationKey, cancellationToken).ConfigureAwait(false);
+			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
 			var totalRecords = results.Item1;
 			var objects = results.Item2;
 			var thumbnails = results.Item3;
@@ -215,7 +209,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> CreateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> CreateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var request = requestInfo.GetBodyExpando();
@@ -225,12 +219,12 @@ namespace net.vieapps.Services.Portals
 			if (organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
-			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("x-module");
+			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null || !module.SystemID.IsEquals(organization.ID))
 				throw new InformationInvalidException("The module is invalid");
 
-			var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type");
+			var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
 				throw new InformationInvalidException("The content-type is invalid");
@@ -262,7 +256,7 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			await Link.CreateAsync(link, cancellationToken).ConfigureAwait(false);
-			link.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
+			link.ClearRelatedCacheAsync(null, cancellationToken).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -272,7 +266,7 @@ namespace net.vieapps.Services.Portals
 			var parentLink = link.ParentLink;
 			while (parentLink != null)
 			{
-				parentLink.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
+				parentLink.ClearRelatedCacheAsync(null, cancellationToken).Run();
 				parentLink._children = null;
 				parentLink._childrenIDs = null;
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -289,7 +283,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				});
 				parentLink = parentLink.ParentLink;
 			}
@@ -311,18 +305,23 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{objectName}#Create",
 				Data = response,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send messages and response
+			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
+
+			// send notification
+			link.SendNotificationAsync("Create", link.ContentType.Notifications, ApprovalStatus.Draft, link.Status, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> GetLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GetLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
@@ -340,19 +339,21 @@ namespace net.vieapps.Services.Portals
 			if (link._childrenIDs == null)
 				await link.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 
-			// send update message and response
+			// send update messages
 			var response = link.ToJson(true, false);
-			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{link.GetObjectName()}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}, cancellationToken)).ConfigureAwait(false);
+			}, cancellationToken).ConfigureAwait(false);
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
@@ -367,6 +368,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			var oldParentID = link.ParentID;
+			var oldStatus = link.Status;
 			link.UpdateLinkInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
@@ -387,7 +389,7 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			await Link.UpdateAsync(link, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			link.ClearRelatedCacheAsync(oldParentID, rtuService, cancellationToken).Run();
+			link.ClearRelatedCacheAsync(oldParentID, cancellationToken).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -397,7 +399,7 @@ namespace net.vieapps.Services.Portals
 			var parentLink = link.ParentLink;
 			while (parentLink != null)
 			{
-				parentLink.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
+				parentLink.ClearRelatedCacheAsync(null, cancellationToken).Run();
 				parentLink._children = null;
 				parentLink._childrenIDs = null;
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -414,7 +416,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				});
 				parentLink = parentLink.ParentLink;
 			}
@@ -425,7 +427,7 @@ namespace net.vieapps.Services.Portals
 				parentLink = await Link.GetAsync<Link>(oldParentID, cancellationToken).ConfigureAwait(false);
 				if (parentLink != null)
 				{
-					parentLink.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
+					parentLink.ClearRelatedCacheAsync(null, cancellationToken).Run();
 					parentLink._children = null;
 					parentLink._childrenIDs = null;
 					await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -443,7 +445,7 @@ namespace net.vieapps.Services.Portals
 					{
 						Type = $"{objectName}#Update",
 						Data = json,
-						ExcludedNodeID = nodeID
+						ExcludedNodeID = Utility.NodeID
 					});
 					parentLink = parentLink.ParentLink;
 				}
@@ -465,18 +467,23 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{objectName}#Update",
 				Data = response,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send messages and response
+			// send messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
+
+			// send notification
+			link.SendNotificationAsync("Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var request = requestInfo.GetBodyJson();
@@ -489,12 +496,12 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 			var module = link != null
 				? link.Module
-				: await (request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("x-module") ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
+				: await (request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("x-module-id") ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null || !module.SystemID.IsEquals(organization.ID))
 				throw new InformationInvalidException("The module is invalid");
 			var contentType = link != null
 				? link.ContentType
-				: await (request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type") ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+				: await (request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id") ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
 				throw new InformationInvalidException("The content-type is invalid");
 
@@ -514,6 +521,7 @@ namespace net.vieapps.Services.Portals
 				? link.Children
 				: await organization.ID.FindLinksAsync(module.ID, contentType.ID, null, cancellationToken).ConfigureAwait(false);
 
+			var notificationTasks = new List<Task>();
 			await request.Get<JArray>("Links").ForEachAsync(async (info, _) =>
 			{
 				var id = info.Get<string>("ID");
@@ -524,7 +532,10 @@ namespace net.vieapps.Services.Portals
 					item.OrderIndex = orderIndex;
 					item.LastModified = DateTime.Now;
 					item.LastModifiedID = requestInfo.Session.User.ID;
+
 					await Category.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					notificationTasks.Add(item.SendNotificationAsync("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo, cancellationToken));
+
 					var json = item.ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
 					{
@@ -536,14 +547,14 @@ namespace net.vieapps.Services.Portals
 					{
 						Type = $"{objectName}#Update",
 						Data = json,
-						ExcludedNodeID = nodeID
+						ExcludedNodeID = Utility.NodeID
 					});
 				}
 			});
 
 			if (link != null)
 			{
-				await link.ClearRelatedCacheAsync(null, rtuService, cancellationToken).ConfigureAwait(false);
+				await link.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
 				link._childrenIDs = null;
 				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await Utility.Cache.SetAsync(link, cancellationToken).ConfigureAwait(false);
@@ -558,19 +569,24 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				});
 			}
 
-			// send messages and response
+			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
+
+			// send notifications
+			Task.WhenAll(notificationTasks).Run();
+
+			// response
 			return new JObject();
 		}
 
-		internal static async Task<JObject> DeleteLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
@@ -590,7 +606,8 @@ namespace net.vieapps.Services.Portals
 			var objectName = link.GetObjectName();
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
-			await (await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
+			var children = await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			await children.ForEachAsync(async (child, _) =>
 			{
 				// update children to root
 				if (updateChildren)
@@ -598,33 +615,36 @@ namespace net.vieapps.Services.Portals
 					child.ParentID = null;
 					child.LastModified = DateTime.Now;
 					child.LastModifiedID = requestInfo.Session.User.ID;
-					await Link.UpdateAsync(child, requestInfo.Session.User.ID, token).ConfigureAwait(false);
+
+					await Link.UpdateAsync(child, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					child.SendNotificationAsync("Update", child.ContentType.Notifications, child.Status, child.Status, requestInfo, cancellationToken).Run();
+
 					var json = child.ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
 					{
-						Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 						Data = json,
 						DeviceID = "*"
 					});
 					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
 					{
-						Type = $"{objectName}#Delete",
+						Type = $"{objectName}#Update",
 						Data = json,
-						ExcludedNodeID = nodeID
+						ExcludedNodeID = Utility.NodeID
 					});
 				}
 
 				// delete children
 				else
 				{
-					var messages = await child.DeleteChildrenAsync(requestInfo.Session.User.ID, requestInfo.ServiceName, nodeID, token).ConfigureAwait(false);
+					var messages = await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 					updateMessages = updateMessages.Concat(messages.Item1).ToList();
 					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
 				}
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Link.DeleteAsync<Link>(link.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			link.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
+			link.ClearRelatedCacheAsync(null, cancellationToken).Run();
 
 			// message to update to all other connected clients
 			var response = link.ToJson();
@@ -641,18 +661,23 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{objectName}#Delete",
 				Data = response,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send messages and response
+			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
+
+			// send notification
+			link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Link link, string userID, string serviceName = null, string nodeID = null, CancellationToken cancellationToken = default)
+		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Link link, RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -661,30 +686,32 @@ namespace net.vieapps.Services.Portals
 			var children = await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			await children.ForEachAsync(async (child, token) =>
 			{
-				var messages = await child.DeleteChildrenAsync(userID, serviceName, nodeID, token).ConfigureAwait(false);
+				var messages = await child.DeleteChildrenAsync(requestInfo, token).ConfigureAwait(false);
 				updateMessages = updateMessages.Concat(messages.Item1).ToList();
 				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
-			await Link.DeleteAsync<Link>(link.ID, userID, cancellationToken).ConfigureAwait(false);
+			await Link.DeleteAsync<Link>(link.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			var json = link.ToJson();
 			updateMessages.Add(new UpdateMessage
 			{
-				Type = $"{serviceName}#{objectName}#Delete",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 				Data = json,
 				DeviceID = "*"
 			});
-			communicateMessages.Add(new CommunicateMessage(serviceName)
+			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Delete",
 				Data = json,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
+
+			link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, cancellationToken).Run();
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
-		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, string validationKey = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var requestJson = requestInfo.GetBodyJson();
@@ -769,7 +796,7 @@ namespace net.vieapps.Services.Portals
 			// search and build XML if has no cache
 			if (string.IsNullOrWhiteSpace(xml))
 			{
-				var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, optionsJson.Get<bool>("ShowThumbnail", false), requestJson.GetCacheKeyPrefix()).ConfigureAwait(false);
+				var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, optionsJson.Get<bool>("ShowThumbnail", false), requestJson.GetCacheKeyPrefix()).ConfigureAwait(false);
 				var totalRecords = results.Item1;
 				var objects = results.Item2;
 				var thumbnails = results.Item3;
@@ -784,10 +811,10 @@ namespace net.vieapps.Services.Portals
 				await objects.ForEachAsync(async (@object, token) =>
 				{
 					var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID);
-					var element = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, optionsJson.Get<int>("MaxLevel", 0), validationKey, token).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, cultureInfo, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
+					var element = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, optionsJson.Get<int>("MaxLevel", 0), token).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, cultureInfo, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
 					if (asBanner)
 					{
-						var attachments = await requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
+						var attachments = await requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 						var attachmentsXml = new XElement("Attachments");
 						(attachments as JArray).Select(attachment => new JObject
 						{
@@ -820,7 +847,7 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, int level, int maxLevel = 0, string validationKey = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, int level, int maxLevel = 0, CancellationToken cancellationToken = default)
 		{
 			// generate the menu item
 			var menu = new JObject
@@ -850,10 +877,10 @@ namespace net.vieapps.Services.Portals
 					{
 						requestInfo.Header["x-as-attachments"] = "true";
 						var thumbnails = children.Count == 1
-							? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false)
-							: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), validationKey, cancellationToken).ConfigureAwait(false);
+							? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
+							: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 						subMenu = new JArray();
-						await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID), level + 1, maxLevel, validationKey, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+						await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID), level + 1, maxLevel, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 					}
 				}
 
@@ -909,7 +936,7 @@ namespace net.vieapps.Services.Portals
 			return false;
 		}
 
-		internal static async Task<JObject> SyncLinkAsync(this RequestInfo requestInfo, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SyncLinkAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var data = requestInfo.GetBodyExpando();
 			var link = await Link.GetAsync<Link>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
@@ -928,17 +955,17 @@ namespace net.vieapps.Services.Portals
 			var json = link.ToJson();
 			var objectName = link.GetObjectName();
 			await Task.WhenAll(
-				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
 				}, cancellationToken),
-				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken)
 			).ConfigureAwait(false);
 

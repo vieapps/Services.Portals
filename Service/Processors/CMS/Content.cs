@@ -23,9 +23,6 @@ namespace net.vieapps.Services.Portals
 		public static Content CreateContentInstance(this ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
 			=> Content.CreateInstance(data, excluded?.ToHashSet(), content =>
 			{
-				var status = data.Get<string>("Status");
-				if (status.IsNumeric())
-					content.Status = (ApprovalStatus)status.CastAs<int>();
 				content.NormalizeHTMLs();
 				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
@@ -35,9 +32,6 @@ namespace net.vieapps.Services.Portals
 		public static Content UpdateContentInstance(this Content content, ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
 			=> content.Fill(data, excluded?.ToHashSet(), _ =>
 			{
-				var status = data.Get<string>("Status");
-				if (status.IsNumeric())
-					content.Status = (ApprovalStatus)status.CastAs<int>();
 				content.NormalizeHTMLs();
 				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
@@ -67,7 +61,7 @@ namespace net.vieapps.Services.Portals
 				Filters<Content>.Equals("Alias", alias.NormalizeAlias())
 			);
 
-		static async Task ClearRelatedCacheAsync(this Content content, IEnumerable<string> categoryIDs, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		static async Task ClearRelatedCacheAsync(this Content content, IEnumerable<string> categoryIDs, CancellationToken cancellationToken = default)
 		{
 			var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
 			var tasks = new List<Task>
@@ -83,17 +77,14 @@ namespace net.vieapps.Services.Portals
 
 			relatedIDs.ForEach(categoryID => tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(ContentProcessor.GetContentsFilter(content.SystemID, content.RepositoryID, content.RepositoryEntityID, categoryID), sort), cancellationToken)));
 
-			if (rtuService != null)
-			{
-				var categoryAliases = new List<string>();
-				await new[] { content.CategoryID }.Concat(relatedIDs).Distinct(StringComparer.OrdinalIgnoreCase).ForEachAsync(async (categoryID, token) => categoryAliases.Add((await categoryID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false))?.Alias), cancellationToken).ConfigureAwait(false);
-				tasks.Add(rtuService.SendClearCacheRequestAsync(content.ContentType?.ID, Extensions.GetCacheKey<Content>(), categoryAliases, cancellationToken));
-			}
+			var categoryAliases = new List<string>();
+			await new[] { content.CategoryID }.Concat(relatedIDs).Distinct(StringComparer.OrdinalIgnoreCase).ForEachAsync(async (categoryID, token) => categoryAliases.Add((await categoryID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false))?.Alias), cancellationToken).ConfigureAwait(false);
+			tasks.Add(Utility.RTUService.SendClearCacheRequestAsync(content.ContentType?.ID, Extensions.GetCacheKey<Content>(), categoryAliases, cancellationToken));
 
 			await Task.WhenAll(tasks).ConfigureAwait(false);
 		}
 
-		static async Task<Tuple<long, List<Content>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, string validationKey = null, CancellationToken cancellationToken = default, bool searchThumbnails = true, string cacheKeyPrefix = null)
+		static async Task<Tuple<long, List<Content>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, string cacheKeyPrefix = null)
 		{
 			// count
 			totalRecords = totalRecords > -1
@@ -115,8 +106,8 @@ namespace net.vieapps.Services.Portals
 			var thumbnails = objects.Count < 1 || !searchThumbnails
 				? null
 				: objects.Count == 1
-					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false)
-					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), validationKey, cancellationToken).ConfigureAwait(false);
+					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
+					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 			// page size to clear related cached
 			Utility.SetCacheOfPageSizeAsync(filter, sort, cacheKeyPrefix, pageSize, cancellationToken).Run();
@@ -125,7 +116,7 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<long, List<Content>, JToken>(totalRecords, objects, thumbnails);
 		}
 
-		internal static async Task<JObject> SearchContentsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string validationKey = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SearchContentsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
@@ -144,17 +135,17 @@ namespace net.vieapps.Services.Portals
 			if (organization == null)
 				throw new InformationExistedException("The organization is invalid");
 
-			var moduleID = filter?.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module");
+			var moduleID = filter?.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null || !module.SystemID.IsEquals(organization.ID))
 				throw new InformationInvalidException("The module is invalid");
 
-			var contentTypeID = filter?.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type");
+			var contentTypeID = filter?.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
 				throw new InformationInvalidException("The content-type is invalid");
 
-			var categoryID = filter?.GetValue("CategoryID") ?? requestInfo.GetParameter("CategoryID") ?? requestInfo.GetParameter("x-category");
+			var categoryID = filter?.GetValue("CategoryID") ?? requestInfo.GetParameter("CategoryID") ?? requestInfo.GetParameter("x-category-id");
 			var category = await (categoryID ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
 
 			// check permission
@@ -173,7 +164,7 @@ namespace net.vieapps.Services.Portals
 				return JObject.Parse(json);
 
 			// search if has no cache
-			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, validationKey, cancellationToken).ConfigureAwait(false);
+			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
 			var totalRecords = results.Item1;
 			var objects = results.Item2;
 			var thumbnails = results.Item3;
@@ -208,7 +199,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> CreateContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, string validationKey = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> CreateContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var request = requestInfo.GetBodyExpando();
@@ -218,17 +209,17 @@ namespace net.vieapps.Services.Portals
 			if (organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
-			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module");
+			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null || !module.SystemID.IsEquals(organization.ID))
 				throw new InformationInvalidException("The module is invalid");
 
-			var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type");
+			var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
 				throw new InformationInvalidException("The content-type is invalid");
 
-			var categoryID = request.Get<string>("CategoryID") ?? requestInfo.GetParameter("CategoryID") ?? requestInfo.GetParameter("x-category");
+			var categoryID = request.Get<string>("CategoryID") ?? requestInfo.GetParameter("CategoryID") ?? requestInfo.GetParameter("x-category-id");
 			var category = await (categoryID ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (category == null || !category.SystemID.IsEquals(organization.ID) || !category.RepositoryID.IsEquals(module.ID))
 				throw new InformationInvalidException("The category is invalid");
@@ -295,11 +286,11 @@ namespace net.vieapps.Services.Portals
 			// create new
 			await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
-			content.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
+			content.ClearRelatedCacheAsync(null, cancellationToken).Run();
 
 			// prepare the response
-			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), validationKey, cancellationToken);
-			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), validationKey, cancellationToken);
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 
 			var response = content.ToJson(json =>
@@ -309,22 +300,27 @@ namespace net.vieapps.Services.Portals
 				json["Details"] = organization.NormalizeURLs(content.Details);
 			});
 
-			// send update message and response
-			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+			// send update message
+			await (Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Create",
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response
 			}, cancellationToken)).ConfigureAwait(false);
+
+			// send notification
+			content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> GetContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, string validationKey = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GetContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity() ?? "";
-			var content = await (identity.IsValidUUID() ? Content.GetAsync<Content>(identity, cancellationToken) : Content.GetContentByAliasAsync(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type"), identity, requestInfo.GetParameter("Category") ?? requestInfo.GetParameter("x-category"), cancellationToken)).ConfigureAwait(false);
+			var content = await (identity.IsValidUUID() ? Content.GetAsync<Content>(identity, cancellationToken) : Content.GetContentByAliasAsync(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id"), identity, requestInfo.GetParameter("Category") ?? requestInfo.GetParameter("x-category-id"), cancellationToken)).ConfigureAwait(false);
 			if (content == null)
 				throw new InformationNotFoundException();
 			else if (content.Organization == null || content.Module == null || content.ContentType == null)
@@ -348,8 +344,8 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// prepare the response
-			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), validationKey, cancellationToken);
-			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), validationKey, cancellationToken);
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 
 			var response = content.ToJson(json =>
@@ -359,18 +355,20 @@ namespace net.vieapps.Services.Portals
 				json["Details"] = content.Organization.NormalizeURLs(content.Details);
 			});
 
-			// send update message and response
-			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+			// send update message
+			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response
-			})).ConfigureAwait(false);
+			}, cancellationToken).ConfigureAwait(false);
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, string validationKey = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var content = await Content.GetAsync<Content>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
@@ -393,6 +391,7 @@ namespace net.vieapps.Services.Portals
 			var oldCategoryID = content.CategoryID;
 			var oldOtherCategories = content.OtherCategories?.Select(id => id).ToList();
 			var oldAlias = content.Alias;
+			var oldStatus = content.Status;
 
 			content.UpdateContentInstance(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
@@ -446,11 +445,11 @@ namespace net.vieapps.Services.Portals
 			// update
 			await Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
-			content.ClearRelatedCacheAsync(new[] { oldCategoryID }.Concat(oldOtherCategories ?? new List<string>()), rtuService, cancellationToken).Run();
+			content.ClearRelatedCacheAsync(new[] { oldCategoryID }.Concat(oldOtherCategories ?? new List<string>()), cancellationToken).Run();
 
 			// prepare the response
-			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), validationKey, cancellationToken);
-			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), validationKey, cancellationToken);
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 
 			var response = content.ToJson(json =>
@@ -460,18 +459,23 @@ namespace net.vieapps.Services.Portals
 				json["Details"] = content.Organization.NormalizeURLs(content.Details);
 			});
 
-			// send update message and response
-			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+			// send update message
+			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response
-			}, cancellationToken)).ConfigureAwait(false);
+			}, cancellationToken).ConfigureAwait(false);
+
+			// send notification
+			content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> DeleteContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, string validationKey = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var content = await Content.GetAsync<Content>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
@@ -490,25 +494,30 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete files
-			await requestInfo.DeleteFilesAsync(content.SystemID, content.RepositoryEntityID, content.ID, validationKey, cancellationToken).ConfigureAwait(false);
+			await requestInfo.DeleteFilesAsync(content.SystemID, content.RepositoryEntityID, content.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 			// delete content
 			await Content.DeleteAsync<Content>(content.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			content.ClearRelatedCacheAsync(null, rtuService, cancellationToken).Run();
+			content.ClearRelatedCacheAsync(null, cancellationToken).Run();
 
-			// send update message and response
+			// send update message
 			var response = content.ToJson();
-			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Delete",
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response
-			}, cancellationToken)).ConfigureAwait(false);
+			}, cancellationToken).ConfigureAwait(false);
+
+			// send notification
+			content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, string validationKey = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var requestJson = requestInfo.GetBodyJson();
@@ -627,7 +636,7 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(xml))
 				{
 					// search
-					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, validationKey, cancellationToken, optionsJson.Get<bool>("ShowThumbnail", true), cacheKeyPrefix).ConfigureAwait(false);
+					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, optionsJson.Get<bool>("ShowThumbnail", true), cacheKeyPrefix).ConfigureAwait(false);
 					totalRecords = results.Item1;
 					var objects = results.Item2;
 					thumbnails = results.Item3;
@@ -650,7 +659,7 @@ namespace net.vieapps.Services.Portals
 					if (category != null)
 					{
 						requestInfo.Header["x-as-attachments"] = "true";
-						thumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
+						thumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 						data.Add(new XAttribute("CategoryTitle", category.Title), new XAttribute("CategoryThumbnailURL", thumbnails?.GetThumbnailURL(category.ID) ?? ""), new XAttribute("CategoryURL", category.GetURL(desktop)));
 					}
 
@@ -679,7 +688,7 @@ namespace net.vieapps.Services.Portals
 					{ "Title", category?.Title },
 					{ "Description", category?.Description }
 				};
-				thumbnails = category != null ? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false) : null;
+				thumbnails = category != null ? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false) : null;
 				coverURI = (thumbnails as JArray)?.First()?.Get<string>("URI");
 			}
 
@@ -740,7 +749,7 @@ namespace net.vieapps.Services.Portals
 							),
 							Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()),
 							Filters<Content>.GreaterOrEquals("PublishedTime", publishedTime)
-						), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);
+						), Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime"), numberOfOthers, 1, contentTypeID, null, cancellationToken);
 						oldersTask = Content.FindAsync(Filters<Content>.And(
 							Filters<Content>.Equals("RepositoryEntityID", @object.RepositoryEntityID),
 							Filters<Content>.Equals("CategoryID", @object.CategoryID),
@@ -751,7 +760,7 @@ namespace net.vieapps.Services.Portals
 							),
 							Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()),
 							Filters<Content>.LessThanOrEquals("PublishedTime", publishedTime)
-						), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);
+						), Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime"), numberOfOthers, 1, contentTypeID, null, cancellationToken);
 					}
 				}
 				else
@@ -761,8 +770,8 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// get files
-				var thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), validationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
-				var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), validationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
+				var thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
+				var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 
 				// wait for all tasks are completed
 				await Task.WhenAll(relatedsTask, newersTask, oldersTask, thumbnailsTask, attachmentsTask).ConfigureAwait(false);
@@ -788,8 +797,8 @@ namespace net.vieapps.Services.Portals
 					otherThumbnails = others.Count < 1
 						? null
 						: others.Count == 1
-							? await requestInfo.GetThumbnailsAsync(others[0].ID, others[0].Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false)
-							: await requestInfo.GetThumbnailsAsync(others.Select(obj => obj.ID).Join(","), others.ToJObject("ID", obj => new JValue(obj.Title.Url64Encode())).ToString(Formatting.None), validationKey, cancellationToken).ConfigureAwait(false);
+							? await requestInfo.GetThumbnailsAsync(others[0].ID, others[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
+							: await requestInfo.GetThumbnailsAsync(others.Select(obj => obj.ID).Join(","), others.ToJObject("ID", obj => new JValue(obj.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 				}
 
 				// generate XML
@@ -891,7 +900,7 @@ namespace net.vieapps.Services.Portals
 				if (category != null)
 				{
 					requestInfo.Header["x-as-attachments"] = "true";
-					var thumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), validationKey, cancellationToken).ConfigureAwait(false);
+					var thumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 					data.Add(new XAttribute("CategoryTitle", category.Title), new XAttribute("CategoryThumbnailURL", thumbnails?.GetThumbnailURL(category.ID) ?? ""), new XAttribute("CategoryURL", category.GetURL(desktop)));
 				}
 			}
@@ -909,7 +918,7 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		internal static async Task<JObject> SyncContentAsync(this RequestInfo requestInfo, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SyncContentAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var data = requestInfo.GetBodyExpando();
 			var content = await Content.GetAsync<Content>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
@@ -928,17 +937,17 @@ namespace net.vieapps.Services.Portals
 			var json = content.ToJson();
 			var objectName = content.GetObjectName();
 			await Task.WhenAll(
-				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
 				}, cancellationToken),
-				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken)
 			).ConfigureAwait(false);
 

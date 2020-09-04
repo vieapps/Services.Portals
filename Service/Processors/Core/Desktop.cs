@@ -298,7 +298,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> CreateDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> CreateDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var request = requestInfo.GetBodyExpando();
@@ -366,7 +366,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{objectName}#Create",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				});
 			}
 
@@ -386,18 +386,23 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{objectName}#Create",
 				Data = response,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send messages and response
+			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
+
+			// send notification
+			desktop.SendNotificationAsync("Create", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> GetDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GetDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity() ?? "";
@@ -430,19 +435,21 @@ namespace net.vieapps.Services.Portals
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
-			// send update message and response
+			// send update message
 			var response = desktop.ToJson(true, false);
-			await (rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{desktop.GetTypeName(true)}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}, cancellationToken)).ConfigureAwait(false);
+			}, cancellationToken).ConfigureAwait(false);
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var desktop = await (requestInfo.GetObjectIdentity() ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -510,7 +517,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				});
 			}
 
@@ -535,7 +542,7 @@ namespace net.vieapps.Services.Portals
 					{
 						Type = $"{objectName}#Update",
 						Data = json,
-						ExcludedNodeID = nodeID
+						ExcludedNodeID = Utility.NodeID
 					});
 				}
 			}
@@ -556,18 +563,23 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{objectName}#Update",
 				Data = response,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send messages and response
+			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
+
+			// send notification
+			desktop.SendNotificationAsync("Update", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateDesktopPortletsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateDesktopPortletsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var desktop = await (requestInfo.GetObjectIdentity() ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -601,28 +613,30 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 			desktop.SetAsync(false, true, cancellationToken).Run();
 
-			// send messages and response
+			// send update messages
 			var objectName = desktop.GetTypeName(true);
 			var response = desktop.ToJson(true, false);
 			await Task.WhenAll(
-				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
 					DeviceID = "*",
 					ExcludedDeviceID = requestInfo.Session.DeviceID
 				}, cancellationToken),
-				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = response,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken)
 			).ConfigureAwait(false);
+
+			// response
 			return response;
 		}
 
-		internal static async Task<JObject> DeleteDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var desktop = await (requestInfo.GetObjectIdentity() ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -642,7 +656,8 @@ namespace net.vieapps.Services.Portals
 			var objectName = desktop.GetTypeName(true);
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
-			await (await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false)).ForEachAsync(async (child, token) =>
+			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			await children.ForEachAsync(async (child, _) =>
 			{
 				// update children to root
 				if (updateChildren)
@@ -652,9 +667,10 @@ namespace net.vieapps.Services.Portals
 					child.LastModifiedID = requestInfo.Session.User.ID;
 
 					await Task.WhenAll(
-						Role.UpdateAsync(child, requestInfo.Session.User.ID, token),
-						child.SetAsync(false, false, token)
+						Role.UpdateAsync(child, requestInfo.Session.User.ID, cancellationToken),
+						child.SetAsync(false, false, cancellationToken)
 					).ConfigureAwait(false);
+					child.SendNotificationAsync("Update", child.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
 
 					var json = child.ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
@@ -667,14 +683,14 @@ namespace net.vieapps.Services.Portals
 					{
 						Type = $"{objectName}#Delete",
 						Data = json,
-						ExcludedNodeID = nodeID
+						ExcludedNodeID = Utility.NodeID
 					});
 				}
 
 				// delete children
 				else
 				{
-					var messages = await child.DeleteChildrenAsync(requestInfo.Session.User.ID, requestInfo.ServiceName, nodeID, token).ConfigureAwait(false);
+					var messages = await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 					updateMessages = updateMessages.Concat(messages.Item1).ToList();
 					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
 				}
@@ -698,51 +714,63 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{objectName}#Delete",
 				Data = response,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send messages and response
+			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
+				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
+
+			// send notification
+			desktop.SendNotificationAsync("Delete", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+
+			// response
 			return response;
 		}
 
-		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Desktop desktop, string userID, string serviceName = null, string nodeID = null, CancellationToken cancellationToken = default)
+		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Desktop desktop, RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
+			// prepare
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = desktop.GetTypeName(true);
 
+			// delete childrenn
 			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-			await children.ForEachAsync(async (child, token) =>
+			await children.ForEachAsync(async (child, _) =>
 			{
-				var messages = await child.DeleteChildrenAsync(userID, serviceName, nodeID, token).ConfigureAwait(false);
+				var messages = await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 				updateMessages = updateMessages.Concat(messages.Item1).ToList();
 				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
-			await Desktop.DeleteAsync<Desktop>(desktop.ID, userID, cancellationToken).ConfigureAwait(false);
+			// delete
+			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			desktop.Remove().ClearRelatedCacheAsync(null, cancellationToken).Run();
 
+			// send notification
+			desktop.SendNotificationAsync("Delete", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+
+			// prepare update messages
 			var json = desktop.ToJson();
 			updateMessages.Add(new UpdateMessage
 			{
-				Type = $"{serviceName}#{objectName}#Delete",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 				Data = json,
 				DeviceID = "*"
 			});
-			communicateMessages.Add(new CommunicateMessage(serviceName)
+			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Delete",
 				Data = json,
-				ExcludedNodeID = nodeID
+				ExcludedNodeID = Utility.NodeID
 			});
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
-		internal static async Task<JObject> SyncDesktopAsync(this RequestInfo requestInfo, string nodeID = null, IRTUService rtuService = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SyncDesktopAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var data = requestInfo.GetBodyExpando();
 			var desktop = await data.Get<string>("ID").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -763,17 +791,17 @@ namespace net.vieapps.Services.Portals
 			var json = desktop.Set().ToJson();
 			var objectName = desktop.GetTypeName(true);
 			await Task.WhenAll(
-				rtuService == null ? Task.CompletedTask : rtuService.SendUpdateMessageAsync(new UpdateMessage
+				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
 				}, cancellationToken),
-				rtuService == null ? Task.CompletedTask : rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
-					ExcludedNodeID = nodeID
+					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken)
 			).ConfigureAwait(false);
 

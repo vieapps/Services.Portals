@@ -1,5 +1,6 @@
 ﻿#region Related components
 using System;
+using System.Net;
 using System.Linq;
 using System.Dynamic;
 using System.Collections.Generic;
@@ -69,7 +70,7 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public void Normalize()
 		{
-			this.EndpointURLs = (this.EndpointURLs ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("http://") || url.IsStartsWith("https://"))).ToList();
+			this.EndpointURLs = (this.EndpointURLs ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => url.Replace("\r", "").ToList("\n")).SelectMany(url => url).Where(url => !string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("http://") || url.IsStartsWith("https://"))).ToList();
 			this.EndpointURLs = this.EndpointURLs.Count < 1 ? null : this.EndpointURLs;
 			if (string.IsNullOrWhiteSpace(this.AdditionalQuery))
 				this.AdditionalQuery = null;
@@ -229,6 +230,14 @@ namespace net.vieapps.Services.Portals.Settings
 		public string User { get; set; }
 
 		public string UserPassword { get; set; }
+
+		public void Normalize()
+		{
+			this.Host = string.IsNullOrWhiteSpace(this.Host) ? null : this.Host.Trim();
+			this.Port = this.Port > IPEndPoint.MinPort && this.Port < IPEndPoint.MaxPort ? this.Port : 25;
+			this.User = string.IsNullOrWhiteSpace(this.User) ? null : this.User.Trim();
+			this.UserPassword = string.IsNullOrWhiteSpace(this.UserPassword) ? null : this.UserPassword.Trim();
+		}
 	}
 
 	[Serializable]
@@ -245,7 +254,8 @@ namespace net.vieapps.Services.Portals.Settings
 		public void Normalize()
 		{
 			this.Sender = string.IsNullOrWhiteSpace(this.Sender) || this.Sender.GetMailAddress() == null ? null : this.Sender.Trim();
-			this.Signature = string.IsNullOrWhiteSpace(this.Sender) ? null : this.Signature.Trim();
+			this.Signature = string.IsNullOrWhiteSpace(this.Signature) ? null : this.Signature.Trim();
+			this.Smtp?.Normalize();
 			this.Smtp = string.IsNullOrWhiteSpace(this.Smtp?.Host) ? null : this.Smtp;
 		}
 	}
