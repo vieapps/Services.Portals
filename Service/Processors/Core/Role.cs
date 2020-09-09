@@ -174,7 +174,7 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
+				{ "Objects", objects.Select(role => role.ToJson()).ToJArray() }
 			};
 
 			// update cache
@@ -216,11 +216,8 @@ namespace net.vieapps.Services.Portals
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj._childrenIDs = new List<string>();
 			});
-			await Task.WhenAll(
-				Role.CreateAsync(role, cancellationToken),
-				role.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
-			role.ClearRelatedCacheAsync(null, cancellationToken).Run();
+			await Role.CreateAsync(role, cancellationToken).ConfigureAwait(false);
+			role.Set().ClearRelatedCacheAsync(null, cancellationToken).Run();
 
 			// update users
 			var requestUser = new RequestInfo(requestInfo)
@@ -293,7 +290,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// message to update to all other connected clients
-			var response = role.ToJson(true, false);
+			var response = role.ToJson();
 			if (role.ParentRole == null)
 				updateMessages.Add(new UpdateMessage
 				{
@@ -342,7 +339,7 @@ namespace net.vieapps.Services.Portals
 			if (role._childrenIDs == null)
 			{
 				await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
-				await role.SetAsync(true, cancellationToken).ConfigureAwait(false);
+				role.Set();
 			}
 
 			// send the update message to update to all other connected clients
@@ -383,11 +380,8 @@ namespace net.vieapps.Services.Portals
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 				await obj.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 			});
-			await Task.WhenAll(
-				Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken),
-				role.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
-			role.ClearRelatedCacheAsync(oldParentID, cancellationToken).Run();
+			await Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			role.Set().ClearRelatedCacheAsync(oldParentID, cancellationToken).Run();
 
 			// update users
 			var beAddedUserIDs = (role.UserIDs ?? new List<string>()).Except(oldUserIDs).ToList();

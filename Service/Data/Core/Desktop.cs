@@ -220,14 +220,14 @@ namespace net.vieapps.Services.Portals
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addChildrenAndPortlets, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
+		public JObject ToJson(bool addChildrenAndPortlets, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null, Action<JObject> onChildrenCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json.Remove("Privileges");
 				json.Remove("OriginalPrivileges");
 				if (addChildrenAndPortlets)
 				{
-					json["Children"] = this.Children?.Where(desktop => desktop != null).Select(desktop => desktop.ToJson(true, false)).ToJArray();
+					json["Children"] = this.Children?.Where(desktop => desktop != null).Select(desktop => desktop.ToJson(addChildrenAndPortlets, addTypeOfExtendedProperties, onChildrenCompleted)).ToJArray();
 					json["Portlets"] = this.Portlets?.Where(portlet => portlet != null).OrderBy(portlet => portlet.Zone).ThenBy(portlet => portlet.OrderIndex).Select(portlet => portlet.ToJson()).ToJArray();
 				}
 				onCompleted?.Invoke(json);

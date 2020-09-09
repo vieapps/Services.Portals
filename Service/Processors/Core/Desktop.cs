@@ -284,7 +284,7 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
+				{ "Objects", objects.Select(desktop => desktop.ToJson()).ToJArray() }
 			};
 
 			// update cache
@@ -371,7 +371,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// message to update to all other connected clients
-			var response = desktop.ToJson(true, false);
+			var response = desktop.ToJson();
 			if (desktop.ParentDesktop == null)
 				updateMessages.Add(new UpdateMessage
 				{
@@ -666,22 +666,19 @@ namespace net.vieapps.Services.Portals
 					child.LastModified = DateTime.Now;
 					child.LastModifiedID = requestInfo.Session.User.ID;
 
-					await Task.WhenAll(
-						Role.UpdateAsync(child, requestInfo.Session.User.ID, cancellationToken),
-						child.SetAsync(false, false, cancellationToken)
-					).ConfigureAwait(false);
-					child.SendNotificationAsync("Update", child.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+					await Desktop.UpdateAsync(child, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					child.Set().SendNotificationAsync("Update", child.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
 
 					var json = child.ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
 					{
-						Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 						Data = json,
 						DeviceID = "*"
 					});
 					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
 					{
-						Type = $"{objectName}#Delete",
+						Type = $"{objectName}#Update",
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
 					});

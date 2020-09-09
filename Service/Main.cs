@@ -168,7 +168,9 @@ namespace net.vieapps.Services.Portals
 			this.WriteLogs(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})");
 			try
 			{
+				string mode;
 				JToken json = null;
+				Organization organization;
 				switch (requestInfo.ObjectName.ToLower())
 				{
 
@@ -249,9 +251,9 @@ namespace net.vieapps.Services.Portals
 						break;
 					#endregion
 
-					#region process the request of definitions, files, profiles and all known others
+					#region process the request of definitions, instructions, files, profiles and all known others
 					case "definitions":
-						var mode = requestInfo.GetQueryParameter("mode");
+						mode = requestInfo.GetQueryParameter("mode");
 						switch (requestInfo.GetObjectIdentity())
 						{
 							case "moduledefinitions":
@@ -350,6 +352,16 @@ namespace net.vieapps.Services.Portals
 							default:
 								throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 						}
+						break;
+
+					case "instructions":
+						mode = requestInfo.Extra != null && requestInfo.Extra.ContainsKey("mode") ? requestInfo.Extra["mode"].GetCapitalizedFirstLetter() : null;
+						organization = mode != null ? await (requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("active-id") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) : null;
+						json = new JObject
+						{
+							{ "Message", organization != null && organization.Instructions != null && organization.Instructions.ContainsKey(mode) ? organization.Instructions[mode]?.ToJson() : null },
+							{ "Email", organization?.EmailSettings?.ToJson() },
+						};
 						break;
 
 					case "files":
@@ -1983,7 +1995,7 @@ namespace net.vieapps.Services.Portals
 										var text = string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel)
 											? "Previous"
 											: portlet.PaginationSettings.PreviousPageLabel;
-										var url = urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{currentPage - 1}").NormalizePaginationURL();
+										var url = urlPattern.GetPaginationURL(currentPage - 1);
 										paginationXml.Add(new XElement("PreviousPage", new XElement("Text", text.CleanInvalidXmlCharacters()), new XElement("URL", url)));
 									}
 									if (currentPage < totalPages)
@@ -1991,7 +2003,7 @@ namespace net.vieapps.Services.Portals
 										var text = string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel)
 											? "Next"
 											: portlet.PaginationSettings.NextPageLabel;
-										var url = urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{currentPage + 1}");
+										var url = urlPattern.GetPaginationURL(currentPage + 1);
 										paginationXml.Add(new XElement("NextPage", new XElement("Text", text.CleanInvalidXmlCharacters()), new XElement("URL", url)));
 									}
 								}

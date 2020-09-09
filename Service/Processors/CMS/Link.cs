@@ -188,14 +188,14 @@ namespace net.vieapps.Services.Portals
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
 			if (addChildren)
-				await objects.Where(@object => @object._childrenIDs == null).ForEachAsync(async (@object, token) => await @object.FindChildrenAsync(token, false).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
+				await objects.Where(@object => @object._childrenIDs == null).ForEachAsync((@object, token) => @object.FindChildrenAsync(token, false), cancellationToken, true, false).ConfigureAwait(false);
 
 			var response = new JObject()
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.Select(@object => @object.ToJson(addChildren, false, cjson => cjson["Thumbnails"] = thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])).ToJArray() }
+				{ "Objects", objects.Select(@object => @object.ToJson(cjson => cjson["Thumbnails"] = thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])).ToJArray() }
 			};
 
 			// update cache
@@ -854,7 +854,7 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "ID", link.ID },
 				{ "Title", link.Title.CleanInvalidXmlCharacters() },
-				{ "Description", link.Summary?.Replace("\r", "").Replace("\n", "<br/>").CleanInvalidXmlCharacters() },
+				{ "Description", link.Summary?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters() },
 				{ "Image", thumbnailURL },
 				{ "URL", link.URL.CleanInvalidXmlCharacters() },
 				{ "Target", link.Target },

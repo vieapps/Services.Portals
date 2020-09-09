@@ -482,13 +482,14 @@ namespace net.vieapps.Services.Portals
 			=> fileInfo?.Name?.GetMimeType();
 
 		/// <summary>
-		/// Normalizes a pagination URL
+		/// Gets a pagination URL
 		/// </summary>
-		/// <param name="url"></param>
+		/// <param name="urlPattern"></param>
+		/// <param name="pageNumber"></param>
 		/// <returns></returns>
-		public static string NormalizePaginationURL(this string url)
+		public static string GetPaginationURL(this string urlPattern, int pageNumber)
 		{
-			url = url.Replace("/1.html", ".html");
+			var url = (urlPattern ?? "").Format(new Dictionary<string, object> { ["pageNumber"] = pageNumber }).Replace("/1.html", ".html");
 			return url.EndsWith("/1") ? url.Left(url.Length - 2) : url;
 		}
 
@@ -511,7 +512,7 @@ namespace net.vieapps.Services.Portals
 						pages.Add(new JObject
 						{
 							{ "Text", $"{page}" },
-							{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{page}").NormalizePaginationURL() }
+							{ "URL", urlPattern.GetPaginationURL(page) }
 						});
 				else
 				{
@@ -536,30 +537,30 @@ namespace net.vieapps.Services.Portals
 					pages.Add(new JObject
 					{
 						{ "Text", "1" },
-						{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", "1").NormalizePaginationURL() }
+						{ "URL", urlPattern.GetPaginationURL(1) }
 					});
 					if (start - 1 > 1)
 						pages.Add(new JObject
 						{
 							{ "Text", start - 1 > 2 ? "..." : $"{start - 1}" },
-							{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{start - 1}") }
+							{ "URL", urlPattern.GetPaginationURL(start - 1) }
 						});
 					for (var page = start; page <= end; page++)
 						pages.Add(new JObject
 						{
 							{ "Text", $"{page}" },
-							{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{page}") }
+							{ "URL", urlPattern.GetPaginationURL(page) }
 						});
 					if (end + 1 < totalPages)
 						pages.Add(new JObject
 						{
 							{ "Text", end + 1 < totalPages ? "..." : $"{end + 1}" },
-							{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{end + 1}") }
+							{ "URL", urlPattern.GetPaginationURL(end + 1) }
 						});
 					pages.Add(new JObject
 					{
 						{ "Text", $"{totalPages}" },
-						{ "URL", urlPattern.Replace(StringComparison.OrdinalIgnoreCase, "{{pageNumber}}", $"{totalPages}") }
+						{ "URL", urlPattern.GetPaginationURL(totalPages) }
 					});
 				}
 			}
@@ -707,18 +708,6 @@ namespace net.vieapps.Services.Portals
 			// return the xml
 			onCompleted?.Invoke(xml);
 			return xml;
-		}
-
-		/// <summary>
-		/// Normalizes breaks (BR) of HTML code
-		/// </summary>
-		/// <param name="html"></param>
-		/// <param name="noBreakBetweenTags"></param>
-		/// <returns></returns>
-		public static string NormalizeHTMLBreaks(this string html, bool noBreakBetweenTags = true)
-		{
-			html = html.Replace("\t", "").Replace("\r", "").Replace("\n", "<br/>");
-			return noBreakBetweenTags ? html.Replace("><br/><", "><") : html;
 		}
 
 		/// <summary>
@@ -951,14 +940,6 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 			}, cancellationToken).ConfigureAwait(false);
 		}
-
-		/// <summary>
-		/// Gets the time with quater
-		/// </summary>
-		/// <param name="time"></param>
-		/// <returns></returns>
-		public static DateTime GetTimeQuarter(this DateTime time)
-			=> DateTime.Parse($"{time:yyyy/MM/dd HH:}{(time.Minute > 44 ? "45" : time.Minute > 29 ? "30" : time.Minute > 24 ? "15" : "00")}:00");
 
 		/// <summary>
 		/// Runs this task and forget its
@@ -1211,6 +1192,9 @@ namespace net.vieapps.Services.Portals
 			await Utility.LoggingService.WriteLogsAsync(requestInfo.CorrelationID, requestInfo.Session.DeveloperID, requestInfo.Session.AppID, ServiceBase.ServiceComponent.ServiceName, "Notifications", logs, exception.GetStack(), cancellationToken).ConfigureAwait(false);
 		}
 
+		static Task WriteNotificationLogAsync(this RequestInfo requestInfo, string log, CancellationToken cancellationToken = default)
+			=> Utility.LoggingService.WriteLogAsync(requestInfo.CorrelationID, requestInfo.Session.DeveloperID, requestInfo.Session.AppID, ServiceBase.ServiceComponent.ServiceName, "Notifications", log, null, cancellationToken);
+
 		static string GetWebURL(this string url, string siteURL)
 			=> url.Replace("~/", siteURL);
 
@@ -1414,6 +1398,8 @@ namespace net.vieapps.Services.Portals
 				await recipients.Select(recipient => recipient.Get<JArray>("Sessions"))
 					.SelectMany(sessions => sessions.Select(session => session.Get<string>("DeviceID")))
 					.ForEachAsync((deviceID, _) => Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage(baseMessage) { DeviceID = deviceID }, cancellationToken), cancellationToken).ConfigureAwait(false);
+				if (Utility.Logger.IsEnabled(LogLevel.Debug))
+					await requestInfo.WriteNotificationLogAsync($"Send app notifications successful\r\n{baseMessage.ToJson()}", cancellationToken).ConfigureAwait(false);
 			}
 			catch (Exception exception)
 			{
@@ -1498,7 +1484,7 @@ namespace net.vieapps.Services.Portals
 					}.ToExpandoObject()
 				};
 
-				// update CMS Category
+				// add information of the CMS Category
 				if (category != null)
 					@params["Category"] = category.ToJson(false, false, json =>
 					{
@@ -1509,7 +1495,11 @@ namespace net.vieapps.Services.Portals
 
 				// normalize parameters for evaluating
 				var languages = Utility.Languages[requestInfo.CultureCode ?? "vi-VN"];
-				var requestExpando = requestInfo.ToExpandoObject(expando => expando.Set("Body", requestInfo.BodyAsExpandoObject));
+				var requestExpando = requestInfo.ToExpandoObject(requestInfoAsExpandoObject =>
+				{
+					requestInfoAsExpandoObject.Set("Body", requestInfo?.BodyAsExpandoObject);
+					requestInfoAsExpandoObject.Get<ExpandoObject>("Header")?.Remove("x-app-token");
+				});
 				var objectExpando = @object.ToExpandoObject();
 				var paramsExpando = new Dictionary<string, object>(@params.ToDictionary(kvp => kvp.Key, kvp => kvp.Value as object), StringComparer.OrdinalIgnoreCase)
 				{
@@ -1525,23 +1515,35 @@ namespace net.vieapps.Services.Portals
 					{ "EmailSignature", emailSettings?.Signature?.NormalizeHTMLBreaks() }
 				}.ToExpandoObject();
 
+				JObject instructions = null;
+				if (sendEmailNotifications || (!@event.IsEquals("Delete") && businessObject != null && status.Equals(ApprovalStatus.Published) && !status.Equals(previousStatus) && emailsWhenPublish != null))
+					try
+					{
+						instructions = JObject.Parse(await UtilityService.FetchWebResourceAsync($"{Utility.APIsHttpURI}/statics/instructions/portals/{languages}.json", cancellationToken).ConfigureAwait(false))?.Get<JObject>("notifications");
+					}
+					catch (Exception exception)
+					{
+						await requestInfo.WriteNotificationErrorAsync(exception, cancellationToken, "Error occurred while fetching instructions").ConfigureAwait(false);
+					}
+
 				// send email message
 				if (sendEmailNotifications)
 					try
 					{
-						var addresses = recipients.Select(recipient => recipient.Get<string>("Email")).Where(email => !string.IsNullOrWhiteSpace(email)).Join(";");
-						var subject = emailNotifications?.Subject ?? "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" was {{@toLower(@params(Event))}}d";
-						var body = emailNotifications?.Body ?? @"
-						Hi,
-						The content that titled as ""<b>{{@current(Title)}}</b>"" ({{@params(ObjectName)}} on <a href=""{{@params(Site.URL)}}"">{{@params(Site.Title)}}</a>) was {{@toLower(@params(Event))}}d by {{@params(Sender.Name)}}.
-						You can reach that content by one of these URLs below:
-						<ul>
-							<li>Public website: <a href=""{{@params(URLs.Public)}}"">{{@params(URLs.Public)}}</a></li>
-							<li>CMS portals: <a href=""{{@params(URLs.Portal)}}"">{{@params(URLs.Portal)}}</a></li>
-							<li>CMS apps: <a href=""{{@params(URLs.Private)}}"">{{@params(URLs.Private)}}</a></li>
-						</ul>
-						{{@params(EmailSignature)}}
-						";
+						var subject = emailNotifications?.Subject ?? instructions?.Get<JObject>("emailByApprovalStatus")?.Get<JObject>($"{status}")?.Get<string>("subject") ?? instructions?.Get<JObject>("email")?.Get<string>("subject");
+						if (string.IsNullOrWhiteSpace(subject))
+							subject = "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" was {{@toLower(@params(Event))}}d";
+						var body = emailNotifications?.Body ?? instructions?.Get<JObject>("emailByApprovalStatus")?.Get<JObject>($"{status}")?.Get<string>("body") ?? instructions?.Get<JObject>("email")?.Get<string>("body");
+						if (string.IsNullOrWhiteSpace(body))
+							body = @"Hi,
+							The content that titled as ""<b>{{@current(Title)}}</b>"" ({{@params(ObjectName)}} on <a href=""{{@params(Site.URL)}}"">{{@params(Site.Title)}}</a>) was {{@toLower(@params(Event))}}d by {{@params(Sender.Name)}}.
+							You can reach that content by one of these URLs below:
+							<ul>
+								<li>Public website: <a href=""{{@params(URLs.Public)}}"">{{@params(URLs.Public)}}</a></li>
+								<li>CMS portals: <a href=""{{@params(URLs.Portal)}}"">{{@params(URLs.Portal)}}</a></li>
+								<li>CMS apps: <a href=""{{@params(URLs.Private)}}"">{{@params(URLs.Private)}}</a></li>
+							</ul>
+							{{@params(EmailSignature)}}";
 						var parameters = $"{subject}\r\n{body}"
 							.GetDoubleBracesTokens()
 							.Select(token => token.Item2)
@@ -1557,7 +1559,7 @@ namespace net.vieapps.Services.Portals
 						var message = new EmailMessage
 						{
 							From = emailSettings?.Sender,
-							To = addresses + (string.IsNullOrWhiteSpace(emailNotifications.ToAddresses) ? "" : $";{emailNotifications.ToAddresses}"),
+							To = recipients.Select(recipient => recipient.Get<string>("Email")).Where(email => !string.IsNullOrWhiteSpace(email)).Join(";") + (string.IsNullOrWhiteSpace(emailNotifications.ToAddresses) ? "" : $";{emailNotifications.ToAddresses}"),
 							Cc = emailNotifications?.CcAddresses,
 							Bcc = emailNotifications?.BccAddresses,
 							Subject = subject.NormalizeHTMLBreaks().Format(parameters),
@@ -1578,7 +1580,7 @@ namespace net.vieapps.Services.Portals
 							$"- Sender: {sender?.Get<string>("Name")} ({sender?.Get<string>("Email")})" + "\r\n" +
 							$"- To: {message.To}" + (!string.IsNullOrWhiteSpace(message.Cc) ? $" / {message.Cc}" : "") + (!string.IsNullOrWhiteSpace(message.Bcc) ? $" / {message.Bcc}" : "") + "\r\n" +
 							$"- Subject: {message.Subject}";
-						await Utility.LoggingService.WriteLogAsync(requestInfo.CorrelationID, requestInfo.Session.DeveloperID, requestInfo.Session.AppID, serviceName, "Notifications", log, null, cancellationToken).ConfigureAwait(false);
+						await requestInfo.WriteNotificationLogAsync(log, cancellationToken).ConfigureAwait(false);
 						if (Utility.Logger.IsEnabled(LogLevel.Debug))
 							Utility.Logger.LogDebug($"Add an email notification into queue successful\r\n{message.ToJson()}");
 					}
@@ -1591,18 +1593,20 @@ namespace net.vieapps.Services.Portals
 				if (!@event.IsEquals("Delete") && businessObject != null && status.Equals(ApprovalStatus.Published) && !status.Equals(previousStatus) && emailsWhenPublish != null)
 					try
 					{
-						var subject = emailsWhenPublish?.Subject ?? "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" was published";
-						var body = emailsWhenPublish?.Body ?? @"
-						Hi,
-						The content that titled as ""<b>{{@current(Title)}}</b>"" ({{@params(ObjectName)}} on <a href=""{{@params(Site.URL)}}"">{{@params(Site.Title)}}</a>) was published by {{@params(Sender.Name)}}.
-						You can reach that content by one of these URLs below:
-						<ul>
-							<li>Public website: <a href=""{{@params(URLs.Public)}}"">{{@params(URLs.Public)}}</a></li>
-							<li>CMS portals: <a href=""{{@params(URLs.Portal)}}"">{{@params(URLs.Portal)}}</a></li>
-							<li>CMS apps: <a href=""{{@params(URLs.Private)}}"">{{@params(URLs.Private)}}</a></li>
-						</ul>
-						{{@params(EmailSignature)}}
-						";
+						var subject = emailsWhenPublish?.Subject ?? instructions?.Get<JObject>("emailsWhenPublish")?.Get<string>("subject");
+						if (string.IsNullOrWhiteSpace(subject))
+							subject = "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" was published";
+						var body = emailsWhenPublish?.Body ?? instructions?.Get<JObject>("emailsWhenPublish")?.Get<string>("body");
+						if (string.IsNullOrWhiteSpace(body))
+							body = @"Hi,
+							The content that titled as ""<b>{{@current(Title)}}</b>"" ({{@params(ObjectName)}} on <a href=""{{@params(Site.URL)}}"">{{@params(Site.Title)}}</a>) was published by {{@params(Sender.Name)}}.
+							You can reach that content by one of these URLs below:
+							<ul>
+								<li>Public website: <a href=""{{@params(URLs.Public)}}"">{{@params(URLs.Public)}}</a></li>
+								<li>CMS portals: <a href=""{{@params(URLs.Portal)}}"">{{@params(URLs.Portal)}}</a></li>
+								<li>CMS apps: <a href=""{{@params(URLs.Private)}}"">{{@params(URLs.Private)}}</a></li>
+							</ul>
+							{{@params(EmailSignature)}}";
 						var parameters = $"{subject}\r\n{body}"
 							.GetDoubleBracesTokens()
 							.Select(token => token.Item2)
@@ -1639,7 +1643,7 @@ namespace net.vieapps.Services.Portals
 							$"- Sender: {sender?.Get<string>("Name")} ({sender?.Get<string>("Email")})" + "\r\n" +
 							$"- To: {message.To}" + (!string.IsNullOrWhiteSpace(message.Cc) ? $" / {message.Cc}" : "") + (!string.IsNullOrWhiteSpace(message.Bcc) ? $" / {message.Bcc}" : "") + "\r\n" +
 							$"- Subject: {message.Subject}";
-						await Utility.LoggingService.WriteLogAsync(requestInfo.CorrelationID, requestInfo.Session.DeveloperID, requestInfo.Session.AppID, serviceName, "Notifications", log, null, cancellationToken).ConfigureAwait(false);
+						await requestInfo.WriteNotificationLogAsync(log, cancellationToken).ConfigureAwait(false);
 						if (Utility.Logger.IsEnabled(LogLevel.Debug))
 							Utility.Logger.LogDebug($"Add an email notification (notify when publish) into queue successful\r\n{message.ToJson()}");
 					}
@@ -1706,7 +1710,7 @@ namespace net.vieapps.Services.Portals
 							$"- Event: {@event}" + "\r\n" +
 							$"- Status: {status} (previous: {previousStatus})" + "\r\n" +
 							$"- Endpoint URL: {message.EndpointURL}";
-						await Utility.LoggingService.WriteLogAsync(requestInfo.CorrelationID, requestInfo.Session.DeveloperID, requestInfo.Session.AppID, serviceName, "Notifications", log, null, cancellationToken).ConfigureAwait(false);
+						await requestInfo.WriteNotificationLogAsync(log, cancellationToken).ConfigureAwait(false);
 						if (Utility.Logger.IsEnabled(LogLevel.Debug))
 							Utility.Logger.LogDebug($"Add a web-hook notification into queue successful\r\n{message.ToJson(json => { json["Query"] = message.Query.ToJObject(); json["Header"] = message.Header.ToJObject(); })}");
 					}, cancellationToken).ConfigureAwait(false);

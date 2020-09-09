@@ -198,11 +198,11 @@ namespace net.vieapps.Services.Portals
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
+		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null, Action<JObject> onChildrenCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				if (addChildren)
-					json["Children"] = this.Children?.Where(link => link != null).OrderBy(link => link.OrderIndex).Select(link => link?.ToJson(addChildren, addTypeOfExtendedProperties)).ToJArray();
+					json["Children"] = this.Children?.Where(link => link != null).OrderBy(link => link.OrderIndex).Select(link => link?.ToJson(addChildren, addTypeOfExtendedProperties, onChildrenCompleted)).ToJArray();
 				onCompleted?.Invoke(json);
 			});
 

@@ -247,12 +247,13 @@ namespace net.vieapps.Services.Portals
 					await category.FindChildrenAsync(token, false).ConfigureAwait(false);
 					await category.SetAsync(false, true, token).ConfigureAwait(false);
 				}, cancellationToken, true, false).ConfigureAwait(false);
+
 			var response = new JObject()
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.Select(category => addChildren ? category.ToJson(true, false) : category.ToJson(false, null)).ToJArray() }
+				{ "Objects", objects.Select(category => category.ToJson(addChildren)).ToJArray() }
 			};
 
 			// update cache
@@ -407,7 +408,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send update message
-			var objectName = category.GetObjectName();
+			var objectName = category.GetObjectName(); 
 			var response = category.ToJson(true, false);
 			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
@@ -810,7 +811,7 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "ID", category.ID },
 				{ "Title", category.Title.CleanInvalidXmlCharacters() },
-				{ "Description", category.Description?.Replace("\r", "").Replace("\n", "<br/>").CleanInvalidXmlCharacters() },
+				{ "Description", category.Description?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters() },
 				{ "Image", thumbnailURL },
 				{ "URL", url.CleanInvalidXmlCharacters() },
 				{ "Target", null },

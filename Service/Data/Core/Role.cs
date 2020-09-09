@@ -134,17 +134,17 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		List<INestedObject> INestedObject.Children => this.Children?.Select(role => role as INestedObject).ToList();
 
-		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
-			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
+		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
+			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null, Action<JObject> onChildrenCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json.Remove("Privileges");
 				json.Remove("OriginalPrivileges");
 				if (addChildren)
-					json["Children"] = this.Children?.Select(role => role?.ToJson(true, false)).Where(role => role != null).ToJArray();
-				onPreCompleted?.Invoke(json);
+					json["Children"] = this.Children?.Where(role => role != null).Select(role => role?.ToJson(addChildren, addTypeOfExtendedProperties, onChildrenCompleted)).ToJArray();
+				onCompleted?.Invoke(json);
 			});
 
 		public override void ProcessPropertyChanged(string name)
