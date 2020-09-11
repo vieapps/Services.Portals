@@ -59,14 +59,18 @@ namespace net.vieapps.Services.Portals
 		public static async Task<Role> GetRoleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetRoleByID(force, false) ?? (await Role.GetAsync<Role>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
-		public static IFilterBy<Role> GetRolesFilter(this string systemID, string parentID)
-			=> Filters<Role>.And(Filters<Role>.Equals("SystemID", systemID), string.IsNullOrWhiteSpace(parentID) ? Filters<Role>.IsNull("ParentID") : Filters<Role>.Equals("ParentID", parentID));
+		public static IFilterBy<Role> GetRolesFilter(string systemID, string parentID = null)
+			=> Filters<Role>.And
+			(
+				Filters<Role>.Equals("SystemID", systemID),
+				string.IsNullOrWhiteSpace(parentID) ? Filters<Role>.IsNull("ParentID") : Filters<Role>.Equals("ParentID", parentID)
+			);
 
 		public static List<Role> FindRoles(this string systemID, string parentID, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Role>();
-			var filter = systemID.GetRolesFilter(parentID);
+			var filter = RoleProcessor.GetRolesFilter(systemID, parentID);
 			var sort = Sorts<Role>.Ascending("Title");
 			var roles = Role.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
 			roles.ForEach(role => role.Set(updateCache));
@@ -77,7 +81,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Role>();
-			var filter = systemID.GetRolesFilter(parentID);
+			var filter = RoleProcessor.GetRolesFilter(systemID, parentID);
 			var sort = Sorts<Role>.Ascending("Title");
 			var roles = await Role.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
 			await roles.ForEachAsync((role, token) => role.SetAsync(updateCache, token), cancellationToken).ConfigureAwait(false);
@@ -101,11 +105,11 @@ namespace net.vieapps.Services.Portals
 
 		static Task ClearRelatedCacheAsync(this Role role, string oldParentID = null, CancellationToken cancellationToken = default)
 		{
-			var tasks = new List<Task> { Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(null), Sorts<Role>.Ascending("Title")), cancellationToken) };
+			var tasks = new List<Task> { Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID), Sorts<Role>.Ascending("Title")), cancellationToken) };
 			if (!string.IsNullOrWhiteSpace(role.ParentID) && role.ParentID.IsValidUUID())
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken));
+				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken));
 			if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(role.SystemID.GetRolesFilter(oldParentID), Sorts<Role>.Ascending("Title")), cancellationToken));
+				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, oldParentID), Sorts<Role>.Ascending("Title")), cancellationToken));
 			return Task.WhenAll(tasks);
 		}
 
@@ -145,9 +149,10 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(json))
-				return JObject.Parse(json);
+			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));
+			var cachedJson = string.IsNullOrWhiteSpace(query) && !addChildren ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
+			if (!string.IsNullOrWhiteSpace(cachedJson))
+				return JObject.Parse(cachedJson);
 
 			// prepare pagination
 			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
@@ -169,6 +174,10 @@ namespace net.vieapps.Services.Portals
 
 			// build result
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
+
+			if (addChildren)
+				await objects.Where(role => role._childrenIDs == null).ForEachAsync((role, _) => role.FindChildrenAsync(cancellationToken), cancellationToken, true, false).ConfigureAwait(false);
+
 			var response = new JObject
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
@@ -178,15 +187,8 @@ namespace net.vieapps.Services.Portals
 			};
 
 			// update cache
-			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
+			if (string.IsNullOrWhiteSpace(query) && !addChildren)
+				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -324,7 +326,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
+			var role = await (requestInfo.GetObjectIdentity(true, true) ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (role == null)
 				throw new InformationNotFoundException();
 			else if (role.Organization == null)
@@ -335,6 +337,15 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// refresh (clear cached and reload)
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+			{
+				await role.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
+				await Utility.Cache.RemoveAsync(role, cancellationToken).ConfigureAwait(false);
+				role = await role.ID.GetRoleByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			}
+
 			// prepare the response
 			if (role._childrenIDs == null)
 			{
@@ -343,14 +354,23 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send the update message to update to all other connected clients
+			var objectName = role.GetTypeName(true);
 			var response = role.ToJson(true, false);
-			await (Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+
+			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{role.GetTypeName(true)}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}, cancellationToken)).ConfigureAwait(false);
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
+			}, cancellationToken).ConfigureAwait(false);
+			if (isRefresh)
+				await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;

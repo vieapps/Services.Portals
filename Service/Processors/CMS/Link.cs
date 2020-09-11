@@ -90,7 +90,7 @@ namespace net.vieapps.Services.Portals
 			return Task.WhenAll(tasks);
 		}
 
-		static async Task<Tuple<long, List<Link>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false, string cacheKeyPrefix = null)
+		static async Task<Tuple<long, List<Link>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, string cacheKeyPrefix = null, bool searchThumbnails = false, bool pngThumbnails = false, bool bigThumbnails = false)
 		{
 			// count
 			totalRecords = totalRecords > -1
@@ -108,6 +108,8 @@ namespace net.vieapps.Services.Portals
 
 			// search thumbnails
 			requestInfo.Header["x-as-attachments"] = "true";
+			requestInfo.Header["x-png-thumbnails"] = $"{pngThumbnails}".ToLower();
+			requestInfo.Header["x-big-thumbnails"] = $"{bigThumbnails}".ToLower();
 			var thumbnails = objects.Count < 1 || !searchThumbnails
 				? null
 				: objects.Count == 1
@@ -171,9 +173,9 @@ namespace net.vieapps.Services.Portals
 
 			// process cached
 			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));
-			var json = string.IsNullOrWhiteSpace(query) && !addChildren ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(json))
-				return JObject.Parse(json);
+			var cachedJson = string.IsNullOrWhiteSpace(query) && !addChildren ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
+			if (!string.IsNullOrWhiteSpace(cachedJson))
+				return JObject.Parse(cachedJson);
 
 			// search if has no cache
 			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
@@ -188,22 +190,19 @@ namespace net.vieapps.Services.Portals
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
 			if (addChildren)
-				await objects.Where(@object => @object._childrenIDs == null).ForEachAsync((@object, token) => @object.FindChildrenAsync(token, false), cancellationToken, true, false).ConfigureAwait(false);
+				await objects.Where(link => link._childrenIDs == null).ForEachAsync((link, _) => link.FindChildrenAsync(cancellationToken, false), cancellationToken, true, false).ConfigureAwait(false);
 
 			var response = new JObject()
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.Select(@object => @object.ToJson(cjson => cjson["Thumbnails"] = thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])).ToJArray() }
+				{ "Objects", objects.Select(@object => @object.ToJson(addChildren, false, json => json["Thumbnails"] = thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])).ToJArray() }
 			};
 
 			// update cache
-			if (string.IsNullOrWhiteSpace(query))
-			{
-				json = response.ToString(Formatting.None);
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).Run();
-			}
+			if (string.IsNullOrWhiteSpace(query) && !addChildren)
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), Utility.Cache.ExpirationTime / 2).Run();
 
 			// response
 			return response;
@@ -324,7 +323,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity(true, true) ?? "", cancellationToken).ConfigureAwait(false);
 			if (link == null)
 				throw new InformationNotFoundException();
 			else if (link.Organization == null || link.Module == null || link.ContentType == null)
@@ -335,9 +334,21 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// refresh (clear cached and reload)
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+			{
+				await link.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
+				await Utility.Cache.RemoveAsync(link, cancellationToken).ConfigureAwait(false);
+				link = await Link.GetAsync<Link>(link.ID, cancellationToken).ConfigureAwait(false);
+			}
+
 			// prepare the response
 			if (link._childrenIDs == null)
-				await link.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
+			{
+				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await Utility.Cache.SetAsync(link, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update messages
 			var response = link.ToJson(true, false);
@@ -796,7 +807,10 @@ namespace net.vieapps.Services.Portals
 			// search and build XML if has no cache
 			if (string.IsNullOrWhiteSpace(xml))
 			{
-				var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, optionsJson.Get<bool>("ShowThumbnail", false), requestJson.GetCacheKeyPrefix()).ConfigureAwait(false);
+				var showThumbnails = optionsJson.Get<bool>("ShowThumbnail", optionsJson.Get<bool>("ShowThumbnails", false));
+				var pngThumbnails = optionsJson.Get<bool>("PngThumbnail", optionsJson.Get<bool>("PngThumbnails", false));
+				var bigThumbnails = optionsJson.Get<bool>("BigThumbnail", optionsJson.Get<bool>("BigThumbnails", false));
+				var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, requestJson.GetCacheKeyPrefix(), showThumbnails, pngThumbnails, bigThumbnails).ConfigureAwait(false);
 				var totalRecords = results.Item1;
 				var objects = results.Item2;
 				var thumbnails = results.Item3;

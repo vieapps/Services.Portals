@@ -1409,7 +1409,7 @@ namespace net.vieapps.Services.Portals
 			// send email notifications
 			if (sendEmailNotifications || emailsWhenPublish != null)
 			{
-				var appURL = $"/portals/initializer?x-request={("{" + $"\"SystemID\":\"{organization?.ID}\",\"Action\":\"Open\",\"ObjectName\":\"{objectName}\",\"ObjectID\":\"{@object.ID}\"" + "}").Url64Encode()}".GetAppURL();
+				var appURL = $"/portals/initializer?x-request={("{" + $"\"SystemID\":\"{organization?.ID}\",\"ObjectName\":\"{objectName}\",\"ObjectID\":\"{@object.ID}\"" + "}").Url64Encode()}".GetAppURL();
 				var normalizedHTMLs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 				var definition = RepositoryMediator.GetEntityDefinition(@object.GetType());
 				if (definition != null)

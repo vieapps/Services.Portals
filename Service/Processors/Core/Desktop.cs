@@ -255,9 +255,10 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(json))
-				return JObject.Parse(json);
+			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));
+			var cachedJson = string.IsNullOrWhiteSpace(query) && !addChildren ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
+			if (!string.IsNullOrWhiteSpace(cachedJson))
+				return JObject.Parse(cachedJson);
 
 			// prepare pagination
 			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
@@ -279,20 +280,27 @@ namespace net.vieapps.Services.Portals
 
 			// build response
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
+			if (addChildren)
+				await objects.Where(desktop => desktop._childrenIDs == null || desktop._portlets == null).ForEachAsync(async (desktop, _) =>
+				{
+					if (desktop._childrenIDs == null)
+						await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+					if (desktop._portlets == null)
+						await desktop.FindPortletsAsync(cancellationToken, false).ConfigureAwait(false);
+					await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				}, cancellationToken, true, false).ConfigureAwait(false);
+
 			var response = new JObject()
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.Select(desktop => desktop.ToJson()).ToJArray() }
+				{ "Objects", objects.Select(desktop => desktop.ToJson(addChildren, false)).ToJArray() }
 			};
 
 			// update cache
-			if (string.IsNullOrWhiteSpace(query))
-			{
-				json = response.ToString(Formatting.None);
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).Run();
-			}
+			if (string.IsNullOrWhiteSpace(query) && !addChildren)
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), Utility.Cache.ExpirationTime / 2).Run();
 
 			// response
 			return response;
@@ -405,7 +413,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var identity = requestInfo.GetObjectIdentity() ?? "";
+			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
 			var desktop = await (identity.IsValidUUID() ? identity.GetDesktopByIDAsync(cancellationToken) : identity.GetDesktopByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
 			if (desktop == null)
 				throw new InformationNotFoundException();
@@ -425,6 +433,15 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", desktop.Alias }
 				};
 
+			// refresh (clear cached and reload)
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+			{
+				await desktop.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
+				await Utility.Cache.RemoveAsync(desktop, cancellationToken).ConfigureAwait(false);
+				desktop = await desktop.Remove().ID.GetDesktopByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			}
+
 			// prepare the response
 			if (desktop._childrenIDs == null || desktop._portlets == null)
 			{
@@ -436,14 +453,22 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send update message
+			var objectName = desktop.GetTypeName(true);
 			var response = desktop.ToJson(true, false);
 			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{desktop.GetTypeName(true)}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}, cancellationToken).ConfigureAwait(false);
+			if (isRefresh)
+				await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;
