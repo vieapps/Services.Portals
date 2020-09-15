@@ -280,6 +280,7 @@ namespace net.vieapps.Services.Portals
 
 			// build response
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
+
 			if (addChildren)
 				await objects.Where(desktop => desktop._childrenIDs == null || desktop._portlets == null).ForEachAsync(async (desktop, _) =>
 				{

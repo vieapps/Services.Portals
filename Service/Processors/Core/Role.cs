@@ -183,7 +183,7 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.Select(role => role.ToJson()).ToJArray() }
+				{ "Objects", objects.Select(role => role.ToJson(addChildren, false)).ToJArray() }
 			};
 
 			// update cache

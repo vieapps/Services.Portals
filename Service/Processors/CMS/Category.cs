@@ -170,7 +170,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll(tasks).ConfigureAwait(false);
 		}
 
-		internal static async Task<JObject> SearchCategorysAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SearchCategoriesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
@@ -238,12 +238,9 @@ namespace net.vieapps.Services.Portals
 
 			// build response
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
+
 			if (addChildren)
-				await objects.Where(category => category._childrenIDs == null).ForEachAsync(async (category, token) =>
-				{
-					await category.FindChildrenAsync(token, false).ConfigureAwait(false);
-					await category.SetAsync(false, true, token).ConfigureAwait(false);
-				}, cancellationToken, true, false).ConfigureAwait(false);
+				await objects.Where(category => category._childrenIDs == null).ForEachAsync((category, _) => category.FindChildrenAsync(cancellationToken), cancellationToken, true, false).ConfigureAwait(false);
 
 			var response = new JObject()
 			{

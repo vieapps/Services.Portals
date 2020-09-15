@@ -111,21 +111,22 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _childrenIDs;
 
-		internal List<Role> FindChildren(List<Role> roles = null)
+		internal List<Role> FindChildren(bool notifyPropertyChanged = true, List < Role> roles = null)
 		{
 			if (this._childrenIDs == null)
 			{
 				roles = roles ?? (this.SystemID ?? "").FindRoles(this.ID);
 				this._childrenIDs = roles.Select(role => role.ID).ToList();
-				this.NotifyPropertyChanged("ChildrenIDs");
+				if (notifyPropertyChanged)
+					this.NotifyPropertyChanged("ChildrenIDs");
 				return roles;
 			}
 			return this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 		}
 
-		internal async Task<List<Role>> FindChildrenAsync(CancellationToken cancellationToken = default)
+		internal async Task<List<Role>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
-				? this.FindChildren(await (this.SystemID ?? "").FindRolesAsync(this.ID, cancellationToken).ConfigureAwait(false))
+				? this.FindChildren(notifyPropertyChanged, await(this.SystemID ?? "").FindRolesAsync(this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -150,7 +151,7 @@ namespace net.vieapps.Services.Portals
 		public override void ProcessPropertyChanged(string name)
 		{
 			if (name.IsEquals("ChildrenIDs"))
-				Utility.Cache.Set(this);
+				Utility.Cache.SetAsync(this).Run();
 		}
 	}
 }

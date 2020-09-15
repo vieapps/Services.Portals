@@ -446,9 +446,9 @@ namespace net.vieapps.Services.Portals
 		/// Gets the pre-defined template
 		/// </summary>
 		/// <param name="filename"></param>
+		/// <param name="theme"></param>
 		/// <param name="mainDirectory"></param>
 		/// <param name="subDirectory"></param>
-		/// <param name="theme"></param>
 		/// <returns></returns>
 		public static async Task<string> GetTemplateAsync(string filename, string theme = null, string mainDirectory = null, string subDirectory = null, CancellationToken cancellationToken = default)
 		{
@@ -1494,10 +1494,11 @@ namespace net.vieapps.Services.Portals
 					}).ToExpandoObject();
 
 				// normalize parameters for evaluating
-				var languages = Utility.Languages[requestInfo.CultureCode ?? "vi-VN"];
+				var language = requestInfo.CultureCode ?? "vi-VN";
+				var languages = Utility.Languages.ContainsKey(language) ? Utility.Languages[language] : null;
 				var requestExpando = requestInfo.ToExpandoObject(requestInfoAsExpandoObject =>
 				{
-					requestInfoAsExpandoObject.Set("Body", requestInfo?.BodyAsExpandoObject);
+					requestInfoAsExpandoObject.Set("Body", requestInfo.BodyAsExpandoObject);
 					requestInfoAsExpandoObject.Get<ExpandoObject>("Header")?.Remove("x-app-token");
 				});
 				var objectExpando = @object.ToExpandoObject();
@@ -1519,7 +1520,7 @@ namespace net.vieapps.Services.Portals
 				if (sendEmailNotifications || (!@event.IsEquals("Delete") && businessObject != null && status.Equals(ApprovalStatus.Published) && !status.Equals(previousStatus) && emailsWhenPublish != null))
 					try
 					{
-						instructions = JObject.Parse(await UtilityService.FetchWebResourceAsync($"{Utility.APIsHttpURI}/statics/instructions/portals/{languages}.json", cancellationToken).ConfigureAwait(false))?.Get<JObject>("notifications");
+						instructions = JObject.Parse(await UtilityService.FetchWebResourceAsync($"{Utility.APIsHttpURI}/statics/instructions/portals/{language}.json", cancellationToken).ConfigureAwait(false))?.Get<JObject>("notifications");
 					}
 					catch (Exception exception)
 					{

@@ -162,12 +162,13 @@ namespace net.vieapps.Services.Portals
 			// prepare the requesting information
 			var systemIdentity = string.Empty;
 			var specialRequest = string.Empty;
+			var legacyRequest = string.Empty;
 			var queryString = context.Request.QueryString.ToDictionary(query =>
 			{
 				var pathSegments = context.GetRequestPathSegments(true).Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx")).ToArray();
 				var requestSegments = pathSegments;
 
-				// special parameters, like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity
+				// special parameters (like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity)
 				if (pathSegments.Length > 0 && !string.IsNullOrWhiteSpace(pathSegments[0]))
 				{
 					// indicator
@@ -235,29 +236,37 @@ namespace net.vieapps.Services.Portals
 					}
 				}
 
-				// parameters of desktop and contents
+				// normalize info of requests
 				if (requestSegments.Length > 0)
 				{
-					var value = requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
-					value = value.Equals("") || value.StartsWith("-") || value.IsEquals("default") || value.IsEquals("index") || value.IsNumeric() ? "default" : value.GetANSIUri();
-					query["x-desktop"] = (value.Equals("default") ? "-" : "") + value;
+					// request of legacy systems
+					if (requestSegments[0].IsEndsWith(".ashx"))
+						legacyRequest = requestSegments.Join("/");
 
-					value = requestSegments.Length > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].Replace(".html", "") : null;
-					query["x-parent"] = string.IsNullOrWhiteSpace(value) ? null : value.GetANSIUri();
-
-					if (requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]))
+					// parameters of desktop and contents
+					else
 					{
-						value = requestSegments[2].Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
-						if (value.IsNumeric())
-							query["x-page"] = value;
-						else
-							query["x-content"] = value.GetANSIUri();
+						var value = requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
+						value = value.Equals("") || value.StartsWith("-") || value.IsEquals("default") || value.IsEquals("index") || value.IsNumeric() ? "default" : value.GetANSIUri();
+						query["x-desktop"] = (value.Equals("default") ? "-" : "") + value;
 
-						if (requestSegments.Length > 3 && !string.IsNullOrWhiteSpace(requestSegments[3]))
+						value = requestSegments.Length > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].Replace(".html", "") : null;
+						query["x-parent"] = string.IsNullOrWhiteSpace(value) ? null : value.GetANSIUri();
+
+						if (requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]))
 						{
-							value = requestSegments[3].Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
+							value = requestSegments[2].Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
 							if (value.IsNumeric())
 								query["x-page"] = value;
+							else
+								query["x-content"] = value.GetANSIUri();
+
+							if (requestSegments.Length > 3 && !string.IsNullOrWhiteSpace(requestSegments[3]))
+							{
+								value = requestSegments[3].Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
+								if (value.IsNumeric())
+									query["x-page"] = value;
+							}
 						}
 					}
 				}
@@ -287,6 +296,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 			// process the request
+			JObject systemIdentityJson = null;
 			if (string.IsNullOrWhiteSpace(specialRequest))
 				try
 				{
@@ -295,23 +305,74 @@ namespace net.vieapps.Services.Portals
 
 					using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
 					{
-						// call Portals service to identify the system
+						// call the Portals service to identify the system
 						if (string.IsNullOrWhiteSpace(systemIdentity))
 						{
-							var info = await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-							queryString["x-system"] = info?.Get<string>("Alias");
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+							queryString["x-system"] = systemIdentityJson?.Get<string>("Alias");
 						}
 
-						// call Portals service to process the request
-						var response = (await context.CallServiceAsync(new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+						// request of portal desktops
+						if (string.IsNullOrWhiteSpace(legacyRequest))
+						{
+							// call Portals service to process the request
+							var response = (await context.CallServiceAsync(new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
 
-						// write headers
-						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
+							// write headers
+							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
 
-						// write body
-						var body = response.Get<string>("Body");
-						if (body != null)
-							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "deflate")), cts.Token).ConfigureAwait(false);
+							// write body
+							var body = response.Get<string>("Body");
+							if (body != null)
+								await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "deflate")), cts.Token).ConfigureAwait(false);
+						}
+
+						// request of legacy system (files and medias)
+						else
+						{
+							var requestSegments = legacyRequest.ToArray("/").ToList();
+
+							if (requestSegments[0].IsEquals("Download.ashx"))
+								requestSegments[0] = "downloads";
+							else
+							{
+								requestSegments[0] = requestSegments[0].IsEquals("File.ashx") || requestSegments[0].IsEquals("Image.ashx")
+									? "files"
+									: requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "").ToLower() + "s";
+								if (!requestSegments[1].IsValidUUID())
+								{
+									systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+									requestSegments.Insert(1, systemIdentityJson?.Get<string>("ID"));
+								}
+							}
+
+							if (requestSegments[0].IsEquals("files") && requestSegments[3].Contains("-") && requestSegments[3].Length > 32)
+							{
+								var id = requestSegments[3].Left(32);
+								var filename = requestSegments[3].Right(requestSegments[3].Length - 33);
+								requestSegments[3] = id;
+								requestSegments.Insert(4, filename);
+								requestSegments = requestSegments.Take(5).ToList();
+							}
+
+							else if (requestSegments[0].IsStartsWith("thumbnail") && requestSegments[5].Contains("-") && requestSegments[5].Length > 32)
+							{
+								var id = requestSegments[5].Left(32);
+								var filename = requestSegments[5].Right(requestSegments[5].Length - 33);
+								requestSegments[5] = id;
+								requestSegments.Insert(6, filename);
+								requestSegments = requestSegments.Take(7).ToList();
+							}
+
+							var filesHttpURI = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
+							while (filesHttpURI.IsEndsWith("/"))
+								filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1).Trim();
+
+							context.SetResponseHeaders((int)HttpStatusCode.MovedPermanently, new Dictionary<string, string>
+							{
+								["Location"] = $"{filesHttpURI}/{requestSegments.Join("/")}"
+							}); ;
+						}
 
 						// flush the response stream as final step
 						await context.FlushAsync(cts.Token).ConfigureAwait(false);
@@ -351,8 +412,8 @@ namespace net.vieapps.Services.Portals
 						{
 							try
 							{
-								var info = await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-								await this.ProcessLogInRequestAsync(context, info?.Get<string>("ID")).ConfigureAwait(false);
+								systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+								await this.ProcessLogInRequestAsync(context, systemIdentityJson?.Get<string>("ID")).ConfigureAwait(false);
 							}
 							catch (Exception ex)
 							{

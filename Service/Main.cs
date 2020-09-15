@@ -711,7 +711,7 @@ namespace net.vieapps.Services.Portals
 			{
 				case "GET":
 					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchCategorysAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						? await requestInfo.SearchCategoriesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
@@ -843,26 +843,32 @@ namespace net.vieapps.Services.Portals
 					? (await desktop.GetTemplateAsync(cancellationToken).ConfigureAwait(false)).GetXDocument().GetZoneNames().ToJArray()
 					: new JArray();
 			}
-			return new JObject
-			{
-				{ "Template", await Utility.GetTemplateAsync(request.Get<string>("Name"), null, request.Get<string>("MainDirectory"), request.Get<string>("SubDirectory"), cancellationToken).ConfigureAwait(false) }
-			};
+
+			var filename = request.Get<string>("Name");
+			var theme = request.Get<string>("Theme");
+			var mainDirectory = request.Get<string>("MainDirectory");
+			var subDirectory = request.Get<string>("SubDirectory");
+			var template = await Utility.GetTemplateAsync(filename, theme, mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
+			if (string.IsNullOrWhiteSpace(template) && !"default".IsEquals(theme))
+				template = await Utility.GetTemplateAsync(filename, null, mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
+
+			return new JObject { { "Template", template } };
 		}
 
 		async Task<JToken> IdentifySystemAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
-			var site = requestInfo.Header.TryGetValue("x-host", out var host) && !string.IsNullOrWhiteSpace(host)
-				? await host.GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false)
-				: Utility.DefaultSite;
+			string host;
+			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
+			if (organization == null)
+				organization = (requestInfo.Header.TryGetValue("x-host", out host) && !string.IsNullOrWhiteSpace(host) ? await host.GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false) : Utility.DefaultSite)?.Organization;
 
-			if (site == null || site.Organization == null)
-				throw new SiteNotRecognizedException($"The requested site is not recognized ({(string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
-
-			return new JObject
-			{
-				{ "ID", site.Organization.ID },
-				{ "Alias", site.Organization.Alias }
-			};
+			return organization != null
+				? new JObject
+				{
+					{ "ID", organization.ID },
+					{ "Alias", organization.Alias }
+				}
+				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(requestInfo.Header.TryGetValue("x-host", out host) && !string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
 		}
 
 		Task<JToken> ProcessHttpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
@@ -1354,7 +1360,7 @@ namespace net.vieapps.Services.Portals
 				{
 					OrganizationProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 					json.Remove("Privileges");
-					json["Description"] = organization.Description?.Replace("\r", "").Replace("\n", "<br/>");
+					json["Description"] = organization.Description?.NormalizeHTMLBreaks();
 					json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
 				});
 
@@ -1362,7 +1368,7 @@ namespace net.vieapps.Services.Portals
 				{
 					SiteProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 					json.Remove("Privileges");
-					json["Description"] = site.Description?.Replace("\r", "").Replace("\n", "<br/>");
+					json["Description"] = site.Description?.NormalizeHTMLBreaks();
 					json["Domain"] = $"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www.");
 					json["Host"] = host;
 				});
@@ -1632,21 +1638,21 @@ namespace net.vieapps.Services.Portals
 					{
 						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");
-						json["Description"] = contentType.Module.Description?.Replace("\r", "").Replace("\n", "<br/>");
+						json["Description"] = contentType.Module.Description?.NormalizeHTMLBreaks();
 					})
 				},
 				{ "ContentType", contentType.ToJson(json =>
 					{
 						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");
-						json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
+						json["Description"] = contentType.Description?.NormalizeHTMLBreaks();
 					})
 				},
 				{ "ParentContentType", parentContentType?.ToJson(json =>
 					{
 						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");
-						json["Description"] = parentContentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
+						json["Description"] = parentContentType.Description?.NormalizeHTMLBreaks();
 					})
 				}
 			};
@@ -2062,18 +2068,20 @@ namespace net.vieapps.Services.Portals
 					content = this.GenerateErrorHtml(errorMessage, errorStack, correlationID, portlet.ID);
 
 				contentZone.Value = "{{content-holder}}";
-				html = portletContainer.ToString();
-				html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{content-holder}}", content);
+				html = portletContainer.ToString().Replace(StringComparison.OrdinalIgnoreCase, "{{content-holder}}", content);
 			}
 			else
 				html = portletContainer.ToString();
 
 			title = portlet.Title.GetANSIUri();
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{id}}", portlet.ID);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{name}}", title);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{title}}", title);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{ansi-title}}", title);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{title-ansi}}", title);
+			html = html.Format(new Dictionary<string, object>
+			{
+				["id"] = portlet.ID,
+				["name"] = title,
+				["title"] = title,
+				["ansi-title"] = title,
+				["title-ansi"] = title
+			});
 
 			stopwatch.Stop();
 			if (writeLogs)
@@ -2296,11 +2304,11 @@ namespace net.vieapps.Services.Portals
 				metaTags += $"<meta name=\"twitter:image\" property=\"og:image\" itemprop=\"thumbnailUrl\" content=\"{site.CoverURI}\"/>";
 
 			if (!string.IsNullOrWhiteSpace(desktop.IconURI))
-				metaTags += $"<link rel=\"icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".icon") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>"
-					+ $"<link rel=\"shortcut icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".icon") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>";
+				metaTags += $"<link rel=\"icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".ico") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>"
+					+ $"<link rel=\"shortcut icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".ico") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>";
 			if (!string.IsNullOrWhiteSpace(site.IconURI))
-				metaTags += $"<link rel=\"icon\" type=\"image/{(site.IconURI.IsEndsWith(".icon") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>"
-					+ $"<link rel=\"shortcut icon\" type=\"image/{(site.IconURI.IsEndsWith(".icon") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>";
+				metaTags += $"<link rel=\"icon\" type=\"image/{(site.IconURI.IsEndsWith(".ico") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>"
+					+ $"<link rel=\"shortcut icon\" type=\"image/{(site.IconURI.IsEndsWith(".ico") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>";
 
 			// add addtional meta tags of main portlet
 			metaInfo?.Select(meta => (meta as JValue).Value.ToString()).Where(meta => !string.IsNullOrWhiteSpace(meta)).ForEach(meta => metaTags += meta);
@@ -2332,18 +2340,18 @@ namespace net.vieapps.Services.Portals
 			var scripts = $"<script src=\"{Utility.PortalsHttpURI}/_assets/default.js\"></script>";
 			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", "default", "js"));
 			if (directory.Exists && this.AllowSrcResourceFiles)
-				await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
+				await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, _) =>
 				{
-					scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, token).ConfigureAwait(false) + "\r\n";
+					scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
 				}, cancellationToken, true, false).ConfigureAwait(false);
 			scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/default.js\"></script>";
 			if (!"default".IsEquals(theme))
 			{
 				directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", theme, "js"));
 				if (directory.Exists && this.AllowSrcResourceFiles)
-					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
+					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, _) =>
 					{
-						scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, token).ConfigureAwait(false) + "\r\n";
+						scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
 					}, cancellationToken, true, false).ConfigureAwait(false);
 				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/{theme}.js\"></script>";
 			}
@@ -2360,49 +2368,63 @@ namespace net.vieapps.Services.Portals
 			if (writeLogs)
 				await this.WriteLogsAsync(correlationID, $"Prepare the zone(s) of {desktopInfo} => {desktopZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
-			var desktopZonesGotPortlet = desktop.Portlets.Select(portlet => portlet.Zone).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var removedZones = new List<XElement>();
+			var desktopZonesGotPortlet = desktop.Portlets.Select(portlet => portlet.Zone).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			desktopZones.ForEach(zone =>
 			{
 				var idAttribute = zone.GetZoneIDAttribute();
 				if (desktopZonesGotPortlet.IndexOf(idAttribute.Value) < 0)
 				{
+					// get parent  element
+					var parent = zone.Parent;
+
+					// remove this empty zone
 					removedZones.Add(zone);
 					zone.Remove();
+
+					// add css class '.empty' to parent element
+					if (!parent.HasElements)
+					{
+						parent.Value = " ";
+						var cssAttribute = parent.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("class"));
+						if (cssAttribute == null)
+							parent.Add(new XAttribute("class", "empty"));
+						else if (!cssAttribute.Value.IsContains("empty"))
+							cssAttribute.Value = $"{cssAttribute.Value.Trim()} empty";
+					}
 				}
 				else
 				{
-					zone.Value = "{{" + zone.GetZoneIDAttribute().Value + "-holder}}";
+					zone.Value = "{{" + idAttribute.Value + "-holder}}";
 					idAttribute.Remove();
 				}
 			});
 
-			if (writeLogs)
-				await this.WriteLogsAsync(correlationID, $"Remove empty zone(s) of {desktopInfo} => {removedZones?.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
-
 			removedZones.ForEach(zone => desktopZones.Remove(zone));
-			var emptyElements = desktopContainer.Root.Elements().Where(element => element.IsEmpty).ToList();
-			emptyElements.ForEach(element => element.Remove());
+			if (writeLogs)
+				await this.WriteLogsAsync(correlationID, $"Remove empty zone(s) of {desktopInfo} => {removedZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
-			// add css class '.full' to single zone to have full width
+			// add css class '.full' to a zone that the parent only got this zone
 			desktopZones.Where(zone => zone.Parent.Elements().Count() == 1).Where(zone => zone.Parent.Attribute("class") == null || !zone.Parent.Attribute("class").Value.IsContains("fixed")).ForEach(zone =>
 			{
-				var attribute = zone.Attributes().FirstOrDefault(attr => attr.Name.LocalName.IsEquals("class"));
-				if (attribute == null)
+				var cssAttribute = zone.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("class"));
+				if (cssAttribute == null)
 					zone.Add(new XAttribute("class", "full"));
 				else
-					attribute.Value = $"{attribute.Value.Trim()} full";
+					cssAttribute.Value = $"{cssAttribute.Value.Trim()} full";
 			});
 
 			// get the desktop body
-			var body = desktopContainer.ToString();
-			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{theme}}", theme);
-			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{skin}}", theme);
-			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{organization}}", organization.Alias);
-			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{organization-alias}}", organization.Alias);
-			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{desktop-alias}}", desktop.Alias);
-			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{desktop}}", desktop.Alias);
-			body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{alias}}", desktop.Alias);
+			var body = desktopContainer.ToString().Format(new Dictionary<string, object>
+			{
+				["theme"] = theme,
+				["skin"] = theme,
+				["organization"] = organization.Alias,
+				["organization-alias"] = organization.Alias,
+				["desktop"] = desktop.Alias,
+				["desktop-alias"] = desktop.Alias,
+				["alias"] = desktop.Alias
+			});
 
 			return new Tuple<string, string, string, string>(title, metaTags, scripts, body);
 		}
@@ -2413,17 +2435,27 @@ namespace net.vieapps.Services.Portals
 			var searchDesktop = site.SearchDesktop != null ? $"\"{site.SearchDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}\"" : "undefined";
 			var language = "\"" + (desktop.Language ?? site.Language ?? "vi-VN") + "\"";
 			var osMode = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os";
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{homedesktop}}", homeDesktop);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{searchdesktop}}", searchDesktop);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{language}}", language);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{ismobile}}", isMobile);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{osinfo}}", osInfo);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{osplatform}}", osInfo.GetANSIUri());
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{os-platform}}", osInfo.GetANSIUri());
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{osmode}}", osMode);
-			html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{os-mode}}", osMode);
-			html = html.NormalizeURLs(requestURI, organization.Alias, useShortURLs);
-			return html;
+			return html.Format(new Dictionary<string, object>
+			{
+				["home"] = homeDesktop,
+				["homedesktop"] = homeDesktop,
+				["home-desktop"] = homeDesktop,
+				["search"] = searchDesktop,
+				["searchdesktop"] = searchDesktop,
+				["search-desktop"] = searchDesktop,
+				["organization-alias"] = organization.Alias,
+				["desktop-alias"] = desktop.Alias,
+				["language"] = language,
+				["culture"] = language,
+				["isMobile"] = isMobile,
+				["is-mobile"] = isMobile,
+				["osInfo"] = osInfo,
+				["os-info"] = osInfo,
+				["osPlatform"] = osInfo.GetANSIUri(),
+				["os-platform"] = osInfo.GetANSIUri(),
+				["osMode"] = osMode,
+				["os-mode"] = osMode
+			}).NormalizeURLs(requestURI, organization.Alias, useShortURLs);
 		}
 
 		JObject GenerateErrorJson(Exception exception, string correlationID, bool addErrorStack, string errorMessage = null)

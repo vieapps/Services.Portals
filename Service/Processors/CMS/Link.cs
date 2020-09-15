@@ -190,7 +190,7 @@ namespace net.vieapps.Services.Portals
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
 			if (addChildren)
-				await objects.Where(link => link._childrenIDs == null).ForEachAsync((link, _) => link.FindChildrenAsync(cancellationToken, false), cancellationToken, true, false).ConfigureAwait(false);
+				await objects.Where(link => link._childrenIDs == null).ForEachAsync((link, _) => link.FindChildrenAsync(cancellationToken), cancellationToken, true, false).ConfigureAwait(false);
 
 			var response = new JObject()
 			{
