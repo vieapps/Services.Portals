@@ -207,7 +207,12 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false)
-			=> $"~/{this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{this.ContentType?.Title?.GetANSIUri() ?? "-"}/{this.ID}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
+		{
+			var url = this.URL ?? "#";
+			if (url.StartsWith("~/") && url.IsEndsWith("/default.aspx") && this.Organization != null && this.Organization.AlwaysUseHtmlSuffix)
+				url = url.Replace(StringComparison.OrdinalIgnoreCase, "/default.aspx", ".html");
+			return url.Equals("~.html") ? "~/index.html" : url;
+		}
 	}
 
 	[Serializable]

@@ -766,7 +766,8 @@ namespace net.vieapps.Services.Portals
 
 			// prepare filtering expression
 			if (!(expressionJson.Get<JObject>("FilterBy")?.ToFilter<Link>() is FilterBys<Link> filter) || filter.Children == null || filter.Children.Count < 1)
-				filter = Filters<Link>.And(
+				filter = Filters<Link>.And
+				(
 					Filters<Link>.Equals("SystemID", "@request.Body(Organization.ID)"),
 					Filters<Link>.Equals("RepositoryID", "@request.Body(Module.ID)"),
 					Filters<Link>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
@@ -822,10 +823,10 @@ namespace net.vieapps.Services.Portals
 
 				// generate xml
 				data = XElement.Parse("<Data/>");
-				await objects.ForEachAsync(async (@object, token) =>
+				await objects.ForEachAsync(async (@object, _) =>
 				{
 					var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID);
-					var element = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, optionsJson.Get<int>("MaxLevel", 0), token).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, cultureInfo, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
+					var element = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, optionsJson.Get<int>("MaxLevel", 0), cancellationToken).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, cultureInfo, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
 					if (asBanner)
 					{
 						var attachments = await requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
@@ -870,7 +871,7 @@ namespace net.vieapps.Services.Portals
 				{ "Title", link.Title.CleanInvalidXmlCharacters() },
 				{ "Description", link.Summary?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters() },
 				{ "Image", thumbnailURL },
-				{ "URL", link.URL.CleanInvalidXmlCharacters() },
+				{ "URL", link.GetURL().CleanInvalidXmlCharacters() },
 				{ "Target", link.Target },
 				{ "Level", level },
 				{ "Selected", false }
