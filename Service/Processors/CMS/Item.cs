@@ -57,7 +57,7 @@ namespace net.vieapps.Services.Portals
 				Utility.RTUService.SendClearCacheRequestAsync(item.ContentType?.ID, Extensions.GetCacheKey<Item>(), cancellationToken)
 			);
 
-		static async Task<Tuple<long, List<Item>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, string cacheKeyPrefix = null)
+		static async Task<Tuple<long, List<Item>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, string cacheKeyPrefix = null, bool searchThumbnails = true, bool pngThumbnails = false, bool bigThumbnails = false, int thumbnailsWidth = 0, int thumbnailsHeight = 0)
 		{
 			// count
 			totalRecords = totalRecords > -1
@@ -74,12 +74,18 @@ namespace net.vieapps.Services.Portals
 				: new List<Item>();
 
 			// search thumbnails
-			requestInfo.Header["x-as-attachments"] = "true";
-			var thumbnails = objects.Count < 1 || !searchThumbnails
-				? null
-				: objects.Count == 1
+			JToken thumbnails = null;
+			if (objects.Count > -1 && searchThumbnails)
+			{
+				requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+				requestInfo.Header["x-thumbnails-as-png"] = $"{pngThumbnails}".ToLower();
+				requestInfo.Header["x-thumbnails-as-big"] = $"{bigThumbnails}".ToLower();
+				requestInfo.Header["x-thumbnails-width"] = $"{thumbnailsWidth}";
+				requestInfo.Header["x-thumbnails-height"] = $"{thumbnailsHeight}";
+				thumbnails = objects.Count == 1
 					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+			}
 
 			// page size to clear related cached
 			await Utility.SetCacheOfPageSizeAsync(filter, sort, cacheKeyPrefix, pageSize, cancellationToken).ConfigureAwait(false);
@@ -368,15 +374,14 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var requestJson = requestInfo.GetBodyJson();
+			var requestJson = requestInfo.BodyAsJson;
+			var options = requestJson.Get("Options", new JObject()).ToExpandoObject();
 
 			var organizationJson = requestJson.Get("Organization", new JObject());
 			var moduleJson = requestJson.Get("Module", new JObject());
 			var contentTypeJson = requestJson.Get("ContentType", new JObject());
 			var expressionJson = requestJson.Get("Expression", new JObject());
-
 			var desktopsJson = requestJson.Get("Desktops", new JObject());
-			var optionsJson = requestJson.Get("Options", new JObject());
 
 			var paginationJson = requestJson.Get("Pagination", new JObject());
 			var pageSize = paginationJson.Get<int>("PageSize", 7);
@@ -397,6 +402,12 @@ namespace net.vieapps.Services.Portals
 			XElement data;
 			JObject pagination, seoInfo, filterBy = null, sortBy = null;
 			string coverURI = null;
+
+			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", false)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
+			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
+			var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
+			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
+			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 
 			// generate list
 			if (isList)
@@ -454,7 +465,7 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(xml))
 				{
 					// search
-					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, optionsJson.Get<bool>("ShowThumbnail", true), cacheKeyPrefix).ConfigureAwait(false);
+					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, cacheKeyPrefix, showThumbnails, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight).ConfigureAwait(false);
 					totalRecords = results.Item1;
 					var objects = results.Item2;
 					thumbnails = results.Item3;
@@ -510,15 +521,14 @@ namespace net.vieapps.Services.Portals
 				if (!gotRights)
 					throw new AccessDeniedException();
 
-				var showThumbnails = optionsJson.Get<bool>("ShowThumbnail", optionsJson.Get<bool>("ShowThumbnails", false));
-				var showAttachments = optionsJson.Get<bool>("ShowAttachments", false);
-				var showOthers = optionsJson.Get<bool>("ShowOthers", false);
+				var showAttachments = options.Get("ShowAttachments", false);
+				var showOthers = options.Get("ShowOthers", false);
 
 				// get other contents
 				Task<List<Item>> newersTask, oldersTask;
 				if (showOthers)
 				{
-					var numberOfOthers = optionsJson.Get<int>("NumberOfOthers", 10) / 2;
+					var numberOfOthers = options.Get<int>("NumberOfOthers", 10) / 2;
 
 					newersTask = Item.FindAsync(Filters<Item>.And(
 						Filters<Item>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
@@ -539,6 +549,14 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// get files
+				if (showThumbnails)
+				{
+					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+					requestInfo.Header["x-thumbnails-as-png"] = $"{pngThumbnails}".ToLower();
+					requestInfo.Header["x-thumbnails-as-big"] = $"{bigThumbnails}".ToLower();
+					requestInfo.Header["x-thumbnails-width"] = $"{thumbnailsWidth}";
+					requestInfo.Header["x-thumbnails-height"] = $"{thumbnailsHeight}";
+				}
 				var thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 				var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 
@@ -552,7 +570,6 @@ namespace net.vieapps.Services.Portals
 					newersTask.Result.ForEach(other => others.Add(other));
 					oldersTask.Result.ForEach(other => others.Add(other));
 					others = others.Where(other => other.ID != @object.ID).OrderByDescending(other => other.Created).ToList();
-					requestInfo.Header["x-as-attachments"] = "true";
 					otherThumbnails = others.Count < 1
 						? null
 						: others.Count == 1
@@ -599,18 +616,18 @@ namespace net.vieapps.Services.Portals
 						}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment", x => x.Element("Size").UpdateNumber(false, cultureInfo))));
 						xml.Add(attachments);
 					}
-
-					if (showOthers)
-					{
-						var othersXml = new XElement("Others");
-						others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
-						{
-							otherXml.Add(new XElement("URL", other.GetURL(desktop)));
-							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
-						})));
-						xml.Add(othersXml);
-					}
 				}));
+
+				if (showOthers)
+				{
+					var othersXml = new XElement("Others");
+					others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
+					{
+						otherXml.Add(new XElement("URL", other.GetURL(desktop)));
+						otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
+					})));
+					data.Add(othersXml);
+				}
 
 				// build others
 				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true), showPageLinks, numberOfPageLinks);

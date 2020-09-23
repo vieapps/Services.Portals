@@ -84,7 +84,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll(tasks).ConfigureAwait(false);
 		}
 
-		static async Task<Tuple<long, List<Content>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, string cacheKeyPrefix = null, bool searchThumbnails = true, bool pngThumbnails = false, bool bigThumbnails = false)
+		static async Task<Tuple<long, List<Content>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, string cacheKeyPrefix = null, bool searchThumbnails = true, bool pngThumbnails = false, bool bigThumbnails = false, int thumbnailsWidth = 0, int thumbnailsHeight = 0)
 		{
 			// count
 			totalRecords = totalRecords > -1
@@ -102,14 +102,19 @@ namespace net.vieapps.Services.Portals
 
 			// search thumbnails
 			objects = objects.Where(@object => @object != null && !string.IsNullOrWhiteSpace(@object.ID)).ToList();
-			requestInfo.Header["x-as-attachments"] = "true";
-			requestInfo.Header["x-png-thumbnails"] = $"{pngThumbnails}".ToLower();
-			requestInfo.Header["x-big-thumbnails"] = $"{bigThumbnails}".ToLower();
-			var thumbnails = objects.Count < 1 || !searchThumbnails
-				? null
-				: objects.Count == 1
+
+			JToken thumbnails = null;
+			if (objects.Count > 0 && searchThumbnails)
+			{
+				requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+				requestInfo.Header["x-thumbnails-as-png"] = $"{pngThumbnails}".ToLower();
+				requestInfo.Header["x-thumbnails-as-big"] = $"{bigThumbnails}".ToLower();
+				requestInfo.Header["x-thumbnails-width"] = $"{thumbnailsWidth}";
+				requestInfo.Header["x-thumbnails-height"] = $"{thumbnailsHeight}";
+				thumbnails = objects.Count == 1
 					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+			}
 
 			// page size to clear related cached
 			Utility.SetCacheOfPageSizeAsync(filter, sort, cacheKeyPrefix, pageSize, cancellationToken).Run();
@@ -522,16 +527,15 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var requestJson = requestInfo.GetBodyJson();
+			var requestJson = requestInfo.BodyAsJson;
+			var options = requestJson.Get("Options", new JObject()).ToExpandoObject();
 
 			var organizationJson = requestJson.Get("Organization", new JObject());
 			var moduleJson = requestJson.Get("Module", new JObject());
 			var contentTypeJson = requestJson.Get("ContentType", new JObject());
 			var parentContentTypeJson = requestJson.Get("ParentContentType", new JObject());
 			var expressionJson = requestJson.Get("Expression", new JObject());
-
 			var desktopsJson = requestJson.Get("Desktops", new JObject());
-			var optionsJson = requestJson.Get("Options", new JObject());
 
 			var contentTypeID = contentTypeJson.Get<string>("ID");
 			var category = await parentContentTypeJson.Get<string>("ID", "").GetCategoryByAliasAsync(requestJson.Get<string>("ParentIdentity"), cancellationToken).ConfigureAwait(false);
@@ -555,6 +559,12 @@ namespace net.vieapps.Services.Portals
 			JArray breadcrumbs;
 			JObject pagination, seoInfo, filterBy = null, sortBy = null;
 			string coverURI = null;
+
+			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", true)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
+			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
+			var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
+			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
+			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 
 			// generate list
 			if (isList)
@@ -631,17 +641,14 @@ namespace net.vieapps.Services.Portals
 				var cacheKey = cacheKeyPrefix != null ? Extensions.GetCacheKeyOfObjectsXml<Content>(cacheKeyPrefix, pageSize, pageNumber) : null;
 				var xml = cacheKey != null ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 
-				JToken thumbnails = null;
+				JToken thumbnails = null, categoryThumbnails = null;
 				long totalRecords = 0;
 
 				// search and build XML if has no cache
 				if (string.IsNullOrWhiteSpace(xml))
 				{
 					// search
-					var showThumbnails = optionsJson.Get<bool>("ShowThumbnail", optionsJson.Get<bool>("ShowThumbnails", true));
-					var pngThumbnails = optionsJson.Get<bool>("PngThumbnail", optionsJson.Get<bool>("PngThumbnails", false));
-					var bigThumbnails = optionsJson.Get<bool>("BigThumbnail", optionsJson.Get<bool>("BigThumbnails", false));
-					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, cacheKeyPrefix, showThumbnails, pngThumbnails, bigThumbnails).ConfigureAwait(false);
+					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, cacheKeyPrefix, showThumbnails, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight).ConfigureAwait(false);
 					totalRecords = results.Item1;
 					var objects = results.Item2;
 					thumbnails = results.Item3;
@@ -663,9 +670,22 @@ namespace net.vieapps.Services.Portals
 					// main category
 					if (category != null)
 					{
-						requestInfo.Header["x-as-attachments"] = "true";
-						thumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-						data.Add(new XAttribute("CategoryTitle", category.Title), new XAttribute("CategoryThumbnailURL", thumbnails?.GetThumbnailURL(category.ID) ?? ""), new XAttribute("CategoryURL", category.GetURL(desktop)));
+						if (objects.Count < 1 || !showThumbnails)
+						{
+							requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+							requestInfo.Header["x-thumbnails-as-png"] = $"{pngThumbnails}".ToLower();
+							requestInfo.Header["x-thumbnails-as-big"] = $"{bigThumbnails}".ToLower();
+							requestInfo.Header["x-thumbnails-width"] = $"{thumbnailsWidth}";
+							requestInfo.Header["x-thumbnails-height"] = $"{thumbnailsHeight}";
+						}
+						categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+						data.Add(new XElement(
+							"Parent",
+							new XElement("Title", category.Title.CleanInvalidXmlCharacters()),
+							new XElement("Description", category.Description?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters()),
+							new XElement("URL", category.GetURL(desktop).CleanInvalidXmlCharacters()),
+							new XElement("ThumbnailURL", categoryThumbnails?.GetThumbnailURL(category.ID) ?? "")
+						));
 					}
 
 					// update XML into cache
@@ -693,8 +713,8 @@ namespace net.vieapps.Services.Portals
 					{ "Title", category?.Title },
 					{ "Description", category?.Description }
 				};
-				thumbnails = category != null ? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false) : null;
-				coverURI = (thumbnails as JArray)?.First()?.Get<string>("URI");
+				categoryThumbnails = category != null ? categoryThumbnails ?? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false) : null;
+				coverURI = (categoryThumbnails as JArray)?.First()?.Get<string>("URI");
 			}
 
 			// generate details
@@ -714,10 +734,9 @@ namespace net.vieapps.Services.Portals
 				if (!gotRights)
 					throw new AccessDeniedException();
 
-				var showThumbnails = optionsJson.Get<bool>("ShowThumbnail", optionsJson.Get<bool>("ShowThumbnails", false));
-				var showAttachments = optionsJson.Get<bool>("ShowAttachments", false);
-				var showRelateds = optionsJson.Get<bool>("ShowRelateds", false);
-				var showOthers = optionsJson.Get<bool>("ShowOthers", false);
+				var showAttachments = options.Get("ShowAttachments", false);
+				var showRelateds = options.Get("ShowRelateds", false);
+				var showOthers = options.Get("ShowOthers", false);
 				contentTypeID = @object.ContentTypeID;
 
 				// get related contents
@@ -728,7 +747,7 @@ namespace net.vieapps.Services.Portals
 
 				// get other contents
 				Task<List<Content>>  newersTask, oldersTask;
-				var numberOfOthers = optionsJson.Get<int>("NumberOfOthers", 12);
+				var numberOfOthers = options.Get("NumberOfOthers", 12);
 				numberOfOthers = numberOfOthers > 0 ? numberOfOthers : 12;
 				var others = new List<Content>();
 
@@ -774,6 +793,14 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// get files
+				if (showThumbnails)
+				{
+					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+					requestInfo.Header["x-thumbnails-as-png"] = $"{pngThumbnails}".ToLower();
+					requestInfo.Header["x-thumbnails-as-big"] = $"{bigThumbnails}".ToLower();
+					requestInfo.Header["x-thumbnails-width"] = $"{thumbnailsWidth}";
+					requestInfo.Header["x-thumbnails-height"] = $"{thumbnailsHeight}";
+				}
 				var thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 				var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 
@@ -797,7 +824,6 @@ namespace net.vieapps.Services.Portals
 							await Utility.Cache.SetAsync(cacheKeyOfOthers, others.Select(other => other.ID).ToList(), Utility.Cache.ExpirationTime / 2, cancellationToken).ConfigureAwait(false);
 					}
 
-					requestInfo.Header["x-as-attachments"] = "true";
 					otherThumbnails = others.Count < 1
 						? null
 						: others.Count == 1
@@ -847,47 +873,47 @@ namespace net.vieapps.Services.Portals
 						}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment", x => x.Element("Size").UpdateNumber(false, cultureInfo))));
 						xml.Add(attachments);
 					}
-
-					if (showRelateds)
-					{
-						var relatedsXml = new XElement("Relateds");
-						relateds = relateds.Where(related => related != null && related.ID != null && related.ID != @object.ID && related.Status.Equals(ApprovalStatus.Published) && related.PublishedTime.Value <= DateTime.Now).ToList();
-						relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
-						{
-							var relatedXml = new XElement("Content", new XElement("ID", related.ID));
-							relatedXml.Add(new XElement("Title", related.Title), new XElement("Summary", related.Summary?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters()));
-							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value).UpdateDateTime(cultureInfo));
-							relatedXml.Add(new XElement("URL", related.GetURL(desktop)));
-							relatedsXml.Add(relatedXml);
-						});
-						xml.Add(relatedsXml);
-
-						var externalsXml = new XElement("ExternalRelateds");
-						@object.ExternalRelateds?.ForEach(external => externalsXml.Add(external.ToXml(externalXml =>
-						{
-							if (!string.IsNullOrWhiteSpace(external.Summary))
-								externalXml.Element("Summary").Value = external.Summary.NormalizeHTMLBreaks().CleanInvalidXmlCharacters();
-						})));
-						xml.Add(externalsXml);
-					}
-
-					if (showOthers)
-					{
-						var othersXml = new XElement("Others");
-						others.OrderByDescending(other => other.StartDate).ThenByDescending(other => other.PublishedTime).ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
-						{
-							otherXml.Element("Details")?.Remove();
-							otherXml.Element("StartDate")?.UpdateDateTime(cultureInfo);
-							otherXml.Element("EndDate")?.UpdateDateTime(cultureInfo);
-							if (!string.IsNullOrWhiteSpace(other.Summary))
-								otherXml.Element("Summary").Value = other.Summary.NormalizeHTMLBreaks().CleanInvalidXmlCharacters();
-							otherXml.Add(new XElement("Category", other.Category?.Title, new XAttribute("URL", other.Category?.GetURL(desktop))));
-							otherXml.Add(new XElement("URL", other.GetURL(desktop)));
-							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
-						})));
-						xml.Add(othersXml);
-					}
 				}));
+
+				if (showRelateds)
+				{
+					var relatedsXml = new XElement("Relateds");
+					relateds = relateds.Where(related => related != null && related.ID != null && related.ID != @object.ID && related.Status.Equals(ApprovalStatus.Published) && related.PublishedTime.Value <= DateTime.Now).ToList();
+					relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
+					{
+						var relatedXml = new XElement("Content", new XElement("ID", related.ID));
+						relatedXml.Add(new XElement("Title", related.Title), new XElement("Summary", related.Summary?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters()));
+						relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value).UpdateDateTime(cultureInfo));
+						relatedXml.Add(new XElement("URL", related.GetURL(desktop)));
+						relatedsXml.Add(relatedXml);
+					});
+					data.Add(relatedsXml);
+
+					var externalsXml = new XElement("ExternalRelateds");
+					@object.ExternalRelateds?.ForEach(external => externalsXml.Add(external.ToXml(externalXml =>
+					{
+						if (!string.IsNullOrWhiteSpace(external.Summary))
+							externalXml.Element("Summary").Value = external.Summary.NormalizeHTMLBreaks().CleanInvalidXmlCharacters();
+					})));
+					data.Add(externalsXml);
+				}
+
+				if (showOthers)
+				{
+					var othersXml = new XElement("Others");
+					others.OrderByDescending(other => other.StartDate).ThenByDescending(other => other.PublishedTime).ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
+					{
+						otherXml.Element("Details")?.Remove();
+						otherXml.Element("StartDate")?.UpdateDateTime(cultureInfo);
+						otherXml.Element("EndDate")?.UpdateDateTime(cultureInfo);
+						if (!string.IsNullOrWhiteSpace(other.Summary))
+							otherXml.Element("Summary").Value = other.Summary.NormalizeHTMLBreaks().CleanInvalidXmlCharacters();
+						otherXml.Add(new XElement("Category", other.Category?.Title, new XAttribute("URL", other.Category?.GetURL(desktop))));
+						otherXml.Add(new XElement("URL", other.GetURL(desktop)));
+						otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
+					})));
+					data.Add(othersXml);
+				}
 
 				// build others
 				breadcrumbs = @object.Category?.GenerateBreadcrumbs(desktop) ?? new JArray();
@@ -903,9 +929,22 @@ namespace net.vieapps.Services.Portals
 				// main category
 				if (category != null)
 				{
-					requestInfo.Header["x-as-attachments"] = "true";
-					var thumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-					data.Add(new XAttribute("CategoryTitle", category.Title), new XAttribute("CategoryThumbnailURL", thumbnails?.GetThumbnailURL(category.ID) ?? ""), new XAttribute("CategoryURL", category.GetURL(desktop)));
+					if (!showThumbnails)
+					{
+						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+						requestInfo.Header["x-thumbnails-as-png"] = $"{pngThumbnails}".ToLower();
+						requestInfo.Header["x-thumbnails-as-big"] = $"{bigThumbnails}".ToLower();
+						requestInfo.Header["x-thumbnails-width"] = $"{thumbnailsWidth}";
+						requestInfo.Header["x-thumbnails-height"] = $"{thumbnailsHeight}";
+					}
+					var categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+					data.Add(new XElement(
+						"Parent",
+						new XElement("Title", category.Title.CleanInvalidXmlCharacters()),
+						new XElement("Description", category.Description?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters()),
+						new XElement("URL", category.GetURL(desktop).CleanInvalidXmlCharacters()),
+						new XElement("ThumbnailURL", categoryThumbnails?.GetThumbnailURL(category.ID) ?? "")
+					));
 				}
 			}
 

@@ -841,7 +841,6 @@ namespace net.vieapps.Services.Portals
 				var children = category.Children;
 				if (children.Count > 0)
 				{
-					requestInfo.Header["x-as-attachments"] = "true";
 					var thumbnails = children.Count == 1
 						? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);

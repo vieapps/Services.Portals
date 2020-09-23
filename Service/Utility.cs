@@ -135,6 +135,11 @@ namespace net.vieapps.Services.Portals
 		public static string DataFilesDirectory { get; internal set; }
 
 		/// <summary>
+		/// Gets the path to the directory that contains all temporary files
+		/// </summary>
+		public static string TempFilesDirectory { get; internal set; }
+
+		/// <summary>
 		/// Gets the collection of language resources (i18n)
 		/// </summary>
 		public static Dictionary<string, ExpandoObject> Languages { get; } = new Dictionary<string, ExpandoObject>();

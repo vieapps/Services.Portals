@@ -115,8 +115,9 @@ namespace net.vieapps.Services.Portals
 				Utility.NotificationsKey = UtilityService.GetAppSetting("Keys:Notifications");
 
 				Utility.DefaultSite = UtilityService.GetAppSetting("Portals:Default:SiteID", "").GetSiteByID();
-				Utility.DataFilesDirectory = UtilityService.GetAppSetting("Path:Portals");
 				Utility.NotRecognizedAliases.Add($"Site:{new Uri(Utility.PortalsHttpURI).Host}");
+				Utility.DataFilesDirectory = UtilityService.GetAppSetting("Path:Portals");
+				Utility.TempFilesDirectory = UtilityService.GetAppSetting("Path:Temp");
 
 				this.StartTimer(async () => await this.SendDefinitionInfoAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 15 * 60);
 				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 5 * 60);
@@ -1384,6 +1385,7 @@ namespace net.vieapps.Services.Portals
 				var parentIdentity = requestInfo.GetQueryParameter("x-parent");
 				var contentIdentity = requestInfo.GetQueryParameter("x-content");
 				var pageNumber = requestInfo.GetQueryParameter("x-page");
+				var fileSurfname = $"_parentID[{(parentIdentity ?? "none").GetANSIUri()}]_contentID[{(contentIdentity ?? "none").GetANSIUri()}]";
 
 				var portletData = new ConcurrentDictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
 				await desktop.Portlets.ForEachAsync(async (portlet, token) =>
@@ -1391,14 +1393,24 @@ namespace net.vieapps.Services.Portals
 					JObject data;
 					try
 					{
-						data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, desktop.Language ?? site.Language, parentIdentity, contentIdentity, pageNumber, (portletContentType, requestJson) => this.PreparePortletAsync(requestInfo, portletContentType, requestJson, token), writeDesktopLogs, requestInfo.CorrelationID, token).ConfigureAwait(false);
+						data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, desktop.Language ?? site.Language, parentIdentity, contentIdentity, pageNumber, async (portletContentType, requestJson) =>
+						{
+							if (writeDesktopLogs)
+								await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSurfname}_request.json"), requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, token).ConfigureAwait(false);
+							return await this.PreparePortletAsync(requestInfo, portletContentType, requestJson, token).ConfigureAwait(false);
+						}, writeDesktopLogs, requestInfo.CorrelationID, token).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
 						if (ex.Message.IsContains("services.unknown"))
 							try
 							{
-								data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, desktop.Language ?? site.Language, parentIdentity, contentIdentity, pageNumber, (portletContentType, requestJson) => this.PreparePortletAsync(requestInfo, portletContentType, requestJson, token), writeDesktopLogs, requestInfo.CorrelationID, token).ConfigureAwait(false);
+								data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, desktop.Language ?? site.Language, parentIdentity, contentIdentity, pageNumber, async (portletContentType, requestJson) =>
+								{
+									if (writeDesktopLogs)
+										await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSurfname}_request.json"), requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, token).ConfigureAwait(false);
+									return await this.PreparePortletAsync(requestInfo, portletContentType, requestJson, token).ConfigureAwait(false);
+								}, writeDesktopLogs, requestInfo.CorrelationID, token).ConfigureAwait(false);
 							}
 							catch (Exception exc)
 							{
@@ -1407,8 +1419,13 @@ namespace net.vieapps.Services.Portals
 						else
 							data = this.GenerateErrorJson(ex, requestInfo.CorrelationID, writeDesktopLogs, $"Unexpected error => {ex.Message}");
 					}
+
 					if (data != null)
 						portletData[portlet.ID] = data;
+
+					if (writeDesktopLogs)
+						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSurfname}_response.json"), data?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, token).ConfigureAwait(false);
+
 				}, cancellationToken).ConfigureAwait(false);
 
 				// generate HTML of portlets
@@ -1427,7 +1444,7 @@ namespace net.vieapps.Services.Portals
 					{
 						var action = !string.IsNullOrWhiteSpace(parentIdentity) && !string.IsNullOrWhiteSpace(contentIdentity) ? portlet.OriginalPortlet.AlternativeAction : portlet.OriginalPortlet.Action;
 						var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
-						portletHtmls[portlet.ID] = await this.GeneratePortletAsync(portlet, isList, portletData.TryGetValue(portlet.ID, out var data) ? data : null, siteJson, desktopsJson, organization.AlwaysUseHtmlSuffix, writeDesktopLogs, requestInfo.CorrelationID, token).ConfigureAwait(false);
+						portletHtmls[portlet.ID] = await this.GeneratePortletAsync(portlet, isList, portletData.TryGetValue(portlet.ID, out var data) ? data : null, siteJson, desktopsJson, organization.AlwaysUseHtmlSuffix, requestInfo.CorrelationID, token, writeDesktopLogs, fileSurfname).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
@@ -1546,7 +1563,11 @@ namespace net.vieapps.Services.Portals
 			{
 				ServiceName = contentType.ContentTypeDefinition.ModuleDefinition.ServiceName,
 				ObjectName = contentType.ContentTypeDefinition.ObjectName,
-				Body = requestJson.ToString(Newtonsoft.Json.Formatting.None)
+				Body = requestJson.ToString(Newtonsoft.Json.Formatting.None),
+				Header = new Dictionary<string, string>(requestInfo.Header, StringComparer.OrdinalIgnoreCase)
+				{
+					["x-origin"] = $"Portlet: {requestJson.Get<string>("Title")} [ID: {requestJson.Get<string>("ID")} - Action: {requestJson.Get<string>("Action")}]"
+				}
 			}, cancellationToken);
 
 		async Task<JObject> PreparePortletAsync(Portlet theportlet, RequestInfo requestInfo, JObject organizationJson, JObject siteJson, JObject desktopsJson, string language, string parentIdentity, string contentIdentity, string pageNumber, Func<ContentType, JObject, Task<JObject>> generatorAsync, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
@@ -1682,7 +1703,7 @@ namespace net.vieapps.Services.Portals
 			return responseJson;
 		}
 
-		async Task<Tuple<string, bool>> GeneratePortletAsync(Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix = true, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
+		async Task<Tuple<string, bool>> GeneratePortletAsync(Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix = true, string correlationID = null, CancellationToken cancellationToken = default, bool writeLogs = false, string fileSurfname = null)
 		{
 			// get original first
 			var stopwatch = Stopwatch.StartNew();
@@ -2026,7 +2047,15 @@ namespace net.vieapps.Services.Portals
 						// transform
 						content = xml.Transform(xslTemplate, optionsJson.Get<bool>("EnableDocumentFunctionAndInlineScripts", false));
 						if (writeLogs)
-							await this.WriteLogsAsync(correlationID, $"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+						{
+							var filename = $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSurfname}";
+							await Task.WhenAll
+							(
+								this.WriteLogsAsync(correlationID, $"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request"),
+								UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xml"), xml.ToString(), false, null, cancellationToken),
+								UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xsl"), xslTemplate, false, null, cancellationToken)
+							).ConfigureAwait(false);
+						}
 					}
 					catch (Exception ex)
 					{
@@ -2554,7 +2583,12 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			// get thumbnails
-			requestInfo.Header["x-as-attachments"] = "true";
+			var options = requestInfo.BodyAsJson.Get("Options", new JObject()).ToExpandoObject();
+			requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+			requestInfo.Header["x-thumbnails-as-png"] = $"{options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))))}".ToLower();
+			requestInfo.Header["x-thumbnails-as-big"] = $"{options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))))}".ToLower();
+			requestInfo.Header["x-thumbnails-width"] = $"{options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0))}";
+			requestInfo.Header["x-thumbnails-height"] = $"{options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0))}";
 			var thumbnails = children.Count == 1
 				? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), this.ValidationKey, cancellationToken).ConfigureAwait(false)
 				: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Newtonsoft.Json.Formatting.None), this.ValidationKey, cancellationToken).ConfigureAwait(false);
