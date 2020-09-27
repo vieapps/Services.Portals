@@ -481,6 +481,7 @@ namespace net.vieapps.Services.Portals
 					})));
 
 					// update XML into cache
+					data.CleanInvalidCharacters();
 					if (cacheKey != null)
 						await Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).ConfigureAwait(false);
 				}
@@ -530,13 +531,15 @@ namespace net.vieapps.Services.Portals
 				{
 					var numberOfOthers = options.Get<int>("NumberOfOthers", 10) / 2;
 
-					newersTask = Item.FindAsync(Filters<Item>.And(
+					newersTask = Item.FindAsync(Filters<Item>.And
+					(
 						Filters<Item>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
 						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
 						Filters<Item>.GreaterOrEquals("Created", @object.Created)
 					).Prepare(requestInfo), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);
 
-					oldersTask = Item.FindAsync(Filters<Item>.And(
+					oldersTask = Item.FindAsync(Filters<Item>.And
+					(
 						Filters<Item>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
 						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
 						Filters<Item>.LessThanOrEquals("Created", @object.Created)
@@ -638,6 +641,8 @@ namespace net.vieapps.Services.Portals
 					{ "Keywords", @object.Tags }
 				};
 				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI");
+
+				data.CleanInvalidCharacters();
 			}
 
 			// response

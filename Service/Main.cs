@@ -404,7 +404,7 @@ namespace net.vieapps.Services.Portals
 			// generate extended controls
 			contentType.ExtendedControlDefinitions.ForEach(definition =>
 			{
-				var control = definition.GenerateFormControl(contentType.ExtendedPropertyDefinitions.Find(def => def.Name.IsEquals(definition.Name)).Mode);
+				var control = this.GenerateFormControl(definition, contentType.ExtendedPropertyDefinitions.Find(def => def.Name.IsEquals(definition.Name)).Mode);
 				var index = !string.IsNullOrWhiteSpace(definition.PlaceBefore) ? controls.FindIndex(ctrl => definition.PlaceBefore.IsEquals(ctrl.Get<string>("Name"))) : -1;
 				if (index > -1)
 				{
@@ -421,6 +421,136 @@ namespace net.vieapps.Services.Portals
 			// update order-index and return the controls
 			controls.ForEach((control, order) => control["Order"] = order);
 			return controls.ToJArray();
+		}
+
+		JObject GenerateFormControl(ExtendedControlDefinition definition, ExtendedPropertyMode mode)
+		{
+			var controlType = mode.Equals(ExtendedPropertyMode.LargeText) || (definition.AsTextEditor != null && definition.AsTextEditor.Value)
+				? "TextEditor"
+				: mode.Equals(ExtendedPropertyMode.Select)
+					? "Select"
+					: mode.Equals(ExtendedPropertyMode.Lookup)
+						? "Lookup"
+						: mode.Equals(ExtendedPropertyMode.DateTime)
+							? "DatePicker"
+							: mode.Equals(ExtendedPropertyMode.YesNo)
+								? "YesNo"
+								: mode.Equals(ExtendedPropertyMode.MediumText) ? "TextArea" : "TextBox";
+
+			var hidden = definition.Hidden != null && definition.Hidden.Value;
+			var options = new JObject();
+			if (!hidden)
+			{
+				options["Label"] = definition.Label;
+				options["PlaceHolder"] = definition.PlaceHolder;
+				options["Description"] = definition.Description;
+
+				var dataType = !string.IsNullOrWhiteSpace(definition.DataType)
+					? definition.DataType
+					: "Lookup".IsEquals(controlType) && !string.IsNullOrWhiteSpace(definition.LookupType)
+						? definition.LookupType
+						: "DatePicker".IsEquals(controlType)
+							? "date"
+							: mode.Equals(ExtendedPropertyMode.IntegralNumber) || mode.Equals(ExtendedPropertyMode.FloatingPointNumber)
+								? "number"
+								: null;
+
+				if (!string.IsNullOrWhiteSpace(dataType))
+					options["Type"] = dataType;
+
+				if (definition.Disabled != null && definition.Disabled.Value)
+					options["Disabled"] = true;
+
+				if (definition.ReadOnly != null && definition.ReadOnly.Value)
+					options["ReadOnly"] = true;
+
+				if (definition.AutoFocus != null && definition.AutoFocus.Value)
+					options["AutoFocus"] = true;
+
+				if (!string.IsNullOrWhiteSpace(definition.ValidatePattern))
+					options["ValidatePattern"] = definition.ValidatePattern;
+
+				if (!string.IsNullOrWhiteSpace(definition.MinValue))
+					try
+					{
+						if (mode.Equals(ExtendedPropertyMode.IntegralNumber))
+							options["MinValue"] = definition.MinValue.CastAs<long>();
+						else if (mode.Equals(ExtendedPropertyMode.FloatingPointNumber))
+							options["MinValue"] = definition.MinValue.CastAs<decimal>();
+						else
+							options["MinValue"] = definition.MinValue;
+					}
+					catch { }
+
+				if (!string.IsNullOrWhiteSpace(definition.MaxValue))
+					try
+					{
+						if (mode.Equals(ExtendedPropertyMode.IntegralNumber))
+							options["MaxValue"] = definition.MaxValue.CastAs<long>();
+						else if (mode.Equals(ExtendedPropertyMode.FloatingPointNumber))
+							options["MaxValue"] = definition.MaxValue.CastAs<decimal>();
+						else
+							options["MaxValue"] = definition.MaxValue;
+					}
+					catch { }
+
+				if (definition.MinLength != null && definition.MinLength.Value > 0)
+					options["MinLength"] = definition.MinLength.Value;
+
+				if (definition.MaxLength != null && definition.MaxLength.Value > 0)
+					options["MaxLength"] = definition.MaxLength.Value;
+
+				if ("DatePicker".IsEquals(controlType))
+					options["DatePickerOptions"] = new JObject
+					{
+						{ "AllowTimes", definition.DatePickerWithTimes != null && definition.DatePickerWithTimes.Value }
+					};
+
+				if ("Select".IsEquals(controlType))
+					options["SelectOptions"] = new JObject
+					{
+						{ "Values", definition.SelectValues },
+						{ "Multiple", definition.Multiple != null && definition.Multiple.Value },
+						{ "AsBoxes", definition.SelectAsBoxes != null && definition.SelectAsBoxes.Value },
+						{ "Interface", definition.SelectInterface ?? "alert" }
+					};
+
+				if ("Lookup".IsEquals(controlType))
+				{
+					var contentType = string.IsNullOrWhiteSpace(definition.LookupRepositoryEntityID) ? null : definition.LookupRepositoryEntityID.GetContentTypeByID();
+					options["LookupOptions"] = new JObject
+					{
+						{ "Multiple", definition.Multiple != null && definition.Multiple.Value },
+						{ "AsModal", !"Address".IsEquals(definition.LookupType) },
+						{ "AsCompleter", "Address".IsEquals(definition.LookupType) },
+						{ "ModalOptions", new JObject
+							{
+								{ "Component", null },
+								{ "ComponentProps", new JObject
+									{
+										{ "organizationID", contentType?.OrganizationID },
+										{ "moduleID", contentType?.ModuleID },
+										{ "contentTypeID", contentType?.ID },
+										{ "objectName", contentType?.GetObjectName() },
+										{ "nested", contentType?.ContentTypeDefinition.NestedObject },
+										{ "multiple", definition.Multiple != null && definition.Multiple.Value }
+									}
+								}
+							}
+						}
+					};
+				}
+			}
+
+			return new JObject
+			{
+				{ "Name", definition.Name },
+				{ "Type", controlType },
+				{ "Hidden", hidden },
+				{ "Required", definition.Required != null && definition.Required.Value },
+				{ "Extras", new JObject() },
+				{ "Options", options }
+			};
 		}
 		#endregion
 
@@ -1385,7 +1515,19 @@ namespace net.vieapps.Services.Portals
 				var parentIdentity = requestInfo.GetQueryParameter("x-parent");
 				var contentIdentity = requestInfo.GetQueryParameter("x-content");
 				var pageNumber = requestInfo.GetQueryParameter("x-page");
-				var fileSurfname = $"_parentID[{(parentIdentity ?? "none").GetANSIUri()}]_contentID[{(contentIdentity ?? "none").GetANSIUri()}]";
+				var fileSurfname = $"_p[{(string.IsNullOrWhiteSpace(parentIdentity) ? "none" : parentIdentity.Left(32) + (parentIdentity.Length > 32 ? "---" : "")).GetANSIUri()}]_c[{(string.IsNullOrWhiteSpace(contentIdentity) ? "none" : contentIdentity.Left(32) + (contentIdentity.Length > 32 ? "---" : "")).GetANSIUri()}]";
+
+				async Task<JObject> generatorAsync(ContentType portletContentType, JObject requestJson)
+				{
+					var data = await this.PreparePortletAsync(requestInfo, portletContentType, requestJson, cancellationToken).ConfigureAwait(false);
+					if (writeDesktopLogs)
+					{
+						var portletTitle = requestJson.Get<string>("Title");
+						var portletID = requestJson.Get<string>("ID");
+						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portletTitle}_{portletID}".GetANSIUri()}{fileSurfname}_request.json"), requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
+					}
+					return data;
+				}
 
 				var portletData = new ConcurrentDictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
 				await desktop.Portlets.ForEachAsync(async (portlet, token) =>
@@ -1393,24 +1535,14 @@ namespace net.vieapps.Services.Portals
 					JObject data;
 					try
 					{
-						data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, desktop.Language ?? site.Language, parentIdentity, contentIdentity, pageNumber, async (portletContentType, requestJson) =>
-						{
-							if (writeDesktopLogs)
-								await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSurfname}_request.json"), requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, token).ConfigureAwait(false);
-							return await this.PreparePortletAsync(requestInfo, portletContentType, requestJson, token).ConfigureAwait(false);
-						}, writeDesktopLogs, requestInfo.CorrelationID, token).ConfigureAwait(false);
+						data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, desktop.Language ?? site.Language, parentIdentity, contentIdentity, pageNumber, generatorAsync, writeDesktopLogs, requestInfo.CorrelationID, token).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
 						if (ex.Message.IsContains("services.unknown"))
 							try
 							{
-								data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, desktop.Language ?? site.Language, parentIdentity, contentIdentity, pageNumber, async (portletContentType, requestJson) =>
-								{
-									if (writeDesktopLogs)
-										await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSurfname}_request.json"), requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, token).ConfigureAwait(false);
-									return await this.PreparePortletAsync(requestInfo, portletContentType, requestJson, token).ConfigureAwait(false);
-								}, writeDesktopLogs, requestInfo.CorrelationID, token).ConfigureAwait(false);
+								data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, desktop.Language ?? site.Language, parentIdentity, contentIdentity, pageNumber, generatorAsync, writeDesktopLogs, requestInfo.CorrelationID, token).ConfigureAwait(false);
 							}
 							catch (Exception exc)
 							{
@@ -1933,12 +2065,12 @@ namespace net.vieapps.Services.Portals
 										};
 								})
 							}
-						}.ToXml("Meta");
+						}.ToXml("Meta").CleanInvalidCharacters();
 
 						var optionsJson = isList ? JObject.Parse(portlet.ListSettings.Options ?? "{}") : JObject.Parse(portlet.ViewSettings.Options ?? "{}");
 						optionsJson["ShowBreadcrumbs"] = showBreadcrumbs;
 						optionsJson["ShowPagination"] = showPagination;
-						var optionsXml = optionsJson.ToXml("Options");
+						var optionsXml = optionsJson.ToXml("Options").CleanInvalidCharacters();
 
 						JObject breadcrumbsJson = null;
 						if (showBreadcrumbs)
@@ -2004,7 +2136,7 @@ namespace net.vieapps.Services.Portals
 						xml = new XDocument(new XElement("VIEApps", metaXml, dataXml, optionsXml));
 
 						if (breadcrumbsJson != null)
-							xml.Root.Add(breadcrumbsJson.ToXml("Breadcrumbs"));
+							xml.Root.Add(breadcrumbsJson.ToXml("Breadcrumbs").CleanInvalidCharacters());
 
 						if (paginationJson != null && paginationJson.Get<JObject>("Pages") != null)
 							xml.Root.Add(paginationJson.ToXml("Pagination", paginationXml =>
@@ -2023,7 +2155,7 @@ namespace net.vieapps.Services.Portals
 											? "Previous"
 											: portlet.PaginationSettings.PreviousPageLabel;
 										var url = urlPattern.GetPaginationURL(currentPage - 1);
-										paginationXml.Add(new XElement("PreviousPage", new XElement("Text", text.CleanInvalidXmlCharacters()), new XElement("URL", url)));
+										paginationXml.Add(new XElement("PreviousPage", new XElement("Text", text), new XElement("URL", url)));
 									}
 									if (currentPage < totalPages)
 									{
@@ -2031,18 +2163,18 @@ namespace net.vieapps.Services.Portals
 											? "Next"
 											: portlet.PaginationSettings.NextPageLabel;
 										var url = urlPattern.GetPaginationURL(currentPage + 1);
-										paginationXml.Add(new XElement("NextPage", new XElement("Text", text.CleanInvalidXmlCharacters()), new XElement("URL", url)));
+										paginationXml.Add(new XElement("NextPage", new XElement("Text", text), new XElement("URL", url)));
 									}
 								}
-							}));
+							}).CleanInvalidCharacters());
 
 						var filterBy = data.Get<JObject>("FilterBy");
 						if (filterBy != null)
-							xml.Root.Add(filterBy.ToXml("FilterBy"));
+							xml.Root.Add(filterBy.ToXml("FilterBy").CleanInvalidCharacters());
 
 						var sortBy = data.Get<JObject>("SortBy");
 						if (sortBy != null)
-							xml.Root.Add(sortBy.ToXml("SortBy"));
+							xml.Root.Add(sortBy.ToXml("SortBy").CleanInvalidCharacters());
 
 						// transform
 						content = xml.Transform(xslTemplate, optionsJson.Get<bool>("EnableDocumentFunctionAndInlineScripts", false));
@@ -2528,13 +2660,20 @@ namespace net.vieapps.Services.Portals
 				var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 				switch (requestInfo.ObjectName.ToLower().Trim())
 				{
+					case "category":
+					case "cms.category":
+						return await CategoryProcessor.GenerateAsync(requestInfo, isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 					case "content":
+					case "cms.content":
 						return await ContentProcessor.GenerateAsync(requestInfo, isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 					case "item":
+					case "cms.item":
 						return await ItemProcessor.GenerateAsync(requestInfo, isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 					case "link":
+					case "cms.link":
 						return await LinkProcessor.GenerateAsync(requestInfo, isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 					default:

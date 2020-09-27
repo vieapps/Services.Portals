@@ -164,22 +164,28 @@ namespace net.vieapps.Services.Portals
 
 		internal List<Link> FindChildren(bool notifyPropertyChanged = true, List<Link> links = null)
 		{
-			if (this._childrenIDs == null)
+			if (this.ChildrenMode.Equals(ChildrenMode.Normal))
 			{
-				this._children = links ?? (this.SystemID ?? "").FindLinks(this.RepositoryID, this.RepositoryEntityID, this.ID);
-				this._childrenIDs = this._children.Select(link => link.ID).ToList();
-				if (notifyPropertyChanged)
-					this.NotifyPropertyChanged("ChildrenIDs");
+				if (this._childrenIDs == null)
+				{
+					this._children = links ?? (this.SystemID ?? "").FindLinks(this.RepositoryID, this.RepositoryEntityID, this.ID);
+					this._childrenIDs = this._children.Select(link => link.ID).ToList();
+					if (notifyPropertyChanged)
+						this.NotifyPropertyChanged("ChildrenIDs");
+				}
+				this._children = this._children ?? this._childrenIDs.Select(id => Link.Get<Link>(id)).ToList();
 			}
-			this._children = this._children ?? this._childrenIDs.Select(id => Link.Get<Link>(id)).ToList();
 			return this._children;
 		}
 
 		internal async Task<List<Link>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 		{
-			if (this._childrenIDs == null)
-				return this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindLinksAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false));
-			this._children = this._children ?? this._childrenIDs.Select(id => Link.Get<Link>(id)).ToList();
+			if (this.ChildrenMode.Equals(ChildrenMode.Normal))
+			{
+				if (this._childrenIDs == null)
+					return this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindLinksAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false));
+				this._children = this._children ?? this._childrenIDs.Select(id => Link.Get<Link>(id)).ToList();
+			}
 			return this._children;
 		}
 
@@ -198,11 +204,11 @@ namespace net.vieapps.Services.Portals
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null, Action<JObject> onChildrenCompleted = null)
+		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null, Action<JObject> onChildrenCompleted = null, int level = 1, int maxLevel = 0)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
-				if (addChildren)
-					json["Children"] = this.Children?.Where(link => link != null).OrderBy(link => link.OrderIndex).Select(link => link?.ToJson(addChildren, addTypeOfExtendedProperties, onChildrenCompleted)).ToJArray();
+				if (addChildren && (maxLevel < 1 || level + 1 < maxLevel))
+					json["Children"] = this.Children?.Where(link => link != null).OrderBy(link => link.OrderIndex).Select(link => link.ToJson(addChildren, addTypeOfExtendedProperties, onChildrenCompleted, onChildrenCompleted, level + 1, maxLevel)).ToJArray();
 				onCompleted?.Invoke(json);
 			});
 

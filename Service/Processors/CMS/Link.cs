@@ -680,7 +680,8 @@ namespace net.vieapps.Services.Portals
 			});
 
 			// send update messages
-			await Task.WhenAll(
+			await Task.WhenAll
+			(
 				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
 				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
 			).ConfigureAwait(false);
@@ -745,6 +746,7 @@ namespace net.vieapps.Services.Portals
 			var numberOfPageLinks = paginationJson.Get<int>("NumberOfPageLinks", 7);
 
 			var contentTypeID = contentTypeJson.Get<string>("ID");
+			var parentID = requestJson.Get<string>("ParentIdentity");
 			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
 
 			var asMenu = "Menu".IsEquals(options.Get<string>("DisplayMode")) || options.Get("AsMenu", options.Get("ShowAsMenu", options.Get("GenerateAsMenu", false)));
@@ -774,18 +776,18 @@ namespace net.vieapps.Services.Portals
 					Filters<Link>.Equals("SystemID", "@request.Body(Organization.ID)"),
 					Filters<Link>.Equals("RepositoryID", "@request.Body(Module.ID)"),
 					Filters<Link>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
-					Filters<Link>.IsNull("ParentID"),
+					string.IsNullOrWhiteSpace(parentID) || !parentID.IsValidUUID() ? Filters<Link>.IsNull("ParentID") : Filters<Link>.Equals("ParentID", parentID),
 					Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString())
 				);
 
 			if (filter.GetChild("RepositoryEntityID") == null && contentType != null)
 				filter.Add(Filters<Link>.Equals("RepositoryEntityID", contentType.ID));
 
+			if (filter.GetChild("ParentID") == null)
+				filter.Add(string.IsNullOrWhiteSpace(parentID) || !parentID.IsValidUUID() ? Filters<Link>.IsNull("ParentID") : Filters<Link>.Equals("ParentID", parentID));
+
 			if (filter.GetChild("Status") == null)
 				filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()));
-
-			if (filter.GetChild("ParentID") == null)
-				filter.Add(Filters<Link>.IsNull("ParentID"));
 
 			var filterBy = new JObject
 			{
@@ -816,6 +818,11 @@ namespace net.vieapps.Services.Portals
 				var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
 				var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 				var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
+
+				var level = options.Get("Level", 1);
+				var maxLevel = options.Get("MaxLevel", 0);
+				var addChildren = options.Get("ShowChildrens", options.Get("ShowChildren", options.Get("AddChildrens", options.Get("AddChildren", false))));
+
 				var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, requestJson.GetCacheKeyPrefix(), showThumbnails, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight).ConfigureAwait(false);
 				var totalRecords = results.Item1;
 				var objects = results.Item2;
@@ -831,7 +838,9 @@ namespace net.vieapps.Services.Portals
 				await objects.ForEachAsync(async (@object, _) =>
 				{
 					var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID);
-					var element = asMenu ? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, 1, options.Get<int>("MaxLevel", 0), cancellationToken).ConfigureAwait(false)).ToXml("Menu") : @object.ToXml(false, cultureInfo, x => x.Add(new XElement("ThumbnailURL", thumbnailURL)));
+					var element = asMenu
+						? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, level, maxLevel, cancellationToken).ConfigureAwait(false)).ToXml("Menu")
+						: (await requestInfo.GenerateLinkAsync(@object, thumbnailURL, addChildren, level, maxLevel, cancellationToken).ConfigureAwait(false)).ToXml("Link");
 					if (asBanner)
 					{
 						var attachments = await requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
@@ -867,15 +876,16 @@ namespace net.vieapps.Services.Portals
 						thumbnails = await requestInfo.GetThumbnailsAsync(parent.ID, parent.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 						data.Add(new XElement(
 							"Parent",
-							new XElement("Title", parent.Title.CleanInvalidXmlCharacters()),
-							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters()),
-							new XElement("URL", parent.GetURL(desktop).CleanInvalidXmlCharacters()),
+							new XElement("Title", parent.Title),
+							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks()),
+							new XElement("URL", parent.GetURL(desktop)),
 							new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(parent.ID) ?? "")
 						));
 					}
 				}
 
-				// update XML into cache
+				// update cache
+				data.CleanInvalidCharacters();
 				if (cacheKey != null && !asMenu)
 					Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).Run();
 			}
@@ -892,16 +902,109 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
+		internal static async Task<JObject> GenerateLinkAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, bool addChildren, int level, int maxLevel, CancellationToken cancellationToken)
+		{
+			var linkJson = link.ToJson(
+				addChildren,
+				false,
+				json =>
+				{
+					json["URL"] = link.GetURL();
+					json["ThumbnailURL"] = thumbnailURL;
+					json.Remove("Privileges");
+				},
+				async json =>
+				{
+					var clink = await Link.GetAsync<Link>(json.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+					if (clink != null)
+					{
+						var thumbnails = await requestInfo.GetThumbnailsAsync(clink.ID, clink.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+						json["URL"] = clink.GetURL();
+						json["ThumbnailURL"] = thumbnails?.GetThumbnailURL(clink.ID) ?? "";
+					}
+					json.Remove("Privileges");
+				},
+				level,
+				maxLevel
+			);
+
+			if (addChildren && (maxLevel < 1 || level + 1 < maxLevel))
+			{
+				if (link.ChildrenMode.Equals(ChildrenMode.Normal))
+				{
+					var children = linkJson.Get<JArray>("Children");
+					if (children != null && children.Count > 0)
+						linkJson["Children"] = new JObject
+						{
+							{ "Link", children }
+						};
+				}
+
+				else if (!string.IsNullOrWhiteSpace(link.LookupRepositoryID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
+				{
+					var contentType = await link.LookupRepositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+					if (contentType != null && contentType.RepositoryID.IsEquals(link.LookupRepositoryID))
+					{
+						var requestJson = requestInfo.BodyAsJson;
+						requestJson["ContentTypeDefinition"] = contentType.ContentTypeDefinition?.ToJson();
+						requestJson["ModuleDefinition"] = contentType.ContentTypeDefinition?.ModuleDefinition?.ToJson(json =>
+						{
+							(json as JObject).Remove("ContentTypeDefinitions");
+							(json as JObject).Remove("ObjectDefinitions");
+						});
+						requestJson["Module"] = contentType.Module?.ToJson(json =>
+						{
+							ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
+							json.Remove("Privileges");
+							json["Description"] = contentType.Module.Description?.NormalizeHTMLBreaks();
+						});
+						requestJson["ContentType"] = contentType.ToJson(json =>
+						{
+							ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
+							json.Remove("Privileges");
+							json["Description"] = contentType.Description?.NormalizeHTMLBreaks();
+						});
+
+						requestJson["Expression"] = new JObject();
+						requestJson["ParentIdentity"] = link.LookupRepositoryObjectID;
+						requestJson.Get<JObject>("Options").Add("Level", new JValue(level + 1));
+
+						var request = new RequestInfo(requestInfo)
+						{
+							ObjectName = contentType.ContentTypeDefinition.GetObjectName(),
+							Body = requestJson.ToString(Formatting.None)
+						};
+						try
+						{
+							var children = await contentType.GetService().GenerateAsync(request, cancellationToken).ConfigureAwait(false);
+							var links = children?.Get<JArray>("Data");
+							if (links != null && links.Count > 0)
+								linkJson["Children"] = new JObject
+								{
+									{ "Link", links }
+								};
+						}
+						catch (Exception ex)
+						{
+							await request.WriteErrorAsync(ex, cancellationToken, "Error occurred while fetching links from other module/content-type", "Links", $"> Parent: {link.ToJson()}\r\n> Request: {request.ToJson()}").ConfigureAwait(false);
+						}
+					}
+				}
+			}
+
+			return linkJson;
+		}
+
 		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, int level, int maxLevel = 0, CancellationToken cancellationToken = default)
 		{
 			// generate the menu item
 			var menu = new JObject
 			{
 				{ "ID", link.ID },
-				{ "Title", link.Title.CleanInvalidXmlCharacters() },
-				{ "Description", link.Summary?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters() },
+				{ "Title", link.Title },
+				{ "Description", link.Summary?.NormalizeHTMLBreaks() },
 				{ "Image", thumbnailURL },
-				{ "URL", link.GetURL().CleanInvalidXmlCharacters() },
+				{ "URL", link.GetURL() },
 				{ "Target", link.Target },
 				{ "Level", level },
 				{ "Selected", false }

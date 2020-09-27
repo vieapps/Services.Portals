@@ -583,7 +583,8 @@ namespace net.vieapps.Services.Portals
 				// prepare filtering expression
 				if (!(expressionJson.Get<JObject>("FilterBy")?.ToFilter<Content>() is FilterBys<Content> filter) || filter.Children == null || filter.Children.Count < 1)
 				{
-					filter = Filters<Content>.And(
+					filter = Filters<Content>.And
+					(
 						Filters<Content>.Equals("SystemID", "@request.Body(Organization.ID)"),
 						Filters<Content>.Equals("RepositoryID", "@request.Body(Module.ID)"),
 						Filters<Content>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)")
@@ -592,9 +593,11 @@ namespace net.vieapps.Services.Portals
 					if (category != null)
 						filter.Add(Filters<Content>.Equals("CategoryID", category.ID));
 
-					filter.Add(
+					filter.Add
+					(
 						Filters<Content>.LessThanOrEquals("StartDate", "@today"),
-						Filters<Content>.Or(
+						Filters<Content>.Or
+						(
 							Filters<Content>.IsNull("EndDate"),
 							Filters<Content>.GreaterOrEquals("EndDate", "@today")
 						),
@@ -609,7 +612,8 @@ namespace net.vieapps.Services.Portals
 					filter.Add(Filters<Content>.LessThanOrEquals("StartDate", "@today"));
 
 				if (filter.GetChild("EndDate") == null)
-					filter.Add(Filters<Content>.Or(
+					filter.Add(Filters<Content>.Or
+					(
 						Filters<Content>.IsNull("EndDate"),
 						Filters<Content>.GreaterOrEquals("EndDate", "@today")
 					));
@@ -661,7 +665,7 @@ namespace net.vieapps.Services.Portals
 						element.Element("StartDate")?.UpdateDateTime(cultureInfo);
 						element.Element("EndDate")?.UpdateDateTime(cultureInfo);
 						if (!string.IsNullOrWhiteSpace(@object.Summary))
-							element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks().CleanInvalidXmlCharacters();
+							element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
 						element.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
 						element.Add(new XElement("URL", @object.GetURL(desktop)));
 						element.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
@@ -681,14 +685,15 @@ namespace net.vieapps.Services.Portals
 						categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 						data.Add(new XElement(
 							"Parent",
-							new XElement("Title", category.Title.CleanInvalidXmlCharacters()),
-							new XElement("Description", category.Description?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters()),
-							new XElement("URL", category.GetURL(desktop).CleanInvalidXmlCharacters()),
+							new XElement("Title", category.Title),
+							new XElement("Description", category.Description?.NormalizeHTMLBreaks()),
+							new XElement("URL", category.GetURL(desktop)),
 							new XElement("ThumbnailURL", categoryThumbnails?.GetThumbnailURL(category.ID) ?? "")
 						));
 					}
 
 					// update XML into cache
+					data.CleanInvalidCharacters();
 					if (cacheKey != null)
 						Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).Run();
 				}
@@ -734,6 +739,14 @@ namespace net.vieapps.Services.Portals
 				if (!gotRights)
 					throw new AccessDeniedException();
 
+				// validate the published time
+				var validatePublishedTime = options.Get("ValidatePublished", options.Get("ValidatePublishedTime", options.Get("ValidateWithPublishedTime", false)));
+				if (validatePublishedTime && @object.Status.Equals(ApprovalStatus.Published) && @object.PublishedTime.Value > DateTime.Now)
+				{
+					if (!isSystemAdministrator && !requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) && !requestInfo.Session.User.ID.IsEquals(@object.CreatedID) && !requestInfo.Session.User.IsEditor(@object.WorkingPrivileges))
+						throw new AccessDeniedException();
+				}
+
 				var showAttachments = options.Get("ShowAttachments", false);
 				var showRelateds = options.Get("ShowRelateds", false);
 				var showOthers = options.Get("ShowOthers", false);
@@ -762,22 +775,26 @@ namespace net.vieapps.Services.Portals
 					}
 					else
 					{
-						newersTask = Content.FindAsync(Filters<Content>.And(
+						newersTask = Content.FindAsync(Filters<Content>.And
+						(
 							Filters<Content>.Equals("RepositoryEntityID", @object.RepositoryEntityID),
 							Filters<Content>.Equals("CategoryID", @object.CategoryID),
 							Filters<Content>.LessThanOrEquals("StartDate", DateTime.Now.ToDTString(false, false)),
-							Filters<Content>.Or(
+							Filters<Content>.Or
+							(
 								Filters<Content>.IsNull("EndDate"),
 								Filters<Content>.GreaterOrEquals("EndDate", DateTime.Now.ToDTString(false, false))
 							),
 							Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()),
 							Filters<Content>.GreaterOrEquals("PublishedTime", @object.PublishedTime.Value.GetTimeQuarter())
 						), Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime"), numberOfOthers, 1, contentTypeID, null, cancellationToken);
-						oldersTask = Content.FindAsync(Filters<Content>.And(
+						oldersTask = Content.FindAsync(Filters<Content>.And
+						(
 							Filters<Content>.Equals("RepositoryEntityID", @object.RepositoryEntityID),
 							Filters<Content>.Equals("CategoryID", @object.CategoryID),
 							Filters<Content>.LessThanOrEquals("StartDate", DateTime.Now.ToDTString(false, false)),
-							Filters<Content>.Or(
+							Filters<Content>.Or
+							(
 								Filters<Content>.IsNull("EndDate"),
 								Filters<Content>.GreaterOrEquals("EndDate", DateTime.Now.ToDTString(false, false))
 							),
@@ -847,7 +864,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					if (!string.IsNullOrWhiteSpace(@object.Summary))
-						xml.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks().CleanInvalidXmlCharacters();
+						xml.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
 
 					xml.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
 					xml.Add(new XElement("URL", @object.GetURL(desktop)));
@@ -882,7 +899,7 @@ namespace net.vieapps.Services.Portals
 					relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
 					{
 						var relatedXml = new XElement("Content", new XElement("ID", related.ID));
-						relatedXml.Add(new XElement("Title", related.Title), new XElement("Summary", related.Summary?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters()));
+						relatedXml.Add(new XElement("Title", related.Title), new XElement("Summary", related.Summary?.NormalizeHTMLBreaks()));
 						relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value).UpdateDateTime(cultureInfo));
 						relatedXml.Add(new XElement("URL", related.GetURL(desktop)));
 						relatedsXml.Add(relatedXml);
@@ -893,7 +910,7 @@ namespace net.vieapps.Services.Portals
 					@object.ExternalRelateds?.ForEach(external => externalsXml.Add(external.ToXml(externalXml =>
 					{
 						if (!string.IsNullOrWhiteSpace(external.Summary))
-							externalXml.Element("Summary").Value = external.Summary.NormalizeHTMLBreaks().CleanInvalidXmlCharacters();
+							externalXml.Element("Summary").Value = external.Summary.NormalizeHTMLBreaks();
 					})));
 					data.Add(externalsXml);
 				}
@@ -907,7 +924,7 @@ namespace net.vieapps.Services.Portals
 						otherXml.Element("StartDate")?.UpdateDateTime(cultureInfo);
 						otherXml.Element("EndDate")?.UpdateDateTime(cultureInfo);
 						if (!string.IsNullOrWhiteSpace(other.Summary))
-							otherXml.Element("Summary").Value = other.Summary.NormalizeHTMLBreaks().CleanInvalidXmlCharacters();
+							otherXml.Element("Summary").Value = other.Summary.NormalizeHTMLBreaks();
 						otherXml.Add(new XElement("Category", other.Category?.Title, new XAttribute("URL", other.Category?.GetURL(desktop))));
 						otherXml.Add(new XElement("URL", other.GetURL(desktop)));
 						otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
@@ -940,12 +957,13 @@ namespace net.vieapps.Services.Portals
 					var categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 					data.Add(new XElement(
 						"Parent",
-						new XElement("Title", category.Title.CleanInvalidXmlCharacters()),
-						new XElement("Description", category.Description?.NormalizeHTMLBreaks().CleanInvalidXmlCharacters()),
-						new XElement("URL", category.GetURL(desktop).CleanInvalidXmlCharacters()),
+						new XElement("Title", category.Title),
+						new XElement("Description", category.Description?.NormalizeHTMLBreaks()),
+						new XElement("URL", category.GetURL(desktop)),
 						new XElement("ThumbnailURL", categoryThumbnails?.GetThumbnailURL(category.ID) ?? "")
 					));
 				}
+				data.CleanInvalidCharacters();
 			}
 
 			// response
