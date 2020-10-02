@@ -334,8 +334,7 @@ namespace net.vieapps.Services.Portals
 
 			// validate template, meta-tags and scripts
 			request.Get("Template", "").ValidateTemplate();
-			request.Get("MetaTags", "").ValidateMetaTagsOrScripts();
-			request.Get("Scripts", "").ValidateMetaTagsOrScripts(true);
+			request.Get("MetaTags", "").ValidateTags();
 
 			// create new
 			var desktop = request.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
@@ -503,10 +502,9 @@ namespace net.vieapps.Services.Portals
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
 			}
 
-			// validate template, meta-tags and scripts
+			// validate template & meta-tags
 			request.Get("Template", "").ValidateTemplate();
-			request.Get("MetaTags", "").ValidateMetaTagsOrScripts();
-			request.Get("Scripts", "").ValidateMetaTagsOrScripts(true);
+			request.Get("MetaTags", "").ValidateTags();
 
 			// update
 			desktop.UpdateDesktopInstance(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async _ =>

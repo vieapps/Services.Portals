@@ -209,7 +209,7 @@ namespace net.vieapps.Services.Portals
 		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null, Action<JObject> onChildrenCompleted = null, int level = 1, int maxLevel = 0)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
-				if (addChildren && (maxLevel < 1 || level + 1 < maxLevel))
+				if (addChildren && (maxLevel < 1 || level < maxLevel))
 					json["Children"] = this.Children?.Where(category => category != null).OrderBy(category => category.OrderIndex).Select(category => category.ToJson(addChildren, addTypeOfExtendedProperties, onChildrenCompleted, onChildrenCompleted, level + 1, maxLevel)).ToJArray();
 				onCompleted?.Invoke(json);
 			});

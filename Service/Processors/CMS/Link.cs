@@ -928,7 +928,7 @@ namespace net.vieapps.Services.Portals
 				maxLevel
 			);
 
-			if (addChildren && (maxLevel < 1 || level + 1 < maxLevel))
+			if (addChildren && (maxLevel < 1 || level < maxLevel))
 			{
 				if (link.ChildrenMode.Equals(ChildrenMode.Normal))
 				{

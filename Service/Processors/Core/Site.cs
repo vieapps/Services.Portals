@@ -334,9 +334,8 @@ namespace net.vieapps.Services.Portals
 			if (existing != null)
 				throw new InformationExistedException($"The domain ({domain.NormalizeDomain()}) was used by another site");
 
-			// validate meta-tags and scripts
-			request.Get("MetaTags", "").ValidateMetaTagsOrScripts();
-			request.Get("Scripts", "").ValidateMetaTagsOrScripts(true);
+			// validate meta-tags
+			request.Get("MetaTags", "").ValidateTags();
 
 			// create new
 			var site = request.CreateSiteInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
@@ -449,9 +448,8 @@ namespace net.vieapps.Services.Portals
 			if (existing != null && !existing.ID.Equals(site.ID))
 				throw new InformationExistedException($"The domain ({domain.NormalizeDomain()}) was used by another site");
 
-			// validate meta-tags and scripts
-			request.Get("MetaTags", "").ValidateMetaTagsOrScripts();
-			request.Get("Scripts", "").ValidateMetaTagsOrScripts(true);
+			// validate meta-tags
+			request.Get("MetaTags", "").ValidateTags();
 
 			// update
 			var oldStatus = site.Status;

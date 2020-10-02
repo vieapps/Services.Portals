@@ -87,20 +87,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 	}
 
 	[Serializable]
-	public class ScriptsAreInvalidException : AppException
-	{
-		public ScriptsAreInvalidException() : this("The scripts are invalid") { }
-
-		public ScriptsAreInvalidException(Exception innerException) : base($"The scripts are invalid => {innerException.Message}", innerException) { }
-
-		public ScriptsAreInvalidException(string message) : base(message) { }
-
-		public ScriptsAreInvalidException(string message, Exception innerException) : base(message, innerException) { }
-
-		public ScriptsAreInvalidException(SerializationInfo info, StreamingContext context) : base(info, context) { }
-	}
-
-	[Serializable]
 	public class OptionsAreInvalidException : AppException
 	{
 		public OptionsAreInvalidException() : this("The options are invalid") { }

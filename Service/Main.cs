@@ -1098,7 +1098,7 @@ namespace net.vieapps.Services.Portals
 					};
 			}
 
-			// css of a theme
+			// css stylesheets
 			if (type.IsEquals("css"))
 			{
 				// prepare
@@ -1174,39 +1174,87 @@ namespace net.vieapps.Services.Portals
 					};
 			}
 
-			// script  of a theme
+			// scripts
 			if (type.IsEquals("js") || type.IsEquals("javascript") || type.IsEquals("script") || type.IsEquals("scripts"))
 			{
 				// prepare
-				if (!requestInfo.Query.TryGetValue("x-path", out var theme) || string.IsNullOrWhiteSpace(theme))
+				if (!requestInfo.Query.TryGetValue("x-path", out var identity) || string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
-				theme = theme.Replace(".js", "").ToLower().Trim();
+				var body = "";
 				var lastModified = DateTimeService.CheckingDateTime;
-				var body = this.IsDebugLogEnabled ? $"/* scripts of the '{theme}' theme */\r\n" : "";
+				identity = identity.Replace(".js", "").ToLower().Trim();
 
-				var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", theme, "js"));
-				if (directory.Exists)
+				// scripts of organization/site/desktop
+				if (identity.Length == 34 && identity.Right(32).IsValidUUID())
 				{
-					var files = directory.GetFiles("*.js");
-					if (files.Length < 1)
-						lastModified = directory.LastWriteTime;
-					else
-						await files.OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
+					if (identity.Left(1).IsEquals("o"))
+					{
+						var organization = await identity.Right(32).GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+						if (organization != null)
 						{
-							body += (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n\r\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
-							if (fileInfo.LastWriteTime > lastModified)
-								lastModified = fileInfo.LastWriteTime;
-						}, cancellationToken, true, false).ConfigureAwait(false);
+							body = this.IsDebugLogEnabled ? $"/* scripts of the '{organization.Title}' organization */\n\n" : "";
+							lastModified = organization.LastModified;
+							body += string.IsNullOrWhiteSpace(organization.Scripts) ? "" : organization.Scripts.Replace("~~/", $"{Utility.FilesHttpURI}/");
+						}
+						else
+							body = $"/* the requested organization ({identity.Right(32)}) is not found */";
+					}
+					else if (identity.Left(1).IsEquals("s"))
+					{
+						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
+						if (site != null)
+						{
+							body = this.IsDebugLogEnabled ? $"/* scripts of the '{site.Title}' site */\n\n" : "";
+							lastModified = site.LastModified;
+							body += string.IsNullOrWhiteSpace(site.Scripts) ? "" : site.Scripts.Replace("~~/", $"{Utility.FilesHttpURI}/");
+						}
+						else
+							body = $"/* the requested site ({identity.Right(32)}) is not found */";
+					}
+					else if (identity.Left(1).IsEquals("d"))
+					{
+						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+						if (desktop != null)
+						{
+							body = this.IsDebugLogEnabled ? $"/* scripts of the '{desktop.Title}' desktop */\n\n" : "";
+							lastModified = desktop.LastModified;
+							body += string.IsNullOrWhiteSpace(desktop.Scripts) ? "" : desktop.Scripts.Replace("~~/", $"{Utility.FilesHttpURI}/");
+						}
+						else
+							body = $"/* the requested desktop ({identity.Right(32)}) is not found */";
+					}
+					else
+						body = $"/* the requested resource ({identity}) is not found */";
 				}
 
-				var eTag = $"script#{theme.GenerateUUID()}";
+				// scripts of a theme
+				else
+				{
+					body = this.IsDebugLogEnabled ? $"/* scripts of the '{identity}' theme */\r\n" : "";
+					var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", identity, "js"));
+					if (directory.Exists)
+					{
+						var files = directory.GetFiles("*.js");
+						if (files.Length < 1)
+							lastModified = directory.LastWriteTime;
+						else
+							await files.OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
+							{
+								body += (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n\r\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
+								if (fileInfo.LastWriteTime > lastModified)
+									lastModified = fileInfo.LastWriteTime;
+							}, cancellationToken, true, false).ConfigureAwait(false);
+					}
+				}
+
+				var eTag = $"script#{identity.GenerateUUID()}";
 				var headers = new Dictionary<string, string>
 				{
 					{ "Content-Type", "application/javascript; charset=utf-8" },
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
-				if (this.CacheDesktopResources && !this.ExcludedThemes.Contains(theme))
+				if (this.CacheDesktopResources && !this.ExcludedThemes.Contains(identity))
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
 						{ "ETag", eTag },
@@ -1636,7 +1684,7 @@ namespace net.vieapps.Services.Portals
 
 				html = html.Insert(html.IndexOf("</head>"), $"<title>{title}</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>");
 				html = html.Insert(html.IndexOf("</head>"), metaTags + "<script src=\"" + this.GetHttpURI("jQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js") + "\"></script><script>var $j=$;var __vieapps={rootURL:\"~/\",desktops:{home:{{homeDesktop}},search:{{searchDesktop}}},language:{{language}},isMobile:{{isMobile}},osInfo:\"{{osInfo}}\"};</script>");
-				html = html.Insert(html.IndexOf("</body>"), body + scripts);
+				html = html.Insert(html.IndexOf("</body>"), body + $"<div>{scripts}</div>");
 
 				if (writeDesktopLogs)
 				{
@@ -2441,7 +2489,6 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// start meta tags with information for SEO and social networks
-			var theme = desktop.WorkingTheme ?? "default";
 			var metaTags = "";
 
 			if (!string.IsNullOrWhiteSpace(description))
@@ -2478,12 +2525,24 @@ namespace net.vieapps.Services.Portals
 			metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_assets/default.css\"/>"
 				+ $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/default.css\"/>";
 
-			// add the stylesheet of the current theme
-			if (!"default".IsEquals(theme))
-				metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{theme}.css\"/>";
+			// add the stylesheet of the organization theme
+			var organizationTheme = organization.Theme ?? "default";
+			if (!"default".IsEquals(organizationTheme))
+				metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{organizationTheme}.css\"/>";
+
+			// add the stylesheet of the site theme
+			var siteTheme = site.Theme ?? "default";
+			if (!"default".IsEquals(siteTheme) && organizationTheme.IsEquals(siteTheme))
+				metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{siteTheme}.css\"/>";
+
+			// add the stylesheet of the desktop theme
+			var desktopTheme = desktop.WorkingTheme ?? "default";
+			if (!"default".IsEquals(desktopTheme) && organizationTheme.IsEquals(desktopTheme) && siteTheme.IsEquals(desktopTheme))
+				metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{desktopTheme}.css\"/>";
 
 			// add the stylesheet of the site
-			metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{site.ID}.css\"/>";
+			if (!string.IsNullOrWhiteSpace(site.Stylesheets))
+				metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{site.ID}.css\"/>";
 
 			// add meta tags of the organization
 			if (!string.IsNullOrWhiteSpace(organization.MetaTags))
@@ -2497,8 +2556,10 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(desktop.MetaTags))
 				metaTags += desktop.MetaTags;
 
-			// prepare scripts
+			// add default scripts
 			var scripts = $"<script src=\"{Utility.PortalsHttpURI}/_assets/default.js\"></script>";
+
+			// add scripts of the default theme
 			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", "default", "js"));
 			if (directory.Exists && this.AllowSrcResourceFiles)
 				await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, _) =>
@@ -2506,22 +2567,54 @@ namespace net.vieapps.Services.Portals
 					scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
 				}, cancellationToken, true, false).ConfigureAwait(false);
 			scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/default.js\"></script>";
-			if (!"default".IsEquals(theme))
+
+			// add scripts of the organization theme
+			if (!"default".IsEquals(organizationTheme))
 			{
-				directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", theme, "js"));
+				directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", organizationTheme, "js"));
 				if (directory.Exists && this.AllowSrcResourceFiles)
 					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, _) =>
 					{
 						scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
 					}, cancellationToken, true, false).ConfigureAwait(false);
-				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/{theme}.js\"></script>";
+				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/{organizationTheme}.js\"></script>";
 			}
+
+			// add scripts of the site theme
+			if (!"default".IsEquals(siteTheme) && organizationTheme.IsEquals(siteTheme))
+			{
+				directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", siteTheme, "js"));
+				if (directory.Exists && this.AllowSrcResourceFiles)
+					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, _) =>
+					{
+						scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
+					}, cancellationToken, true, false).ConfigureAwait(false);
+				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/{siteTheme}.js\"></script>";
+			}
+
+			// add scripts of the desktop theme
+			if (!"default".IsEquals(desktopTheme) && organizationTheme.IsEquals(desktopTheme) && siteTheme.IsEquals(desktopTheme))
+			{
+				directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", desktopTheme, "js"));
+				if (directory.Exists && this.AllowSrcResourceFiles)
+					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, _) =>
+					{
+						scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
+					}, cancellationToken, true, false).ConfigureAwait(false);
+				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/{desktopTheme}.js\"></script>";
+			}
+
+			// add the scripts of the organization
 			if (!string.IsNullOrWhiteSpace(organization.Scripts))
-				scripts += organization.Scripts;
+				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/o_{organization.ID}.js\"></script>";
+
+			// add the scripts of the site
 			if (!string.IsNullOrWhiteSpace(site.Scripts))
-				scripts += site.Scripts;
+				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/s_{site.ID}.js\"></script>";
+
+			// add the scripts of the desktop
 			if (!string.IsNullOrWhiteSpace(desktop.Scripts))
-				scripts += desktop.Scripts;
+				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js\"></script>";
 
 			// prepare desktop zones
 			var desktopContainer = (await desktop.GetTemplateAsync(cancellationToken).ConfigureAwait(false)).GetXDocument();
@@ -2578,8 +2671,8 @@ namespace net.vieapps.Services.Portals
 			// get the desktop body
 			var body = desktopContainer.ToString().Format(new Dictionary<string, object>
 			{
-				["theme"] = theme,
-				["skin"] = theme,
+				["theme"] = desktopTheme,
+				["skin"] = desktopTheme,
 				["organization"] = organization.Alias,
 				["organization-alias"] = organization.Alias,
 				["desktop"] = desktop.Alias,

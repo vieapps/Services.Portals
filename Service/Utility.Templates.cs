@@ -138,21 +138,19 @@ namespace net.vieapps.Services.Portals
 		}
 
 		/// <summary>
-		/// Validates the meta-tags/scripts
+		/// Validates the XHTML tags
 		/// </summary>
-		/// <param name="xhtmlTemplate"></param>
-		/// <param name="mustHaveAtLeastOneZone"></param>
-		/// <param name="requiredZoneIDs"></param>
-		public static void ValidateMetaTagsOrScripts(this string code, bool asScritps = false)
+		/// <param name="tags"></param>
+		public static void ValidateTags(this string tags)
 		{
-			if (!string.IsNullOrWhiteSpace(code))
+			if (!string.IsNullOrWhiteSpace(tags))
 				try
 				{
-					$"<vieapps>{code}</vieapps>".GetXDocument();
+					$"<vieapps>{tags}</vieapps>".GetXDocument();
 				}
 				catch (Exception ex)
 				{
-					throw asScritps ? new ScriptsAreInvalidException(ex) as AppException : new MetaTagsAreInvalidException(ex);
+					throw new MetaTagsAreInvalidException(ex);
 				}
 		}
 
