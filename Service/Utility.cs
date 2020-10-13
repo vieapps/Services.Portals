@@ -800,10 +800,10 @@ namespace net.vieapps.Services.Portals
 			}).ConfigureAwait(false);
 
 		internal static string MinifyJs(this string data)
-			=> new Minifier().MinifyJs(data);
+			=> Minifier.MinifyJs(data);
 
 		internal static string MinifyCss(this string data)
-			=> new Minifier().MinifyCss(data);
+			=> Minifier.MinifyCss(data);
 
 		internal static string MinifyHtml(this string data)
 			=> UtilityService.RemoveWhitespaces(data).Replace("\r", "").Replace("\n\t", "").Replace("\t", "");
