@@ -798,6 +798,15 @@ namespace net.vieapps.Services.Portals
 						logger.LogError($"Error occurred while running a forgetable task => {ex.Message}", ex);
 				}
 			}).ConfigureAwait(false);
+
+		internal static string MinifyJs(this string data)
+			=> new Minifier().MinifyJs(data);
+
+		internal static string MinifyCss(this string data)
+			=> new Minifier().MinifyCss(data);
+
+		internal static string MinifyHtml(this string data)
+			=> UtilityService.RemoveWhitespaces(data).Replace("\r", "").Replace("\n\t", "").Replace("\t", "");
 	}
 
 	//  --------------------------------------------------------------------------------------------

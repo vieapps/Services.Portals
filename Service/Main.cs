@@ -1093,7 +1093,15 @@ namespace net.vieapps.Services.Portals
 					{
 						{ "StatusCode", (int)HttpStatusCode.OK },
 						{ "Headers", headers.ToJson() },
-						{ "Body", (await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false)).Compress(this.BodyEncoding).ToBase64() },
+						{ 
+							"Body",
+							(filePath.IsEndsWith(".css")
+								? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).MinifyCss().ToBytes()
+								: filePath.IsEndsWith(".js")
+									? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).MinifyJs().ToBytes()
+									: await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false)
+							).Compress(this.BodyEncoding).ToBase64()
+						},
 						{ "BodyEncoding", this.BodyEncoding }
 					};
 			}
@@ -1115,9 +1123,9 @@ namespace net.vieapps.Services.Portals
 					var site = await identity.GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
 					if (site != null)
 					{
-						body = this.IsDebugLogEnabled ? $"/* css of the '{site.Title}' site */\n\n" : "";
+						body = this.IsDebugLogEnabled ? $"/* css of the '{site.Title}' site */\r\n" : "";
 						lastModified = site.LastModified;
-						body += string.IsNullOrWhiteSpace(site.Stylesheets) ? "" : site.Stylesheets.Replace("~~/", $"{Utility.FilesHttpURI}/");
+						body += string.IsNullOrWhiteSpace(site.Stylesheets) ? "" : site.Stylesheets.Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyCss();
 					}
 					else
 						body = $"/* the requested site ({identity}) is not found */";
@@ -1126,7 +1134,7 @@ namespace net.vieapps.Services.Portals
 				// stylesheets of a theme
 				else
 				{
-					body = this.IsDebugLogEnabled ? $"/* css of the '{identity}' theme */\n\n" : "";
+					body = this.IsDebugLogEnabled ? $"/* css of the '{identity}' theme */\r\n" : "";
 					var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", identity, "css"));
 					if (directory.Exists)
 					{
@@ -1136,7 +1144,7 @@ namespace net.vieapps.Services.Portals
 						else
 							await files.OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
 							{
-								body += (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n\r\n" : "") + (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~~/", $"{Utility.FilesHttpURI}/") + "\r\n";
+								body += (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n" : "") + (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyCss() + "\r\n";
 								if (fileInfo.LastWriteTime > lastModified)
 									lastModified = fileInfo.LastWriteTime;
 							}, cancellationToken, true, false).ConfigureAwait(false);
@@ -1193,9 +1201,9 @@ namespace net.vieapps.Services.Portals
 						var organization = await identity.Right(32).GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 						if (organization != null)
 						{
-							body = this.IsDebugLogEnabled ? $"/* scripts of the '{organization.Title}' organization */\n\n" : "";
+							body = this.IsDebugLogEnabled ? $"/* scripts of the '{organization.Title}' organization */\r\n" : "";
 							lastModified = organization.LastModified;
-							body += string.IsNullOrWhiteSpace(organization.Scripts) ? "" : organization.Scripts.Replace("~~/", $"{Utility.FilesHttpURI}/");
+							body += string.IsNullOrWhiteSpace(organization.Scripts) ? "" : organization.Scripts.Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyJs();
 						}
 						else
 							body = $"/* the requested organization ({identity.Right(32)}) is not found */";
@@ -1205,9 +1213,9 @@ namespace net.vieapps.Services.Portals
 						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
 						if (site != null)
 						{
-							body = this.IsDebugLogEnabled ? $"/* scripts of the '{site.Title}' site */\n\n" : "";
+							body = this.IsDebugLogEnabled ? $"/* scripts of the '{site.Title}' site */\r\n" : "";
 							lastModified = site.LastModified;
-							body += string.IsNullOrWhiteSpace(site.Scripts) ? "" : site.Scripts.Replace("~~/", $"{Utility.FilesHttpURI}/");
+							body += string.IsNullOrWhiteSpace(site.Scripts) ? "" : site.Scripts.Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyJs();
 						}
 						else
 							body = $"/* the requested site ({identity.Right(32)}) is not found */";
@@ -1217,9 +1225,9 @@ namespace net.vieapps.Services.Portals
 						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 						if (desktop != null)
 						{
-							body = this.IsDebugLogEnabled ? $"/* scripts of the '{desktop.Title}' desktop */\n\n" : "";
+							body = this.IsDebugLogEnabled ? $"/* scripts of the '{desktop.Title}' desktop */\r\n" : "";
 							lastModified = desktop.LastModified;
-							body += string.IsNullOrWhiteSpace(desktop.Scripts) ? "" : desktop.Scripts.Replace("~~/", $"{Utility.FilesHttpURI}/");
+							body += string.IsNullOrWhiteSpace(desktop.Scripts) ? "" : desktop.Scripts.Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyJs();
 						}
 						else
 							body = $"/* the requested desktop ({identity.Right(32)}) is not found */";
@@ -1241,7 +1249,7 @@ namespace net.vieapps.Services.Portals
 						else
 							await files.OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, token) =>
 							{
-								body += (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n\r\n" : "") + await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n";
+								body += (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n" : "") + (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).MinifyJs() + "\r\n";
 								if (fileInfo.LastWriteTime > lastModified)
 									lastModified = fileInfo.LastWriteTime;
 							}, cancellationToken, true, false).ConfigureAwait(false);
@@ -1692,9 +1700,8 @@ namespace net.vieapps.Services.Portals
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\n- HTML:\r\n{html}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				}
 
-				// remove white spaces
-				if (this.RemoveDesktopHtmlWhitespaces)
-					html = UtilityService.RemoveWhitespaces(html).Replace("\r", "").Replace("\n\t", "").Replace("\t", "");
+				// minify
+				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html.Trim();
 
 				// prepare caching
 				if (this.CacheDesktopHtmls && !portletHtmls.Values.Any(data => data.Item2))
