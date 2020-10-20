@@ -375,7 +375,7 @@ namespace net.vieapps.Services.Portals
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-				#endregion
+						#endregion
 
 				}
 				stopwatch.Stop();
@@ -1093,7 +1093,7 @@ namespace net.vieapps.Services.Portals
 					{
 						{ "StatusCode", (int)HttpStatusCode.OK },
 						{ "Headers", headers.ToJson() },
-						{ 
+						{
 							"Body",
 							(filePath.IsEndsWith(".css")
 								? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).MinifyCss().ToBytes()
@@ -1117,18 +1117,35 @@ namespace net.vieapps.Services.Portals
 				var lastModified = DateTimeService.CheckingDateTime;
 				identity = identity.Replace(".css", "").ToLower().Trim();
 
-				// stylesheets of a site
-				if (identity.IsValidUUID())
+				// stylesheets of a site/desktop
+				if (identity.Length == 34 && identity.Right(32).IsValidUUID())
 				{
-					var site = await identity.GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-					if (site != null)
+					if (identity.Left(1).IsEquals("s"))
 					{
-						body = this.IsDebugLogEnabled ? $"/* css of the '{site.Title}' site */\r\n" : "";
-						lastModified = site.LastModified;
-						body += string.IsNullOrWhiteSpace(site.Stylesheets) ? "" : site.Stylesheets.Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyCss();
+						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
+						if (site != null)
+						{
+							body = this.IsDebugLogEnabled ? $"/* css of the '{site.Title}' site */\r\n" : "";
+							lastModified = site.LastModified;
+							body += string.IsNullOrWhiteSpace(site.Stylesheets) ? "" : site.Stylesheets.Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyCss();
+						}
+						else
+							body = $"/* the requested site ({identity}) is not found */";
+					}
+					else if (identity.Left(1).IsEquals("d"))
+					{
+						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+						if (desktop != null)
+						{
+							body = this.IsDebugLogEnabled ? $"/* css of the '{desktop.Title}' desktop */\r\n" : "";
+							lastModified = desktop.LastModified;
+							body += string.IsNullOrWhiteSpace(desktop.Stylesheets) ? "" : desktop.Stylesheets.Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyCss();
+						}
+						else
+							body = $"/* the requested desktop ({identity}) is not found */";
 					}
 					else
-						body = $"/* the requested site ({identity}) is not found */";
+						body = $"/* the requested resource ({identity}) is not found */";
 				}
 
 				// stylesheets of a theme
@@ -2549,7 +2566,11 @@ namespace net.vieapps.Services.Portals
 
 			// add the stylesheet of the site
 			if (!string.IsNullOrWhiteSpace(site.Stylesheets))
-				metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/{site.ID}.css\"/>";
+				metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/s_{site.ID}.css\"/>";
+
+			// add the stylesheet of the desktop
+			if (!string.IsNullOrWhiteSpace(desktop.Stylesheets))
+				metaTags += $"<link rel=\"stylesheet\" href=\"{Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css\"/>";
 
 			// add meta tags of the organization
 			if (!string.IsNullOrWhiteSpace(organization.MetaTags))
@@ -2612,14 +2633,23 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// add the scripts of the organization
+			if (!string.IsNullOrWhiteSpace(organization.ScriptLibraries))
+				scripts += organization.ScriptLibraries;
+
 			if (!string.IsNullOrWhiteSpace(organization.Scripts))
 				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/o_{organization.ID}.js\"></script>";
 
 			// add the scripts of the site
+			if (!string.IsNullOrWhiteSpace(site.ScriptLibraries))
+				scripts += site.ScriptLibraries;
+
 			if (!string.IsNullOrWhiteSpace(site.Scripts))
 				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/s_{site.ID}.js\"></script>";
 
 			// add the scripts of the desktop
+			if (!string.IsNullOrWhiteSpace(desktop.ScriptLibraries))
+				scripts += desktop.ScriptLibraries;
+
 			if (!string.IsNullOrWhiteSpace(desktop.Scripts))
 				scripts += $"<script src=\"{Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js\"></script>";
 

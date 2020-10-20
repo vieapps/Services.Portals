@@ -22,7 +22,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, Desktop> DesktopsByAlias { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
 
-		internal static HashSet<string> ExtraProperties { get; } = "UISettings,IconURI,CoverURI,MetaTags,Scripts,MainPortletID,SEOSettings".ToHashSet();
+		internal static HashSet<string> ExtraProperties { get; } = "UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,MainPortletID,SEOSettings".ToHashSet();
 
 		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Images,Thumbnails,ThumbnailPngs,ThumbnailBigs,ThumbnailBigPngs,Default,Index").ToLower().ToHashSet();
 

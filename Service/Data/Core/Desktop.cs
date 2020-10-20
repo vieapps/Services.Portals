@@ -79,6 +79,13 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, BsonIgnore]
 		[FormControl(Segment = "display", ControlType = "TextArea", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
+		public string Stylesheets { get; set; }
+
+		[FormControl(Segment = "display", ControlType = "TextArea", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
+		public string ScriptLibraries { get; set; }
+
+		[Ignore, BsonIgnore]
+		[FormControl(Segment = "display", ControlType = "TextArea", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public string Scripts { get; set; }
 
 		[Ignore, BsonIgnore]
@@ -240,6 +247,8 @@ namespace net.vieapps.Services.Portals
 			this.IconURI = string.IsNullOrWhiteSpace(this.IconURI) ? null : this.IconURI.Trim();
 			this.CoverURI = string.IsNullOrWhiteSpace(this.CoverURI) ? null : this.CoverURI.Trim();
 			this.MetaTags = string.IsNullOrWhiteSpace(this.MetaTags) ? null : this.MetaTags.Trim();
+			this.Stylesheets = string.IsNullOrWhiteSpace(this.Stylesheets) ? null : this.Stylesheets.Trim();
+			this.ScriptLibraries = string.IsNullOrWhiteSpace(this.ScriptLibraries) ? null : this.ScriptLibraries.Trim();
 			this.Scripts = string.IsNullOrWhiteSpace(this.Scripts) ? null : this.Scripts.Trim();
 			this.MainPortletID = string.IsNullOrWhiteSpace(this.MainPortletID) ? null : this.MainPortletID.Trim();
 			this.SEOSettings?.Normalize();
@@ -258,6 +267,8 @@ namespace net.vieapps.Services.Portals
 				this.IconURI = this._json["IconURI"]?.FromJson<string>();
 				this.CoverURI = this._json["CoverURI"]?.FromJson<string>();
 				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
+				this.Stylesheets = this._json["Stylesheets"]?.FromJson<string>();
+				this.ScriptLibraries = this._json["ScriptLibraries"]?.FromJson<string>();
 				this.Scripts = this._json["Scripts"]?.FromJson<string>();
 				this.MainPortletID = this._json["MainPortletID"]?.FromJson<string>();
 				this.SEOSettings = this._json["SEOSettings"]?.FromJson<Settings.SEO>();

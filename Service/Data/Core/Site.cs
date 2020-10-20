@@ -92,11 +92,14 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, BsonIgnore]
 		[FormControl(Segment = "display", ControlType = "TextArea", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
-		public string Stylesheets { get; set; }
+		public string MetaTags { get; set; }
 
 		[Ignore, BsonIgnore]
 		[FormControl(Segment = "display", ControlType = "TextArea", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
-		public string MetaTags { get; set; }
+		public string Stylesheets { get; set; }
+
+		[FormControl(Segment = "display", ControlType = "TextArea", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
+		public string ScriptLibraries { get; set; }
 
 		[Ignore, BsonIgnore]
 		[FormControl(Segment = "display", ControlType = "TextArea", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
@@ -194,8 +197,9 @@ namespace net.vieapps.Services.Portals
 			this.UISettings = this.UISettings != null && string.IsNullOrWhiteSpace(this.UISettings.Padding) && string.IsNullOrWhiteSpace(this.UISettings.Margin) && string.IsNullOrWhiteSpace(this.UISettings.Width) && string.IsNullOrWhiteSpace(this.UISettings.Height) && string.IsNullOrWhiteSpace(this.UISettings.Color) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundColor) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageURI) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageRepeat) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImagePosition) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageSize) && string.IsNullOrWhiteSpace(this.UISettings.Css) && string.IsNullOrWhiteSpace(this.UISettings.Style) ? null : this.UISettings;
 			this.IconURI = string.IsNullOrWhiteSpace(this.IconURI) ? null : this.IconURI.Trim();
 			this.CoverURI = string.IsNullOrWhiteSpace(this.CoverURI) ? null : this.CoverURI.Trim();
-			this.Stylesheets = string.IsNullOrWhiteSpace(this.Stylesheets) ? null : this.Stylesheets.Trim();
 			this.MetaTags = string.IsNullOrWhiteSpace(this.MetaTags) ? null : this.MetaTags.Trim();
+			this.Stylesheets = string.IsNullOrWhiteSpace(this.Stylesheets) ? null : this.Stylesheets.Trim();
+			this.ScriptLibraries = string.IsNullOrWhiteSpace(this.ScriptLibraries) ? null : this.ScriptLibraries.Trim();
 			this.Scripts = string.IsNullOrWhiteSpace(this.Scripts) ? null : this.Scripts.Trim();
 			this.SEOInfo?.Normalize();
 			this.SEOInfo = this.SEOInfo != null && string.IsNullOrWhiteSpace(this.SEOInfo.Title) && string.IsNullOrWhiteSpace(this.SEOInfo.Description) && string.IsNullOrWhiteSpace(this.SEOInfo.Keywords) ? null : this.SEOInfo;
@@ -213,8 +217,9 @@ namespace net.vieapps.Services.Portals
 				this.UISettings = this._json["UISettings"]?.FromJson<Settings.UI>();
 				this.IconURI = this._json["IconURI"]?.FromJson<string>();
 				this.CoverURI = this._json["CoverURI"]?.FromJson<string>();
-				this.Stylesheets = this._json["Stylesheets"]?.FromJson<string>();
 				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
+				this.Stylesheets = this._json["Stylesheets"]?.FromJson<string>();
+				this.ScriptLibraries = this._json["ScriptLibraries"]?.FromJson<string>();
 				this.Scripts = this._json["Scripts"]?.FromJson<string>();
 				this.RedirectToNoneWWW = this._json["RedirectToNoneWWW"] != null && this._json["RedirectToNoneWWW"].FromJson<bool>();
 				this.SEOInfo = this._json["SEOInfo"]?.FromJson<Settings.SEOInfo>();

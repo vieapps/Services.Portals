@@ -160,6 +160,9 @@ namespace net.vieapps.Services.Portals
 		public string MetaTags { get; set; }
 
 		[Ignore, BsonIgnore, XmlIgnore]
+		public string ScriptLibraries { get; set; }
+
+		[Ignore, BsonIgnore, XmlIgnore]
 		public string Scripts { get; set; }
 
 		[Ignore, BsonIgnore, XmlIgnore]
@@ -254,6 +257,7 @@ namespace net.vieapps.Services.Portals
 			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 			this.Trackings = this.Trackings.Count < 1 ? null : this.Trackings;
 			this.MetaTags = string.IsNullOrWhiteSpace(this.MetaTags) ? null : this.MetaTags.Trim();
+			this.ScriptLibraries = string.IsNullOrWhiteSpace(this.ScriptLibraries) ? null : this.ScriptLibraries.Trim();
 			this.Scripts = string.IsNullOrWhiteSpace(this.Scripts) ? null : this.Scripts.Trim();
 			this.RefreshUrls?.Normalize();
 			this.RefreshUrls = this.RefreshUrls != null && this.RefreshUrls.Addresses == null ? null : this.RefreshUrls;
@@ -280,6 +284,7 @@ namespace net.vieapps.Services.Portals
 				this.Socials = this._json["Socials"]?.FromJson<List<string>>();
 				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
 				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
+				this.ScriptLibraries = this._json["ScriptLibraries"]?.FromJson<string>();
 				this.Scripts = this._json["Scripts"]?.FromJson<string>();
 				this.AlwaysUseHtmlSuffix = this._json["AlwaysUseHtmlSuffix"] != null && this._json["AlwaysUseHtmlSuffix"].FromJson<bool>();
 				this.RefreshUrls = this._json["RefreshUrls"]?.FromJson<Settings.RefreshUrls>();
