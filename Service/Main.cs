@@ -1661,7 +1661,7 @@ namespace net.vieapps.Services.Portals
 				string title = "", metaTags = "", scripts = "", body = "";
 				try
 				{
-					var desktopData = await this.GenerateDesktopAsync(desktop, organization, site, string.IsNullOrWhiteSpace(desktop.MainPortletID) || !portletData.TryGetValue(desktop.MainPortletID, out var mainPortlet) ? null : mainPortlet, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					var desktopData = await this.GenerateDesktopAsync(desktop, organization, site, string.IsNullOrWhiteSpace(desktop.MainPortletID) || !portletData.TryGetValue(desktop.MainPortletID, out var mainPortlet) ? null : mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					title = desktopData.Item1;
 					metaTags = desktopData.Item2;
 					scripts = desktopData.Item3;
@@ -1709,7 +1709,7 @@ namespace net.vieapps.Services.Portals
 
 				html = html.Insert(html.IndexOf("</head>"), $"<title>{title}</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>");
 				html = html.Insert(html.IndexOf("</head>"), metaTags + "<script src=\"" + this.GetHttpURI("jQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js") + "\"></script><script>var $j=$;var __vieapps={rootURL:\"~/\",desktops:{home:{{homeDesktop}},search:{{searchDesktop}}},language:{{language}},isMobile:{{isMobile}},osInfo:\"{{osInfo}}\"};</script>");
-				html = html.Insert(html.IndexOf("</body>"), body + $"<div>{scripts}</div>");
+				html = html.Insert(html.IndexOf("</body>"), body + scripts);
 
 				if (writeDesktopLogs)
 				{
@@ -2004,11 +2004,13 @@ namespace net.vieapps.Services.Portals
 			}
 
 			var html = "";
+			var objectType = "";
 			var gotError = false;
 			var contentType = data != null ? await (portlet.RepositoryEntityID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) : null;
 
 			if (contentType != null)
 			{
+				objectType = contentType.ContentTypeDefinition?.GetObjectName() ?? "";
 				var xslFilename = "";
 				var xslTemplate = "";
 
@@ -2148,6 +2150,8 @@ namespace net.vieapps.Services.Portals
 						if (showBreadcrumbs)
 						{
 							var breadcrumbs = (data.Get<JArray>("Breadcrumbs") ?? new JArray()).Select(node => node as JObject).ToList();
+							if (portlet.BreadcrumbSettings.NumberOfNodes > 0 && portlet.BreadcrumbSettings.NumberOfNodes < breadcrumbs.Count)
+								breadcrumbs = breadcrumbs.Skip(breadcrumbs.Count - portlet.BreadcrumbSettings.NumberOfNodes).ToList();
 
 							if (portlet.BreadcrumbSettings.ShowContentTypeLink)
 							{
@@ -2312,6 +2316,10 @@ namespace net.vieapps.Services.Portals
 				["id"] = portlet.ID,
 				["name"] = title,
 				["title"] = title,
+				["action"] = isList ? "list" : "view",
+				["object"] = objectType,
+				["object-type"] = objectType,
+				["object-name"] = objectType,
 				["ansi-title"] = title,
 				["title-ansi"] = title
 			});
@@ -2323,7 +2331,7 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<string, bool>(html, gotError);
 		}
 
-		async Task<Tuple<string, string, string, string>> GenerateDesktopAsync(Desktop desktop, Organization organization, Site site, JObject mainPortlet, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
+		async Task<Tuple<string, string, string, string>> GenerateDesktopAsync(Desktop desktop, Organization organization, Site site, JObject mainPortlet, string parentIdentity, string contentIdentity, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
 		{
 			var desktopInfo = $"the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]";
 
@@ -2705,8 +2713,20 @@ namespace net.vieapps.Services.Portals
 					cssAttribute.Value = $"{cssAttribute.Value.Trim()} full";
 			});
 
+			// prepare main-portlet for generating CSS classes of the desktop body
+			var mainPortletType = "";
+			var mainPortletAction = "";
+			var theMainPortlet = mainPortlet != null ? desktop.Portlets.Find(p => p.ID == desktop.MainPortletID) : null;
+			if (theMainPortlet != null)
+			{
+				var contentType = await (theMainPortlet.RepositoryEntityID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+				mainPortletType = contentType?.ContentTypeDefinition?.GetObjectName() ?? "";
+				var action = !string.IsNullOrWhiteSpace(parentIdentity) && !string.IsNullOrWhiteSpace(contentIdentity) ? theMainPortlet.OriginalPortlet.AlternativeAction : theMainPortlet.OriginalPortlet.Action;
+				mainPortletAction = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action) ? "List" : "View";
+			}
+
 			// get the desktop body
-			var body = desktopContainer.ToString().Format(new Dictionary<string, object>
+			var body = desktopContainer.ToString(SaveOptions.DisableFormatting).Format(new Dictionary<string, object>
 			{
 				["theme"] = desktopTheme,
 				["skin"] = desktopTheme,
@@ -2714,7 +2734,9 @@ namespace net.vieapps.Services.Portals
 				["organization-alias"] = organization.Alias,
 				["desktop"] = desktop.Alias,
 				["desktop-alias"] = desktop.Alias,
-				["alias"] = desktop.Alias
+				["alias"] = desktop.Alias,
+				["main-portlet-type"] = mainPortletType.ToLower().Replace(".", "-"),
+				["main-portlet-action"] = mainPortletAction.ToLower()
 			});
 
 			return new Tuple<string, string, string, string>(title, metaTags, scripts, body);

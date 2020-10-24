@@ -806,7 +806,7 @@ namespace net.vieapps.Services.Portals
 			=> Minifier.MinifyCss(data);
 
 		internal static string MinifyHtml(this string data)
-			=> UtilityService.RemoveWhitespaces(data).Replace("\r", "").Replace("\n\t", "").Replace("\t", "");
+			=> UtilityService.RemoveWhitespaces(data).Replace("\r", "").Replace("\n\t", "").Replace("\t", "").Replace("> <", "><").Replace(" >", ">").Replace(" />", "/>");
 	}
 
 	//  --------------------------------------------------------------------------------------------

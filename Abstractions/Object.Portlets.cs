@@ -162,6 +162,8 @@ namespace net.vieapps.Services.Portals.Portlets
 		[FormControl(DataType = "url")]
 		public string ContentTypeAdditionalURL { get; set; }
 
+		public int NumberOfNodes { get; set; } = 0;
+
 		public void Normalize(Action<BreadcrumbSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
@@ -178,6 +180,7 @@ namespace net.vieapps.Services.Portals.Portlets
 			this.ContentTypeURL = string.IsNullOrWhiteSpace(this.ContentTypeURL) ? null : this.ContentTypeURL.Trim();
 			this.ContentTypeAdditionalLabel = string.IsNullOrWhiteSpace(this.ContentTypeAdditionalLabel) ? null : this.ContentTypeAdditionalLabel.Trim();
 			this.ContentTypeAdditionalURL = string.IsNullOrWhiteSpace(this.ContentTypeAdditionalURL) ? null : this.ContentTypeAdditionalURL.Trim();
+			this.NumberOfNodes = this.NumberOfNodes < 0 ? 0 : this.NumberOfNodes;
 			onCompleted?.Invoke(this);
 		}
 	}
