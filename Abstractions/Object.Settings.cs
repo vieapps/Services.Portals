@@ -16,7 +16,6 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals.Settings
 {
-	[Serializable]
 	public class EmailNotifications
 	{
 		public EmailNotifications() { }
@@ -43,7 +42,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public class WebHookNotifications
 	{
 		public WebHookNotifications() { }
@@ -103,7 +101,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public class Notifications
 	{
 		public Notifications() { }
@@ -144,7 +141,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public class Instruction
 	{
 		public Instruction() { }
@@ -179,7 +175,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public class RefreshUrls
 	{
 		public RefreshUrls() { }
@@ -198,7 +193,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public class RedirectUrls
 	{
 		public RedirectUrls() { }
@@ -216,7 +210,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public class Smtp
 	{
 		public Smtp() { }
@@ -240,7 +233,6 @@ namespace net.vieapps.Services.Portals.Settings
 		}
 	}
 
-	[Serializable]
 	public class Email
 	{
 		public Email() { }
@@ -262,7 +254,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public sealed class HttpIndicator
 	{
 		public HttpIndicator() { }
@@ -282,7 +273,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public class UI
 	{
 		public UI() { }
@@ -302,13 +292,12 @@ namespace net.vieapps.Services.Portals.Settings
 		[FormControl(ControlType = "Lookup")]
 		public string BackgroundImageURI { get; set; }
 
-		[FormControl(ControlType = "Select")]
+		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "repeat,repeat-x,repeat-y,no-repeat,initial,inherit")]
 		public string BackgroundImageRepeat { get; set; }
 
-		[FormControl(ControlType = "Select")]
 		public string BackgroundImagePosition { get; set; }
 
-		[FormControl(ControlType = "Select")]
+		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "auto,length,cover,contain,initial,inherit")]
 		public string BackgroundImageSize { get; set; }
 
 		public string Css { get; set; }
@@ -338,6 +327,24 @@ namespace net.vieapps.Services.Portals.Settings
 				style += $"padding:{this.Padding};";
 			if (!string.IsNullOrWhiteSpace(this.Margin))
 				style += $"margin:{this.Margin};";
+			if (!string.IsNullOrWhiteSpace(this.Width))
+				style += $"width:{this.Width};";
+			if (!string.IsNullOrWhiteSpace(this.Height))
+				style += $"height:{this.Height};";
+			if (!string.IsNullOrWhiteSpace(this.Color))
+				style += $"color:{this.Color};";
+			if (!string.IsNullOrWhiteSpace(this.BackgroundColor))
+				style += $"background-color:{this.BackgroundColor};";
+			if (!string.IsNullOrWhiteSpace(this.BackgroundImageURI))
+			{
+				style += $"background-image:url({this.BackgroundImageURI});";
+				if (!string.IsNullOrWhiteSpace(this.BackgroundImageRepeat))
+					style += $"background-repeat:{this.BackgroundImageRepeat};";
+				if (!string.IsNullOrWhiteSpace(this.BackgroundImagePosition))
+					style += $"background-position:{this.BackgroundImagePosition};";
+				if (!string.IsNullOrWhiteSpace(this.BackgroundImageSize))
+					style += $"background-size:{this.BackgroundImageSize};";
+			}
 			if (!string.IsNullOrWhiteSpace(this.Style))
 				style += this.Style;
 			return style;
@@ -346,7 +353,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public enum SEOMode
 	{
 		PortletAndDesktopAndSite,
@@ -361,7 +367,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public class SEOInfo
 	{
 		public SEOInfo() { }
@@ -384,7 +389,6 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	[Serializable]
 	public class SEO
 	{
 		public SEO() { }

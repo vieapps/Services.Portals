@@ -8,10 +8,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using System.Dynamic;
+using MsgPack.Serialization;
+using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
-using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -19,8 +20,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "ContentTypes", TableName = "T_Portals_ContentTypes", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public sealed class ContentType : Repository<ContentType>, IPortalContentType, IBusinessRepositoryEntity
 	{
@@ -87,9 +87,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Excluded = true)]
 		public List<StandardControlDefinition> StandardControlDefinitions { get; set; }
 
-		[NonSerialized]
 		JObject _json;
-
 		string _extras;
 
 		[JsonIgnore, XmlIgnore]
@@ -136,7 +134,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalContentType.Organization => this.Organization;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -145,26 +143,33 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Module Module => (this.ModuleID ?? "").GetModuleByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalModule IPortalContentType.Module => this.Module;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IBusinessRepository IBusinessRepositoryEntity.BusinessRepository => this.Module;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.Module;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public ContentTypeDefinition ContentTypeDefinition => Utility.ContentTypeDefinitions.TryGetValue(this.ContentTypeDefinitionID, out var definition) ? definition : null;
+		public ContentTypeDefinition ContentTypeDefinition => Utility.ContentTypeDefinitions.TryGetValue(this.ContentTypeDefinitionID, out var contentTypeDefinition) ? contentTypeDefinition : null;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string EntityDefinitionTypeName => this.ContentTypeDefinition?.EntityDefinitionTypeName;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public EntityDefinition EntityDefinition => this.ContentTypeDefinition?.EntityDefinition ?? RepositoryMediator.GetEntityDefinition(this.EntityDefinitionTypeName);
+		public EntityDefinition EntityDefinition
+		{
+			get
+			{
+				var contentTypeDefinition = this.ContentTypeDefinition;
+				return contentTypeDefinition?.EntityDefinition ?? (contentTypeDefinition != null && !string.IsNullOrWhiteSpace(contentTypeDefinition?.EntityDefinitionTypeName) ? RepositoryMediator.GetEntityDefinition(contentTypeDefinition?.EntityDefinitionTypeName) : null);
+			}
+		}
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.Module?.Desktop;

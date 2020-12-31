@@ -8,12 +8,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
-using System.Runtime.CompilerServices;
+using net.vieapps.Components.Utility;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -61,42 +61,102 @@ namespace net.vieapps.Services.Portals
 				Filters<Content>.Equals("Alias", alias.NormalizeAlias())
 			);
 
-		static async Task ClearRelatedCacheAsync(this Content content, IEnumerable<string> categoryIDs, CancellationToken cancellationToken = default)
+		internal static async Task ClearRelatedCacheAsync(this Content content, IEnumerable<string> categoryIDs, CancellationToken cancellationToken = default, string correlationID = null, int pageSize = 0)
 		{
+			// cache keys of the individual content
+			var dataCacheKeys = Extensions.GetRelatedCacheKeys(content.GetCacheKey(), pageSize);
+
+			// cache keys of the content-type
 			var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
-			var tasks = new List<Task>
-			{
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(content.GetCacheKey()), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(ContentProcessor.GetContentsFilter(content.SystemID, content.RepositoryID, content.RepositoryEntityID, null), sort), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(ContentProcessor.GetContentsFilter(content.SystemID, content.RepositoryID, content.RepositoryEntityID, content.CategoryID), sort), cancellationToken)
-			};
+			dataCacheKeys = Extensions.GetRelatedCacheKeys(ContentProcessor.GetContentsFilter(content.SystemID, content.RepositoryID, content.RepositoryEntityID, null), sort, pageSize).Concat(dataCacheKeys).ToList();
+			if (content.ContentType != null)
+				dataCacheKeys = (await Utility.Cache.GetSetMembersAsync(content.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(dataCacheKeys).ToList();
 
-			var relatedIDs = (content.OtherCategories ?? new List<string>()).Concat(categoryIDs ?? new List<string>())
+			// cache keys of category
+			dataCacheKeys = Extensions.GetRelatedCacheKeys(ContentProcessor.GetContentsFilter(content.SystemID, content.RepositoryID, content.RepositoryEntityID, content.CategoryID), sort, pageSize).Concat(dataCacheKeys).ToList();
+			if (content.Category != null)
+				dataCacheKeys = (await Utility.Cache.GetSetMembersAsync(content.Category.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(dataCacheKeys).ToList();
+
+			var otherCategoryIDs = (content.OtherCategories ?? new List<string>()).Concat(categoryIDs ?? new List<string>())
 				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.Where(categoryID => !string.IsNullOrWhiteSpace(categoryID) && !categoryID.IsEquals(content.CategoryID) && categoryID.IsValidUUID());
+				.Where(categoryID => !string.IsNullOrWhiteSpace(categoryID) && !categoryID.IsEquals(content.CategoryID) && categoryID.IsValidUUID())
+				.ToList();
 
-			relatedIDs.ForEach(categoryID => tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(ContentProcessor.GetContentsFilter(content.SystemID, content.RepositoryID, content.RepositoryEntityID, categoryID), sort), cancellationToken)));
+			await otherCategoryIDs.ForEachAsync(async (categoryID, _) =>
+			{
+				dataCacheKeys = Extensions.GetRelatedCacheKeys(ContentProcessor.GetContentsFilter(content.SystemID, content.RepositoryID, content.RepositoryEntityID, categoryID), sort, pageSize).Concat(dataCacheKeys).ToList();
+				var category = await categoryID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (category != null)
+					dataCacheKeys = (await Utility.Cache.GetSetMembersAsync(category.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(dataCacheKeys).ToList();
+			}, cancellationToken, true, false).ConfigureAwait(false);
 
-			var categoryAliases = new List<string>();
-			await new[] { content.CategoryID }.Concat(relatedIDs).Distinct(StringComparer.OrdinalIgnoreCase).ForEachAsync(async (categoryID, token) => categoryAliases.Add((await categoryID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false))?.Alias), cancellationToken).ConfigureAwait(false);
-			tasks.Add(Utility.RTUService.SendClearCacheRequestAsync(content.ContentType?.ID, Extensions.GetCacheKey<Content>(), categoryAliases, cancellationToken));
+			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			await Task.WhenAll(tasks).ConfigureAwait(false);
+			var desktop = content.Desktop;
+			var htmlCacheKeys = desktop != null
+				? await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)
+				: new HashSet<string>();
+
+			if (desktop != null)
+			{
+				var desktopURL = content.GetURL(null, true);
+				for (var page = 1; page < 10; page++)
+				{
+					var desktopCacheKey = desktop.GetDesktopCacheKey(desktopURL.Replace(StringComparison.OrdinalIgnoreCase, "/{{pageNumber}}", page > 1 ? $"/{page}" : ""));
+					htmlCacheKeys.Append(new[] { desktopCacheKey, $"{desktopCacheKey}:time" });
+				}
+			}
+
+			await otherCategoryIDs.Concat(new[] { content.CategoryID }).ForEachAsync(async (categoryID, _) =>
+			{
+				var category = await categoryID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+				desktop = category?.Desktop ?? content?.ContentType.Desktop;
+				if (desktop != null)
+				{
+					var desktopURL = category.GetURL(null, true);
+					for (var page = 1; page <= 10; page++)
+					{
+						var desktopCacheKey = desktop.GetDesktopCacheKey(desktopURL.Replace(StringComparison.OrdinalIgnoreCase, "/{{pageNumber}}", page > 1 ? $"/{page}" : ""));
+						htmlCacheKeys.Append(new[] { desktopCacheKey, $"{desktopCacheKey}:time" });
+					}
+				}
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			htmlCacheKeys.Append(content.Organization.GetDesktopCacheKey());
+
+			if (Utility.Logger.IsEnabled(LogLevel.Debug))
+				await Utility.WriteLogAsync(correlationID, $"Clear related cache of CMS content [{content.ID} => {content.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches").ConfigureAwait(false);
+			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+
+			await Task.WhenAll
+			(
+				content.Status != ApprovalStatus.Published ? Task.CompletedTask : content.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization.Alias}/").RefreshWebPageAsync(1, correlationID),
+				content.Category.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization.Alias}/").RefreshWebPageAsync(1, correlationID),
+				$"{Utility.PortalsHttpURI}/~{content.Organization.Alias}/".RefreshWebPageAsync(1, correlationID)
+			).ConfigureAwait(false);
 		}
 
-		static async Task<Tuple<long, List<Content>, JToken>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, string cacheKeyPrefix = null, bool searchThumbnails = true, bool pngThumbnails = false, bool bigThumbnails = false, int thumbnailsWidth = 0, int thumbnailsHeight = 0)
+		internal static Task ClearRelatedCacheAsync(this Content content, IEnumerable<string> categoryIDs, string correlationID, int pageSize = 0)
+			=> content.ClearRelatedCacheAsync(categoryIDs, CancellationToken.None, correlationID, pageSize);
+
+		static async Task<Tuple<long, List<Content>, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
 		{
+			// cache keys
+			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
+			var cacheKeyOfTotalObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfTotalObjects(filter, sort) : null;
+			var cacheKeys = string.IsNullOrWhiteSpace(query) ? new List<string> { cacheKeyOfObjects, cacheKeyOfTotalObjects } : new List<string>();
+
 			// count
 			totalRecords = totalRecords > -1
 				? totalRecords
 				: string.IsNullOrWhiteSpace(query)
-					? await Content.CountAsync(filter, contentTypeID, true, string.IsNullOrWhiteSpace(cacheKeyPrefix) ? Extensions.GetCacheKeyOfTotalObjects(filter, sort) : Extensions.GetCacheKeyOfTotalObjects<Content>(cacheKeyPrefix), 0, cancellationToken).ConfigureAwait(false)
+					? await Content.CountAsync(filter, contentTypeID, true, cacheKeyOfTotalObjects, 0, cancellationToken).ConfigureAwait(false)
 					: await Content.CountAsync(query, filter, contentTypeID, cancellationToken).ConfigureAwait(false);
 
 			// search objects
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Content.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, true, string.IsNullOrWhiteSpace(cacheKeyPrefix) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : Extensions.GetCacheKey<Content>(cacheKeyPrefix, pageSize, pageNumber), 0, cancellationToken).ConfigureAwait(false)
+					? await Content.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false)
 					: await Content.SearchAsync(query, filter, pageSize, pageNumber, contentTypeID, cancellationToken).ConfigureAwait(false)
 				: new List<Content>();
 
@@ -107,20 +167,17 @@ namespace net.vieapps.Services.Portals
 			if (objects.Count > 0 && searchThumbnails)
 			{
 				requestInfo.Header["x-thumbnails-as-attachments"] = "true";
-				requestInfo.Header["x-thumbnails-as-png"] = $"{pngThumbnails}".ToLower();
-				requestInfo.Header["x-thumbnails-as-big"] = $"{bigThumbnails}".ToLower();
-				requestInfo.Header["x-thumbnails-width"] = $"{thumbnailsWidth}";
-				requestInfo.Header["x-thumbnails-height"] = $"{thumbnailsHeight}";
 				thumbnails = objects.Count == 1
 					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			}
 
 			// page size to clear related cached
-			Utility.SetCacheOfPageSizeAsync(filter, sort, cacheKeyPrefix, pageSize, cancellationToken).Run();
+			if (string.IsNullOrWhiteSpace(query))
+				Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).Run();
 
 			// return the results
-			return new Tuple<long, List<Content>, JToken>(totalRecords, objects, thumbnails);
+			return new Tuple<long, List<Content>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
 		}
 
 		internal static async Task<JObject> SearchContentsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -161,14 +218,25 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// normalize filter
-			filter = filter == null || !(filter is FilterBys<Content>) || (filter as FilterBys<Content>).Children == null || (filter as FilterBys<Content>).Children.Count < 1
-				? ContentProcessor.GetContentsFilter(organization.ID, module.ID, contentType.ID, category?.ID)
-				: filter.Prepare(requestInfo);
+			if (filter == null || !(filter is FilterBys<Content>) || (filter as FilterBys<Content>).Children == null || (filter as FilterBys<Content>).Children.Count < 1)
+				filter = ContentProcessor.GetContentsFilter(organization.ID, module.ID, contentType.ID, category?.ID);
+			if (!requestInfo.Session.User.IsAuthenticated)
+			{
+				if (!(filter.GetChild("Status") is FilterBy<Content> filterByStatus))
+					(filter as FilterBys<Content>).Add(Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()));
+				else if (filterByStatus.Value == null || !(filterByStatus.Value as string).IsEquals(ApprovalStatus.Published.ToString()))
+					filterByStatus.Value = ApprovalStatus.Published.ToString();
+			}
+			filter.Prepare(requestInfo);
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(json))
-				return JObject.Parse(json);
+			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber) : null;
+			if (cacheKeyOfObjectsJson != null)
+			{
+				var json = await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsJson, cancellationToken).ConfigureAwait(false);
+				if (!string.IsNullOrWhiteSpace(json))
+					return JObject.Parse(json);
+			}
 
 			// search if has no cache
 			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
@@ -187,7 +255,9 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.Select(@object => @object.ToJson(false, cjson =>
+				{
+					"Objects",
+					objects.Select(@object => @object.ToJson(false, cjson =>
 					{
 						cjson["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID);
 						cjson["Details"] = organization.NormalizeURLs(@object.Details);
@@ -198,8 +268,12 @@ namespace net.vieapps.Services.Portals
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
 			{
-				json = response.ToString(Formatting.None);
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).Run();
+				await Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None)).ConfigureAwait(false);
+				var cacheKeys = new[] { cacheKeyOfObjectsJson }.Concat(results.Item4).ToList();
+				Task.WhenAll(
+					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys),
+					Utility.Logger.IsEnabled(LogLevel.Debug) ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask
+				).Run();
 			}
 
 			// response
@@ -293,7 +367,7 @@ namespace net.vieapps.Services.Portals
 			// create new
 			await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
-			content.ClearRelatedCacheAsync(null, cancellationToken).Run();
+			content.ClearRelatedCacheAsync(null, requestInfo.CorrelationID).Run();
 
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -312,7 +386,6 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Create",
 				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response
 			}, cancellationToken)).ConfigureAwait(false);
 
@@ -452,7 +525,7 @@ namespace net.vieapps.Services.Portals
 			// update
 			await Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
-			content.ClearRelatedCacheAsync(new[] { oldCategoryID }.Concat(oldOtherCategories ?? new List<string>()), cancellationToken).Run();
+			content.ClearRelatedCacheAsync(new[] { oldCategoryID }.Concat(oldOtherCategories ?? new List<string>()), requestInfo.CorrelationID).Run();
 
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -471,7 +544,6 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
 				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response
 			}, cancellationToken).ConfigureAwait(false);
 
@@ -505,7 +577,7 @@ namespace net.vieapps.Services.Portals
 
 			// delete content
 			await Content.DeleteAsync<Content>(content.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			content.ClearRelatedCacheAsync(null, cancellationToken).Run();
+			await content.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// send update message
 			var response = content.ToJson();
@@ -513,7 +585,6 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Delete",
 				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID,
 				Data = response
 			}, cancellationToken).ConfigureAwait(false);
 
@@ -538,15 +609,18 @@ namespace net.vieapps.Services.Portals
 			var desktopsJson = requestJson.Get("Desktops", new JObject());
 
 			var contentTypeID = contentTypeJson.Get<string>("ID");
-			var category = await parentContentTypeJson.Get<string>("ID", "").GetCategoryByAliasAsync(requestJson.Get<string>("ParentIdentity"), cancellationToken).ConfigureAwait(false);
+			var parentIdentity = requestJson.Get<string>("ParentIdentity");
+			parentIdentity = string.IsNullOrWhiteSpace(parentIdentity) ? null : parentIdentity.Trim();
+			var category = await parentContentTypeJson.Get("ID", "").GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false);
 
 			var paginationJson = requestJson.Get("Pagination", new JObject());
-			var pageSize = paginationJson.Get<int>("PageSize", 7);
-			var pageNumber = paginationJson.Get<int>("PageNumber", 1);
-			var showPageLinks = paginationJson.Get<bool>("ShowPageLinks", true);
-			var numberOfPageLinks = paginationJson.Get<int>("NumberOfPageLinks", 7);
+			var pageSize = paginationJson.Get("PageSize", 7);
+			var pageNumber = paginationJson.Get("PageNumber", 1);
+			var showPageLinks = paginationJson.Get("ShowPageLinks", true);
+			var numberOfPageLinks = paginationJson.Get("NumberOfPageLinks", 7);
 
 			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
+			var customDateTimeFormat = options.Get<string>("CustomDateTimeFormat");
 			var action = requestJson.Get<string>("Action");
 			var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
 
@@ -555,16 +629,18 @@ namespace net.vieapps.Services.Portals
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Module");
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Default");
 
-			XElement data;
-			JArray breadcrumbs;
-			JObject pagination, seoInfo, filterBy = null, sortBy = null;
-			string coverURI = null;
+			JArray breadcrumbs = null;
+			JObject pagination = null, seoInfo = null, filterBy = null, sortBy = null;
+			string coverURI = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null;
 
 			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", true)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
 			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
 			var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
 			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
+
+			var showBreadcrumbs = options.Get("ShowBreadcrumbs", false);
+			var showPagination = options.Get("ShowPagination", false);
 
 			// generate list
 			if (isList)
@@ -574,7 +650,7 @@ namespace net.vieapps.Services.Portals
 				var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, contentType?.WorkingPrivileges);
 				if (!gotRights)
 				{
-					var organization = contentType?.Organization ?? await organizationJson.Get<string>("ID", "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+					var organization = contentType?.Organization ?? await organizationJson.Get("ID", "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 					gotRights = requestInfo.Session.User.ID.IsEquals(organization?.OwnerID);
 				}
 				if (!gotRights)
@@ -640,86 +716,104 @@ namespace net.vieapps.Services.Portals
 					{ "App", sort.ToClientJson().ToString(Formatting.None) }
 				};
 
-				// get XML from cache
-				var cacheKeyPrefix = requestJson.GetCacheKeyPrefix();
-				var cacheKey = cacheKeyPrefix != null ? Extensions.GetCacheKeyOfObjectsXml<Content>(cacheKeyPrefix, pageSize, pageNumber) : null;
-				var xml = cacheKey != null ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
+				// search
+				var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
+				var totalRecords = results.Item1;
+				var objects = results.Item2;
+				var thumbnails = results.Item3;
 
-				JToken thumbnails = null, categoryThumbnails = null;
-				long totalRecords = 0;
-
-				// search and build XML if has no cache
-				if (string.IsNullOrWhiteSpace(xml))
+				// generate xml
+				JToken categoryThumbnails = null;
+				Exception exception = null;
+				var dataXml = XElement.Parse("<Data/>");
+				objects.ForEach(@object =>
 				{
-					// search
-					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, cacheKeyPrefix, showThumbnails, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight).ConfigureAwait(false);
-					totalRecords = results.Item1;
-					var objects = results.Item2;
-					thumbnails = results.Item3;
+					// check
+					if (exception != null)
+						return;
 
-					// generate xml
-					data = XElement.Parse("<Data/>");
-					objects.ForEach(@object => data.Add(@object.ToXml(false, cultureInfo, element =>
+					// generate
+					try
 					{
-						element.Element("Details")?.Remove();
-						element.Element("StartDate")?.UpdateDateTime(cultureInfo);
-						element.Element("EndDate")?.UpdateDateTime(cultureInfo);
-						if (!string.IsNullOrWhiteSpace(@object.Summary))
-							element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
-						element.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
-						element.Add(new XElement("URL", @object.GetURL(desktop)));
-						element.Add(new XElement("ThumbnailURL", thumbnails?.GetThumbnailURL(@object.ID)));
-					})));
-
-					// main category
-					if (category != null)
-					{
-						if (objects.Count < 1 || !showThumbnails)
+						dataXml.Add(@object.ToXml(false, cultureInfo, element =>
 						{
-							requestInfo.Header["x-thumbnails-as-attachments"] = "true";
-							requestInfo.Header["x-thumbnails-as-png"] = $"{pngThumbnails}".ToLower();
-							requestInfo.Header["x-thumbnails-as-big"] = $"{bigThumbnails}".ToLower();
-							requestInfo.Header["x-thumbnails-width"] = $"{thumbnailsWidth}";
-							requestInfo.Header["x-thumbnails-height"] = $"{thumbnailsHeight}";
-						}
-						categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-						data.Add(new XElement(
-							"Parent",
-							new XElement("Title", category.Title),
-							new XElement("Description", category.Description?.NormalizeHTMLBreaks()),
-							new XElement("URL", category.GetURL(desktop)),
-							new XElement("ThumbnailURL", categoryThumbnails?.GetThumbnailURL(category.ID) ?? "")
-						));
+							element.Element("Details")?.Remove();
+							element.Element("StartDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
+							element.Element("EndDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
+							element.Element("PublishedTime")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
+							if (!string.IsNullOrWhiteSpace(@object.Summary))
+								element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
+							element.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
+							element.Add(new XElement("URL", @object.GetURL(desktop)));
+							var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+							element.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+						}));
 					}
+					catch (Exception ex)
+					{
+						exception = requestInfo.GetRuntimeException(ex, null, (msg, exc) => requestInfo.WriteErrorAsync(exc, cancellationToken, $"Error occurred while generating a content => {msg} : {@object.ToJson()}", "Errors").Run());
+					}
+				});
 
-					// update XML into cache
-					data.CleanInvalidCharacters();
-					if (cacheKey != null)
-						Utility.Cache.SetAsync(cacheKey, data.ToString(SaveOptions.DisableFormatting), cancellationToken).Run();
-				}
-				else
+				// check error
+				if (exception != null)
+					throw exception;
+
+				// main category
+				if (category != null)
 				{
-					data = XElement.Parse(xml);
-					totalRecords = await Content.CountAsync(filter, contentTypeID, true, Extensions.GetCacheKeyOfTotalObjects<Content>(cacheKeyPrefix), 0, cancellationToken).ConfigureAwait(false);
+					var categoryID = filter?.GetValue("CategoryID");
+					if (!string.IsNullOrWhiteSpace(categoryID) && categoryID.IsValidUUID() && !categoryID.IsEquals(category.ID))
+						category = await categoryID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
 				}
+
+				if (category != null)
+				{
+					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+					categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+					var thumbnailURL = categoryThumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
+					dataXml.Add(new XElement(
+						"Parent",
+						new XElement("Title", category.Title),
+						new XElement("Description", category.Description?.NormalizeHTMLBreaks()),
+						new XElement("Notes", category.Notes?.NormalizeHTMLBreaks()),
+						new XElement("URL", category.GetURL(desktop)),
+						new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+					));
+				}
+
+				// get data
+				data = dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting);
+
+				// update cache
+				var expression = await expressionJson.Get("ID", "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+				Task.WhenAll(
+					category != null ? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey(), results.Item4) : Task.CompletedTask,
+					contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item4) : Task.CompletedTask,
+					expression != null ? Utility.Cache.AddSetMembersAsync(expression.GetSetCacheKey(), results.Item4) : Task.CompletedTask,
+					Utility.Logger.IsEnabled(LogLevel.Debug) ? Utility.WriteLogAsync(requestInfo, $"Update cache keys into related sets when generate CMS contents\r\n- Related sets: {new[] { category != null ? category.GetSetCacheKey() : null, contentType != null ? contentType.GetSetCacheKey() : null, expression != null ? expression.GetSetCacheKey() : null }.Where(key => key != null).Join(", ")}\r\n- Related cache keys ({results.Item4.Count}): {results.Item4.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask
+				).Run();
 
 				// prepare breadcrumbs
-				breadcrumbs = category?.GenerateBreadcrumbs(desktop) ?? new JArray();
+				if (showBreadcrumbs && category != null)
+					breadcrumbs = category?.GenerateBreadcrumbs(desktop) ?? new JArray();
 
 				// prepare pagination
-				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
-				if (totalPages > 0 && pageNumber > totalPages)
-					pageNumber = totalPages;
-				pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true), showPageLinks, numberOfPageLinks);
-
-				// prepare SEO and other info
-				seoInfo = new JObject
+				if (showPagination)
 				{
-					{ "Title", category?.Title },
-					{ "Description", category?.Description }
-				};
+					var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+					if (totalPages > 0 && pageNumber > totalPages)
+						pageNumber = totalPages;
+					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true), showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => !kvp.Key.IsStartsWith("x-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
+				}
+
+				// prepare SEO
+				seoTitle = category?.Title;
+				seoDescription = category?.Description;
+
+				// prepare other info
 				categoryThumbnails = category != null ? categoryThumbnails ?? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false) : null;
-				coverURI = (categoryThumbnails as JArray)?.First()?.Get<string>("URI");
+				coverURI = (categoryThumbnails as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
 			}
 
 			// generate details
@@ -759,7 +853,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask;
 
 				// get other contents
-				Task<List<Content>>  newersTask, oldersTask;
+				Task<List<Content>> newersTask, oldersTask;
 				var numberOfOthers = options.Get("NumberOfOthers", 12);
 				numberOfOthers = numberOfOthers > 0 ? numberOfOthers : 12;
 				var others = new List<Content>();
@@ -810,14 +904,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// get files
-				if (showThumbnails)
-				{
-					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
-					requestInfo.Header["x-thumbnails-as-png"] = $"{pngThumbnails}".ToLower();
-					requestInfo.Header["x-thumbnails-as-big"] = $"{bigThumbnails}".ToLower();
-					requestInfo.Header["x-thumbnails-width"] = $"{thumbnailsWidth}";
-					requestInfo.Header["x-thumbnails-height"] = $"{thumbnailsHeight}";
-				}
+				requestInfo.Header["x-thumbnails-as-attachments"] = "true";
 				var thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 				var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 
@@ -849,8 +936,8 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// generate XML
-				data = XElement.Parse("<Data/>");
-				data.Add(@object.ToXml(false, cultureInfo, xml =>
+				var dataXml = XElement.Parse("<Data/>");
+				dataXml.Add(@object.ToXml(false, cultureInfo, xml =>
 				{
 					xml.NormalizeHTMLs(@object);
 					xml.Element("StartDate")?.UpdateDateTime(cultureInfo);
@@ -872,7 +959,11 @@ namespace net.vieapps.Services.Portals
 					if (showThumbnails)
 					{
 						var thumbnails = new XElement("Thumbnails");
-						(thumbnailsTask.Result as JArray)?.ForEach(thumbnail => thumbnails.Add(new XElement("Thumbnail", thumbnail.Get<string>("URI"))));
+						(thumbnailsTask.Result as JArray)?.ForEach(thumbnail =>
+						{
+							var thumbnailURL = thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+							thumbnails.Add(new XElement("Thumbnail", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+						});
 						xml.Add(thumbnails);
 					}
 
@@ -900,11 +991,12 @@ namespace net.vieapps.Services.Portals
 					{
 						var relatedXml = new XElement("Content", new XElement("ID", related.ID));
 						relatedXml.Add(new XElement("Title", related.Title), new XElement("Summary", related.Summary?.NormalizeHTMLBreaks()));
-						relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value).UpdateDateTime(cultureInfo));
+						relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value).UpdateDateTime(cultureInfo, customDateTimeFormat));
 						relatedXml.Add(new XElement("URL", related.GetURL(desktop)));
+						relatedXml.Add(new XElement("Category", related.Category?.Title, new XAttribute("URL", related.Category?.GetURL(desktop))));
 						relatedsXml.Add(relatedXml);
 					});
-					data.Add(relatedsXml);
+					dataXml.Add(relatedsXml);
 
 					var externalsXml = new XElement("ExternalRelateds");
 					@object.ExternalRelateds?.ForEach(external => externalsXml.Add(external.ToXml(externalXml =>
@@ -912,7 +1004,7 @@ namespace net.vieapps.Services.Portals
 						if (!string.IsNullOrWhiteSpace(external.Summary))
 							externalXml.Element("Summary").Value = external.Summary.NormalizeHTMLBreaks();
 					})));
-					data.Add(externalsXml);
+					dataXml.Add(externalsXml);
 				}
 
 				if (showOthers)
@@ -921,55 +1013,59 @@ namespace net.vieapps.Services.Portals
 					others.OrderByDescending(other => other.StartDate).ThenByDescending(other => other.PublishedTime).ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
 					{
 						otherXml.Element("Details")?.Remove();
-						otherXml.Element("StartDate")?.UpdateDateTime(cultureInfo);
-						otherXml.Element("EndDate")?.UpdateDateTime(cultureInfo);
-						if (!string.IsNullOrWhiteSpace(other.Summary))
-							otherXml.Element("Summary").Value = other.Summary.NormalizeHTMLBreaks();
+						otherXml.Element("StartDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
+						otherXml.Element("EndDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
+						otherXml.Element("PublishedTime")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
 						otherXml.Add(new XElement("Category", other.Category?.Title, new XAttribute("URL", other.Category?.GetURL(desktop))));
 						otherXml.Add(new XElement("URL", other.GetURL(desktop)));
-						otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
+						var thumbnailURL = otherThumbnails?.GetThumbnailURL(other.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);						
+						otherXml.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+						if (!string.IsNullOrWhiteSpace(other.Summary))
+							otherXml.Element("Summary").Value = other.Summary.NormalizeHTMLBreaks();
 					})));
-					data.Add(othersXml);
+					dataXml.Add(othersXml);
 				}
 
 				// build others
-				breadcrumbs = @object.Category?.GenerateBreadcrumbs(desktop) ?? new JArray();
-				pagination = Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true), showPageLinks, numberOfPageLinks);
-				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI");
-				seoInfo = new JObject
-				{
-					{ "Title", @object.Title },
-					{ "Description", @object.Summary },
-					{ "Keywords", @object.Tags }
-				};
+				breadcrumbs = showBreadcrumbs ? @object.Category?.GenerateBreadcrumbs(desktop) ?? new JArray() : null;
+				pagination = showPagination ? Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true), showPageLinks, numberOfPageLinks) : null;
+				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+				seoTitle = @object.Title;
+				seoDescription = @object.Summary;
+				seoKeywords = @object.Tags;
 
 				// main category
 				if (category != null)
 				{
-					if (!showThumbnails)
-					{
-						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
-						requestInfo.Header["x-thumbnails-as-png"] = $"{pngThumbnails}".ToLower();
-						requestInfo.Header["x-thumbnails-as-big"] = $"{bigThumbnails}".ToLower();
-						requestInfo.Header["x-thumbnails-width"] = $"{thumbnailsWidth}";
-						requestInfo.Header["x-thumbnails-height"] = $"{thumbnailsHeight}";
-					}
+					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
 					var categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-					data.Add(new XElement(
+					var thumbnailURL = categoryThumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+					dataXml.Add(new XElement(
 						"Parent",
 						new XElement("Title", category.Title),
 						new XElement("Description", category.Description?.NormalizeHTMLBreaks()),
+						new XElement("Notes", category.Notes?.NormalizeHTMLBreaks()),
 						new XElement("URL", category.GetURL(desktop)),
-						new XElement("ThumbnailURL", categoryThumbnails?.GetThumbnailURL(category.ID) ?? "")
+						new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
 					));
 				}
-				data.CleanInvalidCharacters();
+
+				// validate and get data of xml
+				data = dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting);
 			}
+
+			// SEO
+			seoInfo = new JObject
+			{
+				{ "Title", seoTitle },
+				{ "Description", string.IsNullOrWhiteSpace(seoDescription) || seoDescription.IsStartsWith("~~/") || seoDescription.IsStartsWith("http://") || seoDescription.IsStartsWith("https://") ? null : seoDescription },
+				{ "Keywords", seoKeywords }
+			};
 
 			// response
 			return new JObject
 			{
-				{ "Data", data.ToString(SaveOptions.DisableFormatting) },
+				{ "Data", data },
 				{ "Breadcrumbs", breadcrumbs },
 				{ "Pagination", pagination },
 				{ "FilterBy", filterBy },
@@ -993,6 +1089,9 @@ namespace net.vieapps.Services.Portals
 				content.Fill(data);
 				await Content.UpdateAsync(content, true, cancellationToken).ConfigureAwait(false);
 			}
+
+			// clear related cache
+			//content.ClearRelatedCacheAsync(null, requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = content.ToJson();

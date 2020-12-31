@@ -2,12 +2,13 @@
 using System;
 using System.Linq;
 using System.Diagnostics;
+using System.Dynamic;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-using System.Dynamic;
+using MsgPack.Serialization;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
@@ -20,8 +21,7 @@ using net.vieapps.Services.Portals.Exceptions;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Expressions", TableName = "T_Portals_Expressions", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public sealed class Expression : Repository<Expression>, IPortalExpression
 	{
@@ -56,7 +56,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Excluded = true)]
 		public string FilterBy { get; set; }
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, MessagePackIgnore]
 		[FormControl(Excluded = true)]
 		public FilterBys Filter { get; set; }
 
@@ -65,7 +65,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Excluded = true)]
 		public string SortBy { get; set; }
 
-		[Ignore, BsonIgnore]
+		[Ignore, BsonIgnore, MessagePackIgnore]
 		[FormControl(Excluded = true)]
 		public List<SortBy> Sorts { get; set; }
 
@@ -123,16 +123,16 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public ContentTypeDefinition ContentTypeDefinition => this.ContentType?.ContentTypeDefinition ?? (!string.IsNullOrWhiteSpace(this.ContentTypeDefinitionID) && Utility.ContentTypeDefinitions.TryGetValue(this.ContentTypeDefinitionID, out var definition) ? definition : null);
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IFilterBy IPortalExpression.Filter => this.Filter;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public SortBy Sort => this.Sorts?.FirstOrDefault();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		ISortBy IPortalExpression.Sort => this.Sort;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		List<ISortBy> IPortalExpression.Sorts => this.Sorts?.Select(sort => sort as ISortBy).ToList();
 
 		internal void Normalize(JObject filterBy = null, JArray sortBy = null)

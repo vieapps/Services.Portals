@@ -2,27 +2,20 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.XPath;
 using System.Xml.Xsl;
-using System.Dynamic;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
-using System.Globalization;
-using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json.Linq;
-using WampSharp.V2.Core.Contracts;
-using net.vieapps.Components.Utility;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
+using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Exceptions;
-using net.vieapps.Components.Security;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -249,8 +242,7 @@ namespace net.vieapps.Services.Portals
 				{
 					if (ex.Message.IsContains("Execution of the 'document()'") || ex.Message.IsContains("Execution of scripts"))
 						throw new XslTemplateExecutionIsProhibitedException(ex);
-					else
-						throw ex;
+					throw;
 				}
 			return results;
 		}

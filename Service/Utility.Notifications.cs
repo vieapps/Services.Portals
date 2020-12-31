@@ -218,6 +218,7 @@ namespace net.vieapps.Services.Portals
 					}
 				};
 				await recipients.Select(recipient => recipient.Get<JArray>("Sessions"))
+					.Where(sessions => sessions != null)
 					.SelectMany(sessions => sessions.Select(session => session.Get<string>("DeviceID")))
 					.ForEachAsync((deviceID, _) => Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage(baseMessage) { DeviceID = deviceID }, cancellationToken), cancellationToken).ConfigureAwait(false);
 				if (Utility.Logger.IsEnabled(LogLevel.Debug))

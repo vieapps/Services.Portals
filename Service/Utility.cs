@@ -2,26 +2,20 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Xml;
 using System.Xml.Linq;
-using System.Xml.XPath;
-using System.Xml.Xsl;
 using System.Dynamic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
-using System.Globalization;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Utility;
-using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
-using net.vieapps.Services.Portals.Exceptions;
 using net.vieapps.Components.Security;
 #endregion
 
@@ -29,11 +23,6 @@ namespace net.vieapps.Services.Portals
 {
 	public static partial class Utility
 	{
-		/// <summary>
-		/// Gets the cache storage
-		/// </summary>
-		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Components.Utility.Logger.GetLoggerFactory());
-
 		/// <summary>
 		/// Gets the real-time updater (RTU) service
 		/// </summary>
@@ -83,11 +72,6 @@ namespace net.vieapps.Services.Portals
 		/// Gets the collection of content-type definition
 		/// </summary>
 		public static ConcurrentDictionary<string, ContentTypeDefinition> ContentTypeDefinitions { get; } = new ConcurrentDictionary<string, ContentTypeDefinition>();
-
-		/// <summary>
-		/// Gets the collection of content-type definition
-		/// </summary>
-		internal static ConcurrentDictionary<string, Cache> DesktopHtmlCaches { get; } = new ConcurrentDictionary<string, Cache>();
 
 		/// <summary>
 		/// Gets the collection of not recognized aliases
@@ -224,11 +208,12 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="urlPattern"></param>
 		/// <param name="pageNumber"></param>
+		/// <param name="query"></param>
 		/// <returns></returns>
-		public static string GetPaginationURL(this string urlPattern, int pageNumber)
+		public static string GetPaginationURL(this string urlPattern, int pageNumber, string query = null)
 		{
 			var url = (urlPattern ?? "").Format(new Dictionary<string, object> { ["pageNumber"] = pageNumber }).Replace("/1.html", ".html");
-			return url.EndsWith("/1") ? url.Left(url.Length - 2) : url;
+			return (url.EndsWith("/1") ? url.Left(url.Length - 2) : url) + (string.IsNullOrWhiteSpace(query) ? "" : (url.IndexOf("?") > 0 ? "&" : "?") + query);
 		}
 
 		/// <summary>
@@ -239,8 +224,10 @@ namespace net.vieapps.Services.Portals
 		/// <param name="pageSize"></param>
 		/// <param name="pageNumber"></param>
 		/// <param name="urlPattern"></param>
+		/// <param name="showPageLinks"></param>
+		/// <param name="numberOfPageLinks"></param>
 		/// <returns></returns>
-		public static JObject GeneratePagination(long totalRecords, int totalPages, int pageSize, int pageNumber, string urlPattern, bool showPageLinks = true, int numberOfPageLinks = 0)
+		public static JObject GeneratePagination(long totalRecords, int totalPages, int pageSize, int pageNumber, string urlPattern, bool showPageLinks, int numberOfPageLinks, string query = null)
 		{
 			var pages = new List<JObject>(totalPages);
 			if (totalPages > 1 && !string.IsNullOrWhiteSpace(urlPattern))
@@ -250,7 +237,7 @@ namespace net.vieapps.Services.Portals
 						pages.Add(new JObject
 						{
 							{ "Text", $"{page}" },
-							{ "URL", urlPattern.GetPaginationURL(page) }
+							{ "URL", urlPattern.GetPaginationURL(page, query) }
 						});
 				else
 				{
@@ -275,30 +262,30 @@ namespace net.vieapps.Services.Portals
 					pages.Add(new JObject
 					{
 						{ "Text", "1" },
-						{ "URL", urlPattern.GetPaginationURL(1) }
+						{ "URL", urlPattern.GetPaginationURL(1, query) }
 					});
 					if (start - 1 > 1)
 						pages.Add(new JObject
 						{
 							{ "Text", start - 1 > 2 ? "..." : $"{start - 1}" },
-							{ "URL", urlPattern.GetPaginationURL(start - 1) }
+							{ "URL", urlPattern.GetPaginationURL(start - 1, query) }
 						});
 					for (var page = start; page <= end; page++)
 						pages.Add(new JObject
 						{
 							{ "Text", $"{page}" },
-							{ "URL", urlPattern.GetPaginationURL(page) }
+							{ "URL", urlPattern.GetPaginationURL(page, query) }
 						});
 					if (end + 1 < totalPages)
 						pages.Add(new JObject
 						{
 							{ "Text", end + 1 < totalPages ? "..." : $"{end + 1}" },
-							{ "URL", urlPattern.GetPaginationURL(end + 1) }
+							{ "URL", urlPattern.GetPaginationURL(end + 1, query) }
 						});
 					pages.Add(new JObject
 					{
 						{ "Text", $"{totalPages}" },
-						{ "URL", urlPattern.GetPaginationURL(totalPages) }
+						{ "URL", urlPattern.GetPaginationURL(totalPages, query) }
 					});
 				}
 			}
@@ -311,20 +298,75 @@ namespace net.vieapps.Services.Portals
 				{ "TotalPages", totalPages },
 				{ "PageSize", pageSize },
 				{ "PageNumber", pageNumber },
-				{ "URLPattern", urlPattern },
+				{ "URLPattern", string.IsNullOrWhiteSpace(urlPattern) ? null : urlPattern + (string.IsNullOrWhiteSpace(query) ? "" : (urlPattern.IndexOf("?") > 0 ? "&" : "?") + query) },
 				{ "Pages", pages == null ? null : new JObject { { "Page", pages.ToJArray() } } }
 			};
 		}
 
-		internal static JArray GetThumbnails(this JToken thumbnails, string objectID)
-			=> thumbnails != null
+		internal static string GetThumbnailURL(this string url, bool isPng, bool isBig, int width, int height)
+		{
+			if (isPng || isBig || width > 0 ||height > 0)
+			{
+				var uri = new Uri(url);
+				var segments = uri.AbsolutePath.ToList("/").Skip(2).ToList();
+				url = $"{uri.Scheme}://{uri.Host}/"
+					+ (isPng && isBig ? "thumbnailbigpngs" : isPng ? "thumbnailpngs" : isBig ? "thumbnailbigs" : "thumbnails")
+					+ $"/{segments[0]}/{segments[1]}/{(width > 0 ? $"{width}" : "0")}/{(width > 0 ? $"{height}" : "0")}/{segments.Skip(4).Join("/")}";
+				if (isPng && !url.IsEndsWith(".png"))
+					url = url.Left(url.Length - 4) + ".png";
+			}
+			return url;
+		}
+
+		internal static JArray GetThumbnails(this JToken thumbnails, string objectID, bool isPng = false, bool isBig = false, int width = 0, int height = 0)
+		{
+			var thumbnailImages = thumbnails != null
 				? thumbnails is JArray thumbnailsAsJArray
 					? thumbnailsAsJArray
-					: (thumbnails[$"@{@objectID}"] ?? thumbnails[objectID]) as JArray
+					: thumbnails[objectID] as JArray
+				: null;
+			thumbnailImages?.ForEach(thumbnail =>
+			{
+				var uri = thumbnail.Get<string>("URI");
+				if (!string.IsNullOrWhiteSpace(uri))
+					thumbnail["URI"] = uri.GetThumbnailURL(isPng, isBig, width, height);
+				var uris = thumbnail.Get<JObject>("URIs");
+				uri = uris?.Get<string>("Direct");
+				if (!string.IsNullOrWhiteSpace(uri))
+					uris["Direct"] = uri.GetThumbnailURL(isPng, isBig, width, height);
+			});
+			return thumbnailImages;
+		}
+
+		internal static string GetThumbnailURL(this JToken thumbnails, string objectID, bool isPng = false, bool isBig = false, int width = 0, int height = 0)
+			=> thumbnails?.GetThumbnails(objectID, isPng, isBig, width, height)?.FirstOrDefault()?.Get<JObject>("URIs")?.Get<string>("Direct");
+
+		internal static JArray GetAttachments(this JToken attachments, string objectID)
+			=> attachments != null
+				? attachments is JArray attachmentsAsJArray
+					? attachmentsAsJArray
+					: attachments[objectID] as JArray
 				: null;
 
-		internal static string GetThumbnailURL(this JToken thumbnails, string objectID)
-			=> thumbnails?.GetThumbnails(objectID)?.FirstOrDefault()?.Get<JObject>("URIs")?.Get<string>("Direct");
+		internal static string GetWebpImageURL(this string url, bool useTransparentAsPng = false)
+		{
+			if (!string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("~~/") || url.IsStartsWith(Utility.FilesHttpURI)))
+			{
+				var segments = new Uri(url.Replace("~~/", $"{Utility.FilesHttpURI}/")).AbsolutePath.ToList("/").Skip(1).ToList();
+				var handler = segments[0].IsStartsWith("thumbnail") ? segments[0].ToLower() : "webp.image";
+				if (segments[0].IsStartsWith("thumbnail"))
+					handler = handler.IsEndsWith("pngs")
+						? handler.Replace("pngs", "webps")
+						: handler.IsEndsWith("bigs")
+							? handler.Replace("bigs", "bigwebps")
+							: "thumbnailwebps";
+				url = (url.IsStartsWith("~~/") ? "~~" : Utility.FilesHttpURI) + $"/{handler}/" + (segments[0].IsStartsWith("thumbnail") ? segments.Skip(1).Join("/") : $"{segments[1]}/{segments.Skip(3).Join("/")}.webp");
+				if (segments[0].IsStartsWith("thumbnail") && (url.IsEndsWith(".png") || url.IsEndsWith(".jpg")))
+					url = url.Left(url.Length - 4) + ".webp";
+				url += useTransparentAsPng ? (url.IndexOf("?") > 0 ? "&" : "?") + "transparent=." : "";
+			}
+			return url;
+		}
 
 		/// <summary>
 		/// Normalizes the HTML contents
@@ -369,6 +411,30 @@ namespace net.vieapps.Services.Portals
 					html = html.Substring(0, start) + media + html.Substring(end);
 				}
 				start = html.PositionOf("<oembed", start + 1);
+			}
+
+			// normalize all 'img' tags with WebP images
+			start = html.PositionOf("<img");
+			while (start > -1)
+			{
+				var offset = 1;
+				var end = start < 0 ? -1 : html.PositionOf(">", start);
+				if (end > -1)
+				{
+					end += 1;
+					var image = html.Substring(start, end - start);
+					var urlStart = image.IndexOf("src=") + 5;
+					var urlEnd = image.IndexOf("\"", urlStart + 1);
+					if (urlEnd < 0)
+						urlEnd = image.IndexOf("'", urlStart + 1);
+					var url = image.Substring(urlStart, urlEnd - urlStart);
+					var webpURL = url.IsContains("image=svg") ? url : url.GetWebpImageURL();
+					if (!url.IsEquals(webpURL))
+						image = $"<picture><source srcset=\"{webpURL}\"/>{image}</picture>";
+					html = html.Substring(0, start) + image + html.Substring(end);
+					offset = image.Length;
+				}
+				start = html.PositionOf("<img", start + offset);
 			}
 
 			return html.HtmlDecode();
@@ -485,7 +551,7 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string NormalizeURLs(this string html, string rootURL, bool forDisplaying = true)
 			=> forDisplaying
-				? html?.Replace("~~~/", rootURL).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~/", rootURL)
+				? html?.Replace("~~~/", rootURL).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~/", rootURL).Replace("~#/", $"{Utility.PortalsHttpURI}/")
 				: html?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, rootURL, "~/");
 
 		/// <summary>
@@ -550,133 +616,6 @@ namespace net.vieapps.Services.Portals
 				.ForEach(rootURL => html = html.NormalizeURLs(rootURL, false));
 
 			return html;
-		}
-
-		internal static Cache GetCacheOfDesktopHTML(this Organization organization)
-		{
-			if (!Utility.DesktopHtmlCaches.TryGetValue(organization.ID, out var cache))
-			{
-				cache = new Cache($"VIEApps-Services-Portals-Desktops-{organization.ID}", organization.RefreshUrls != null && organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval - 2 : Utility.Cache.ExpirationTime / 2, true, Components.Utility.Logger.GetLoggerFactory());
-				Utility.DesktopHtmlCaches[organization.ID] = cache;
-			}
-			return cache;
-		}
-
-		/// <summary>
-		/// Gets the cache key prefix for working with collection of objects
-		/// </summary>
-		/// <param name="requestJson"></param>
-		/// <returns></returns>
-		public static string GetCacheKeyPrefix(this JToken requestJson)
-		{
-			var expressionID = requestJson?.Get<JObject>("Expression")?.Get<string>("ID");
-			if (!string.IsNullOrWhiteSpace(expressionID))
-			{
-				var parentIdentity = requestJson.Get("IsAutoPageNumber", false) ? requestJson.Get<string>("ParentIdentity") : null;
-				return $"#exp:{expressionID}{(string.IsNullOrWhiteSpace(parentIdentity) ? "" : $"~{parentIdentity}")}";
-			}
-			return null;
-		}
-
-		/// <summary>
-		/// Gets the cache key prefix for working with collection of objects
-		/// </summary>
-		/// <param name="expression"></param>
-		/// <param name="parentIdentity"></param>
-		/// <returns></returns>
-		public static string GetCacheKeyPrefix(this Expression expression, string parentIdentity = null)
-			=> $"#exp:{expression.ID}{(string.IsNullOrWhiteSpace(parentIdentity) ? "" : $"~{parentIdentity.Trim().ToLower()}")}";
-
-		/// <summary>
-		/// Sets cache of page-size (to clear related cached further)
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="filter"></param>
-		/// <param name="sort"></param>
-		/// <param name="cacheKeyPrefix"></param>
-		/// <param name="pageSize"></param>
-		/// <param name="cancellationToken"></param>
-		/// <returns></returns>
-		public static async Task<string> SetCacheOfPageSizeAsync<T>(IFilterBy<T> filter, SortBy<T> sort, string cacheKeyPrefix, int pageSize, CancellationToken cancellationToken = default) where T : class
-		{
-			var cacheKey = $"{(string.IsNullOrWhiteSpace(cacheKeyPrefix) ? Extensions.GetCacheKey(filter, sort) : Extensions.GetCacheKey<T>(cacheKeyPrefix))}:size";
-			await Utility.Cache.SetAsync(cacheKey, pageSize, cancellationToken).ConfigureAwait(false);
-			return cacheKey;
-		}
-
-		/// <summary>
-		/// Sends the request to clear related cached of collecion of objects of a content type
-		/// </summary>
-		/// <param name="rtuService"></param>
-		/// <param name="contentTypeID"></param>
-		/// <param name="keyPrefix"></param>
-		/// <param name="parentIdentities"></param>
-		/// <param name="cancellationToken"></param>
-		/// <returns></returns>
-		public static Task SendClearCacheRequestAsync(this IRTUService rtuService, string contentTypeID, string keyPrefix, IEnumerable<string> parentIdentities = null, CancellationToken cancellationToken = default)
-			=> rtuService == null || string.IsNullOrWhiteSpace(contentTypeID) || string.IsNullOrWhiteSpace(keyPrefix)
-				? Task.CompletedTask
-				: rtuService.SendInterCommunicateMessageAsync(new CommunicateMessage("CMS.Portals")
-				{
-					Type = "Cache#Clear",
-					Data = new JObject
-					{
-						{ "ContentTypeID", contentTypeID },
-						{ "KeyPrefix", keyPrefix },
-						{ "ParentIdentities", parentIdentities?.Where(parentIdentity => !string.IsNullOrWhiteSpace(parentIdentity)).Distinct(StringComparer.OrdinalIgnoreCase).ToJArray() }
-					}
-				}, cancellationToken);
-
-		/// <summary>
-		/// Sends the request to clear related cached of collecion of objects of a content type
-		/// </summary>
-		/// <param name="rtuService"></param>
-		/// <param name="contentTypeID"></param>
-		/// <param name="keyPrefix"></param>
-		/// <param name="cancellationToken"></param>
-		/// <returns></returns>
-		public static Task SendClearCacheRequestAsync(this IRTUService rtuService, string contentTypeID, string keyPrefix, CancellationToken cancellationToken = default)
-			=> rtuService.SendClearCacheRequestAsync(contentTypeID, keyPrefix, null, cancellationToken);
-
-		/// <summary>
-		/// Clears the related cached of collecion of objects of a content type
-		/// </summary>
-		/// <param name="contentType"></param>
-		/// <param name="cacheKeyPrefix"></param>
-		/// <param name="parentIdentities"></param>
-		/// <param name="cancellationToken"></param>
-		/// <returns></returns>
-		public static async Task ClearCacheAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
-		{
-			var contentType = await message.Data.Get("ContentTypeID", "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			var keyPrefix = message.Data.Get<string>("KeyPrefix");
-			if (contentType == null || string.IsNullOrWhiteSpace(keyPrefix))
-				return;
-
-			var parentIdentities = message.Data.Get<JArray>("ParentIdentities")?.Select(identity => identity as JValue).Where(identity => identity != null && identity.Value != null).Select(identity => identity.Value.ToString()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			var expressions = ExpressionProcessor.Expressions.Values.Where(expression => contentType.ID.IsEquals(expression.RepositoryEntityID)).ToList();
-
-			await expressions.ForEachAsync(async (expression, ctoken1) =>
-			{
-				var simpleKey = $"{keyPrefix}{expression.GetCacheKeyPrefix()}";
-				var simplePageSize = await Utility.Cache.ExistsAsync($"{simpleKey}:size", cancellationToken).ConfigureAwait(false)
-					? await Utility.Cache.GetAsync<int>($"{simpleKey}:size", cancellationToken).ConfigureAwait(false)
-					: 7;
-				var simpleKeys = Extensions.GetRelatedCacheKeys(simpleKey, simplePageSize);
-				await Task.WhenAll
-				(
-					Utility.Cache.RemoveAsync(simpleKeys, null, cancellationToken),
-					parentIdentities == null ? Task.CompletedTask : parentIdentities.ForEachAsync(async (parentIdentity, ctoken2) =>
-					{
-						var complexKey = $"{keyPrefix}{expression.GetCacheKeyPrefix(parentIdentity)}";
-						var complexPageSize = await Utility.Cache.ExistsAsync($"{complexKey}:size", cancellationToken).ConfigureAwait(false)
-							? await Utility.Cache.GetAsync<int>($"{complexKey}:size", cancellationToken).ConfigureAwait(false)
-							: 7;
-						var complexKeys = Extensions.GetRelatedCacheKeys(complexKey, complexPageSize);
-						await Utility.Cache.RemoveAsync(complexKeys, null, cancellationToken).ConfigureAwait(false);
-					}, cancellationToken)
-				).ConfigureAwait(false);
-			}, cancellationToken).ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -777,27 +716,38 @@ namespace net.vieapps.Services.Portals
 		}
 
 		internal static Task WriteLogAsync(this RequestInfo requestInfo, string log, CancellationToken cancellationToken = default, string objectName = null)
-			=> Utility.LoggingService.WriteLogAsync(requestInfo.CorrelationID, requestInfo.Session.DeveloperID, requestInfo.Session.AppID, ServiceBase.ServiceComponent.ServiceName, objectName ?? "Notifications", log, null, cancellationToken);
+			=> Utility.LoggingService.WriteLogAsync(requestInfo.CorrelationID, requestInfo.Session.DeveloperID, requestInfo.Session.AppID, requestInfo.ServiceName, objectName ?? requestInfo.ObjectName, log, null, cancellationToken);
+
+		internal static Task WriteLogAsync(string correlationID, string log, CancellationToken cancellationToken = default, string objectName = null)
+			=> Utility.LoggingService.WriteLogAsync(correlationID ?? UtilityService.NewUUID, null, null, ServiceBase.ServiceComponent.ServiceName, objectName ?? "Notifications", log, null, cancellationToken);
 
 		/// <summary>
 		/// Runs this task and forget its
 		/// </summary>
 		/// <param name="task"></param>
-		/// <param name="logger"></param>
-		internal static void Run(this Task task, ILogger logger = null)
+		internal static void Run(this Task task, string correlationID = null, string log = null)
 			=> Task.Run(async () =>
 			{
 				try
 				{
+					var stopwatch = Stopwatch.StartNew();
 					await task.ConfigureAwait(false);
+					stopwatch.Stop();
+					if (!string.IsNullOrWhiteSpace(correlationID))
+						await Utility.LoggingService.WriteLogAsync(correlationID, null, null, ServiceBase.ServiceComponent.ServiceName, "Tasks", $"A forgetable task was completed {(string.IsNullOrWhiteSpace(log) ? "" : $"({log})")} - Execution times: {stopwatch.GetElapsedTimes()}", null).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
-					logger = logger ?? Utility.Logger;
-					if (logger != null)
-						logger.LogError($"Error occurred while running a forgetable task => {ex.Message}", ex);
+					Utility.Logger.LogError($"Error occurred while running a forgetable task => {ex.Message}", ex);
+					await Utility.LoggingService.WriteLogAsync(correlationID, null, null, ServiceBase.ServiceComponent.ServiceName, "Tasks", $"Error occurred while running a forgetable task => {ex.Message}", ex.GetStack()).ConfigureAwait(false);
 				}
-			}).ConfigureAwait(false);
+			}, CancellationToken.None)
+			.ContinueWith(result =>
+			{
+				if (result.Exception != null)
+					Utility.Logger.LogError($"Unexpected rrror occurred while running a forgetable task => {result.Exception.Message}", result.Exception);
+			}, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default)
+			.ConfigureAwait(false);
 
 		internal static string MinifyJs(this string data)
 			=> Minifier.MinifyJs(data);
@@ -811,7 +761,6 @@ namespace net.vieapps.Services.Portals
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Serializable]
 	[Repository(ServiceName = "Portals", ID = "A0000000000000000000000000000001", Title = "CMS", Description = "Services of the CMS Portals", Directory = "CMS", ExtendedPropertiesTableName = "T_Portals_Extended_Properties")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 }

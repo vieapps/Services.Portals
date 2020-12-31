@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
@@ -27,7 +28,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static Role Set(this Role role, bool updateCache = false)
 		{
-			if (role != null)
+			if (role != null && !string.IsNullOrWhiteSpace(role.ID) && !string.IsNullOrWhiteSpace(role.Title))
 			{
 				RoleProcessor.Roles[role.ID] = role;
 				if (updateCache)
@@ -39,7 +40,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<Role> SetAsync(this Role role, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			role?.Set();
-			await (updateCache && role != null ? Utility.Cache.SetAsync(role, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			await (updateCache && role != null && !string.IsNullOrWhiteSpace(role.ID) && !string.IsNullOrWhiteSpace(role.Title) ? Utility.Cache.SetAsync(role, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return role;
 		}
 
@@ -91,27 +92,44 @@ namespace net.vieapps.Services.Portals
 		internal static async Task ProcessInterCommunicateMessageOfRoleAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				await message.Data.ToExpandoObject().CreateRoleInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
+			{
+				var role = message.Data.ToExpandoObject().CreateRoleInstance();
+				role._childrenIDs = null;
+				await role.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				role.Set();
+			}
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var role = message.Data.Get("ID", "").GetRoleByID(false, false);
-				await (role == null ? message.Data.ToExpandoObject().CreateRoleInstance() : role.UpdateRoleInstance(message.Data.ToExpandoObject())).SetAsync(false, cancellationToken).ConfigureAwait(false);
+				role = role == null
+					? message.Data.ToExpandoObject().CreateRoleInstance()
+					: role.UpdateRoleInstance(message.Data.ToExpandoObject());
+				role._childrenIDs = null;
+				await role.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				role.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateRoleInstance().Remove();
 		}
 
-		static Task ClearRelatedCacheAsync(this Role role, string oldParentID = null, CancellationToken cancellationToken = default)
+		internal static Task ClearRelatedCacheAsync(this Role role, string oldParentID, CancellationToken cancellationToken, string correlationID = null)
 		{
-			var tasks = new List<Task> { Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID), Sorts<Role>.Ascending("Title")), cancellationToken) };
+			var sort = Sorts<Role>.Ascending("Title");
+			var cacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID), sort);
 			if (!string.IsNullOrWhiteSpace(role.ParentID) && role.ParentID.IsValidUUID())
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, role.ParentID), Sorts<Role>.Ascending("Title")), cancellationToken));
+				cacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, role.ParentID), sort).Concat(cacheKeys).ToList();
 			if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, oldParentID), Sorts<Role>.Ascending("Title")), cancellationToken));
-			return Task.WhenAll(tasks);
+				cacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, oldParentID), sort).Concat(cacheKeys).ToList();
+			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			if (Utility.Logger.IsEnabled(LogLevel.Debug))
+				Utility.WriteLogAsync(correlationID, $"Clear related cache of role [{role.ID} => {role.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
+			return Utility.Cache.RemoveAsync(cacheKeys, cancellationToken);
 		}
+
+		internal static Task ClearRelatedCacheAsync(this Role role, string correlationID = null)
+			=> role.ClearRelatedCacheAsync(null, CancellationToken.None, correlationID);
 
 		internal static async Task<JObject> SearchRolesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -219,7 +237,7 @@ namespace net.vieapps.Services.Portals
 				obj._childrenIDs = new List<string>();
 			});
 			await Role.CreateAsync(role, cancellationToken).ConfigureAwait(false);
-			role.Set().ClearRelatedCacheAsync(null, cancellationToken).Run();
+			role.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// update users
 			var requestUser = new RequestInfo(requestInfo)
@@ -298,8 +316,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				});
 
 			// message to update to all service instances (on all other nodes)
@@ -401,7 +418,7 @@ namespace net.vieapps.Services.Portals
 				await obj.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 			});
 			await Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			role.Set().ClearRelatedCacheAsync(oldParentID, cancellationToken).Run();
+			role.Set().ClearRelatedCacheAsync(oldParentID, CancellationToken.None, requestInfo.CorrelationID).Run();
 
 			// update users
 			var beAddedUserIDs = (role.UserIDs ?? new List<string>()).Except(oldUserIDs).ToList();
@@ -538,8 +555,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				});
 
 			// message to update to all service instances (on all other nodes)
@@ -621,7 +637,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			role.Remove().ClearRelatedCacheAsync(null, cancellationToken).Run();
+			role.Remove().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// update users
 			var beRemovedUserIDs = role.UserIDs ?? new List<string>();
@@ -708,8 +724,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			role.ClearRelatedCacheAsync(null, cancellationToken).Run();
-			role.Remove();
+			role.Remove().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send notification
 			role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
@@ -784,6 +799,9 @@ namespace net.vieapps.Services.Portals
 				role.Fill(data);
 				await Role.UpdateAsync(role, true, cancellationToken).ConfigureAwait(false);
 			}
+
+			// clear related cache
+			role.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = role.Set().ToJson();

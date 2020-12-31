@@ -8,10 +8,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using System.Dynamic;
+using MsgPack.Serialization;
+using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
-using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -19,8 +20,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Modules", TableName = "T_Portals_Modules", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public sealed class Module : Repository<Module>, IPortalModule, IBusinessRepository
 	{
@@ -54,7 +54,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
-		[NonSerialized]
+		[MessagePackIgnore]
 		JObject _json;
 
 		string _exras;
@@ -106,32 +106,46 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalModule.Organization => this.Organization;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.Organization;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => this.Organization;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public ModuleDefinition ModuleDefinition => Utility.ModuleDefinitions.TryGetValue(this.ModuleDefinitionID, out var definition) ? definition : null;
+		public ModuleDefinition ModuleDefinition => Utility.ModuleDefinitions.TryGetValue(this.ModuleDefinitionID, out var moduleDefinition) ? moduleDefinition : null;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string RepositoryDefinitionTypeName => this.ModuleDefinition?.RepositoryDefinitionTypeName;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public RepositoryDefinition RepositoryDefinition => this.ModuleDefinition?.RepositoryDefinition ?? RepositoryMediator.GetRepositoryDefinition(this.RepositoryDefinitionTypeName);
+		public RepositoryDefinition RepositoryDefinition
+		{
+			get
+			{
+				var moduleDefinition = this.ModuleDefinition;
+				return moduleDefinition?.RepositoryDefinition ?? (moduleDefinition != null && !string.IsNullOrWhiteSpace(moduleDefinition?.RepositoryDefinitionTypeName) ? RepositoryMediator.GetRepositoryDefinition(moduleDefinition?.RepositoryDefinitionTypeName) : null);
+			}
+		}
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.Organization?.DefaultDesktop;
 
 		internal List<string> _contentTypeIDs;
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<string> ContentTypeIDs
+		{
+			get => this._contentTypeIDs;
+			set => this._contentTypeIDs = value;
+		}
+
 		internal List<ContentType> FindContentTypes(List<ContentType> contentTypes = null, bool notifyPropertyChanged = true)
 		{
-			if (this._contentTypeIDs == null)
+			if (this._contentTypeIDs == null || this._contentTypeIDs.Count < 1)
 			{
 				contentTypes = contentTypes ?? (this.SystemID ?? "").FindContentTypes(this.ID);
 				this._contentTypeIDs = contentTypes.Select(contentType => contentType.ID).ToList();
@@ -150,10 +164,10 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public List<ContentType> ContentTypes => this.FindContentTypes();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		List<IPortalContentType> IPortalModule.ContentTypes => this.ContentTypes.Select(contentType => contentType as IPortalContentType).ToList();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<IBusinessRepositoryEntity> BusinessRepositoryEntities => this.ContentTypes.Select(contentType => contentType as IBusinessRepositoryEntity).ToList();
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
@@ -194,8 +208,16 @@ namespace net.vieapps.Services.Portals
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
-			else if (name.IsEquals("ContentTypes"))
-				this.Set(true);
+			else if (name.IsEquals("ContentTypes") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
+				Task.WhenAll(
+					this.SetAsync(true),
+					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+					{
+						Type = $"{this.GetObjectName()}#Update",
+						Data = this.ToJson(false, false),
+						ExcludedNodeID = Utility.NodeID
+					})
+				).Run();
 		}
 	}
 }

@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -77,10 +78,9 @@ namespace net.vieapps.Services.Portals
 				else
 				{
 					portlet = await Portlet.GetAsync<Portlet>(message.Data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
-					if (portlet == null)
-						portlet = message.Data.ToExpandoObject().CreatePortletInstance();
-					else
-						portlet.UpdatePortletInstance(message.Data.ToExpandoObject());
+					portlet = portlet == null
+						? message.Data.ToExpandoObject().CreatePortletInstance()
+						: portlet.UpdatePortletInstance(message.Data.ToExpandoObject());
 				}
 				var desktop = await (portlet.DesktopID ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (desktop != null && desktop._portlets != null)
@@ -117,31 +117,51 @@ namespace net.vieapps.Services.Portals
 			return portlets != null && portlets.Count > 0 ? portlets.Last().OrderIndex : -1;
 		}
 
-		static Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken = default)
+		internal static async Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken = default, string correlationID = null)
 		{
-			var tasks = new List<Task>
-			{
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Portlet>.And(Filters<Portlet>.Equals("DesktopID", portlet.DesktopID)), Sorts<Portlet>.Ascending("Zone").ThenByAscending("OrderIndex")), cancellationToken)
-			};
+			// cache keys of the individual content
+			var filter = Filters<Portlet>.Equals("OriginalPortletID", string.IsNullOrWhiteSpace(portlet.OriginalPortletID) ? portlet.ID : portlet.OriginalPortletID);
+			var sort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
+
+			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Portlet>.And(Filters<Portlet>.Equals("DesktopID", portlet.DesktopID)), Sorts<Portlet>.Ascending("Zone").ThenByAscending("OrderIndex"));
 			if (string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Portlet>.Equals("OriginalPortletID", portlet.ID), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex")), cancellationToken));
-			var contentType = string.IsNullOrWhiteSpace(portlet.OriginalPortletID) ? portlet.ContentType : portlet.OriginalPortlet?.ContentType;
+				dataCacheKeys = Extensions.GetRelatedCacheKeys(filter, sort).Concat(dataCacheKeys).ToList();
+
+			// cache keys of the content-type
+			var contentType = string.IsNullOrWhiteSpace(portlet.OriginalPortletID)
+				? portlet.ContentType
+				: portlet.OriginalPortlet?.ContentType;
 			if (contentType != null)
+				dataCacheKeys = (await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(dataCacheKeys).ToList();
+
+			// cache keys of the expression
+			var expression = await (portlet?.OriginalPortlet.ExpressionID ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (expression != null)
+				dataCacheKeys = (await Utility.Cache.GetSetMembersAsync(expression.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(dataCacheKeys).ToList();
+
+			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+			// cache keys of desktop HTMLs
+			var htmlCacheKeys = new List<string>();
+			var desktop = portlet.OriginalDesktop;
+			if (desktop != null)
+				htmlCacheKeys = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(htmlCacheKeys).ToList();
+			var portlets = await Portlet.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
+			await portlets.ForEachAsync(async (theportlet, _) =>
 			{
-				if ("Content".IsEquals(portlet.ContentTypeDefinition?.ObjectName))
-				{
-					var parentContentType = portlet.ContentType.GetParent();
-					if (parentContentType != null)
-					{
-						var parentIdentities = CategoryProcessor.Categories.Values.Where(category => parentContentType.ID.IsEquals(category.ContentTypeID)).Select(category => category.Alias).ToList();
-						tasks.Add(Utility.RTUService.SendClearCacheRequestAsync(portlet.ContentType.ID, portlet.ContentTypeDefinition.ObjectName, parentIdentities, cancellationToken));
-					}
-				}
-				else
-					tasks.Add(Utility.RTUService.SendClearCacheRequestAsync(portlet.ContentType.ID, portlet.ContentTypeDefinition?.ObjectName, cancellationToken));
-			}
-			return Task.WhenAll(tasks);
+				desktop = theportlet.Desktop;
+				if (desktop != null)
+					htmlCacheKeys = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(htmlCacheKeys).ToList();
+			}, cancellationToken, true, false).ConfigureAwait(false);
+			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+			if (Utility.Logger.IsEnabled(LogLevel.Debug))
+				await Utility.WriteLogAsync(correlationID, $"Clear related cache of portlet [{portlet.ID} => {portlet.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches").ConfigureAwait(false);
+			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 		}
+
+		internal static Task ClearRelatedCacheAsync(this Portlet portlet, string correlationID = null)
+			=> portlet.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
 		internal static async Task<JObject> SearchPortletsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -240,7 +260,7 @@ namespace net.vieapps.Services.Portals
 
 			portlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(portlet.DesktopID, portlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
 			await Portlet.CreateAsync(portlet, cancellationToken).ConfigureAwait(false);
-			portlet.ClearRelatedCacheAsync(cancellationToken).Run();
+			portlet.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			var response = portlet.ToJson();
 			var objectName = portlet.GetTypeName(true);
@@ -326,8 +346,7 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
+				DeviceID = "*"
 			});
 			await Task.WhenAll(
 				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
@@ -396,17 +415,20 @@ namespace net.vieapps.Services.Portals
 			var oldDesktopID = portlet.DesktopID;
 			var oldZone = portlet.Zone;
 			var request = requestInfo.GetBodyExpando();
-			portlet.UpdatePortletInstance(request, "ID,SystemID,RepositoryID,RepositoryEntityID,ContentTypeDefinitionID,OriginalPortletID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			portlet.UpdatePortletInstance(request, "ID,SystemID,RepositoryID,RepositoryEntityID,OriginalPortletID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
+			if ("true".IsEquals(requestInfo.GetParameter("IsAdvancedMode")))
+				portlet.RepositoryEntityID = request.Get("RepositoryEntityID", portlet.RepositoryEntityID);
+
 			if (!portlet.DesktopID.IsEquals(oldDesktopID) || !portlet.Zone.IsEquals(oldZone))
 				portlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(portlet.DesktopID, portlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
 
 			await Portlet.UpdateAsync(portlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await portlet.ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
+			portlet.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			var response = portlet.ToJson();
 			var objectName = portlet.GetTypeName(true);
@@ -489,7 +511,7 @@ namespace net.vieapps.Services.Portals
 				// create portlet
 				mappingPortlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(mappingPortlet.DesktopID, mappingPortlet.Zone, token).ConfigureAwait(false) + 1;
 				await Portlet.CreateAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
-				mappingPortlet.ClearRelatedCacheAsync(token).Run();
+				mappingPortlet.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 				var json = mappingPortlet.ToJson();
 				updateMessages.Add(new UpdateMessage
@@ -523,7 +545,7 @@ namespace net.vieapps.Services.Portals
 			{
 				// delete portlet
 				await Portlet.DeleteAsync<Portlet>(mappingPortlet.ID, requestInfo.Session.User.ID, token).ConfigureAwait(false);
-				mappingPortlet.ClearRelatedCacheAsync(token).Run();
+				mappingPortlet.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 				var json = mappingPortlet.ToJson();
 				updateMessages.Add(new UpdateMessage
@@ -572,7 +594,7 @@ namespace net.vieapps.Services.Portals
 					mappingPortlet.LastModified = DateTime.Now;
 					mappingPortlet.LastModifiedID = requestInfo.Session.User.ID;
 					await Portlet.UpdateAsync(mappingPortlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					mappingPortlet.ClearRelatedCacheAsync(token).Run();
+					mappingPortlet.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 				}
 				else
 					await Utility.Cache.SetAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
@@ -615,8 +637,7 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
+				DeviceID = "*"
 			});
 			await Task.WhenAll(
 				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
@@ -641,7 +662,7 @@ namespace net.vieapps.Services.Portals
 
 			// delete portlet
 			await Portlet.DeleteAsync<Portlet>(portlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			portlet.ClearRelatedCacheAsync(cancellationToken).Run();
+			portlet.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			var response = portlet.ToJson();
 			var objectName = portlet.GetTypeName(true);
@@ -651,8 +672,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}
 			};
 			var communicateMessages = new List<CommunicateMessage>
@@ -717,7 +737,7 @@ namespace net.vieapps.Services.Portals
 				var originalPortlet = portlet.OriginalPortlet;
 				if (originalPortlet != null)
 				{
-					await originalPortlet.ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
+					await originalPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 					var json = originalPortlet.ToJson(async originalPortletJson =>
 					{
 						var mappingPortlets = await originalPortlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? new List<Portlet>();
@@ -759,6 +779,9 @@ namespace net.vieapps.Services.Portals
 				portlet.Fill(data);
 				await Portlet.UpdateAsync(portlet, true, cancellationToken).ConfigureAwait(false);
 			}
+
+			// clear related cache
+			portlet.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = portlet.ToJson();

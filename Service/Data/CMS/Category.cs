@@ -3,15 +3,14 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-using System.Dynamic;
+using MsgPack.Serialization;
+using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
-using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -19,8 +18,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "CMS_Categories", TableName = "T_Portals_CMS_Categories", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000001", Title = "Category", Description = "Categorizing the CMS contents", ObjectNamePrefix = "CMS.", Portlets = false)]
 	public sealed class Category : Repository<Category>, IBusinessObject, INestedObject, IAliasEntity
 	{
@@ -59,6 +57,10 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public string SpecifiedURI { get; set; }
 
+		[Searchable]
+		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
+		public string Notes { get; set; }
+
 		[Sortable(IndexName = "Management")]
 		[FormControl(Segment = "basic", ReadOnly = true, Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public int OrderIndex { get; set; } = 0;
@@ -69,7 +71,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
-		[NonSerialized]
+		[MessagePackIgnore]
 		JObject _json;
 
 		string _exras;
@@ -176,15 +178,22 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _childrenIDs;
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<string> ChildrenIDs
+		{
+			get => this._childrenIDs;
+			set => this._childrenIDs = value;
+		}
+
 		internal List<Category> FindChildren(bool notifyPropertyChanged = true, List<Category> categories = null)
 		{
 			if (this._childrenIDs == null)
 			{
 				categories = categories ?? (this.SystemID ?? "").FindCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
-				this._childrenIDs = categories.Select(category => category.ID).ToList();
+				this._childrenIDs = categories?.Where(category => category != null).Select(category => category.ID).ToList() ?? new List<string>();
 				if (notifyPropertyChanged)
-					this.NotifyPropertyChanged("ChildrenIDs");
-				return categories;
+					this.NotifyPropertyChanged("Childrens");
+				return categories ?? new List<Category>();
 			}
 			return this._childrenIDs.Select(id => id.GetCategoryByID()).ToList();
 		}
@@ -201,7 +210,7 @@ namespace net.vieapps.Services.Portals
 		List<INestedObject> INestedObject.Children => this.Children?.Select(category => category as INestedObject).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID();
+		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.ParentCategory?.Desktop;
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
@@ -238,11 +247,19 @@ namespace net.vieapps.Services.Portals
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
-			else if (name.IsEquals("ChildrenIDs"))
-				Utility.Cache.SetAsync(this).Run();
+			else if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
+				Task.WhenAll(
+					this.SetAsync(false, true),
+					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+					{
+						Type = $"{this.GetObjectName()}#Update",
+						Data = this.ToJson(false, false),
+						ExcludedNodeID = Utility.NodeID
+					})
+				).Run();
 		}
 
-		public string GetURL(string desktop = null, bool addPageNumberHolder = false)
+		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
 		{
 			var alwaysUseHtmlSuffix = this.Organization != null && this.Organization.AlwaysUseHtmlSuffix;
 			var url = this.OpenBy.Equals(OpenBy.DesktopOnly)
@@ -262,7 +279,6 @@ namespace net.vieapps.Services.Portals
 			=> await (repositoryEntityID ?? "").GetCategoryByAliasAsync(alias, cancellationToken).ConfigureAwait(false);
 	}
 
-	[Serializable]
 	public enum OpenBy
 	{
 		DesktopWithAlias,

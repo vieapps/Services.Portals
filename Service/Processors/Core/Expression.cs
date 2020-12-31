@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -27,7 +28,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static Expression Set(this Expression expression, bool updateCache = false)
 		{
-			if (expression != null)
+			if (expression != null && !string.IsNullOrWhiteSpace(expression.ID) && !string.IsNullOrWhiteSpace(expression.Title))
 			{
 				ExpressionProcessor.Expressions[expression.ID] = expression;
 				if (updateCache)
@@ -39,7 +40,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<Expression> SetAsync(this Expression expression, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			expression?.Set();
-			await (updateCache && expression != null ? Utility.Cache.SetAsync(expression, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			await (updateCache && expression != null && !string.IsNullOrWhiteSpace(expression.ID) && !string.IsNullOrWhiteSpace(expression.Title) ? Utility.Cache.SetAsync(expression, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return expression;
 		}
 
@@ -95,44 +96,80 @@ namespace net.vieapps.Services.Portals
 			return expressions;
 		}
 
-		internal static async Task ProcessInterCommunicateMessageOfExpressionAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
+		internal static Task ProcessInterCommunicateMessageOfExpressionAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				await message.Data.ToExpandoObject().CreateExpressionInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
+				message.Data.ToExpandoObject().CreateExpressionInstance().Set();
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
-				var module = message.Data.Get("ID", "").GetExpressionByID(false, false);
-				await (module == null ? message.Data.ToExpandoObject().CreateExpressionInstance() : module.UpdateExpressionInstance(message.Data.ToExpandoObject())).SetAsync(false, cancellationToken).ConfigureAwait(false);
+				var expression = message.Data.Get("ID", "").GetExpressionByID(false, false);
+				expression = expression == null
+					? message.Data.ToExpandoObject().CreateExpressionInstance()
+					: expression.UpdateExpressionInstance(message.Data.ToExpandoObject());
+				expression.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateExpressionInstance().Remove();
+
+			return Task.CompletedTask;
 		}
 
-		static Task ClearRelatedCacheAsync(this Expression expression, CancellationToken cancellationToken = default)
+		internal static async Task ClearRelatedCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null)
 		{
+			// cache keys of data
 			var sort = Sorts<Expression>.Ascending("Title");
-			var tasks = new List<Task>
-			{
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Expression>.And(), sort), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(null), sort), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID), sort), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, expression.ContentTypeDefinitionID), sort), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, null), sort), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, null, expression.ContentTypeDefinitionID), sort), cancellationToken)
-			};
+			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Expression>.And(), sort)
+				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(null), sort))
+				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID), sort))
+				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, expression.ContentTypeDefinitionID), sort))
+				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, null), sort))
+				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, null, expression.ContentTypeDefinitionID), sort))
+				.Concat(await Utility.Cache.GetSetMembersAsync(expression.GetSetCacheKey(), cancellationToken).ConfigureAwait(false))
+				.ToList();
+
 			if (!string.IsNullOrWhiteSpace(expression.RepositoryEntityID) && !string.IsNullOrWhiteSpace(expression.ContentTypeDefinitionID))
 			{
-				var filter = Filters<Expression>.Or(
+				var filter = Filters<Expression>.Or
+				(
 					Filters<Expression>.Equals("ContentTypeDefinitionID", expression.ContentTypeDefinitionID),
 					Filters<Expression>.Equals("RepositoryEntityID", expression.RepositoryEntityID)
 				);
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Expression>.And(Filters<Expression>.Equals("RepositoryID", expression.RepositoryID), filter), sort), cancellationToken));
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(filter, sort), cancellationToken));
+				dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Expression>.And(Filters<Expression>.Equals("RepositoryID", expression.RepositoryID), filter), sort)
+					.Concat(Extensions.GetRelatedCacheKeys(filter, sort))
+					.Concat(dataCacheKeys)
+					.ToList();
 			}
-			return Task.WhenAll(tasks);
+			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+			// cache keys of desktop HTMLs
+			var htmlCacheKeys = new List<string>();
+			var portletsSort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
+			var portlets = await Portlet.FindAsync(Filters<Portlet>.And(Filters<Portlet>.IsNull("OriginalPortletID"), Filters<Portlet>.Equals("ExpressionID", expression.ID)), portletsSort, 0, 1, null, cancellationToken).ConfigureAwait(false);
+			await portlets.ForEachAsync(async (portlet, _) =>
+			{
+				var desktop = await portlet.DesktopID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (desktop != null)
+					htmlCacheKeys = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(htmlCacheKeys).ToList();
+
+				var theportlets = await Portlet.FindAsync(Filters<Portlet>.Equals("OriginalPortletID", portlet.ID), portletsSort, 0, 1, null, cancellationToken).ConfigureAwait(false);
+				await theportlets.ForEachAsync(async (theportlet, __) =>
+				{
+					desktop = theportlet.Desktop;
+					if (desktop != null)
+						htmlCacheKeys = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(htmlCacheKeys).ToList();
+				}, cancellationToken, true, false).ConfigureAwait(false);
+			}, cancellationToken, true, false).ConfigureAwait(false);
+			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+			if (Utility.Logger.IsEnabled(LogLevel.Debug))
+				await Utility.WriteLogAsync(correlationID, $"Clear related cache of expression [{expression.ID} => {expression.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches").ConfigureAwait(false);
+			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 		}
+
+		internal static Task ClearRelatedCacheAsync(this Expression expression, string correlationID = null)
+			=> expression.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
 		internal static async Task<JObject> SearchExpressionsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -197,14 +234,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
+				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -235,7 +265,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 			await Expression.CreateAsync(expression, cancellationToken).ConfigureAwait(false);
-			expression.ClearRelatedCacheAsync(cancellationToken).Run();
+			expression.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = expression.ToJson();
@@ -245,8 +275,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 					Data = json,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -314,11 +343,8 @@ namespace net.vieapps.Services.Portals
 				obj.Normalize(request.Get<JObject>("Filter"), request.Get<JArray>("Sorts"));
 			});
 
-			await Task.WhenAll(
-				Expression.UpdateAsync(expression, requestInfo.Session.User.ID, cancellationToken),
-				expression.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
-			expression.ClearRelatedCacheAsync(cancellationToken).Run();
+			await Expression.UpdateAsync(expression, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			expression.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var response = expression.ToJson();
@@ -328,8 +354,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -362,8 +387,7 @@ namespace net.vieapps.Services.Portals
 
 			// delete
 			await Expression.DeleteAsync<Expression>(expression.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			expression.Remove();
-			expression.ClearRelatedCacheAsync(cancellationToken).Run();
+			expression.Remove().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var response = expression.ToJson();
@@ -373,8 +397,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -405,6 +428,9 @@ namespace net.vieapps.Services.Portals
 				expression.Fill(data);
 				await Expression.UpdateAsync(expression, true, cancellationToken).ConfigureAwait(false);
 			}
+
+			// clear related cache
+			expression.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = expression.Set().ToJson();

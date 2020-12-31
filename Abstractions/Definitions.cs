@@ -16,7 +16,6 @@ namespace net.vieapps.Services.Portals
 	/// <summary>
 	/// Presents a module definition in a portal/system
 	/// </summary>
-	[Serializable]
 	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	public class ModuleDefinition
 	{
@@ -96,7 +95,6 @@ namespace net.vieapps.Services.Portals
 	/// <summary>
 	/// Presents a definition of a portal content-type
 	/// </summary>
-	[Serializable]
 	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	public class ContentTypeDefinition
 	{
@@ -213,7 +211,6 @@ namespace net.vieapps.Services.Portals
 	/// <summary>
 	/// Presents the definition of a control for working with an extended property of a repository entity in a respository 
 	/// </summary>
-	[Serializable]
 	[DebuggerDisplay("Name = {Name}")]
 	public sealed class ExtendedControlDefinition
 	{
@@ -379,7 +376,6 @@ namespace net.vieapps.Services.Portals
 	/// <summary>
 	/// Presents the definition of a control for working with a standard property of a repository entity in a respository 
 	/// </summary>
-	[Serializable]
 	[DebuggerDisplay("Name = {Name}")]
 	public sealed class StandardControlDefinition
 	{

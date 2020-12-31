@@ -8,10 +8,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using System.Dynamic;
+using MsgPack.Serialization;
+using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
-using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
@@ -19,8 +20,7 @@ using net.vieapps.Components.Security;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Organizations", TableName = "T_Portals_Organizations", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public sealed class Organization : Repository<Organization>, IPortalObject
 	{
@@ -82,7 +82,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "Lookup", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string SearchDesktopID { get; set; }
 
-		[NonSerialized]
+		[MessagePackIgnore]
 		JObject _json;
 
 		string _extras;
@@ -182,6 +182,13 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _siteIDs = null;
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<string> SiteIDs
+		{
+			get => this._siteIDs;
+			set => this._siteIDs = value;
+		}
+
 		internal List<Site> FindSites(List<Site> sites = null, bool notifyPropertyChanged = true)
 		{
 			if (this._siteIDs == null)
@@ -204,6 +211,13 @@ namespace net.vieapps.Services.Portals
 		public List<Site> Sites => this.FindSites();
 
 		internal List<string> _moduleIDs;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<string> ModuleIDs
+		{
+			get => this._moduleIDs;
+			set => this._moduleIDs = value;
+		}
 
 		internal List<Module> FindModules(List<Module> modules = null, bool notifyPropertyChanged = true)
 		{
@@ -300,8 +314,16 @@ namespace net.vieapps.Services.Portals
 				if (name.IsEquals("RedirectUrls"))
 					this.PrepareRedirectAddresses();
 			}
-			else if (name.IsEquals("Modules") || name.IsEquals("Sites"))
-				this.SetAsync(false, true).Run();
+			else if ((name.IsEquals("Modules") || name.IsEquals("Sites")) && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
+				Task.WhenAll(
+					this.SetAsync(false, true),
+					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+					{
+						Type = $"{this.GetObjectName()}#Update",
+						Data = this.ToJson(false, false),
+						ExcludedNodeID = Utility.NodeID
+					})
+				).Run();
 		}
 
 		List<Tuple<string, string>> _redirectAddresses;

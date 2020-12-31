@@ -19,8 +19,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Name = {Name}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Name = {Name}, Title = {Title}")]
 	[Entity(CollectionName = "CMS_Contacts", TableName = "T_Portals_CMS_Contacts", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000005", Title = "Contact", Description = "Contact information", ObjectNamePrefix = "Utils.", MultipleIntances = true, Extendable = true)]
 	public sealed class Contact : Repository<Contact>, IBusinessObject
 	{
@@ -144,7 +143,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		IPortalObject IPortalObject.Parent => this.ContentType;
 
-		public string GetURL(string desktop = null, bool addPageNumberHolder = false)
-			=> $"~/{this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{this.ContentType?.Title?.GetANSIUri() ?? "-"}/{this.ID}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
+		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
+			=> $"~/{this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{parentIdentity ?? this.ContentType?.Title?.GetANSIUri() ?? "-"}/{this.ID}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
 	}
 }

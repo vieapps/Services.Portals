@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -29,7 +30,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static Module Set(this Module module, bool updateCache = false)
 		{
-			if (module != null)
+			if (module != null && !string.IsNullOrWhiteSpace(module.ID) && !string.IsNullOrWhiteSpace(module.Title))
 			{
 				ModuleProcessor.Modules[module.ID] = module;
 				if (updateCache)
@@ -44,7 +45,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<Module> SetAsync(this Module module, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			module?.Set();
-			await (updateCache && module != null ? Utility.Cache.SetAsync(module, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			await (updateCache && module != null && !string.IsNullOrWhiteSpace(module.ID) && !string.IsNullOrWhiteSpace(module.Title) ? Utility.Cache.SetAsync(module, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return module;
 		}
 
@@ -71,7 +72,7 @@ namespace net.vieapps.Services.Portals
 		public static async Task<Module> GetModuleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetModuleByID(force, false) ?? (await Module.GetAsync<Module>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
-		public static IFilterBy<Module> GetModulesFilter(this string systemID, string definitionID = null)
+		public static IFilterBy<Module> GetModulesFilter(string systemID, string definitionID = null)
 		{
 			var filter = Filters<Module>.And(Filters<Module>.Equals("SystemID", systemID));
 			if (!string.IsNullOrWhiteSpace(definitionID))
@@ -83,10 +84,16 @@ namespace net.vieapps.Services.Portals
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Module>();
-			var filter = systemID.GetModulesFilter(definitionID);
+
+			var filter = ModuleProcessor.GetModulesFilter(systemID, definitionID);
 			var sort = Sorts<Module>.Ascending("Title");
 			var modules = Module.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
-			modules.ForEach(module => module.Set(updateCache));
+			modules.ForEach(module =>
+			{
+				if (module.ID.GetModuleByID(false, false) == null)
+					module.Set(updateCache);
+			});
+
 			return modules;
 		}
 
@@ -94,35 +101,59 @@ namespace net.vieapps.Services.Portals
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Module>();
-			var filter = systemID.GetModulesFilter(definitionID);
+
+			var filter = ModuleProcessor.GetModulesFilter(systemID, definitionID);
 			var sort = Sorts<Module>.Ascending("Title");
 			var modules = await Module.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-			await modules.ForEachAsync((module, token) => module.SetAsync(updateCache, token), cancellationToken).ConfigureAwait(false);
+			modules.ForEach(module =>
+			{
+				if (module.ID.GetModuleByID(false, false) == null)
+					module.Set(updateCache);
+			});
+
 			return modules;
 		}
 
 		internal static async Task ProcessInterCommunicateMessageOfModuleAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				await message.Data.ToExpandoObject().CreateModuleInstance().SetAsync(false, cancellationToken).ConfigureAwait(false);
+			{
+				var module = message.Data.ToExpandoObject().CreateModuleInstance();
+				module._contentTypeIDs = null;
+				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
+				module.Set();
+			}
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var module = message.Data.Get("ID", "").GetModuleByID(false, false);
-				await (module == null ? message.Data.ToExpandoObject().CreateModuleInstance() : module.UpdateModuleInstance(message.Data.ToExpandoObject())).SetAsync(false, cancellationToken).ConfigureAwait(false);
+				module = module == null
+					? message.Data.ToExpandoObject().CreateModuleInstance()
+					: module.UpdateModuleInstance(message.Data.ToExpandoObject());
+				module._contentTypeIDs = null;
+				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
+				module.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateModuleInstance().Remove();
 		}
 
-		static Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default)
-			=> Task.WhenAll
-			(
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Module>.And(), Sorts<Module>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(), Sorts<Module>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(module.SystemID.GetModulesFilter(module.ModuleDefinitionID), Sorts<Module>.Ascending("Title")), cancellationToken)
-			);
+		internal static Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default, string correlationID = null)
+		{
+			var sort = Sorts<Module>.Ascending("Title");
+			var cacheKeys = Extensions.GetRelatedCacheKeys(Filters<Module>.And(), sort)
+				.Concat(Extensions.GetRelatedCacheKeys(ModuleProcessor.GetModulesFilter(module.SystemID), sort))
+				.Concat(Extensions.GetRelatedCacheKeys(ModuleProcessor.GetModulesFilter(module.SystemID, module.ModuleDefinitionID), sort))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+			if (Utility.Logger.IsEnabled(LogLevel.Debug))
+				Utility.WriteLogAsync(correlationID, $"Clear related cache of module [{module.ID} => {module.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
+			return Utility.Cache.RemoveAsync(cacheKeys, cancellationToken);
+		}
+
+		internal static Task ClearRelatedCacheAsync(this Module module, string correlationID = null)
+			=> module.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
 		internal static async Task<JObject> SearchModulesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -187,14 +218,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
+				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -227,7 +251,7 @@ namespace net.vieapps.Services.Portals
 				Module.CreateAsync(module, cancellationToken),
 				module.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
-			module.ClearRelatedCacheAsync(cancellationToken).Run();
+			module.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// create new content-types
 			var contentTypeJson = new JObject
@@ -241,7 +265,7 @@ namespace net.vieapps.Services.Portals
 				contentTypeJson["ContentTypeDefinitionID"] = contentTypeDefinition.ID;
 				contentTypeJson["Title"] = contentTypeDefinition.Title;
 				contentTypeJson["Description"] = contentTypeDefinition.Description;
-				await contentTypeJson.CreateContentTypeAsync(organization.ID, requestInfo.Session.User.ID, null, null, requestInfo.ServiceName, token).ConfigureAwait(false);
+				await contentTypeJson.CreateContentTypeAsync(organization.ID, requestInfo.Session.User.ID, null, requestInfo.ServiceName, token, requestInfo.CorrelationID).ConfigureAwait(false);
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			// update instance/cache of organization
@@ -261,8 +285,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -306,8 +329,7 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{module.GetTypeName(true)}#Update",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
+				DeviceID = "*"
 			}, cancellationToken).ConfigureAwait(false);
 
 			// response
@@ -339,7 +361,7 @@ namespace net.vieapps.Services.Portals
 				Module.UpdateAsync(module, requestInfo.Session.User.ID, cancellationToken),
 				module.SetAsync(false, cancellationToken)
 			).ConfigureAwait(false);
-			module.ClearRelatedCacheAsync(cancellationToken).Run();
+			module.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var response = module.ToJson();
@@ -349,8 +371,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -386,8 +407,7 @@ namespace net.vieapps.Services.Portals
 
 			// delete
 			await Module.DeleteAsync<Module>(module.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			module.Remove();
-			module.ClearRelatedCacheAsync(cancellationToken).Run();
+			await module.Remove().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// update instance/cache of organization
 			if (module.Organization._moduleIDs != null)
@@ -404,8 +424,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -440,6 +459,9 @@ namespace net.vieapps.Services.Portals
 				module.Extras = data.Get<string>("Extras") ?? module.Extras;
 				await Module.UpdateAsync(module, true, cancellationToken).ConfigureAwait(false);
 			}
+
+			// clear related cache
+			module.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = module.Set().ToJson();

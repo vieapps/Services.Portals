@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
@@ -58,7 +59,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static Desktop Set(this Desktop desktop, bool clear = false, bool updateCache = false)
 		{
-			if (desktop != null)
+			if (desktop != null && !string.IsNullOrWhiteSpace(desktop.ID) && !string.IsNullOrWhiteSpace(desktop.Title))
 			{
 				if (clear)
 				{
@@ -92,7 +93,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<Desktop> SetAsync(this Desktop desktop, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			desktop?.Set(clear);
-			await (updateCache && desktop != null ? Utility.Cache.SetAsync(desktop, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			await (updateCache && desktop != null && !string.IsNullOrWhiteSpace(desktop.ID) && !string.IsNullOrWhiteSpace(desktop.Title) ? Utility.Cache.SetAsync(desktop, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return desktop;
 		}
 
@@ -180,15 +181,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task ProcessInterCommunicateMessageOfDesktopAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				await message.Data.ToExpandoObject().CreateDesktopInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
-
-			else if (message.Type.IsEndsWith("#Update"))
 			{
-				var desktop = message.Data.Get("ID", "").GetDesktopByID(false, false);
-				if (desktop == null)
-					desktop = message.Data.ToExpandoObject().CreateDesktopInstance();
-				else
-					desktop.UpdateDesktopInstance(message.Data.ToExpandoObject());
+				var desktop = message.Data.ToExpandoObject().CreateDesktopInstance();
 				desktop._portlets = null;
 				desktop._childrenIDs = null;
 				await Task.WhenAll(
@@ -196,26 +190,50 @@ namespace net.vieapps.Services.Portals
 					desktop.FindChildrenAsync(cancellationToken, false)
 				).ConfigureAwait(false);
 				await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async (portlet, token) => portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, token).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
-				desktop.SetAsync(false, true, cancellationToken).Run();
+				desktop.Set();
+			}
+
+			else if (message.Type.IsEndsWith("#Update"))
+			{
+				var desktop = message.Data.Get("ID", "").GetDesktopByID(false, false);
+				desktop = desktop == null
+					? message.Data.ToExpandoObject().CreateDesktopInstance()
+					: desktop.UpdateDesktopInstance(message.Data.ToExpandoObject());
+				desktop._portlets = null;
+				desktop._childrenIDs = null;
+				await Task.WhenAll(
+					desktop.FindPortletsAsync(cancellationToken, false),
+					desktop.FindChildrenAsync(cancellationToken, false)
+				).ConfigureAwait(false);
+				await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async (portlet, token) => portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, token).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+				desktop.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateDesktopInstance().Remove();
 		}
 
-		static Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default)
+		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null)
 		{
+			// cache keys of the individual content
 			var sort = Sorts<Desktop>.Ascending("Title");
-			var tasks = new List<Task>
-			{
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(null), sort), cancellationToken)
-			};
+			var dataCacheKeys = Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, null), sort);
 			if (!string.IsNullOrWhiteSpace(desktop.ParentID) && desktop.ParentID.IsValidUUID())
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(desktop.ParentID), sort), cancellationToken));
+				dataCacheKeys = Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), sort).Concat(dataCacheKeys).ToList();
 			if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
-				tasks.Add(Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(desktop.SystemID.GetDesktopsFilter(oldParentID), sort), cancellationToken));
-			return Task.WhenAll(tasks);
+				dataCacheKeys = Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, oldParentID), sort).Concat(dataCacheKeys).ToList();
+			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+			// cache keys of desktop HTMLs
+			var htmlCacheKeys = await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
+
+			if (Utility.Logger.IsEnabled(LogLevel.Debug))
+				await Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches").ConfigureAwait(false);
+			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 		}
+
+		internal static Task ClearRelatedCacheAsync(this Desktop desktop, string correlationID = null)
+			=> desktop.ClearRelatedCacheAsync(null, CancellationToken.None, correlationID);
 
 		internal static async Task<JObject> SearchDesktopsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -332,23 +350,60 @@ namespace net.vieapps.Services.Portals
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
 			}
 
+			// source to copy from
+			var source = await request.Get("CopyFromID", "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+
 			// validate template, meta-tags and scripts
-			request.Get("Template", "").ValidateTemplate();
-			request.Get("MetaTags", "").ValidateTags();
+			if (source == null)
+			{
+				request.Get("Template", "").ValidateTemplate();
+				request.Get("MetaTags", "").ValidateTags();
+			}
 
 			// create new
-			var desktop = request.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.SystemID = organization.ID;
-				obj.ParentID = obj.ParentDesktop != null ? obj.ParentID : null;
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.Created = obj.LastModified = DateTime.Now;
-				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-				obj._childrenIDs = new List<string>();
-			});
+			var desktop = source != null
+				? source.Copy("ID,Title,Alias,Created,CreatedID,LastModified,LastModifiedID,Portlets".ToHashSet(), obj =>
+				{
+					obj.ID = UtilityService.NewUUID;
+					obj.Title = request.Get("Title", $"{source.Title} (Duplicated)");
+					obj.Alias = string.IsNullOrWhiteSpace(alias) ? $"{obj.Title}-{obj.ID}".NormalizeAlias() : alias.NormalizeAlias();
+					obj.Aliases = null;
+					obj.Created = obj.LastModified = DateTime.Now;
+					obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
+					obj._childrenIDs = new List<string>();
+				})
+				: request.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+				{
+					obj.SystemID = organization.ID;
+					obj.ParentID = obj.ParentDesktop != null ? obj.ParentID : null;
+					obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
+					obj.Created = obj.LastModified = DateTime.Now;
+					obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
+					obj.NormalizeExtras();
+					obj._childrenIDs = new List<string>();
+				});
+
 			await Desktop.CreateAsync(desktop, cancellationToken).ConfigureAwait(false);
-			desktop.Set().ClearRelatedCacheAsync(null, cancellationToken).Run();
+			desktop.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+
+			// copy portlets
+			if (source != null)
+			{
+				desktop._portlets = new List<Portlet>();
+				await source.Portlets.ForEachAsync(async (originalPortlet, _) =>
+				{
+					var copiedPortlet = originalPortlet.Copy("ID,DesktopID,Created,CreatedID,LastModified,LastModifiedID".ToHashSet(), obj =>
+					{
+						obj.ID = UtilityService.NewUUID;
+						obj.Created = obj.LastModified = DateTime.Now;
+						obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
+						obj.DesktopID = desktop.ID;
+					});
+					await Portlet.CreateAsync(copiedPortlet, cancellationToken).ConfigureAwait(false);
+					desktop._portlets.Add(copiedPortlet);
+				}, cancellationToken, true, false).ConfigureAwait(false);
+				desktop.Set(false, true);
+			}
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -385,7 +440,6 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID,
 					Data = response
 				});
 
@@ -515,7 +569,7 @@ namespace net.vieapps.Services.Portals
 				await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			});
 			await Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			desktop.Set().ClearRelatedCacheAsync(oldParentID, cancellationToken).Run();
+			desktop.Set().ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -578,8 +632,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				});
 
 			// message to update to all service instances (on all other nodes)
@@ -645,8 +698,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -718,7 +770,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			desktop.Remove().ClearRelatedCacheAsync(null, cancellationToken).Run();
+			await desktop.Remove().ClearRelatedCacheAsync(requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// message to update to all other connected clients
 			var response = desktop.ToJson();
@@ -726,8 +778,7 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
+				DeviceID = "*"
 			});
 
 			// message to update to all service instances (on all other nodes)
@@ -769,7 +820,7 @@ namespace net.vieapps.Services.Portals
 
 			// delete
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			desktop.Remove().ClearRelatedCacheAsync(null, cancellationToken).Run();
+			await desktop.Remove().ClearRelatedCacheAsync(requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// send notification
 			desktop.SendNotificationAsync("Delete", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
@@ -807,6 +858,9 @@ namespace net.vieapps.Services.Portals
 				desktop.Extras = data.Get<string>("Extras") ?? desktop.Extras;
 				await Desktop.UpdateAsync(desktop, true, cancellationToken).ConfigureAwait(false);
 			}
+
+			// clear related cache
+			await desktop.ClearRelatedCacheAsync(requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// send update messages
 			var json = desktop.Set().ToJson();

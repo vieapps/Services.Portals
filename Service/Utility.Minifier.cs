@@ -1,10 +1,6 @@
 ﻿#region Related components
-using System;
 using System.IO;
-using System.Linq;
 using System.Text;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using net.vieapps.Components.Utility;
 #endregion
 
@@ -14,7 +10,10 @@ namespace net.vieapps.Services.Portals
 	{
 		static bool IsDelimiter(int c) => c == '(' || c == ',' || c == '=' || c == ':' || c == '[' || c == '!' || c == '&' || c == '|' || c == '?' || c == '+' || c == '-' || c == '~' || c == '*' || c == '/' || c == '{' || c == '\n' || c == ',';
 
-		/// <summary>
+		static bool IsEOF(this int @char)
+			=> @char == -1;
+		
+			/// <summary>
 		/// Minifies Javascript code
 		/// </summary>
 		/// <param name="stream"></param>
@@ -24,18 +23,21 @@ namespace net.vieapps.Services.Portals
 			var lastChar = 1;
 			var isEOF = false;
 			var isInComment = false;
+			var isInStringVariable = false;
 			var isDoubleSlashComment = false;
+			var decoder = Encoding.UTF8.GetDecoder();
+			var buffer = new char[1];
 			var minified = "";
-			using (var reader = new BinaryReader(stream))
+			using (var reader = new BinaryReader(stream, Encoding.UTF8))
 				while (!isEOF)
 				{
 					var nextChar = reader.PeekChar();
-					isEOF = nextChar == -1;            // check EOF
+					isEOF = nextChar.IsEOF();
 					if (isEOF)
 						break;
 
 					var isIgnore = false;
-					int thisChar = reader.ReadByte();
+					var thisChar = (int)reader.ReadByte();
 
 					if (thisChar == '\t')
 						thisChar = ' ';
@@ -45,7 +47,7 @@ namespace net.vieapps.Services.Portals
 					if (thisChar == '\n')
 						isIgnore = true;
 
-					else if (thisChar == ' ')
+					else if (thisChar == ' ' && !isInStringVariable)
 					{
 						if (lastChar == ' ' || lastChar == '>' || lastChar == '<' || Minifier.IsDelimiter(lastChar))
 							isIgnore = true;
@@ -53,7 +55,7 @@ namespace net.vieapps.Services.Portals
 						else
 						{
 							nextChar = reader.PeekChar();
-							isEOF = nextChar == -1;            // check EOF
+							isEOF = nextChar.IsEOF();
 							if (!isEOF)
 								isIgnore = nextChar == '>' || nextChar == '<' || nextChar == '}' || nextChar == ')' || Minifier.IsDelimiter(nextChar);
 						}
@@ -69,10 +71,17 @@ namespace net.vieapps.Services.Portals
 						}
 						else if (nextChar == '/')
 						{
-							isInComment = lastChar != ':' && lastChar != '"' && lastChar != '\'';
+							isInComment = lastChar != ':' && lastChar != '"' && lastChar != '\'' && lastChar != '\\';
 							isIgnore = isInComment;
 							isDoubleSlashComment = isInComment && nextChar == '/';
 						}
+					}
+
+					else if (!isInComment && (thisChar == '\'' || thisChar == '"') && lastChar != '\\')
+					{
+						isInStringVariable = !isInStringVariable;
+						if (isInStringVariable)
+							isIgnore = false;
 					}
 
 					// ignore all characters till we reach end of comment
@@ -101,7 +110,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					if (!isIgnore)
-						minified += (char)thisChar;
+						minified += decoder.GetChars(new[] { (byte)thisChar }, 0, 1, buffer, 0) > 0 ? $"{buffer[0]}" : "";
 					lastChar = thisChar;
 				}
 			return minified;
@@ -121,7 +130,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="data"></param>
 		/// <returns></returns>
 		public static string MinifyJs(string data)
-			=> Minifier.MinifyJs(data.ToBytes());
+			=> Minifier.MinifyJs(data.ToBytes(Encoding.UTF8));
 
 		/// <summary>
 		/// Minifies CSS code
@@ -134,12 +143,14 @@ namespace net.vieapps.Services.Portals
 			var isEOF = false;
 			var isInComment = false;
 			var isDoubleSlashComment = false;
+			var decoder = Encoding.UTF8.GetDecoder();
+			var buffer = new char[1];
 			var minified = "";
-			using (var reader = new BinaryReader(stream))
+			using (var reader = new BinaryReader(stream, Encoding.UTF8))
 				while (!isEOF)
 				{
 					var nextChar = reader.PeekChar();
-					isEOF = nextChar == -1;            // check EOF
+					isEOF = nextChar.IsEOF();
 					if (isEOF)
 						break;
 
@@ -156,13 +167,13 @@ namespace net.vieapps.Services.Portals
 
 					else if (thisChar == ' ')
 					{
-						if (lastChar == ' ' || lastChar == '>' || Minifier.IsDelimiter(lastChar))
+						if (lastChar == ' ' || lastChar == '>' || lastChar == '}' || Minifier.IsDelimiter(lastChar))
 							isIgnore = true;
 
 						else
 						{
 							nextChar = reader.PeekChar();
-							isEOF = nextChar == -1;			// check EOF
+							isEOF = nextChar.IsEOF();
 							if (!isEOF)
 								isIgnore = nextChar != '-' && (nextChar == '>' || Minifier.IsDelimiter(nextChar));
 						}
@@ -211,7 +222,7 @@ namespace net.vieapps.Services.Portals
 
 					// update the valid data
 					if (!isIgnore)
-						minified += (char)thisChar;
+						minified += decoder.GetChars(new[] { (byte)thisChar }, 0, 1, buffer, 0) > 0 ? $"{buffer[0]}" : "";
 					lastChar = thisChar;
 				}
 			return minified;
@@ -231,6 +242,6 @@ namespace net.vieapps.Services.Portals
 		/// <param name="data"></param>
 		/// <returns></returns>
 		public static string MinifyCss(string data)
-			=> Minifier.MinifyCss(data.ToBytes());
+			=> Minifier.MinifyCss(data.ToBytes(Encoding.UTF8));
 	}
 }

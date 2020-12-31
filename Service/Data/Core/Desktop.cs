@@ -8,10 +8,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using System.Dynamic;
+using MsgPack.Serialization;
+using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
-using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
@@ -19,8 +20,7 @@ using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Desktops", TableName = "T_Portals_Desktops", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public sealed class Desktop : Repository<Desktop>, INestedObject
 	{
@@ -96,9 +96,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "seo", Label = "{{portals.desktops.controls.[name].label}}", PlaceHolder = "{{portals.desktops.controls.[name].placeholder}}", Description = "{{portals.desktops.controls.[name].description}}")]
 		public Settings.SEO SEOSettings { get; set; }
 
-		[NonSerialized]
 		JObject _json;
-
 		string _extras;
 
 		[JsonIgnore, XmlIgnore]
@@ -173,6 +171,9 @@ namespace net.vieapps.Services.Portals
 		public string WorkingTheme => this.Theme ?? this.Organization?.Sites.FirstOrDefault()?.Theme ?? this.Organization?.Theme ?? "default";
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public string WorkingLanguage => this.Language ?? this.ParentDesktop?.WorkingLanguage;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string FullTitle
 		{
 			get
@@ -184,6 +185,13 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _childrenIDs;
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<string> ChildrenIDs
+		{
+			get => this._childrenIDs;
+			set => this._childrenIDs = value;
+		}
+
 		internal List<Desktop> FindChildren(bool notifyPropertyChanged = true, List<Desktop> desktops = null)
 		{
 			if (this._childrenIDs == null)
@@ -191,7 +199,7 @@ namespace net.vieapps.Services.Portals
 				desktops = desktops ?? (this.SystemID ?? "").FindDesktops(this.ID);
 				this._childrenIDs = desktops.Select(desktop => desktop.ID).ToList();
 				if (notifyPropertyChanged)
-					this.NotifyPropertyChanged("ChildrenIDs");
+					this.NotifyPropertyChanged("Childrens");
 				return desktops;
 			}
 			return this._childrenIDs.Select(id => id.GetDesktopByID()).ToList();
@@ -210,19 +218,23 @@ namespace net.vieapps.Services.Portals
 
 		internal List<Portlet> _portlets;
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<Portlet> Portlets
+		{
+			get => this._portlets ?? (this._portlets = this.FindPortlets());
+			set => this._portlets = value != null && value.Count < 1 ? null : value;
+		}
+
 		internal List<Portlet> FindPortlets(bool notifyPropertyChanged = true, List<Portlet> portlets = null)
 		{
 			this._portlets = portlets ?? (this.ID ?? "").FindPortlets();
 			if (notifyPropertyChanged)
-				this.NotifyPropertyChanged("Portlets");
+				this.NotifyPropertyChanged("ThePortlets");
 			return this._portlets;
 		}
 
 		internal async Task<List<Portlet>> FindPortletsAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._portlets ?? this.FindPortlets(notifyPropertyChanged, await (this.ID ?? "").FindPortletsAsync(cancellationToken).ConfigureAwait(false));
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public List<Portlet> Portlets => this._portlets ?? (this._portlets = this.FindPortlets());
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
@@ -278,8 +290,16 @@ namespace net.vieapps.Services.Portals
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
-			else if (name.IsEquals("ChildrenIDs") || name.IsEquals("Portlets"))
-				Utility.Cache.SetAsync(this).Run();
+			else if ((name.IsEquals("Childrens") || name.IsEquals("ThePortlets")) && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
+				Task.WhenAll(
+					this.SetAsync(false, true),
+					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+					{
+						Type = $"{this.GetObjectName()}#Update",
+						Data = this.ToJson(false, false),
+						ExcludedNodeID = Utility.NodeID
+					})
+				).Run();
 		}
 
 		public async Task<string> GetTemplateAsync(CancellationToken cancellationToken = default)

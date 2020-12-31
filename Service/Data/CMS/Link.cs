@@ -8,10 +8,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using System.Dynamic;
+using MsgPack.Serialization;
+using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
-using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -19,8 +20,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "CMS_Links", TableName = "T_Portals_CMS_Links", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000004", Title = "Link", Description = "Linking content in the CMS module (menu/banners/links)", ObjectNamePrefix = "CMS.", MultipleIntances = true, Extendable = true)]
 	public sealed class Link : Repository<Link>, IBusinessObject, INestedObject
 	{
@@ -157,10 +157,16 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		[NonSerialized]
 		internal List<Link> _children;
 
 		internal List<string> _childrenIDs;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<string> ChildrenIDs
+		{
+			get => this._childrenIDs;
+			set => this._childrenIDs = value;
+		}
 
 		internal List<Link> FindChildren(bool notifyPropertyChanged = true, List<Link> links = null)
 		{
@@ -171,7 +177,7 @@ namespace net.vieapps.Services.Portals
 					this._children = links ?? (this.SystemID ?? "").FindLinks(this.RepositoryID, this.RepositoryEntityID, this.ID);
 					this._childrenIDs = this._children.Select(link => link.ID).ToList();
 					if (notifyPropertyChanged)
-						this.NotifyPropertyChanged("ChildrenIDs");
+						this.NotifyPropertyChanged("Childrens");
 				}
 				this._children = this._children ?? this._childrenIDs.Select(id => Link.Get<Link>(id)).ToList();
 			}
@@ -197,8 +203,16 @@ namespace net.vieapps.Services.Portals
 
 		public override void ProcessPropertyChanged(string name)
 		{
-			if (name.IsEquals("ChildrenIDs"))
-				Utility.Cache.SetAsync(this).Run();
+			if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
+				Task.WhenAll(
+					Utility.Cache.SetAsync(this),
+					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+					{
+						Type = $"{this.GetObjectName()}#Update",
+						Data = this.ToJson(false, false),
+						ExcludedNodeID = Utility.NodeID
+					})
+				).Run();
 		}
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
@@ -212,7 +226,7 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(json);
 			});
 
-		public string GetURL(string desktop = null, bool addPageNumberHolder = false)
+		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
 		{
 			var url = this.URL ?? "#";
 			if (url.StartsWith("~/") && url.IsEndsWith("/default.aspx") && this.Organization != null && this.Organization.AlwaysUseHtmlSuffix)
@@ -221,7 +235,6 @@ namespace net.vieapps.Services.Portals
 		}
 	}
 
-	[Serializable]
 	public enum ChildrenMode
 	{
 		Normal,

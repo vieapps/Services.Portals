@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -42,7 +43,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static Organization Set(this Organization organization, bool clear = false, bool updateCache = false)
 		{
-			if (organization != null)
+			if (organization != null && !string.IsNullOrWhiteSpace(organization.ID) && !string.IsNullOrWhiteSpace(organization.Title))
 			{
 				if (clear)
 					organization.Remove();
@@ -60,7 +61,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<Organization> SetAsync(this Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			organization?.Set(clear);
-			await (updateCache && organization != null ? Utility.Cache.SetAsync(organization, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			await (updateCache && organization != null && !string.IsNullOrWhiteSpace(organization.ID) && !string.IsNullOrWhiteSpace(organization.Title) ? Utility.Cache.SetAsync(organization, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return organization;
 		}
 
@@ -119,34 +120,47 @@ namespace net.vieapps.Services.Portals
 		internal static async Task ProcessInterCommunicateMessageOfOrganizationAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				await message.Data.ToExpandoObject().CreateOrganizationInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
-
-			else if (message.Type.IsEndsWith("#Update"))
 			{
-				var organization = message.Data.Get("ID", "").GetOrganizationByID(false, false);
-				if (organization == null)
-					organization = message.Data.ToExpandoObject().CreateOrganizationInstance();
-				else
-					organization.UpdateOrganizationInstance(message.Data.ToExpandoObject());
-
+				var organization = message.Data.ToExpandoObject().CreateOrganizationInstance();
 				organization._siteIDs = organization._moduleIDs = null;
 				await Task.WhenAll(
 					organization.FindSitesAsync(cancellationToken, false),
 					organization.FindModulesAsync(cancellationToken, false)
 				).ConfigureAwait(false);
-				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				organization.Set();
+			}
+
+			else if (message.Type.IsEndsWith("#Update"))
+			{
+				var organization = message.Data.Get("ID", "").GetOrganizationByID(false, false);
+				organization = organization == null
+					? message.Data.ToExpandoObject().CreateOrganizationInstance()
+					: organization.UpdateOrganizationInstance(message.Data.ToExpandoObject());
+				organization._siteIDs = organization._moduleIDs = null;
+				await Task.WhenAll(
+					organization.FindSitesAsync(cancellationToken, false),
+					organization.FindModulesAsync(cancellationToken, false)
+				).ConfigureAwait(false);
+				organization.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateOrganizationInstance().Remove();
 		}
 
-		static Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken = default)
-			=> Task.WhenAll
-			(
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(Filters<Organization>.Equals("OwnerID", organization.OwnerID)), Sorts<Organization>.Ascending("Title")), cancellationToken)
-			);
+		internal static Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null)
+		{
+			var cacheKeys = Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
+				.Concat(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(Filters<Organization>.Equals("OwnerID", organization.OwnerID)), Sorts<Organization>.Ascending("Title")))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+			if (Utility.Logger.IsEnabled(LogLevel.Debug))
+				Utility.WriteLogAsync(correlationID, $"Clear related cache of organization [{organization.ID} => {organization.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
+			return Utility.Cache.RemoveAsync(cacheKeys, cancellationToken);
+		}
+
+		internal static Task ClearRelatedCacheAsync(this Organization organization, string correlationID = null)
+			=> organization.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
 		internal static async Task<JObject> SearchOrganizationsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -200,14 +214,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
+				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -249,8 +256,7 @@ namespace net.vieapps.Services.Portals
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			organization.Set();
-			organization.ClearRelatedCacheAsync(cancellationToken).Run();
+			organization.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var response = organization.ToJson();
@@ -260,8 +266,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -273,6 +278,13 @@ namespace net.vieapps.Services.Portals
 
 			// send notification
 			organization.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, organization.Status, requestInfo, cancellationToken).Run();
+
+			// start the refresh timer
+			await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = "RefreshTimer#Start",
+				Data = response
+			}, cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -356,8 +368,7 @@ namespace net.vieapps.Services.Portals
 			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			organization.Set();
-			organization.ClearRelatedCacheAsync(cancellationToken).Run();
+			organization.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var response = organization.ToJson();
@@ -367,8 +378,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -381,14 +391,19 @@ namespace net.vieapps.Services.Portals
 			// send notification
 			organization.SendNotificationAsync("Update", organization.Notifications, oldStatus, organization.Status, requestInfo, cancellationToken).Run();
 
+			// restart the refresh timer
+			await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = "RefreshTimer#Restart",
+				Data = response
+			}, cancellationToken).ConfigureAwait(false);
+
 			// response
 			return response;
 		}
 
 		internal static Task<JObject> DeleteOrganizationAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
-		{
-			return Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
-		}
+			=> Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
 
 		internal static async Task<JObject> SyncOrganizationAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
@@ -408,6 +423,9 @@ namespace net.vieapps.Services.Portals
 				organization.Extras = data.Get<string>("Extras") ?? organization.Extras;
 				await Organization.UpdateAsync(organization, true, cancellationToken).ConfigureAwait(false);
 			}
+
+			// clear related cache
+			organization.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = organization.Set().ToJson();

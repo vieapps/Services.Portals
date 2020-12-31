@@ -165,7 +165,7 @@ namespace net.vieapps.Services.Portals
 			var legacyRequest = string.Empty;
 			var queryString = context.Request.QueryString.ToDictionary(query =>
 			{
-				var pathSegments = context.GetRequestPathSegments(true).Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx")).ToArray();
+				var pathSegments = context.GetRequestPathSegments().Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx")).ToArray();
 				var requestSegments = pathSegments;
 
 				// special parameters (like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity)
@@ -179,7 +179,7 @@ namespace net.vieapps.Services.Portals
 						requestSegments = new string[] { };
 					}
 
-					// special resources (_assets, _images, _css, _js)
+					// special resources (_assets, _css, _fonts, _images, _js)
 					else if (pathSegments[0].StartsWith("_"))
 					{
 						systemIdentity = "~resources";
@@ -188,12 +188,24 @@ namespace net.vieapps.Services.Portals
 						requestSegments = new string[] { };
 					}
 
-					// system/oranization identity
+					// system/oranization identity or service
 					else if (pathSegments[0].StartsWith("~"))
 					{
-						systemIdentity = pathSegments[0].Right(pathSegments[0].Length - 1).Replace(StringComparison.OrdinalIgnoreCase, ".html", "").GetANSIUri(true, false);
-						query["x-system"] = systemIdentity;
+						// specifict service
+						if (requestSegments[0].IsEquals("~apis.service") || requestSegments[0].IsEquals("~apis.gateway"))
+							specialRequest = "service";
+						else
+						{
+							systemIdentity = pathSegments[0].Right(pathSegments[0].Length - 1).Replace(StringComparison.OrdinalIgnoreCase, ".html", "").GetANSIUri(true, false);
+							query["x-system"] = systemIdentity;
+						}
 						requestSegments = pathSegments.Skip(1).ToArray();
+						if (requestSegments.Length > 0 && specialRequest.IsEquals("service"))
+						{
+							query["service-name"] = requestSegments.Length > 0 && !string.IsNullOrWhiteSpace(requestSegments[0]) ? requestSegments[0].GetANSIUri(true, true) : "";
+							query["object-name"] = requestSegments.Length > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].GetANSIUri(true, true) : "";
+							query["object-identity"] = requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]) ? requestSegments[2].GetANSIUri() : "";
+						}
 					}
 				}
 
@@ -237,7 +249,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// normalize info of requests
-				if (requestSegments.Length > 0)
+				if (requestSegments.Length > 0 && !specialRequest.IsEquals("service"))
 				{
 					// request of legacy systems
 					if (requestSegments[0].IsEndsWith(".ashx"))
@@ -270,7 +282,7 @@ namespace net.vieapps.Services.Portals
 						}
 					}
 				}
-				else if (!systemIdentity.IsEquals("~indicators") && !systemIdentity.IsEquals("~resources"))
+				else if (!systemIdentity.IsEquals("~indicators") && !systemIdentity.IsEquals("~resources") && !specialRequest.IsEquals("service"))
 					query["x-desktop"] = "-default";
 			});
 
@@ -286,6 +298,7 @@ namespace net.vieapps.Services.Portals
 			var headers = context.Request.Headers.ToDictionary(dictionary =>
 			{
 				Handler.ExcludedHeaders.ForEach(name => dictionary.Remove(name));
+				dictionary.Keys.Where(name => name.IsStartsWith("cf-") || name.IsStartsWith("sec-")).ToList().ForEach(name => dictionary.Remove(name));
 				dictionary["x-host"] = context.GetParameter("Host");
 				dictionary["x-url"] = "https".IsEquals(context.GetHeaderParameter("x-forwarded-proto") ?? context.GetHeaderParameter("x-original-proto")) && !"https".IsEquals(requestURI.Scheme)
 					? requestURI.AbsoluteUri.Replace(StringComparison.OrdinalIgnoreCase, $"{requestURI.Scheme}://", "https://")
@@ -423,8 +436,29 @@ namespace net.vieapps.Services.Portals
 						}
 						break;
 
-					default:
+					case "logout":
 						await this.ProcessLogOutRequestAsync(context).ConfigureAwait(false);
+						break;
+
+					case "service":
+						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
+						{
+							var requestInfo = new RequestInfo(session, queryString["service-name"], queryString["object-name"], "GET", queryString, headers, null, extra, context.GetCorrelationID());
+							try
+							{
+								await context.WriteAsync(await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Services").ConfigureAwait(false), cts.Token).ConfigureAwait(false);
+							}
+							catch (Exception ex)
+							{
+								await context.WriteLogsAsync("Http.Services", $"Error occurred while calling a service => {ex.Message}", ex).ConfigureAwait(false);
+								context.WriteError(Global.Logger, ex, requestInfo);
+							}
+						}
+						break;
+
+					default:
+						var invalidException = new InvalidRequestException();
+						context.ShowHttpError(invalidException.GetHttpStatusCode(), invalidException.Message, invalidException.GetType().GetTypeName(true), context.GetCorrelationID(), invalidException, Global.IsDebugLogEnabled);
 						break;
 				}
 		}
@@ -583,7 +617,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool RedirectToPassportOnUnauthorized => "true".IsEquals(UtilityService.GetAppSetting("Portals:RedirectToPassportOnUnauthorized", "true"));
 
-		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop,cf-ipcountry,cf-ray,cf-visitor,cf-connecting-ip,sec-fetch-site,sec-fetch-mode,sec-fetch-dest,sec-fetch-user").ToList();
+		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop").ToList();
 
 		internal static void Connect(int waitingTimes = 6789)
 		{

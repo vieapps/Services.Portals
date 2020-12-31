@@ -20,8 +20,7 @@ using net.vieapps.Services.Portals.Exceptions;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Portlets", TableName = "T_Portals_Portlets", CacheClass = typeof(Utility), CacheName = "Cache")]
 	public sealed class Portlet : Repository<Portlet>
 	{
@@ -219,7 +218,13 @@ namespace net.vieapps.Services.Portals
 				if (!string.IsNullOrWhiteSpace(settings.Template))
 					try
 					{
-						settings.Template.GetXDocument();
+						var template = @"
+						<?xml version=""1.0"" encoding=""utf-8"" ?>
+						<xsl:stylesheet version=""1.0"" xmlns:xsl=""http://www.w3.org/1999/XSL/Transform"" xmlns:msxsl=""urn:schemas-microsoft-com:xslt"" xmlns:func=""urn:schemas-vieapps-net:xslt"">
+						<xsl:template match=""/"">" + settings.Template + @"
+						</xsl:template>
+						</xsl:stylesheet>";
+						template.Trim().Replace("\t", "").GetXDocument().ToString().GetXslCompiledTransform();
 					}
 					catch (Exception ex)
 					{
@@ -234,7 +239,13 @@ namespace net.vieapps.Services.Portals
 				if (!string.IsNullOrWhiteSpace(settings.Template))
 					try
 					{
-						settings.Template.GetXDocument();
+						var template = @"
+						<?xml version=""1.0"" encoding=""utf-8"" ?>
+						<xsl:stylesheet version=""1.0"" xmlns:xsl=""http://www.w3.org/1999/XSL/Transform"" xmlns:msxsl=""urn:schemas-microsoft-com:xslt"" xmlns:func=""urn:schemas-vieapps-net:xslt"">
+						<xsl:template match=""/"">" + settings.Template + @"
+						</xsl:template>
+						</xsl:stylesheet>";
+						template.Trim().Replace("\t", "").GetXDocument().ToString().GetXslCompiledTransform();
 					}
 					catch (Exception ex)
 					{

@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
@@ -21,7 +22,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, Site> SitesByDomain { get; } = new ConcurrentDictionary<string, Site>(StringComparer.OrdinalIgnoreCase);
 
-		internal static HashSet<string> ExtraProperties { get; } = "AlwaysUseHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,SEOInfo".ToHashSet();
+		internal static HashSet<string> ExtraProperties { get; } = "AlwaysUseHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,UseInlineStylesheets,UseInlineScripts,SEOInfo".ToHashSet();
 
 		public static Site CreateSiteInstance(this ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
 			=> Site.CreateInstance(data, excluded?.ToHashSet(), site =>
@@ -43,7 +44,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static Site Set(this Site site, bool clear = false, bool updateCache = false)
 		{
-			if (site != null)
+			if (site != null && !string.IsNullOrWhiteSpace(site.ID) && !string.IsNullOrWhiteSpace(site.Title))
 			{
 				if (clear)
 					site.Remove();
@@ -71,7 +72,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<Site> SetAsync(this Site site, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
 		{
 			site?.Set(clear);
-			await (updateCache && site != null ? Utility.Cache.SetAsync(site, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			await (updateCache && site != null && !string.IsNullOrWhiteSpace(site.ID) && !string.IsNullOrWhiteSpace(site.Title) ? Utility.Cache.SetAsync(site, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return site;
 		}
 
@@ -185,7 +186,7 @@ namespace net.vieapps.Services.Portals
 		public static Task<Site> GetSiteByDomainAsync(this string domain, CancellationToken cancellationToken)
 			=> (domain ?? "").GetSiteByDomainAsync(null, cancellationToken);
 
-		public static List<Site> FindSites(this string systemID)
+		public static List<Site> FindSites(this string systemID, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID())
 				return new List<Site>();
@@ -193,12 +194,16 @@ namespace net.vieapps.Services.Portals
 			var filter = Filters<Site>.And(Filters<Site>.Equals("SystemID", systemID));
 			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
 			var sites = Site.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort));
-			sites.ForEach(site => site.SetAsync(false, true).Run());
+			sites.ForEach(site =>
+			{
+				if (site.ID.GetSiteByID(false, false) == null)
+					site.Set(updateCache);
+			});
 
 			return sites;
 		}
 
-		public static async Task<List<Site>> FindSitesAsync(this string systemID, CancellationToken cancellationToken = default)
+		public static async Task<List<Site>> FindSitesAsync(this string systemID, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID())
 				return new List<Site>();
@@ -206,37 +211,51 @@ namespace net.vieapps.Services.Portals
 			var filter = Filters<Site>.And(Filters<Site>.Equals("SystemID", systemID));
 			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
 			var sites = await Site.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
-			sites.ForEach(site => site.SetAsync(false, true, cancellationToken).Run());
+			sites.ForEach(site =>
+			{
+				if (site.ID.GetSiteByID(false, false) == null)
+					site.Set(updateCache);
+			});
 
 			return sites;
 		}
 
-		internal static async Task ProcessInterCommunicateMessageOfSiteAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
+		internal static Task ProcessInterCommunicateMessageOfSiteAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				await message.Data.ToExpandoObject().CreateSiteInstance().SetAsync(true, false, cancellationToken).ConfigureAwait(false);
+				message.Data.ToExpandoObject().CreateSiteInstance().Set();
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var site = message.Data.Get("ID", "").GetSiteByID(false, false);
-				await (site == null ? message.Data.ToExpandoObject().CreateSiteInstance() : site.UpdateSiteInstance(message.Data.ToExpandoObject())).SetAsync(true, false, cancellationToken).ConfigureAwait(false);
+				site = site == null
+					? message.Data.ToExpandoObject().CreateSiteInstance()
+					: site.UpdateSiteInstance(message.Data.ToExpandoObject());
+				site.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateSiteInstance().Remove();
+
+			return Task.CompletedTask;
 		}
 
-		static Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken = default)
+		internal static Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null)
 		{
 			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
-			return Task.WhenAll
-			(
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), sort), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), sort), cancellationToken)
-			);
+			var cacheKeys = Extensions.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title"))
+				.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")))
+				.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), sort))
+				.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), sort))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+			if (Utility.Logger.IsEnabled(LogLevel.Debug))
+				Utility.WriteLogAsync(correlationID, $"Clear related cache of site [{site.ID} => {site.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
+			return Utility.Cache.RemoveAsync(cacheKeys, cancellationToken);
 		}
+
+		internal static Task ClearRelatedCacheAsync(this Site site, string correlationID = null)
+			=> site.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
 		internal static async Task<JObject> SearchSitesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -301,14 +320,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-			{
-#if DEBUG
-				json = response.ToString(Formatting.Indented);
-#else
-				json = response.ToString(Formatting.Indented);
-#endif
-				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), json, Utility.Cache.ExpirationTime / 2).ConfigureAwait(false);
-			}
+				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.Indented), cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -349,14 +361,13 @@ namespace net.vieapps.Services.Portals
 			await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			await site.SetAsync(false, false, cancellationToken).ConfigureAwait(false);
-			site.ClearRelatedCacheAsync(cancellationToken).Run();
+			site.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// update organization
 			if (organization._siteIDs == null)
 				await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false);
 			organization._siteIDs.Add(site.ID);
-			await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			organization.Set(false, true);
 
 			// send update messages
 			var response = site.ToJson();
@@ -366,8 +377,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -462,8 +472,7 @@ namespace net.vieapps.Services.Portals
 			await Site.UpdateAsync(site, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			await site.SetAsync(false, false, cancellationToken).ConfigureAwait(false);
-			site.ClearRelatedCacheAsync(cancellationToken).Run();
+			site.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var response = site.ToJson();
@@ -473,8 +482,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -509,15 +517,14 @@ namespace net.vieapps.Services.Portals
 			await Site.DeleteAsync<Site>(site.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			site.Remove();
-			site.ClearRelatedCacheAsync(cancellationToken).Run();
+			site.Remove().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// update organization
 			var organization = site.Organization;
 			if (organization != null && organization._siteIDs != null)
 			{
 				organization._siteIDs.Remove(site.ID);
-				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				organization.Set(false, true);
 			}
 
 			// send update messages
@@ -528,8 +535,7 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 					Data = response,
-					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					DeviceID = "*"
 				}, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -568,6 +574,9 @@ namespace net.vieapps.Services.Portals
 				site.Extras = data.Get<string>("Extras") ?? site.Extras;
 				await Site.UpdateAsync(site, true, cancellationToken).ConfigureAwait(false);
 			}
+
+			// clear related cache
+			site.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = site.Set().ToJson();

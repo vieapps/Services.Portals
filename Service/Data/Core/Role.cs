@@ -19,8 +19,7 @@ using Newtonsoft.Json.Linq;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Roles", TableName = "T_Portals_Roles", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public sealed class Role : Repository<Role>, INestedObject
 	{
@@ -111,6 +110,13 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _childrenIDs;
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public List<string> ChildrenIDs
+		{
+			get => this._childrenIDs;
+			set => this._childrenIDs = value;
+		}
+
 		internal List<Role> FindChildren(bool notifyPropertyChanged = true, List < Role> roles = null)
 		{
 			if (this._childrenIDs == null)
@@ -118,7 +124,7 @@ namespace net.vieapps.Services.Portals
 				roles = roles ?? (this.SystemID ?? "").FindRoles(this.ID);
 				this._childrenIDs = roles.Select(role => role.ID).ToList();
 				if (notifyPropertyChanged)
-					this.NotifyPropertyChanged("ChildrenIDs");
+					this.NotifyPropertyChanged("Childrens");
 				return roles;
 			}
 			return this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
@@ -150,8 +156,16 @@ namespace net.vieapps.Services.Portals
 
 		public override void ProcessPropertyChanged(string name)
 		{
-			if (name.IsEquals("ChildrenIDs"))
-				Utility.Cache.SetAsync(this).Run();
+			if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
+				Task.WhenAll(
+					this.SetAsync(true),
+					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+					{
+						Type = $"{this.GetObjectName()}#Update",
+						Data = this.ToJson(false, false),
+						ExcludedNodeID = Utility.NodeID
+					})
+				).Run();
 		}
 	}
 }

@@ -20,8 +20,7 @@ using System.Xml.Linq;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "CMS_Contents", TableName = "T_Portals_CMS_Contents", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000002", Title = "Content", Description = "Complex content in CMS module (article/news)", ObjectNamePrefix = "CMS.", MultipleIntances = true, Indexable = true, Extendable = true)]
 	public sealed class Content : Repository<Content>, IBusinessObject, IAliasEntity
 	{
@@ -197,10 +196,10 @@ namespace net.vieapps.Services.Portals
 		IPortalObject IPortalObject.Parent => this.Category;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Desktop Desktop => this.Category?.Desktop;
+		public Desktop Desktop => this.Category?.Desktop ?? this.ContentType?.Desktop;
 
-		public string GetURL(string desktop = null, bool addPageNumberHolder = false)
-			=> $"~/{this.Category?.Desktop?.Alias ?? this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{this.Category?.Alias ?? "-"}/{this.Alias}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}".ToLower();
+		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
+			=> $"~/{this.Category?.Desktop?.Alias ?? this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{this.Category?.Alias ?? parentIdentity ?? "-"}/{this.Alias}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}".ToLower();
 
 		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
 			=> Content.GetContentByAlias(repositoryEntityID, alias, parentIdentity);
@@ -271,7 +270,6 @@ namespace net.vieapps.Services.Portals
 				: await Content.GetContentByAliasAsync(await repositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false), alias, parentIdentity, cancellationToken).ConfigureAwait(false);
 	}
 
-	[Serializable]
 	public sealed class ExternalRelated
 	{
 		public ExternalRelated() { }

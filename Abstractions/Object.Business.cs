@@ -42,7 +42,8 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="desktop">The string that presents the alias of a desktop</param>
 		/// <param name="addPageNumberHolder">true to add the page-number holder ({{pageNumber}})</param>
+		/// <param name="parentIdentity">The string that presents the alias of the current requesting parent</param>
 		/// <returns></returns>
-		string GetURL(string desktop = null, bool addPageNumberHolder = false);
+		string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null);
 	}
 }

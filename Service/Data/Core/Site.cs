@@ -8,10 +8,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using System.Dynamic;
+using MsgPack.Serialization;
+using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
-using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
@@ -19,8 +20,7 @@ using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Portals
 {
-	[Serializable, BsonIgnoreExtraElements]
-	[DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Sites", TableName = "T_Portals_Sites", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
 	public sealed class Site : Repository<Site>, IPortalObject
 	{
@@ -111,11 +111,17 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, BsonIgnore]
 		[FormControl(Segment = "seo", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
+		public bool UseInlineStylesheets { get; set; } = false;
+
+		[Ignore, BsonIgnore]
+		[FormControl(Segment = "seo", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
+		public bool UseInlineScripts { get; set; } = false;
+
+		[Ignore, BsonIgnore]
+		[FormControl(Segment = "seo", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public Settings.SEOInfo SEOInfo { get; set; }
 
-		[NonSerialized]
 		JObject _json;
-
 		string _extras;
 
 		[JsonIgnore, XmlIgnore]
@@ -222,6 +228,8 @@ namespace net.vieapps.Services.Portals
 				this.ScriptLibraries = this._json["ScriptLibraries"]?.FromJson<string>();
 				this.Scripts = this._json["Scripts"]?.FromJson<string>();
 				this.RedirectToNoneWWW = this._json["RedirectToNoneWWW"] != null && this._json["RedirectToNoneWWW"].FromJson<bool>();
+				this.UseInlineStylesheets = this._json["UseInlineStylesheets"] != null && this._json["UseInlineStylesheets"].FromJson<bool>();
+				this.UseInlineScripts = this._json["UseInlineScripts"] != null && this._json["UseInlineScripts"].FromJson<bool>();
 				this.SEOInfo = this._json["SEOInfo"]?.FromJson<Settings.SEOInfo>();
 			}
 			else if (SiteProcessor.ExtraProperties.Contains(name))
