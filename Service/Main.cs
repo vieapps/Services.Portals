@@ -1662,8 +1662,7 @@ namespace net.vieapps.Services.Portals
 			var html = processCache ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 			if (!string.IsNullOrWhiteSpace(html))
 			{
-				var referer = requestInfo.GetHeaderParameter("Referer");
-				if (referer != null && referer.IsContains("/~refresher"))
+				if (Utility.RefresherRefererURL.IsEquals(requestInfo.GetHeaderParameter("Referer")))
 				{
 					lastModified = DateTime.Now.ToHttpString();
 					Task.WhenAll

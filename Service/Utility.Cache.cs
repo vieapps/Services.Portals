@@ -117,13 +117,15 @@ namespace net.vieapps.Services.Portals
 		public static Task SetCacheOfPageSizeAsync<T>(IFilterBy<T> filter, SortBy<T> sort, int pageSize, CancellationToken cancellationToken = default) where T : class
 			=> Utility.Cache.SetAsync($"{Extensions.GetCacheKey(filter, sort)}:size", pageSize, cancellationToken);
 
+		internal static string RefresherRefererURL => "https://portals.vieapps.net/~url.refresher";
+
 		internal static async Task RefreshWebPageAsync(this string url, int delay = 0, string correlationID = null)
 		{
 			try
 			{
 				if (delay > 0)
 					await Task.Delay(delay * 1000).ConfigureAwait(false);
-				await UtilityService.GetWebPageAsync(url, "https://portals.vieapps.net/~refresher").ConfigureAwait(false);
+				await UtilityService.GetWebPageAsync(url, Utility.RefresherRefererURL).ConfigureAwait(false);
 				if (Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug))
 					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"Refresh an url successful [{url}]", CancellationToken.None, "Caches").ConfigureAwait(false);
 			}
