@@ -95,6 +95,8 @@ namespace net.vieapps.Services.Portals
 			if (link.ContentType != null)
 				dataCacheKeys = (await Utility.Cache.GetSetMembersAsync(link.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(dataCacheKeys).ToList();
 
+			dataCacheKeys.Add(Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ID), sort, 0, 1));
+			dataCacheKeys.Add(Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ID, filter => filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()))), sort, 0, 1));
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			var desktop = link.ContentType?.Desktop;
