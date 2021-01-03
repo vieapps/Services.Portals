@@ -96,7 +96,7 @@ namespace net.vieapps.Services.Portals
 				? null
 				: repositoryEntityID.GetCategoryByAlias(alias, false) ?? (await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID, cancellationToken).ConfigureAwait(false))?.Set();
 
-		public static IFilterBy<Category> GetCategoriesFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null)
+		public static IFilterBy<Category> GetCategoriesFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, Action<FilterBys<Category>> onCompleted = null)
 		{
 			var filter = Filters<Category>.And();
 			if (!string.IsNullOrWhiteSpace(systemID))
@@ -106,6 +106,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(repositoryEntityID))
 				filter.Add(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID));
 			filter.Add(string.IsNullOrWhiteSpace(parentID) ? Filters<Category>.IsNull("ParentID") : Filters<Category>.Equals("ParentID", parentID));
+			onCompleted?.Invoke(filter);
 			return filter;
 		}
 
@@ -177,13 +178,21 @@ namespace net.vieapps.Services.Portals
 			// cache keys of the related links
 			var sortOfLinks = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
 			var links = await Link.FindAsync(Filters<Link>.And(Filters<Link>.Equals("SystemID", category.SystemID), Filters<Link>.Equals("LookupRepositoryID", category.RepositoryID)), Sorts<Link>.Ascending("ParentID").ThenByAscending("OrderIndex"), 0, 1, null, cancellationToken).ConfigureAwait(false);
-			links.ForEach(link => dataCacheKeys = dataCacheKeys.Concat(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, null), sortOfLinks))
-				.Concat(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(null, null, link.RepositoryEntityID, null), sortOfLinks))
-				.Concat(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, null, filter => filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()))), sortOfLinks))
-				.Concat(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(null, null, link.RepositoryEntityID, null, filter => filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()))), sortOfLinks))
-				.ToList());
+			links.ForEach(link =>
+			{
+				dataCacheKeys = dataCacheKeys.Concat(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, null), sortOfLinks))
+					.Concat(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(null, null, link.RepositoryEntityID, null), sortOfLinks))
+					.Concat(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, null, filter => filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()))), sortOfLinks))
+					.Concat(Extensions.GetRelatedCacheKeys(LinkProcessor.GetLinksFilter(null, null, link.RepositoryEntityID, null, filter => filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()))), sortOfLinks))
+					.ToList();
+				dataCacheKeys.Add(Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ID), sortOfLinks, 0, 1));
+				dataCacheKeys.Add(Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ID, filter => filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()))), sortOfLinks, 0, 1));
+			});
 
-			dataCacheKeys = dataCacheKeys.Concat(await Utility.Cache.GetSetMembersAsync(category.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			dataCacheKeys.Add(Extensions.GetCacheKey(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ID), sort, 0, 1));
+			dataCacheKeys.Add(Extensions.GetCacheKey(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ID, filter => filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()))), sort, 0, 1));
+			dataCacheKeys = dataCacheKeys.Concat(await Utility.Cache.GetSetMembersAsync(category.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).ToList();
+			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			var desktop = category.Desktop;
 			var htmlCacheKeys = desktop != null
