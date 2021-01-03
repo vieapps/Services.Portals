@@ -1491,7 +1491,7 @@ namespace net.vieapps.Services.Portals
 		#region Process desktop requests of Portals HTTP service
 		string JQuerySource => UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js");
 
-		string CryptoJsSource => UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJS", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js");
+		string CryptoJsSource => UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js");
 
 		async Task<JToken> ProcessHttpDesktopRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
@@ -1505,7 +1505,7 @@ namespace net.vieapps.Services.Portals
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
 			// prepare sites and desktops (at the first-time only)
-			if (SiteProcessor.Sites.Count < 1)
+			if (SiteProcessor.Sites.IsEmpty)
 			{
 				var filter = Filters<Site>.And(Filters<Site>.Equals("SystemID", organization.ID));
 				var sort = Sorts<Site>.Ascending("Title");
@@ -1515,7 +1515,7 @@ namespace net.vieapps.Services.Portals
 				organization.Set(false, true);
 			}
 
-			if (DesktopProcessor.Desktops.Count < 1 || DesktopProcessor.Desktops.Count(kvp => kvp.Value.SystemID == organization.ID) < 1)
+			if (DesktopProcessor.Desktops.IsEmpty || !DesktopProcessor.Desktops.Any(kvp => kvp.Value.SystemID == organization.ID))
 			{
 				var filter = Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", organization.ID), Filters<Desktop>.IsNull("ParentID"));
 				var sort = Sorts<Desktop>.Ascending("Title");
@@ -1662,6 +1662,16 @@ namespace net.vieapps.Services.Portals
 			var html = processCache ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 			if (!string.IsNullOrWhiteSpace(html))
 			{
+				var referer = requestInfo.GetHeaderParameter("Referer");
+				if (referer != null && referer.IsContains("/~refresher"))
+				{
+					lastModified = DateTime.Now.ToHttpString();
+					Task.WhenAll
+					(
+						Utility.Cache.SetAsync(cacheKey, html, Utility.Cache.ExpirationTime / 2),
+						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, Utility.Cache.ExpirationTime / 2)
+					).Run();
+				}
 				html = this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.CorrelationID);
 				lastModified = string.IsNullOrWhiteSpace(lastModified) ? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false) : lastModified;
 				if (string.IsNullOrWhiteSpace(lastModified))
@@ -1707,11 +1717,8 @@ namespace net.vieapps.Services.Portals
 					}
 				}
 
-				if (writeDesktopLogs)
-				{
-					stepwatch.Restart();
-					this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {desktop.Portlets.Count} portlet(s) of {desktopInfo} => {desktop.Portlets.Select(p => p.Title).Join(", ")}", null, this.ServiceName, "Process.Http.Request").Run();
-				}
+				stepwatch.Restart();
+				this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {desktop.Portlets.Count} portlet(s) of {desktopInfo} => {desktop.Portlets.Select(p => p.Title).Join(", ")}", null, this.ServiceName, "Process.Http.Request").Run();
 
 				var organizationJson = organization.ToJson(false, false, json =>
 				{
@@ -1776,15 +1783,13 @@ namespace net.vieapps.Services.Portals
 					if (writeDesktopLogs)
 						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSurfname}_response.json"), data?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
 				}, cancellationToken, true, this.RunDesktopGeneratorInParallelsMode).ConfigureAwait(false);
+				stepwatch.Stop();
+				this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete prepare portlets' data of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").Run();
 
 				// generate HTML of portlets
+				stepwatch.Restart();
 				if (writeDesktopLogs)
-				{
-					stepwatch.Stop();
-					this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete prepare portlets' data of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").Run();
-					stepwatch.Restart();
 					this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate HTML of {desktopInfo}", null, this.ServiceName, "Process.Http.Request").Run();
-				}
 
 				var portletHtmls = new ConcurrentDictionary<string, Tuple<string, bool>>(StringComparer.OrdinalIgnoreCase);
 				var generatePortletsTask = desktop.Portlets.ForEachAsync(async (portlet, token) =>
@@ -1913,12 +1918,6 @@ namespace net.vieapps.Services.Portals
 				html = html.Insert(html.IndexOf("</head>"), $"<title>{title}</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>" + metaTags + stylesheets);
 				html = html.Insert(html.IndexOf("</body>"), body + scripts);
 
-				if (writeDesktopLogs)
-				{
-					stepwatch.Stop();
-					this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\n- HTML:\r\n{html}", null, this.ServiceName, "Process.Http.Request").Run();
-				}
-
 				// minify
 				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html.Trim();
 
@@ -1943,6 +1942,11 @@ namespace net.vieapps.Services.Portals
 
 				// normalize
 				html = this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.CorrelationID);
+
+				stepwatch.Stop();
+				this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").Run();
+				if (writeDesktopLogs)
+					this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {desktopInfo} has been generated & normalized:\r\n{html}", null, this.ServiceName, "Process.Http.Request").Run();
 			}
 			catch (Exception ex)
 			{
