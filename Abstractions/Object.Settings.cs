@@ -292,12 +292,12 @@ namespace net.vieapps.Services.Portals.Settings
 		[FormControl(ControlType = "Lookup")]
 		public string BackgroundImageURI { get; set; }
 
-		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "repeat,repeat-x,repeat-y,no-repeat,initial,inherit")]
+		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "repeat#;repeat-x#;repeat-y#;no-repeat#;initial#;inherit")]
 		public string BackgroundImageRepeat { get; set; }
 
 		public string BackgroundImagePosition { get; set; }
 
-		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "auto,length,cover,contain,initial,inherit")]
+		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "auto#;length#;cover#;contain#;initial#;inherit")]
 		public string BackgroundImageSize { get; set; }
 
 		public string Css { get; set; }
@@ -396,15 +396,15 @@ namespace net.vieapps.Services.Portals.Settings
 		public SEOInfo SEOInfo { get; set; } = new SEOInfo();
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String)]
-		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "PortletAndDesktopAndSite,SiteAndDesktopAndPortlet,PortletAndDesktop,DesktopAndPortlet,PortletAndSite,SiteAndPortlet,Portlet,Desktop")]
+		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "PortletAndDesktopAndSite#;SiteAndDesktopAndPortlet#;PortletAndDesktop#;DesktopAndPortlet#;PortletAndSite#;SiteAndPortlet#;DesktopAndSite#;SiteAndDesktop#;Portlet#;Desktop")]
 		public SEOMode? TitleMode { get; set; }
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String)]
-		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "PortletAndDesktopAndSite,SiteAndDesktopAndPortlet,PortletAndDesktop,DesktopAndPortlet,PortletAndSite,SiteAndPortlet,Portlet,Desktop")]
+		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "PortletAndDesktopAndSite#;SiteAndDesktopAndPortlet#;PortletAndDesktop#;DesktopAndPortlet#;PortletAndSite#;SiteAndPortlet#;DesktopAndSite#;SiteAndDesktop#;Portlet#;Desktop")]
 		public SEOMode? DescriptionMode { get; set; }
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(BsonType.String)]
-		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "PortletAndDesktopAndSite,SiteAndDesktopAndPortlet,PortletAndDesktop,DesktopAndPortlet,PortletAndSite,SiteAndPortlet,Portlet,Desktop")]
+		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "PortletAndDesktopAndSite#;SiteAndDesktopAndPortlet#;PortletAndDesktop#;DesktopAndPortlet#;PortletAndSite#;SiteAndPortlet#;DesktopAndSite#;SiteAndDesktop#;Portlet#;Desktop")]
 		public SEOMode? KeywordsMode { get; set; }
 
 		public void Normalize()
