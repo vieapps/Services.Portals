@@ -264,7 +264,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// get data
-			var item = request.CreateItemInstance("SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var item = request.CreateItemInstance("Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.SystemID = organization.ID;
 				obj.RepositoryID = module.ID;
