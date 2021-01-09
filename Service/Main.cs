@@ -1622,13 +1622,14 @@ namespace net.vieapps.Services.Portals
 
 			// prepare the caching
 			var processCache = this.CacheDesktopHtmls && requestInfo.GetParameter("noCache") == null;
+			var forceCache =  requestInfo.GetParameter("forceCache") != null;
 			var cacheKey = desktop.GetDesktopCacheKey(requestURI);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
 
 			// check "If-Modified-Since" request to reduce traffict
 			var eTag = $"desktop#{cacheKey}";
-			var noneMatch = processCache ? requestInfo.GetHeaderParameter("If-None-Match") : null;
-			var modifiedSince = processCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
+			var noneMatch = processCache && !forceCache ? requestInfo.GetHeaderParameter("If-None-Match") : null;
+			var modifiedSince = processCache && !forceCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
 			var headers = new Dictionary<string, string>
 			{
 				{ "Content-Type", "text/html; charset=utf-8" },
@@ -1663,7 +1664,7 @@ namespace net.vieapps.Services.Portals
 			var osInfo = requestInfo.GetHeaderParameter("x-environment-os-info") ?? "Generic OS";
 
 			// response as cached HTML
-			var html = processCache ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
+			var html = processCache && !forceCache ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 			if (!string.IsNullOrWhiteSpace(html))
 			{
 				if (Utility.RefresherRefererURL.IsEquals(requestInfo.GetHeaderParameter("Referer")))
