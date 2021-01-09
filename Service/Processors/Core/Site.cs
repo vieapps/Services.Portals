@@ -248,6 +248,7 @@ namespace net.vieapps.Services.Portals
 				.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), sort))
 				.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), sort))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time" })
 				.ToList();
 			if (Utility.Logger.IsEnabled(LogLevel.Debug))
 				Utility.WriteLogAsync(correlationID, $"Clear related cache of site [{site.ID} => {site.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();

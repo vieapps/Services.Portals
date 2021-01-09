@@ -153,6 +153,7 @@ namespace net.vieapps.Services.Portals
 			var cacheKeys = Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
 				.Concat(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(Filters<Organization>.Equals("OwnerID", organization.OwnerID)), Sorts<Organization>.Ascending("Title")))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.Concat(new[] { $"css#o_{organization.ID}", $"css#o_{organization.ID}:time", $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" })
 				.ToList();
 			if (Utility.Logger.IsEnabled(LogLevel.Debug))
 				Utility.WriteLogAsync(correlationID, $"Clear related cache of organization [{organization.ID} => {organization.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
