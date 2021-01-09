@@ -305,7 +305,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static string GetThumbnailURL(this string url, bool isPng, bool isBig, int width, int height)
 		{
-			if (isPng || isBig || width > 0 ||height > 0)
+			if (isPng || isBig || width > 0 || height > 0)
 			{
 				var uri = new Uri(url);
 				var segments = uri.AbsolutePath.ToList("/").Skip(2).ToList();
@@ -423,14 +423,35 @@ namespace net.vieapps.Services.Portals
 				{
 					end += 1;
 					var image = html.Substring(start, end - start);
+
+					var heightStart = image.PositionOf("style=");
+					heightStart = heightStart > 0 ? image.PositionOf("height", heightStart + 1) : -1;
+					if (heightStart > 0)
+					{
+						var heightEnd = image.IndexOf(";", heightStart + 1);
+						heightEnd = heightEnd > 0 ? heightEnd : image.IndexOf("\"", heightStart + 1);
+						heightEnd = heightEnd > 0 ? heightEnd : image.IndexOf("'", heightStart + 1);
+						image = image.Remove(heightStart, heightEnd + 1 - heightStart);
+					}
+
+					heightStart = image.PositionOf("height=");
+					if (heightStart > 0)
+					{
+						var heightEnd = image.IndexOf("\"", heightStart + 8);
+						heightEnd = heightEnd > 0 ? heightEnd : image.IndexOf("'", heightStart + 8);
+						image = image.Remove(heightStart, heightEnd + 2 - heightStart);
+					}
+
 					var urlStart = image.IndexOf("src=") + 5;
 					var urlEnd = image.IndexOf("\"", urlStart + 1);
 					if (urlEnd < 0)
 						urlEnd = image.IndexOf("'", urlStart + 1);
-					var url = image.Substring(urlStart, urlEnd - urlStart);
+					
+						var url = image.Substring(urlStart, urlEnd - urlStart);
 					var webpURL = url.IsContains("image=svg") ? url : url.GetWebpImageURL();
 					if (!url.IsEquals(webpURL))
 						image = $"<picture><source srcset=\"{webpURL}\"/>{image}</picture>";
+
 					html = html.Substring(0, start) + image + html.Substring(end);
 					offset = image.Length;
 				}
