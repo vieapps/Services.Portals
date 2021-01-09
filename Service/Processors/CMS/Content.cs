@@ -244,12 +244,23 @@ namespace net.vieapps.Services.Portals
 			var objects = results.Item2;
 			var thumbnails = results.Item3;
 
+			JToken attachments = null;
+			var showAttachments = requestInfo.GetParameter("ShowAttachments") != null;
+			if (objects.Count > 0 && showAttachments)
+			{
+				attachments = objects.Count == 1
+					? await requestInfo.GetAttachmentsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
+					: await requestInfo.GetAttachmentsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+			}
+
 			// build response
 			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
+			var showURLs = requestInfo.GetParameter("ShowURLs") != null;
+			var showDetails = requestInfo.GetParameter("NoDetails") == null;
 			var response = new JObject()
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
@@ -260,7 +271,12 @@ namespace net.vieapps.Services.Portals
 					objects.Select(@object => @object.ToJson(false, cjson =>
 					{
 						cjson["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID);
-						cjson["Details"] = organization.NormalizeURLs(@object.Details);
+						if (showAttachments)
+							cjson["Attachments"] = attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID];
+						if (showURLs)
+							cjson["URL"] = @object.GetURL();
+						if (showDetails)
+							cjson["Details"] = organization.NormalizeURLs(@object.Details);
 					})).ToJArray()
 				}
 			};
@@ -1018,7 +1034,7 @@ namespace net.vieapps.Services.Portals
 						otherXml.Element("PublishedTime")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
 						otherXml.Add(new XElement("Category", other.Category?.Title, new XAttribute("URL", other.Category?.GetURL(desktop))));
 						otherXml.Add(new XElement("URL", other.GetURL(desktop)));
-						var thumbnailURL = otherThumbnails?.GetThumbnailURL(other.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);						
+						var thumbnailURL = otherThumbnails?.GetThumbnailURL(other.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
 						otherXml.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
 						if (!string.IsNullOrWhiteSpace(other.Summary))
 							otherXml.Element("Summary").Value = other.Summary.NormalizeHTMLBreaks();

@@ -207,6 +207,7 @@ namespace net.vieapps.Services.Portals
 				pageNumber = totalPages;
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
+			var showURLs = requestInfo.GetParameter("ShowURLs") != null;
 			var response = new JObject()
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
@@ -219,6 +220,8 @@ namespace net.vieapps.Services.Portals
 						cjson["Thumbnails"] = thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID];
 						if (showAttachments)
 							cjson["Attachments"] = attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID];
+						if (showURLs)
+							cjson["URL"] = @object.GetURL();
 					})).ToJArray()
 				}
 			};
