@@ -228,9 +228,12 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).ToList();
 			htmlCacheKeys = htmlCacheKeys.Concat(new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" }).ToList();
 
-			if (Utility.Logger.IsEnabled(LogLevel.Debug))
-				await Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches").ConfigureAwait(false);
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
+				$"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]")
+			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Desktop desktop, string correlationID = null)
@@ -495,6 +498,7 @@ namespace net.vieapps.Services.Portals
 				await desktop.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
 				await Utility.Cache.RemoveAsync(desktop, cancellationToken).ConfigureAwait(false);
 				desktop = await desktop.Remove().ID.GetDesktopByIDAsync(cancellationToken, true).ConfigureAwait(false);
+				desktop._childrenIDs = null;
 			}
 
 			// prepare the response
@@ -861,7 +865,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// clear related cache
-			await desktop.ClearRelatedCacheAsync(requestInfo.CorrelationID).ConfigureAwait(false);
+			if (requestInfo.GetHeaderParameter("x-converter") == null)
+				desktop.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = desktop.Set().ToJson();

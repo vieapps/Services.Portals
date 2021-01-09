@@ -3601,7 +3601,7 @@ namespace net.vieapps.Services.Portals
 					case "cms.category":
 						this.Import<Category>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => Task.WhenAll(
 							@object.SetAsync(false, false, this.CancellationTokenSource.Token),
-							@object.ClearRelatedCacheAsync(null, this.CancellationTokenSource.Token),
+							@object.ClearRelatedCacheAsync(this.CancellationTokenSource.Token),
 							Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 							{
 								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -3619,17 +3619,17 @@ namespace net.vieapps.Services.Portals
 
 					case "content":
 					case "cms.content":
-						this.Import<Content>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => @object.ClearRelatedCacheAsync(null, this.CancellationTokenSource.Token).Run()));
+						this.Import<Content>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => @object.ClearRelatedCacheAsync(this.CancellationTokenSource.Token).Run()));
 						break;
 
 					case "item":
 					case "cms.item":
-						this.Import<Item>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => @object.ClearRelatedCacheAsync(null, this.CancellationTokenSource.Token).Run()));
+						this.Import<Item>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => @object.ClearRelatedCacheAsync(this.CancellationTokenSource.Token).Run()));
 						break;
 
 					case "link":
 					case "cms.link":
-						this.Import<Link>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => @object.ClearRelatedCacheAsync(null, this.CancellationTokenSource.Token).Run()));
+						this.Import<Link>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => @object.ClearRelatedCacheAsync(this.CancellationTokenSource.Token).Run()));
 						break;
 
 					case "contact":
@@ -3902,9 +3902,9 @@ namespace net.vieapps.Services.Portals
 							if (@object is Category category)
 								category.Set().ClearRelatedCacheAsync(processID).Run();
 							else if (@object is Content content)
-								content.ClearRelatedCacheAsync(null, processID).Run();
+								content.ClearRelatedCacheAsync(processID).Run();
 							else if (@object is Item item)
-								item.ClearRelatedCacheAsync(null, processID).Run();
+								item.ClearRelatedCacheAsync(processID).Run();
 							else if (@object is Link link)
 								link.ClearRelatedCacheAsync(processID).Run();
 						}

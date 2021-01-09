@@ -18,6 +18,8 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Components.Utility.Logger.GetLoggerFactory());
 
+		internal static bool WriteCacheLogs => Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches", "false"));
+
 		/// <summary>
 		/// Gets the key for storing a set of keys that belong to an organization
 		/// </summary>
@@ -36,14 +38,6 @@ namespace net.vieapps.Services.Portals
 			=> contentType.Organization.GetSetCacheKey($"ContentType:{contentType.ID}");
 
 		/// <summary>
-		/// Gets the key for storing a set of keys that related to an expression
-		/// </summary>
-		/// <param name="expression"></param>
-		/// <returns></returns>
-		public static string GetSetCacheKey(this Expression expression)
-			=> expression.Organization.GetSetCacheKey($"Expression:{expression.ID}");
-
-		/// <summary>
 		/// Gets the key for storing a set of keys that related to a desktop
 		/// </summary>
 		/// <param name="desktop"></param>
@@ -51,13 +45,28 @@ namespace net.vieapps.Services.Portals
 		public static string GetSetCacheKey(this Desktop desktop)
 			=> desktop.Organization.GetSetCacheKey($"Desktop:{desktop.ID}");
 
-		/// <summary>
-		/// Gets the key for storing a set of keys that related to a category
-		/// </summary>
-		/// <param name="category"></param>
-		/// <returns></returns>
-		public static string GetSetCacheKey(this Category category)
-			=> category.Organization.GetSetCacheKey($"Category:{category.ID}");
+		internal static async Task<List<string>> GetSetCacheKeysAsync(IFilterBy<Portlet> filter, CancellationToken cancellationToken = default)
+		{
+			var desktopIDs = new List<string>();
+			var portlets = await Portlet.FindAsync(filter, null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+			await portlets.ForEachAsync(async (portlet, _) =>
+			{
+				var mappingPortlets = await Portlet.FindAsync(Filters<Portlet>.Equals("OriginalPortletID", portlet.ID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+				desktopIDs = desktopIDs.Concat(new[] { portlet.DesktopID }).Concat(mappingPortlets.Select(mappingPortlet => mappingPortlet.DesktopID)).ToList();
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			var desktops = new List<Desktop>();
+			await desktopIDs.Where(desktopID => !string.IsNullOrWhiteSpace(desktopID) && desktopID.IsValidUUID()).Distinct(StringComparer.OrdinalIgnoreCase).ToList().ForEachAsync(async (desktopID, _) =>
+			{
+				var desktop = await desktopID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (desktop != null)
+					desktops.Add(desktop);
+			}, cancellationToken, true, false).ConfigureAwait(false);
+			return desktops.Select(desktop => desktop.GetSetCacheKey()).ToList();
+		}
+
+		internal static Task<List<string>> GetSetCacheKeysAsync(this ContentType contentType, CancellationToken cancellationToken = default)
+			=> Utility.GetSetCacheKeysAsync(Filters<Portlet>.And(Filters<Portlet>.Equals("RepositoryEntityID", contentType.ID), Filters<Portlet>.IsNull("OriginalPortletID")), cancellationToken);
 
 		/// <summary>
 		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
@@ -119,19 +128,19 @@ namespace net.vieapps.Services.Portals
 
 		internal static string RefresherRefererURL => "https://portals.vieapps.net/~url.refresher";
 
-		internal static async Task RefreshWebPageAsync(this string url, int delay = 0, string correlationID = null)
+		internal static async Task RefreshWebPageAsync(this string url, int delay = 0, string correlationID = null, string message = null)
 		{
 			try
 			{
 				if (delay > 0)
 					await Task.Delay(delay * 1000).ConfigureAwait(false);
 				await UtilityService.GetWebPageAsync(url, Utility.RefresherRefererURL).ConfigureAwait(false);
-				if (Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug))
-					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"Refresh an url successful [{url}]", CancellationToken.None, "Caches").ConfigureAwait(false);
+				if (Utility.WriteCacheLogs)
+					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"{message ?? "Refresh an url successful"} => {url}", CancellationToken.None, "Caches").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"Error occurred while refreshing an url [{url}] => {ex.Message} [{ex.GetType()}]", CancellationToken.None, "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"Error occurred while refreshing an url ({url}) => {ex.Message} [{ex.GetType()}]", CancellationToken.None, "Caches").ConfigureAwait(false);
 			}
 		}
 	}

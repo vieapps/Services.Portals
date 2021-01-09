@@ -148,16 +148,24 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateOrganizationInstance().Remove();
 		}
 
-		internal static Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null)
+		internal static async Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null)
 		{
-			var cacheKeys = Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
+			// data cache keys
+			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
 				.Concat(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(Filters<Organization>.Equals("OwnerID", organization.OwnerID)), Sorts<Organization>.Ascending("Title")))
-				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.Concat(new[] { $"css#o_{organization.ID}", $"css#o_{organization.ID}:time", $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" })
+				.Distinct(StringComparer.OrdinalIgnoreCase)				
 				.ToList();
-			if (Utility.Logger.IsEnabled(LogLevel.Debug))
-				Utility.WriteLogAsync(correlationID, $"Clear related cache of organization [{organization.ID} => {organization.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
-			return Utility.Cache.RemoveAsync(cacheKeys, cancellationToken);
+
+			// html cache keys (desktop HTMLs)
+			var htmlCacheKeys = organization.GetDesktopCacheKey().Concat(new[] { $"css#o_{organization.ID}", $"css#o_{organization.ID}:time", $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" }).ToList();
+
+			// clear related cache
+			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
+				$"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a organization was clean [{organization.Title} - ID: {organization.ID}]")
+			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Organization organization, string correlationID = null)
@@ -426,7 +434,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// clear related cache
-			organization.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			if (requestInfo.GetHeaderParameter("x-converter") == null)
+				organization.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = organization.Set().ToJson();

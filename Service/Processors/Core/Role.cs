@@ -123,7 +123,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
 				cacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, oldParentID), sort).Concat(cacheKeys).ToList();
 			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			if (Utility.Logger.IsEnabled(LogLevel.Debug))
+			if (Utility.WriteCacheLogs)
 				Utility.WriteLogAsync(correlationID, $"Clear related cache of role [{role.ID} => {role.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
 			return Utility.Cache.RemoveAsync(cacheKeys, cancellationToken);
 		}
@@ -801,7 +801,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// clear related cache
-			role.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			if (requestInfo.GetHeaderParameter("x-converter") == null)
+				role.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = role.Set().ToJson();

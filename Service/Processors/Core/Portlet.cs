@@ -119,45 +119,30 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken = default, string correlationID = null)
 		{
-			// cache keys of the individual content
-			var filter = Filters<Portlet>.Equals("OriginalPortletID", string.IsNullOrWhiteSpace(portlet.OriginalPortletID) ? portlet.ID : portlet.OriginalPortletID);
-			var sort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
-
+			// data cache keys
 			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Portlet>.And(Filters<Portlet>.Equals("DesktopID", portlet.DesktopID)), Sorts<Portlet>.Ascending("Zone").ThenByAscending("OrderIndex"));
 			if (string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
-				dataCacheKeys = Extensions.GetRelatedCacheKeys(filter, sort).Concat(dataCacheKeys).ToList();
-
-			// cache keys of the content-type
-			var contentType = string.IsNullOrWhiteSpace(portlet.OriginalPortletID)
-				? portlet.ContentType
-				: portlet.OriginalPortlet?.ContentType;
-			if (contentType != null)
-				dataCacheKeys = (await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(dataCacheKeys).ToList();
-
-			// cache keys of the expression
-			var expression = await (portlet?.OriginalPortlet.ExpressionID ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (expression != null)
-				dataCacheKeys = (await Utility.Cache.GetSetMembersAsync(expression.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(dataCacheKeys).ToList();
-
+				dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Portlet>.Equals("OriginalPortletID", portlet.ID), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex")).Concat(dataCacheKeys).ToList();
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			// cache keys of desktop HTMLs
+			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = new List<string>();
-			var desktop = portlet.OriginalDesktop;
-			if (desktop != null)
-				htmlCacheKeys = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(htmlCacheKeys).ToList();
-			var portlets = await Portlet.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false);
-			await portlets.ForEachAsync(async (theportlet, _) =>
+			var desktopSetCacheKeys = await Utility.GetSetCacheKeysAsync(Filters<Portlet>.Equals("ID", portlet.ID), cancellationToken).ConfigureAwait(false);
+			await desktopSetCacheKeys.ForEachAsync(async (desktopSetCacheKey, _) =>
 			{
-				desktop = theportlet.Desktop;
-				if (desktop != null)
-					htmlCacheKeys = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(htmlCacheKeys).ToList();
+				var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
+				if (cacheKeys != null && cacheKeys.Count > 0)
+					htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
 			}, cancellationToken, true, false).ConfigureAwait(false);
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			if (Utility.Logger.IsEnabled(LogLevel.Debug))
-				await Utility.WriteLogAsync(correlationID, $"Clear related cache of portlet [{portlet.ID} => {portlet.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches").ConfigureAwait(false);
+			// clear related cache
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
+				$"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a portlet was clean [{portlet.Title} - ID: {portlet.ID}]")
+			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Portlet portlet, string correlationID = null)

@@ -139,17 +139,41 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateModuleInstance().Remove();
 		}
 
-		internal static Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default, string correlationID = null)
+		internal static async Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default, string correlationID = null)
 		{
+			// data cache keys
 			var sort = Sorts<Module>.Ascending("Title");
-			var cacheKeys = Extensions.GetRelatedCacheKeys(Filters<Module>.And(), sort)
+			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Module>.And(), sort)
 				.Concat(Extensions.GetRelatedCacheKeys(ModuleProcessor.GetModulesFilter(module.SystemID), sort))
 				.Concat(Extensions.GetRelatedCacheKeys(ModuleProcessor.GetModulesFilter(module.SystemID, module.ModuleDefinitionID), sort))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
-			if (Utility.Logger.IsEnabled(LogLevel.Debug))
-				Utility.WriteLogAsync(correlationID, $"Clear related cache of module [{module.ID} => {module.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
-			return Utility.Cache.RemoveAsync(cacheKeys, cancellationToken);
+
+			// html cache keys (desktop HTMLs)
+			var htmlCacheKeys = new[] { module.Desktop?.GetSetCacheKey() }.Concat(module.Organization?.GetDesktopCacheKey() ?? new List<string>()).ToList();
+			var desktopSetCacheKeys = new List<string>();
+			await module.ContentTypes.ForEachAsync(async (contentType, _) =>
+			{
+				desktopSetCacheKeys = desktopSetCacheKeys.Concat(await contentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? new List<string>()).ToList();
+			}, cancellationToken, true, false).ConfigureAwait(false);
+			await desktopSetCacheKeys.Where(id => !string.IsNullOrWhiteSpace(id))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList()
+				.ForEachAsync(async (desktopSetCacheKey, _) =>
+				{
+					var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
+					if (cacheKeys != null && cacheKeys.Count > 0)
+						htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
+				}, cancellationToken, true, false).ConfigureAwait(false);
+			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+			// clear related cache
+			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a module [{module.Title} - ID: {module.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
+				$"{Utility.PortalsHttpURI}/~{module.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a module was clean [{module.Title} - ID: {module.ID}]")
+			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Module module, string correlationID = null)
@@ -461,7 +485,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// clear related cache
-			module.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			if (requestInfo.GetHeaderParameter("x-converter") == null)
+				module.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = module.Set().ToJson();

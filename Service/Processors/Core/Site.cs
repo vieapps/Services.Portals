@@ -240,19 +240,27 @@ namespace net.vieapps.Services.Portals
 			return Task.CompletedTask;
 		}
 
-		internal static Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null)
+		internal static async Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null)
 		{
+			// data cache keys
 			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
-			var cacheKeys = Extensions.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title"))
+			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title"))
 				.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")))
 				.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), sort))
 				.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), sort))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time" })
 				.ToList();
-			if (Utility.Logger.IsEnabled(LogLevel.Debug))
-				Utility.WriteLogAsync(correlationID, $"Clear related cache of site [{site.ID} => {site.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
-			return Utility.Cache.RemoveAsync(cacheKeys, cancellationToken);
+
+			// html cache keys (desktop HTMLs)
+			var htmlCacheKeys = site.Organization.GetDesktopCacheKey().Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time" }).ToList();
+
+			// clear related cache
+			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
+				$"{Utility.PortalsHttpURI}/~{site.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]")
+			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Site site, string correlationID = null)
@@ -577,7 +585,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// clear related cache
-			site.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			if (requestInfo.GetHeaderParameter("x-converter") == null)
+				site.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = site.Set().ToJson();

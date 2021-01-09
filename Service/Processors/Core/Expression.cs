@@ -118,7 +118,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ClearRelatedCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null)
 		{
-			// cache keys of data
+			// data cache keys
 			var sort = Sorts<Expression>.Ascending("Title");
 			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Expression>.And(), sort)
 				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(null), sort))
@@ -126,7 +126,6 @@ namespace net.vieapps.Services.Portals
 				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, expression.ContentTypeDefinitionID), sort))
 				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, null), sort))
 				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, null, expression.ContentTypeDefinitionID), sort))
-				.Concat(await Utility.Cache.GetSetMembersAsync(expression.GetSetCacheKey(), cancellationToken).ConfigureAwait(false))
 				.ToList();
 
 			if (!string.IsNullOrWhiteSpace(expression.RepositoryEntityID) && !string.IsNullOrWhiteSpace(expression.ContentTypeDefinitionID))
@@ -136,36 +135,34 @@ namespace net.vieapps.Services.Portals
 					Filters<Expression>.Equals("ContentTypeDefinitionID", expression.ContentTypeDefinitionID),
 					Filters<Expression>.Equals("RepositoryEntityID", expression.RepositoryEntityID)
 				);
-				dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Expression>.And(Filters<Expression>.Equals("RepositoryID", expression.RepositoryID), filter), sort)
-					.Concat(Extensions.GetRelatedCacheKeys(filter, sort))
-					.Concat(dataCacheKeys)
+				dataCacheKeys = dataCacheKeys.Concat(Extensions.GetRelatedCacheKeys(filter, sort))
+					.Concat(Extensions.GetRelatedCacheKeys(Filters<Expression>.And(Filters<Expression>.Equals("RepositoryID", expression.RepositoryID), filter), sort))
 					.ToList();
 			}
+
+			if (expression.ContentType != null)
+				dataCacheKeys = dataCacheKeys.Concat(await Utility.Cache.GetSetMembersAsync(expression.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).ToList();
+
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			// cache keys of desktop HTMLs
+			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = new List<string>();
-			var portletsSort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
-			var portlets = await Portlet.FindAsync(Filters<Portlet>.And(Filters<Portlet>.IsNull("OriginalPortletID"), Filters<Portlet>.Equals("ExpressionID", expression.ID)), portletsSort, 0, 1, null, cancellationToken).ConfigureAwait(false);
-			await portlets.ForEachAsync(async (portlet, _) =>
+			var desktopSetCacheKeys = await Utility.GetSetCacheKeysAsync(Filters<Portlet>.And(Filters<Portlet>.Equals("ExpressionID", expression.ID), Filters<Portlet>.IsNull("OriginalPortletID")), cancellationToken).ConfigureAwait(false);
+			await desktopSetCacheKeys.ForEachAsync(async (desktopSetCacheKey, _) =>
 			{
-				var desktop = await portlet.DesktopID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (desktop != null)
-					htmlCacheKeys = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(htmlCacheKeys).ToList();
-
-				var theportlets = await Portlet.FindAsync(Filters<Portlet>.Equals("OriginalPortletID", portlet.ID), portletsSort, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				await theportlets.ForEachAsync(async (theportlet, __) =>
-				{
-					desktop = theportlet.Desktop;
-					if (desktop != null)
-						htmlCacheKeys = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(htmlCacheKeys).ToList();
-				}, cancellationToken, true, false).ConfigureAwait(false);
+				var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
+				if (cacheKeys != null && cacheKeys.Count > 0)
+					htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
 			}, cancellationToken, true, false).ConfigureAwait(false);
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			if (Utility.Logger.IsEnabled(LogLevel.Debug))
-				await Utility.WriteLogAsync(correlationID, $"Clear related cache of expression [{expression.ID} => {expression.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches").ConfigureAwait(false);
+			// clear related cache
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an expression [{expression.Title} - ID: {expression.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
+				$"{Utility.PortalsHttpURI}/~{expression.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]")
+			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Expression expression, string correlationID = null)
@@ -430,7 +427,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// clear related cache
-			expression.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			if (requestInfo.GetHeaderParameter("x-converter") == null)
+				expression.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = expression.Set().ToJson();
