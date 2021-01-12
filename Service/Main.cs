@@ -2183,7 +2183,7 @@ namespace net.vieapps.Services.Portals
 
 				title = "";
 				if (!string.IsNullOrWhiteSpace(portlet.CommonSettings.IconURI))
-					title += $"<img alt=\"\" src=\"{portlet.CommonSettings.IconURI}\"/>";
+					title += $"<picture><source srcset=\"{portlet.CommonSettings.IconURI.GetWebpImageURL(portlet.CommonSettings.IconURI.IsEndsWith(".png"))}\"/><img alt=\"\" src=\"{portlet.CommonSettings.IconURI}\"/></picture>";
 				title += string.IsNullOrWhiteSpace(portlet.CommonSettings.TitleURL)
 					? $"<span>{portlet.Title.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</span>"
 					: $"<span><a href=\"{portlet.CommonSettings.TitleURL}\">{portlet.Title.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</a></span>";
