@@ -213,7 +213,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateDesktopInstance().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null)
+		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null, bool doRefresh = true)
 		{
 			// cache keys of the individual content
 			var sort = Sorts<Desktop>.Ascending("Title");
@@ -232,12 +232,28 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
-				$"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]")
+				doRefresh ? $"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Desktop desktop, string correlationID = null)
 			=> desktop.ClearRelatedCacheAsync(null, CancellationToken.None, correlationID);
+
+		internal static List<Task> ClearRelatedCacheAsync(this Desktop desktop, RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			desktop.Remove();
+			return new List<Task>
+			{
+				desktop.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, false),
+				Utility.Cache.RemoveAsync(desktop, cancellationToken),
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{desktop.GetObjectName()}#Delete",
+					Data = desktop.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken)
+			}.Concat((desktop._portlets ?? new List<Portlet>()).Select(portlet => portlet.ClearRelatedCacheAsync(requestInfo, cancellationToken)).SelectMany(tasks => tasks)).ToList();
+		}
 
 		internal static async Task<JObject> SearchDesktopsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -495,7 +511,7 @@ namespace net.vieapps.Services.Portals
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
 			if (isRefresh)
 			{
-				await desktop.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
+				await desktop.ClearRelatedCacheAsync("", cancellationToken).ConfigureAwait(false);
 				await Utility.Cache.RemoveAsync(desktop, cancellationToken).ConfigureAwait(false);
 				desktop = await desktop.Remove().ID.GetDesktopByIDAsync(cancellationToken, true).ConfigureAwait(false);
 				desktop._childrenIDs = null;

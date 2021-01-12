@@ -117,19 +117,35 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Role role, string oldParentID, CancellationToken cancellationToken, string correlationID = null)
 		{
 			var sort = Sorts<Role>.Ascending("Title");
-			var cacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID), sort);
+			var dataCacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID), sort);
 			if (!string.IsNullOrWhiteSpace(role.ParentID) && role.ParentID.IsValidUUID())
-				cacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, role.ParentID), sort).Concat(cacheKeys).ToList();
+				dataCacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, role.ParentID), sort).Concat(dataCacheKeys).ToList();
 			if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
-				cacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, oldParentID), sort).Concat(cacheKeys).ToList();
-			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+				dataCacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, oldParentID), sort).Concat(dataCacheKeys).ToList();
+			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			if (Utility.WriteCacheLogs)
-				Utility.WriteLogAsync(correlationID, $"Clear related cache of role [{role.ID} => {role.Title}]\r\n{cacheKeys.Count} keys => {cacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
-			return Utility.Cache.RemoveAsync(cacheKeys, cancellationToken);
+				Utility.WriteLogAsync(correlationID, $"Clear related cache of role [{role.ID} => {role.Title}]\r\n{dataCacheKeys.Count} keys => {dataCacheKeys.Join(", ")}", CancellationToken.None, "Caches").Run();
+			return Utility.Cache.RemoveAsync(dataCacheKeys, cancellationToken);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Role role, string correlationID = null)
 			=> role.ClearRelatedCacheAsync(null, CancellationToken.None, correlationID);
+
+		internal static List<Task> ClearRelatedCacheAsync(this Role role, RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			role.Remove();
+			return new List<Task>
+			{
+				role.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID),
+				Utility.Cache.RemoveAsync(role, cancellationToken),
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{role.GetObjectName()}#Delete",
+					Data = role.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken)
+			};
+		}
 
 		internal static async Task<JObject> SearchRolesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -358,7 +374,7 @@ namespace net.vieapps.Services.Portals
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
 			if (isRefresh)
 			{
-				await role.ClearRelatedCacheAsync(null, cancellationToken).ConfigureAwait(false);
+				await role.ClearRelatedCacheAsync("", cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 				await Utility.Cache.RemoveAsync(role, cancellationToken).ConfigureAwait(false);
 				role = await role.ID.GetRoleByIDAsync(cancellationToken, true).ConfigureAwait(false);
 			}

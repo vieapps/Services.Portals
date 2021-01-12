@@ -133,7 +133,7 @@ namespace net.vieapps.Services.Portals
 			return Task.CompletedTask;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this ContentType contentType, CancellationToken cancellationToken, string correlationID = null)
+		internal static async Task ClearRelatedCacheAsync(this ContentType contentType, CancellationToken cancellationToken, string correlationID = null, bool doRefresh = true)
 		{
 			// data cache keys
 			var sort = Sorts<ContentType>.Ascending("Title");
@@ -166,12 +166,28 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
-				$"{Utility.PortalsHttpURI}/~{contentType.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a content-type was clean [{contentType.Title} - ID: {contentType.ID}]")
+				doRefresh ? $"{Utility.PortalsHttpURI}/~{contentType.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a content-type was clean [{contentType.Title} - ID: {contentType.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this ContentType contentType, string correlationID = null)
 			=> contentType.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
+
+		internal static List<Task> ClearRelatedCacheAsync(this ContentType contentType, RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			contentType.Remove();
+			return new List<Task>
+			{
+				contentType.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false),
+				Utility.Cache.RemoveAsync(contentType, cancellationToken),
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{contentType.GetObjectName()}#Delete",
+					Data = contentType.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken)
+			};
+		}
 
 		internal static async Task<JObject> SearchContentTypesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{

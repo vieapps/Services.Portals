@@ -408,9 +408,14 @@ namespace net.vieapps.Services.Portals
 						json = await this.DoExcelActionAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
+					case "cache":
+					case "caches":
+						json = await this.ClearCacheAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
+
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-						#endregion
+				#endregion
 
 				}
 				stopwatch.Stop();
@@ -676,7 +681,7 @@ namespace net.vieapps.Services.Portals
 		#region Process Core Portals objects
 		async Task<JObject> ProcessOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -700,7 +705,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -724,7 +729,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -748,7 +753,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -774,7 +779,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessPortletAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -798,7 +803,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessModuleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -822,7 +827,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessContentTypeAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -846,7 +851,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessExpressionAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -872,7 +877,7 @@ namespace net.vieapps.Services.Portals
 		#region Process CMS Portals object
 		async Task<JObject> ProcessCategoryAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -898,7 +903,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessContentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -922,7 +927,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessItemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -946,7 +951,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessLinkAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -3088,7 +3093,7 @@ namespace net.vieapps.Services.Portals
 		{
 			try
 			{
-				var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+				var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
 				switch (requestInfo.ObjectName.ToLower().Trim())
 				{
 					case "category":
@@ -4181,7 +4186,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken);
 		#endregion
 
-		#region Timers for refreshing desktop URLs
+		#region Working with timers (for refreshing desktop URLs) & cache
 		ConcurrentDictionary<string, IDisposable> RefreshTimers { get; } = new ConcurrentDictionary<string, IDisposable>();
 
 		void StartRefreshTimer(Organization organization, bool refreshHomeDesktops = true)
@@ -4255,6 +4260,94 @@ namespace net.vieapps.Services.Portals
 			}
 			else
 				this.StartRefreshTimer(organization);
+		}
+
+		async Task<JToken> ClearCacheAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// validate
+			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
+			if (string.IsNullOrWhiteSpace(identity))
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			// check permissions
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var gotRights = false;
+			Organization organization = null;
+			Module module = null;
+			ContentType contentType = null;
+			Desktop desktop = null;
+			switch (requestInfo.GetObjectIdentity().ToLower())
+			{
+				case "organization":
+					organization = await identity.GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization?.OwnerID) || requestInfo.Session.User.IsAdministrator(organization?.WorkingPrivileges);
+					break;
+
+				case "module":
+					module = await identity.GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(module?.Organization?.OwnerID) || requestInfo.Session.User.IsAdministrator(module?.WorkingPrivileges);
+					break;
+
+				case "contenttype":
+				case "content.type":
+					contentType = await identity.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(contentType?.Organization?.OwnerID) || requestInfo.Session.User.IsAdministrator(contentType?.WorkingPrivileges);
+					break;
+
+				case "desktop":
+					desktop = await identity.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop?.Organization?.OwnerID) || requestInfo.Session.User.IsModerator(desktop?.WorkingPrivileges);
+					break;
+			}
+
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// clear related cache
+			if (Utility.WriteCacheLogs)
+				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear all related cache{(organization != null ? " of the whole organization" : "")} [{requestInfo.GetURI()}]", cancellationToken, "Caches").ConfigureAwait(false);
+
+			var stopwatch = Stopwatch.StartNew();
+			var tasks = new List<Task>();
+
+			if (desktop != null)
+				tasks = desktop.ClearRelatedCacheAsync(requestInfo, cancellationToken).ToList();
+
+			if (contentType != null)
+				tasks = contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken).ToList();
+
+			if (module != null)
+				tasks = module.ClearRelatedCacheAsync(requestInfo, cancellationToken).ToList();
+
+			if (organization != null)
+			{
+				tasks.Add(Utility.Cache.RemoveAsync(organization.GetDesktopCacheKey(), cancellationToken));
+
+				var expressions = await Expression.FindAsync(Filters<Expression>.And(Filters<Expression>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+				expressions.ForEach(expression => tasks = expression.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
+
+				var roles = await Role.FindAsync(Filters<Role>.And(Filters<Role>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+				roles.ForEach(role => tasks = role.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
+
+				organization.Modules.ForEach(themodule => tasks = themodule.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
+				organization.Sites.ForEach(site => tasks = site.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
+
+				var desktops = await Desktop.FindAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+				desktops.ForEach(thedesktop => tasks = thedesktop.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
+
+				tasks = organization.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList();
+			}
+
+			await Task.WhenAll(tasks).ConfigureAwait(false);
+
+			stopwatch.Stop();
+			if (Utility.WriteCacheLogs)
+				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear related cache successful [{tasks.Count} tasks] - Execution times: {stopwatch.GetElapsedTimes()}", cancellationToken, "Caches").ConfigureAwait(false);
+
+			if (organization != null)
+				await $"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(1, requestInfo.CorrelationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]");
+
+			return new JObject();
 		}
 		#endregion
 

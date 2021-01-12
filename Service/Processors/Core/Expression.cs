@@ -116,7 +116,7 @@ namespace net.vieapps.Services.Portals
 			return Task.CompletedTask;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null)
+		internal static async Task ClearRelatedCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool doRefresh = true)
 		{
 			// data cache keys
 			var sort = Sorts<Expression>.Ascending("Title");
@@ -147,13 +147,18 @@ namespace net.vieapps.Services.Portals
 
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = new List<string>();
-			var desktopSetCacheKeys = await Utility.GetSetCacheKeysAsync(Filters<Portlet>.And(Filters<Portlet>.Equals("ExpressionID", expression.ID), Filters<Portlet>.IsNull("OriginalPortletID")), cancellationToken).ConfigureAwait(false);
-			await desktopSetCacheKeys.ForEachAsync(async (desktopSetCacheKey, _) =>
+
+			if (doRefresh)
 			{
-				var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
-				if (cacheKeys != null && cacheKeys.Count > 0)
-					htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
-			}, cancellationToken, true, false).ConfigureAwait(false);
+				var desktopSetCacheKeys = await Utility.GetSetCacheKeysAsync(Filters<Portlet>.And(Filters<Portlet>.Equals("ExpressionID", expression.ID), Filters<Portlet>.IsNull("OriginalPortletID")), cancellationToken).ConfigureAwait(false);
+				await desktopSetCacheKeys.ForEachAsync(async (desktopSetCacheKey, _) =>
+				{
+					var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
+					if (cacheKeys != null && cacheKeys.Count > 0)
+						htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
+				}, cancellationToken, true, false).ConfigureAwait(false);
+			}
+
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// clear related cache
@@ -161,12 +166,28 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an expression [{expression.Title} - ID: {expression.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
-				$"{Utility.PortalsHttpURI}/~{expression.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]")
+				doRefresh ? $"{Utility.PortalsHttpURI}/~{expression.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Expression expression, string correlationID = null)
 			=> expression.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
+
+		internal static List<Task> ClearRelatedCacheAsync(this Expression expression, RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			expression.Remove();
+			return new List<Task>
+			{
+				expression.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false),
+				Utility.Cache.RemoveAsync(expression, cancellationToken),
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{expression.GetObjectName()}#Delete",
+					Data = expression.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken)
+			};
+		}
 
 		internal static async Task<JObject> SearchExpressionsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{

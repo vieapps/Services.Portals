@@ -148,7 +148,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateOrganizationInstance().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null)
+		internal static async Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null, bool doRefresh = true)
 		{
 			// data cache keys
 			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
@@ -157,19 +157,36 @@ namespace net.vieapps.Services.Portals
 				.ToList();
 
 			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = organization.GetDesktopCacheKey().Concat(new[] { $"css#o_{organization.ID}", $"css#o_{organization.ID}:time", $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" }).ToList();
+			var htmlCacheKeys = new[] { $"css#o_{organization.ID}", $"css#o_{organization.ID}:time", $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" }
+				.Concat(doRefresh ? organization.GetDesktopCacheKey() : new List<string>()).ToList();
 
 			// clear related cache
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
-				$"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a organization was clean [{organization.Title} - ID: {organization.ID}]")
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
+				doRefresh ? $"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Organization organization, string correlationID = null)
 			=> organization.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
+
+		internal static List<Task> ClearRelatedCacheAsync(this Organization organization, RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			organization.Remove();
+			return new List<Task>
+			{
+				organization.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false),
+				Utility.Cache.RemoveAsync(organization, cancellationToken),
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{organization.GetObjectName()}#Delete",
+					Data = organization.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken)
+			};
+		}
 
 		internal static async Task<JObject> SearchOrganizationsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -302,7 +319,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetOrganizationAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// get the organization
-			var identity = requestInfo.GetObjectIdentity() ?? "";
+			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
 			var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cancellationToken) : identity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false);
 			if (organization == null)
 				throw new InformationNotFoundException();
