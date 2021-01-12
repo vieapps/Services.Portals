@@ -1080,9 +1080,6 @@ namespace net.vieapps.Services.Portals
 					};
 			}
 
-			// update 'Selected' state
-			menu["Selected"] = subMenu?.Select(smenu => smenu as JObject).FirstOrDefault(smenu => smenu.Get<bool>("Selected", false)) != null || requestInfo.IsSelected(url);
-
 			// return the menu item
 			return menu;
 		}

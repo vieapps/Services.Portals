@@ -455,7 +455,8 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var requestJson = requestInfo.BodyAsJson;
-			var options = requestJson.Get("Options", new JObject()).ToExpandoObject();
+			var optionsJson = requestJson.Get("Options", new JObject());
+			var options = optionsJson.ToExpandoObject();
 
 			var organizationJson = requestJson.Get("Organization", new JObject());
 			var moduleJson = requestJson.Get("Module", new JObject());
@@ -539,70 +540,82 @@ namespace net.vieapps.Services.Portals
 					{ "App", sort.ToClientJson().ToString(Formatting.None) }
 				};
 
-				// search
-				var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
-				var totalRecords = results.Item1;
-				var objects = results.Item2;
-				var thumbnails = results.Item3;
+				// get cache
+				long totalRecords = 0;
+				var cacheKey = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
+				data = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 
-				// attachments
-				JToken attachments = null;
-				if (objects.Count > 0 && showAttachments)
+				// process if has no cache
+				if (string.IsNullOrWhiteSpace(data))
 				{
-					attachments = objects.Count == 1
-						? await requestInfo.GetAttachmentsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetAttachmentsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-				}
+					// search
+					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
+					totalRecords = results.Item1;
+					var objects = results.Item2;
+					var thumbnails = results.Item3;
 
-				// generate XML
-				Exception exception = null;
-				var dataXml = XElement.Parse("<Data/>");
-				objects.ForEach(@object =>
-				{
-					// check
-					if (exception != null)
-						return;
-
-					// generate
-					try
+					// attachments
+					JToken attachments = null;
+					if (objects.Count > 0 && showAttachments)
 					{
-						dataXml.Add(@object.ToXml(false, cultureInfo, element =>
+						attachments = objects.Count == 1
+							? await requestInfo.GetAttachmentsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
+							: await requestInfo.GetAttachmentsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+					}
+
+					// generate XML
+					Exception exception = null;
+					var dataXml = XElement.Parse("<Data/>");
+					objects.ForEach(@object =>
+					{
+						// check
+						if (exception != null)
+							return;
+
+						// generate
+						try
 						{
-							if (!string.IsNullOrWhiteSpace(@object.Summary))
-								element.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
-							element.Add(new XElement("URL", @object.GetURL(desktop, false, parentIdentity)));
-							var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-							element.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
-							if (showAttachments)
+							dataXml.Add(@object.ToXml(false, cultureInfo, element =>
 							{
-								var xmlAttachments = new XElement("Attachments");
-								attachments?.GetAttachments(@object.ID)?.Select(attachment => new JObject
+								if (!string.IsNullOrWhiteSpace(@object.Summary))
+									element.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
+								element.Add(new XElement("URL", @object.GetURL(desktop, false, parentIdentity)));
+								var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+								element.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+								if (showAttachments)
 								{
-									{ "Title", attachment["Title"] },
-									{ "Filename", attachment["Filename"] },
-									{ "Size", attachment["Size"] },
-									{ "ContentType", attachment["ContentType"] },
-									{ "Downloads", attachment["Downloads"] },
-									{ "URIs", attachment["URIs"] }
-								}).ForEach(attachment => xmlAttachments.Add(attachment.ToXml("Attachment", x => x.Element("Size").UpdateNumber(false, cultureInfo))));
-								element.Add(xmlAttachments);
-							}
-						}));
-					}
-					catch (Exception ex)
-					{
-						exception = requestInfo.GetRuntimeException(ex, null, (msg, exc) => requestInfo.WriteErrorAsync(exc, cancellationToken, $"Error occurred while generating an item => {msg} : {@object.ToJson()}", "Errors").Run());
-					}
-				});
+									var xmlAttachments = new XElement("Attachments");
+									attachments?.GetAttachments(@object.ID)?.Select(attachment => new JObject
+									{
+										{ "Title", attachment["Title"] },
+										{ "Filename", attachment["Filename"] },
+										{ "Size", attachment["Size"] },
+										{ "ContentType", attachment["ContentType"] },
+										{ "Downloads", attachment["Downloads"] },
+										{ "URIs", attachment["URIs"] }
+									}).ForEach(attachment => xmlAttachments.Add(attachment.ToXml("Attachment", x => x.Element("Size").UpdateNumber(false, cultureInfo))));
+									element.Add(xmlAttachments);
+								}
+							}));
+						}
+						catch (Exception ex)
+						{
+							exception = requestInfo.GetRuntimeException(ex, null, (msg, exc) => requestInfo.WriteErrorAsync(exc, cancellationToken, $"Error occurred while generating an item => {msg} : {@object.ToJson()}", "Errors").Run());
+						}
+					});
 
-				// get data
-				data = dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting);
+					// get data
+					data = dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting);
 
-				// update cache
-				Task.WhenAll(
-					contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item4) : Task.CompletedTask,
-					Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate CMS items [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item4.Count}): {results.Item4.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask
-				).Run();
+					// update cache
+					Task.WhenAll(
+						Utility.Cache.SetAsync(cacheKey, data),
+						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item4.Concat(new[] { cacheKey })) : Task.CompletedTask,
+						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Item [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item4.Count + 1}): {results.Item4.Concat(new[] { cacheKey }).Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask
+					).Run();
+				}
+				else if (showPagination)
+					totalRecords = await Utility.Cache.GetAsync<long>(Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false);
 
 				// prepare pagination
 				if (showPagination)
@@ -638,110 +651,128 @@ namespace net.vieapps.Services.Portals
 				if (!gotRights)
 					throw new AccessDeniedException();
 
-				var showOthers = options.Get("ShowOthers", false);
+				// get cache
+				Task<JToken> thumbnailsTask = null;
+				var cacheKey = $"{@object.ID}:xml:o#{optionsJson.ToString(Formatting.None).GenerateUUID()}:p#{paginationJson.ToString(Formatting.None).GenerateUUID()}";
+				data = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 
-				// get other contents
-				Task<List<Item>> newersTask, oldersTask;
-				if (showOthers)
+				// process if has no cache
+				if (string.IsNullOrWhiteSpace(data))
 				{
-					var numberOfOthers = options.Get<int>("NumberOfOthers", 10) / 2;
-
-					newersTask = Item.FindAsync(Filters<Item>.And
-					(
-						Filters<Item>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
-						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
-						Filters<Item>.GreaterOrEquals("Created", @object.Created)
-					).Prepare(requestInfo), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);
-
-					oldersTask = Item.FindAsync(Filters<Item>.And
-					(
-						Filters<Item>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
-						Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
-						Filters<Item>.LessThanOrEquals("Created", @object.Created)
-					).Prepare(requestInfo), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);
-				}
-				else
-				{
-					newersTask = Task.FromResult(new List<Item>());
-					oldersTask = Task.FromResult(new List<Item>());
-				}
-
-				// get files
-				requestInfo.Header["x-thumbnails-as-attachments"] = "true";
-				var thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
-				var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
-
-				// wait for all tasks are completed
-				await Task.WhenAll(newersTask, oldersTask, thumbnailsTask, attachmentsTask).ConfigureAwait(false);
-
-				var others = new List<Item>();
-				JToken otherThumbnails = null;
-				if (showOthers)
-				{
-					newersTask.Result.ForEach(other => others.Add(other));
-					oldersTask.Result.ForEach(other => others.Add(other));
-					others = others.Where(other => other.ID != @object.ID).OrderByDescending(other => other.Created).ToList();
-					otherThumbnails = others.Count < 1
-						? null
-						: others.Count == 1
-							? await requestInfo.GetThumbnailsAsync(others[0].ID, others[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
-							: await requestInfo.GetThumbnailsAsync(others.Select(obj => obj.ID).Join(","), others.ToJObject("ID", obj => new JValue(obj.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-				}
-
-				// generate XML elements
-				var elements = XElement.Parse("<Data/>");
-				elements.Add(@object.ToXml(false, cultureInfo, element =>
-				{
-					element.NormalizeHTMLs(@object);
-
-					if (!string.IsNullOrWhiteSpace(@object.Tags))
+					// get other contents
+					var showOthers = options.Get("ShowOthers", false);
+					Task<List<Item>> newersTask, oldersTask;
+					if (showOthers)
 					{
-						var tagsXml = element.Element("Tags");
-						tagsXml.Value = "";
-						@object.Tags.ToArray(",", true).ForEach(tag => tagsXml.Add(new XElement("Tag", tag)));
+						var numberOfOthers = options.Get<int>("NumberOfOthers", 10) / 2;
+
+						newersTask = Item.FindAsync(Filters<Item>.And
+						(
+							Filters<Item>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
+							Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
+							Filters<Item>.GreaterOrEquals("Created", @object.Created)
+						).Prepare(requestInfo), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);
+
+						oldersTask = Item.FindAsync(Filters<Item>.And
+						(
+							Filters<Item>.Equals("RepositoryEntityID", "@request.Body(ContentType.ID)"),
+							Filters<Item>.Equals("Status", ApprovalStatus.Published.ToString()),
+							Filters<Item>.LessThanOrEquals("Created", @object.Created)
+						).Prepare(requestInfo), null, numberOfOthers, 1, contentTypeID, null, cancellationToken);
+					}
+					else
+					{
+						newersTask = Task.FromResult(new List<Item>());
+						oldersTask = Task.FromResult(new List<Item>());
 					}
 
-					if (!string.IsNullOrWhiteSpace(@object.Summary))
-						element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
+					// get files
+					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+					thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
+					var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 
-					element.Add(new XElement("URL", @object.GetURL(desktop, false, parentIdentity)));
+					// wait for all tasks are completed
+					await Task.WhenAll(newersTask, oldersTask, thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 
-					if (showThumbnails)
+					var others = new List<Item>();
+					JToken otherThumbnails = null;
+					if (showOthers)
 					{
-						var thumbnails = new XElement("Thumbnails");
-						(thumbnailsTask.Result as JArray)?.ForEach(thumbnail =>
+						newersTask.Result.ForEach(other => others.Add(other));
+						oldersTask.Result.ForEach(other => others.Add(other));
+						others = others.Where(other => other.ID != @object.ID).OrderByDescending(other => other.Created).ToList();
+						otherThumbnails = others.Count < 1
+							? null
+							: others.Count == 1
+								? await requestInfo.GetThumbnailsAsync(others[0].ID, others[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
+								: await requestInfo.GetThumbnailsAsync(others.Select(obj => obj.ID).Join(","), others.ToJObject("ID", obj => new JValue(obj.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+					}
+
+					// generate XML
+					var dataXml = XElement.Parse("<Data/>");
+					dataXml.Add(@object.ToXml(false, cultureInfo, element =>
+					{
+						element.NormalizeHTMLs(@object);
+
+						if (!string.IsNullOrWhiteSpace(@object.Tags))
 						{
-							var thumbnailURL = thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-							thumbnails.Add(new XElement("Thumbnail", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
-						});
-						element.Add(thumbnails);
-					}
+							var tagsXml = element.Element("Tags");
+							tagsXml.Value = "";
+							@object.Tags.ToArray(",", true).ForEach(tag => tagsXml.Add(new XElement("Tag", tag)));
+						}
 
-					if (showAttachments)
-					{
-						var attachments = new XElement("Attachments");
-						(attachmentsTask.Result as JArray)?.Select(attachment => new JObject
+						if (!string.IsNullOrWhiteSpace(@object.Summary))
+							element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
+
+						element.Add(new XElement("URL", @object.GetURL(desktop, false, parentIdentity)));
+
+						if (showThumbnails)
 						{
-							{ "Title", attachment["Title"] },
-							{ "Filename", attachment["Filename"] },
-							{ "Size", attachment["Size"] },
-							{ "ContentType", attachment["ContentType"] },
-							{ "Downloads", attachment["Downloads"] },
-							{ "URIs", attachment["URIs"] }
-						}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment", x => x.Element("Size").UpdateNumber(false, cultureInfo))));
-						element.Add(attachments);
-					}
-				}));
+							var thumbnails = new XElement("Thumbnails");
+							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail =>
+							{
+								var thumbnailURL = thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+								thumbnails.Add(new XElement("Thumbnail", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+							});
+							element.Add(thumbnails);
+						}
 
-				if (showOthers)
-				{
-					var othersXml = new XElement("Others");
-					others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
+						if (showAttachments)
+						{
+							var attachments = new XElement("Attachments");
+							(attachmentsTask.Result as JArray)?.Select(attachment => new JObject
+							{
+								{ "Title", attachment["Title"] },
+								{ "Filename", attachment["Filename"] },
+								{ "Size", attachment["Size"] },
+								{ "ContentType", attachment["ContentType"] },
+								{ "Downloads", attachment["Downloads"] },
+								{ "URIs", attachment["URIs"] }
+							}).ForEach(attachment => attachments.Add(attachment.ToXml("Attachment", x => x.Element("Size").UpdateNumber(false, cultureInfo))));
+							element.Add(attachments);
+						}
+					}));
+
+					if (showOthers)
 					{
-						otherXml.Add(new XElement("URL", other.GetURL(desktop, false, parentIdentity)));
-						otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
-					})));
-					elements.Add(othersXml);
+						var othersXml = new XElement("Others");
+						others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
+						{
+							otherXml.Add(new XElement("URL", other.GetURL(desktop, false, parentIdentity)));
+							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
+						})));
+						dataXml.Add(othersXml);
+					}
+
+					// get xml data
+					data = dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting);
+
+					// update cache
+					Task.WhenAll(
+						Utility.Cache.SetAsync(cacheKey, data),
+						@object.ContentType != null ? Utility.Cache.AddSetMembersAsync(@object.ContentType.GetSetCacheKey(), new[] { cacheKey }) : Task.CompletedTask,
+						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate details of CMS.Item [{@object.ContentType?.Title} - ID: {@object.ContentType?.ID} - Set: {@object.ContentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", CancellationToken.None, "Caches") : Task.CompletedTask
+					).Run();
 				}
 
 				// build others
@@ -752,10 +783,10 @@ namespace net.vieapps.Services.Portals
 					{ "Description", @object.Summary },
 					{ "Keywords", @object.Tags }
 				};
-				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI");
 
-				// get xml data
-				data = elements.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting);
+				thumbnailsTask = thumbnailsTask ?? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+				await thumbnailsTask.ConfigureAwait(false);
+				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI");
 			}
 
 			// response
