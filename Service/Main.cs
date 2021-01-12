@@ -1116,7 +1116,7 @@ namespace net.vieapps.Services.Portals
 
 				// check special headers to reduce traffict
 				var eTag = $"{type.ToLower()}#{filePath.ToLower().GenerateUUID()}";
-				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time").ConfigureAwait(false) : null;
+				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
 				if (this.CacheDesktopResources && eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 					return new JObject
 					{
