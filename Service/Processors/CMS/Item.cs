@@ -304,7 +304,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetItemAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var identity = requestInfo.GetObjectIdentity() ?? "";
+			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
 			var item = await (identity.IsValidUUID() ? Item.GetAsync<Item>(identity, cancellationToken) : Item.GetItemByAliasAsync(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id"), identity, cancellationToken)).ConfigureAwait(false);
 			if (item == null)
 				throw new InformationNotFoundException();
@@ -324,17 +324,32 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", item.Alias }
 				};
 
-			// send update message
+			// refresh (clear cache)
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+				await item.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+
+			// prepare the response
 			var response = item.ToJson();
 			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+
+			// send update message
+			var objectName = item.GetObjectName();
 			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = response,
 				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID,
-				Data = response
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}, cancellationToken).ConfigureAwait(false);
+			if (isRefresh)
+				await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;

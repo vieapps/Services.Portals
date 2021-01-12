@@ -378,7 +378,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var identity = requestInfo.GetObjectIdentity() ?? "";
+			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
 			var content = await (identity.IsValidUUID() ? Content.GetAsync<Content>(identity, cancellationToken) : Content.GetContentByAliasAsync(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id"), identity, requestInfo.GetParameter("Category") ?? requestInfo.GetParameter("x-category-id"), cancellationToken)).ConfigureAwait(false);
 			if (content == null)
 				throw new InformationNotFoundException();
@@ -402,11 +402,17 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", content.Alias }
 				};
 
+			// refresh (clear cache)
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+				await content.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 
+			var objectName = content.GetObjectName();
 			var response = content.ToJson(json =>
 			{
 				json["Thumbnails"] = thumbnailsTask.Result;
@@ -418,11 +424,18 @@ namespace net.vieapps.Services.Portals
 			// send update message
 			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = response,
 				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID,
-				Data = response
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}, cancellationToken).ConfigureAwait(false);
+			if (isRefresh)
+				await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;

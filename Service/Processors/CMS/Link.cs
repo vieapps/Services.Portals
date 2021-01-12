@@ -362,7 +362,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity(true, true) ?? "", cancellationToken).ConfigureAwait(false);
+			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
+			var link = await Link.GetAsync<Link>(identity ?? "", cancellationToken).ConfigureAwait(false);
 			if (link == null)
 				throw new InformationNotFoundException();
 			else if (link.Organization == null || link.Module == null || link.ContentType == null)
@@ -373,6 +374,14 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			if (!identity.IsValidUUID())
+				return new JObject
+				{
+					{ "ID", link.ID },
+					{ "Title", link.Title },
+					{ "URL", link.URL }
+				};
+
 			// refresh (clear cached and reload)
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
 			if (isRefresh)
@@ -382,22 +391,31 @@ namespace net.vieapps.Services.Portals
 				link._childrenIDs = null;
 			}
 
-			// prepare the response
 			if (link._childrenIDs == null)
 			{
 				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await Utility.Cache.SetAsync(link, cancellationToken).ConfigureAwait(false);
 			}
 
-			// send update messages
+			// prepare the response
 			var response = link.ToJson(true, false);
+
+			// send update messages
+			var objectName = link.GetObjectName();
 			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{link.GetObjectName()}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}, cancellationToken).ConfigureAwait(false);
+			if (isRefresh)
+				await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;
