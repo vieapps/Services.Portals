@@ -316,6 +316,11 @@ namespace net.vieapps.Services.Portals
 		public string Height { get; set; }
 
 		/// <summary>
+		/// Gets or Sets the rows (text-area)
+		/// </summary>
+		public int? Rows { get; set; }
+
+		/// <summary>
 		/// Gets or Sets the state to act as text/html editor
 		/// </summary>
 		public bool? AsTextEditor { get; set; }
