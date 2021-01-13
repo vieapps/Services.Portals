@@ -355,6 +355,44 @@ namespace net.vieapps.Services.Portals
 				};
 		}
 
+		internal static async Task<JObject> UpdateAsync(this Organization organization, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken)
+		{
+			// update
+			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			organization.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+
+			// send update messages
+			var response = organization.ToJson();
+			var objectName = organization.GetTypeName(true);
+			await Task.WhenAll(
+				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = response,
+					DeviceID = "*"
+				}, cancellationToken),
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken)
+			).ConfigureAwait(false);
+
+			// send notification
+			organization.SendNotificationAsync("Update", organization.Notifications, oldStatus, organization.Status, requestInfo, cancellationToken).Run();
+
+			// restart the refresh timer
+			await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = "RefreshTimer#Restart",
+				Data = response
+			}, cancellationToken).ConfigureAwait(false);
+
+			// response
+			return response;
+		}
+
 		internal static async Task<JObject> UpdateOrganizationAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// get the organization
@@ -391,41 +429,7 @@ namespace net.vieapps.Services.Portals
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
 			});
-			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-
-			// update cache
-			organization.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
-
-			// send update messages
-			var response = organization.ToJson();
-			var objectName = organization.GetTypeName(true);
-			await Task.WhenAll(
-				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*"
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
-			).ConfigureAwait(false);
-
-			// send notification
-			organization.SendNotificationAsync("Update", organization.Notifications, oldStatus, organization.Status, requestInfo, cancellationToken).Run();
-
-			// restart the refresh timer
-			await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = "RefreshTimer#Restart",
-				Data = response
-			}, cancellationToken).ConfigureAwait(false);
-
-			// response
-			return response;
+			return await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task<JObject> DeleteOrganizationAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)

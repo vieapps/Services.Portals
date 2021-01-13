@@ -355,6 +355,31 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
+		internal static async Task<JObject> UpdateAsync(this Item item, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken)
+		{
+			// update
+			await Item.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Utility.Cache.SetAsync($"e:{item.ContentTypeID}#a:{item.Alias.GenerateUUID()}".GetCacheKey<Item>(), item.ID, cancellationToken).ConfigureAwait(false);
+			item.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+
+			// send update message
+			var response = item.ToJson();
+			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
+				DeviceID = "*",
+				Data = response
+			}, cancellationToken).ConfigureAwait(false);
+
+			// send notification
+			item.SendNotificationAsync("Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, cancellationToken).Run();
+
+			// response
+			return response;
+		}
+
 		internal static async Task<JObject> UpdateItemAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
@@ -388,26 +413,7 @@ namespace net.vieapps.Services.Portals
 				item.Alias += $"-{DateTime.Now.ToUnixTimestamp()}";
 
 			// update
-			await Item.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await Utility.Cache.SetAsync($"e:{item.ContentTypeID}#a:{item.Alias.GenerateUUID()}".GetCacheKey<Item>(), item.ID, cancellationToken).ConfigureAwait(false);
-			item.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
-
-			// send update message
-			var response = item.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
-				DeviceID = "*",
-				Data = response
-			}, cancellationToken).ConfigureAwait(false);
-
-			// send notification
-			item.SendNotificationAsync("Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, cancellationToken).Run();
-
-			// response
-			return response;
+			return await item.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> DeleteItemAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)

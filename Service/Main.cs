@@ -366,14 +366,14 @@ namespace net.vieapps.Services.Portals
 								json = this.GenerateFormControls<Content>(requestInfo.GetParameter("x-content-type-id"));
 								break;
 
-							case "link":
-							case "cms.link":
-								json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type-id"));
-								break;
-
 							case "item":
 							case "cms.item":
 								json = this.GenerateFormControls<Item>(requestInfo.GetParameter("x-content-type-id"));
+								break;
+
+							case "link":
+							case "cms.link":
+								json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type-id"));
 								break;
 
 							case "contact":
@@ -413,9 +413,14 @@ namespace net.vieapps.Services.Portals
 						json = await this.ClearCacheAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
+					case "approve":
+					case "approval":
+						json = await this.ApproveAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
+
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-				#endregion
+						#endregion
 
 				}
 				stopwatch.Stop();
@@ -466,7 +471,7 @@ namespace net.vieapps.Services.Portals
 		JObject GenerateFormControl(ExtendedControlDefinition definition, ExtendedPropertyMode mode)
 		{
 			var controlType = mode.Equals(ExtendedPropertyMode.LargeText) || (definition.AsTextEditor != null && definition.AsTextEditor.Value)
-				? "TextEditor"
+				? mode.Equals(ExtendedPropertyMode.LargeText) && definition.AsTextEditor != null && !definition.AsTextEditor.Value ? "TextArea" : "TextEditor"
 				: mode.Equals(ExtendedPropertyMode.Select)
 					? "Select"
 					: mode.Equals(ExtendedPropertyMode.Lookup)
@@ -509,6 +514,15 @@ namespace net.vieapps.Services.Portals
 
 				if (!string.IsNullOrWhiteSpace(definition.ValidatePattern))
 					options["ValidatePattern"] = definition.ValidatePattern;
+
+				if (!string.IsNullOrWhiteSpace(definition.Width))
+					options["Width"] = definition.Width;
+
+				if (!string.IsNullOrWhiteSpace(definition.Height))
+					options["Height"] = definition.Height;
+
+				if (definition.Rows != null && definition.Rows.Value > 0)
+					options["Rows"] = definition.Rows.Value;
 
 				if (!string.IsNullOrWhiteSpace(definition.MinValue))
 					try
@@ -1627,7 +1641,7 @@ namespace net.vieapps.Services.Portals
 
 			// prepare the caching
 			var processCache = this.CacheDesktopHtmls && requestInfo.GetParameter("noCache") == null;
-			var forceCache =  requestInfo.GetParameter("forceCache") != null;
+			var forceCache = requestInfo.GetParameter("forceCache") != null;
 			var cacheKey = desktop.GetDesktopCacheKey(requestURI);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
 
@@ -4186,7 +4200,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken);
 		#endregion
 
-		#region Working with timers (for refreshing desktop URLs) & cache
+		#region Caching (timers for refreshing desktop URLs & clear cache)
 		ConcurrentDictionary<string, IDisposable> RefreshTimers { get; } = new ConcurrentDictionary<string, IDisposable>();
 
 		void StartRefreshTimer(Organization organization, bool refreshHomeDesktops = true)
@@ -4265,6 +4279,9 @@ namespace net.vieapps.Services.Portals
 		async Task<JToken> ClearCacheAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// validate
+			if (!requestInfo.Verb.IsEquals("GET"))
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
 			if (string.IsNullOrWhiteSpace(identity))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
@@ -4348,6 +4365,160 @@ namespace net.vieapps.Services.Portals
 				await $"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(1, requestInfo.CorrelationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]");
 
 			return new JObject();
+		}
+		#endregion
+
+		#region Approaval
+		async Task<JToken> ApproveAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// prepare
+			if (!requestInfo.Verb.IsEquals("GET"))
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			if (!Enum.TryParse<ApprovalStatus>(requestInfo.GetParameter("Status") ?? requestInfo.GetParameter("x-status"), out var approvalStatus))
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			var entityInfo = requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity");
+			var @object = await this.GetBusinessObjectAsync(entityInfo, requestInfo.GetObjectIdentity(true), cancellationToken).ConfigureAwait(false) as IPortalObject;
+			if (@object == null)
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			var organization = @object is Organization
+				? @object as Organization
+				:  await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (organization == null)
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			var site = @object is Site
+				? @object as Site
+				: null;
+
+			var bizObject = @object is IBusinessObject
+				? @object as IBusinessObject
+				: null;
+
+			var update = false;
+			var oldStatus = ApprovalStatus.Draft;
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.ID.IsEquals(organization.OwnerID);
+
+			switch (approvalStatus)
+			{
+				case ApprovalStatus.Draft:
+				case ApprovalStatus.Pending:
+					if (bizObject != null)
+					{
+						oldStatus = bizObject.Status;
+						update = !approvalStatus.Equals(bizObject.Status);
+						if (!gotRights)
+							gotRights = (int)bizObject.Status < (int)ApprovalStatus.Approved
+								? requestInfo.Session.User.ID.IsEquals(@object.CreatedID)
+								: requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges);
+					}
+					else if (site != null)
+					{
+						oldStatus = site.Status;
+						update = !approvalStatus.Equals(site.Status);
+					}
+					else if (@object is Organization)
+					{
+						oldStatus = organization.Status;
+						update = !approvalStatus.Equals(organization.Status);
+					}
+					break;
+
+				case ApprovalStatus.Rejected:
+				case ApprovalStatus.Approved:
+					if (bizObject != null)
+					{
+						oldStatus = bizObject.Status;
+						update = !approvalStatus.Equals(bizObject.Status);
+						if (!gotRights)
+							gotRights = (int)bizObject.Status < (int)ApprovalStatus.Approved
+								? requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges)
+								: requestInfo.Session.User.IsModerator(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges);
+					}
+					else if (site != null)
+					{
+						oldStatus = site.Status;
+						update = !approvalStatus.Equals(site.Status);
+					}
+					else if (@object is Organization)
+					{
+						oldStatus = organization.Status;
+						update = !approvalStatus.Equals(organization.Status);
+					}
+					break;
+
+				case ApprovalStatus.Published:
+				case ApprovalStatus.Archieved:
+					if (bizObject != null)
+					{
+						oldStatus = bizObject.Status;
+						update = !approvalStatus.Equals(bizObject.Status);
+						if (!gotRights)
+							gotRights = requestInfo.Session.User.IsModerator(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges);
+					}
+					else if (site != null)
+					{
+						oldStatus = site.Status;
+						update = !approvalStatus.Equals(site.Status);
+					}
+					else if (@object is Organization)
+					{
+						oldStatus = organization.Status;
+						update = !approvalStatus.Equals(organization.Status);
+					}
+					break;
+			}
+
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			if (!update)
+				return new JObject();
+
+			// do approval process
+			if (site != null)
+			{
+				site.Status = approvalStatus;
+				site.LastModified = DateTime.Now;
+				site.LastModifiedID = requestInfo.Session.User.ID;
+				return await site.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+			}
+			
+			if (@object is Organization)
+			{
+				organization.Status = approvalStatus;
+				organization.LastModified = DateTime.Now;
+				organization.LastModifiedID = requestInfo.Session.User.ID;
+				return await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+			}
+
+			if (@object is Content content)
+			{
+				content.Status = approvalStatus;
+				content.LastModified = DateTime.Now;
+				content.LastModifiedID = requestInfo.Session.User.ID;
+				return await content.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+			}
+
+			if (@object is Item item)
+			{
+				item.Status = approvalStatus;
+				item.LastModified = DateTime.Now;
+				item.LastModifiedID = requestInfo.Session.User.ID;
+				return await item.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+			}
+
+			if (@object is Link link)
+			{
+				link.Status = approvalStatus;
+				link.LastModified = DateTime.Now;
+				link.LastModifiedID = requestInfo.Session.User.ID;
+				return await link.UpdateAsync(requestInfo, oldStatus, null, cancellationToken).ConfigureAwait(false);
+			}
+
+			return @object.ToJson();
 		}
 		#endregion
 

@@ -441,6 +441,40 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
+		internal static async Task<JObject> UpdateAsync(this Content content, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken)
+		{
+			// update
+			await Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
+			content.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+
+			// prepare the response
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+
+			var response = content.ToJson(json =>
+			{
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+				json["Details"] = content.Organization.NormalizeURLs(content.Details);
+			});
+
+			// send update message
+			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
+				DeviceID = "*",
+				Data = response
+			}, cancellationToken).ConfigureAwait(false);
+
+			// send notification
+			content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, cancellationToken).Run();
+
+			// response
+			return response;
+		}
+
 		internal static async Task<JObject> UpdateContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
@@ -516,35 +550,7 @@ namespace net.vieapps.Services.Portals
 			content.ExternalRelateds = content.ExternalRelateds != null && content.ExternalRelateds.Count > 0 ? content.ExternalRelateds : null;
 
 			// update
-			await Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
-			content.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
-
-			// prepare the response
-			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
-
-			var response = content.ToJson(json =>
-			{
-				json["Thumbnails"] = thumbnailsTask.Result;
-				json["Attachments"] = attachmentsTask.Result;
-				json["Details"] = content.Organization.NormalizeURLs(content.Details);
-			});
-
-			// send update message
-			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
-				DeviceID = "*",
-				Data = response
-			}, cancellationToken).ConfigureAwait(false);
-
-			// send notification
-			content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, cancellationToken).Run();
-
-			// response
-			return response;
+			return await content.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> DeleteContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)

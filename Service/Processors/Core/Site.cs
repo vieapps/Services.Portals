@@ -462,41 +462,10 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateSiteAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateAsync(this Site site, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken)
 		{
-			// prepare
-			var site = await (requestInfo.GetObjectIdentity() ?? "").GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (site == null)
-				throw new InformationNotFoundException();
-			else if (site.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(site.Organization.OwnerID) || requestInfo.Session.User.IsModerator(site.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// check domain
-			var request = requestInfo.GetBodyExpando();
-			var domain = $"{request.Get<string>("SubDomain")}.{request.Get<string>("PrimaryDomain")}";
-			var existing = await domain.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
-			if (existing != null && !existing.ID.Equals(site.ID))
-				throw new InformationExistedException($"The domain ({domain.NormalizeDomain()}) was used by another site");
-
-			// validate meta-tags
-			request.Get("MetaTags", "").ValidateTags();
-
 			// update
-			var oldStatus = site.Status;
-			site.UpdateSiteInstance(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-			});
 			await Site.UpdateAsync(site, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-
-			// update cache
 			site.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
@@ -522,6 +491,44 @@ namespace net.vieapps.Services.Portals
 
 			// response
 			return response;
+		}
+
+		internal static async Task<JObject> UpdateSiteAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		{
+			// prepare
+			var site = await (requestInfo.GetObjectIdentity() ?? "").GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (site == null)
+				throw new InformationNotFoundException();
+			else if (site.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(site.Organization.OwnerID) || requestInfo.Session.User.IsModerator(site.Organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// check domain
+			var request = requestInfo.GetBodyExpando();
+			var domain = $"{request.Get<string>("SubDomain")}.{request.Get<string>("PrimaryDomain")}";
+			var existing = await domain.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
+			if (existing != null && !existing.ID.Equals(site.ID))
+				throw new InformationExistedException($"The domain ({domain.NormalizeDomain()}) was used by another site");
+
+			// validate meta-tags
+			request.Get("MetaTags", "").ValidateTags();
+
+			// gathering information
+			var oldStatus = site.Status;
+			site.UpdateSiteInstance(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			{
+				obj.LastModified = DateTime.Now;
+				obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
+			});
+			await Site.UpdateAsync(site, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
+			// update
+			return await site.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> DeleteSiteAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)

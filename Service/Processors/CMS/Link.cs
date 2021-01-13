@@ -422,40 +422,8 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateAsync(this Link link, RequestInfo requestInfo, ApprovalStatus oldStatus, string oldParentID, CancellationToken cancellationToken)
 		{
-			// prepare
-			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
-			if (link == null)
-				throw new InformationNotFoundException();
-			else if (link.Organization == null || link.Module == null || link.ContentType == null)
-				throw new InformationInvalidException("The organization/module/content-type is invalid");
-
-			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(link.Organization.OwnerID) || requestInfo.Session.User.IsEditor(link.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			var oldParentID = link.ParentID;
-			var oldStatus = link.Status;
-			link.UpdateLinkInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-			});
-
-			if (link.ChildrenMode.Equals(ChildrenMode.Normal) || string.IsNullOrWhiteSpace(link.LookupRepositoryID) || string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) || string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
-			{
-				link.ChildrenMode = ChildrenMode.Normal;
-				link.LookupRepositoryID = link.LookupRepositoryEntityID = link.LookupRepositoryObjectID = null;
-			}
-
-			if (link.ParentLink != null && !link.ParentID.IsEquals(oldParentID))
-			{
-				link.OrderIndex = (await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
-				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-			}
-
 			// update
 			await Link.UpdateAsync(link, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).Run();
@@ -549,6 +517,44 @@ namespace net.vieapps.Services.Portals
 
 			// response
 			return response;
+		}
+
+		internal static async Task<JObject> UpdateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		{
+			// prepare
+			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			if (link == null)
+				throw new InformationNotFoundException();
+			else if (link.Organization == null || link.Module == null || link.ContentType == null)
+				throw new InformationInvalidException("The organization/module/content-type is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(link.Organization.OwnerID) || requestInfo.Session.User.IsEditor(link.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			var oldParentID = link.ParentID;
+			var oldStatus = link.Status;
+			link.UpdateLinkInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			{
+				obj.LastModified = DateTime.Now;
+				obj.LastModifiedID = requestInfo.Session.User.ID;
+			});
+
+			if (link.ChildrenMode.Equals(ChildrenMode.Normal) || string.IsNullOrWhiteSpace(link.LookupRepositoryID) || string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) || string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
+			{
+				link.ChildrenMode = ChildrenMode.Normal;
+				link.LookupRepositoryID = link.LookupRepositoryEntityID = link.LookupRepositoryObjectID = null;
+			}
+
+			if (link.ParentLink != null && !link.ParentID.IsEquals(oldParentID))
+			{
+				link.OrderIndex = (await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
+				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			}
+
+			// update
+			return await link.UpdateAsync(requestInfo, oldStatus, oldParentID, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> UpdateLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
