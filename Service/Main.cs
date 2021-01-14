@@ -1655,7 +1655,7 @@ namespace net.vieapps.Services.Portals
 				{ "X-Correlation-ID", requestInfo.CorrelationID }
 			};
 
-			var lastModified = "";
+			string lastModified = null;
 			if (processCache && modifiedSince != null && eTag.IsEquals(noneMatch))
 			{
 				lastModified = await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false);
@@ -1688,25 +1688,25 @@ namespace net.vieapps.Services.Portals
 			{
 				if (Utility.RefresherRefererURL.IsEquals(requestInfo.GetHeaderParameter("Referer")))
 				{
-					lastModified = DateTime.Now.ToHttpString();
+					lastModified = lastModified ?? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
 					Task.WhenAll
 					(
-						Utility.Cache.SetAsync(cacheKey, html, Utility.Cache.ExpirationTime / 2),
-						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, Utility.Cache.ExpirationTime / 2)
+						Utility.Cache.SetAsync(cacheKey, html),
+						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified)
 					).Run();
 				}
 				html = this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.CorrelationID);
-				lastModified = string.IsNullOrWhiteSpace(lastModified) ? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false) : lastModified;
+				lastModified = lastModified ?? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false);
 				if (string.IsNullOrWhiteSpace(lastModified))
 				{
 					lastModified = DateTime.Now.ToHttpString();
-					Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, Utility.Cache.ExpirationTime / 2).Run();
+					Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified).Run();
 				}
 				headers = new Dictionary<string, string>(headers)
 				{
 					{ "ETag", eTag },
 					{ "Last-Modified", lastModified },
-					{ "Expires", DateTime.Now.AddMinutes(Utility.Cache.ExpirationTime / 2).ToHttpString() },
+					{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
 					{ "Cache-Control", "public" }
 				};
 				response = new JObject
@@ -1942,6 +1942,7 @@ namespace net.vieapps.Services.Portals
 				html = html.Insert(html.IndexOf("</body>"), body + scripts);
 
 				// minify
+				html = html.Replace(Utility.FilesHttpURI, "~~");
 				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html.Trim();
 
 				// prepare caching
@@ -1952,13 +1953,13 @@ namespace net.vieapps.Services.Portals
 					{
 						{ "ETag", eTag },
 						{ "Last-Modified", lastModified },
-						{ "Expires", DateTime.Now.AddMinutes(Utility.Cache.ExpirationTime / 2).ToHttpString() },
+						{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
 						{ "Cache-Control", "public" }
 					};
 					Task.WhenAll
 					(
-						Utility.Cache.SetAsync(cacheKey, html, Utility.Cache.ExpirationTime / 2),
-						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, Utility.Cache.ExpirationTime / 2),
+						Utility.Cache.SetAsync(cacheKey, html),
+						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified),
 						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), new[] { cacheKey, cacheKeyOfLastModified })
 					).Run();
 				}
