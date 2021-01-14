@@ -148,17 +148,18 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateOrganizationInstance().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null, bool clearHtmlCacheKeys = true, bool doRefresh = true)
 		{
 			// data cache keys
 			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
 				.Concat(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(Filters<Organization>.Equals("OwnerID", organization.OwnerID)), Sorts<Organization>.Ascending("Title")))
-				.Distinct(StringComparer.OrdinalIgnoreCase)				
+				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 
 			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = new[] { $"css#o_{organization.ID}", $"css#o_{organization.ID}:time", $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" }
-				.Concat(doRefresh ? organization.GetDesktopCacheKey() : new List<string>()).ToList();
+			var htmlCacheKeys = clearHtmlCacheKeys
+				? organization.GetDesktopCacheKey().Concat(new[] { $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" }).ToList()
+				: new List<string>();
 
 			// clear related cache
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
@@ -172,12 +173,12 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Organization organization, string correlationID = null)
 			=> organization.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Organization organization, RequestInfo requestInfo, CancellationToken cancellationToken)
+		internal static List<Task> ClearRelatedCacheAsync(this Organization organization, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHtmlCacheKeys = false)
 		{
 			organization.Remove();
 			return new List<Task>
 			{
-				organization.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false),
+				organization.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHtmlCacheKeys, false),
 				Utility.Cache.RemoveAsync(organization, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{

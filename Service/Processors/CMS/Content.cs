@@ -631,7 +631,7 @@ namespace net.vieapps.Services.Portals
 
 			JArray breadcrumbs = null;
 			JObject pagination = null, seoInfo = null, filterBy = null, sortBy = null;
-			string coverURI = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null;
+			string coverURI = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null, ids = null;
 
 			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", true)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
 			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
@@ -804,11 +804,16 @@ namespace net.vieapps.Services.Portals
 					totalRecords = await Utility.Cache.GetAsync<long>(Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false);
 
 				// other info
+				ids = "system:" + (contentType != null ? $"\"{contentType.SystemID}\"" : null) + ","
+					+ "repository:" + (contentType != null ? $"\"{contentType.RepositoryID}\"" : null) + ","
+					+ "entity:" + (contentType != null ? $"\"{contentType.ID}\"" : null);
+
 				if (category != null)
 				{
 					var categoryID = filter?.GetValue("CategoryID");
 					if (!string.IsNullOrWhiteSpace(categoryID) && categoryID.IsValidUUID() && !categoryID.IsEquals(category.ID))
 						category = await categoryID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+					ids += (ids != "" ? "," : "") + "category:" + (category != null ? $"\"{category.ID}\"" : null);
 				}
 
 				// prepare breadcrumbs
@@ -1087,6 +1092,7 @@ namespace net.vieapps.Services.Portals
 				seoTitle = @object.Title;
 				seoDescription = @object.Summary;
 				seoKeywords = @object.Tags;
+				ids = $"system:\"{@object.SystemID}\",repository:\"{@object.RepositoryID}\",entity:\"{@object.RepositoryEntityID}\",category:\"{@object.CategoryID}\",id:\"{@object.ID}\"";
 			}
 
 			// SEO
@@ -1098,6 +1104,8 @@ namespace net.vieapps.Services.Portals
 			};
 
 			// response
+			var contentTypeDefinitionJson = requestJson.Get<JObject>("ContentTypeDefinition");
+			var moduleDefinitionJson = requestJson.Get<JObject>("ModuleDefinition");
 			return new JObject
 			{
 				{ "Data", data },
@@ -1106,7 +1114,8 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filterBy },
 				{ "SortBy", sortBy },
 				{ "SEOInfo", seoInfo },
-				{ "CoverURI", coverURI }
+				{ "CoverURI", coverURI },
+				{ "IDs", ids + $",service:\"{moduleDefinitionJson.Get<string>("ServiceName").ToLower()}\",object:\"{contentTypeDefinitionJson.Get<string>("ObjectNamePrefix")?.ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectName").ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectNameSuffix")?.ToLower()}\"" }
 			};
 		}
 

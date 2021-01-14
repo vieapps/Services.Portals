@@ -490,7 +490,7 @@ namespace net.vieapps.Services.Portals
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Default");
 
 			JObject pagination = null, seoInfo, filterBy = null, sortBy = null;
-			string coverURI = null, data = null;
+			string coverURI = null, data = null, ids = null;
 
 			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", false)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
 			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
@@ -638,6 +638,11 @@ namespace net.vieapps.Services.Portals
 					{ "Title", contentType?.Title },
 					{ "Description", contentType?.Description }
 				};
+
+				// other info
+				ids = "system:" + (contentType != null ? $"\"{contentType.SystemID}\"" : null) + ","
+					+ "repository:" + (contentType != null ? $"\"{contentType.RepositoryID}\"" : null) + ","
+					+ "entity:" + (contentType != null ? $"\"{contentType.ID}\"" : null);
 			}
 
 			// generate details
@@ -793,9 +798,12 @@ namespace net.vieapps.Services.Portals
 				thumbnailsTask = thumbnailsTask ?? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 				await thumbnailsTask.ConfigureAwait(false);
 				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI");
+				ids = $"system:\"{@object.SystemID}\",repository:\"{@object.RepositoryID}\",entity:\"{@object.RepositoryEntityID}\",id:\"{@object.ID}\"";
 			}
 
 			// response
+			var contentTypeDefinitionJson = requestJson.Get<JObject>("ContentTypeDefinition");
+			var moduleDefinitionJson = requestJson.Get<JObject>("ModuleDefinition");
 			return new JObject
 			{
 				{ "Data", data },
@@ -803,7 +811,8 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filterBy },
 				{ "SortBy", sortBy },
 				{ "SEOInfo", seoInfo },
-				{ "CoverURI", coverURI }
+				{ "CoverURI", coverURI },
+				{ "IDs", ids + $",service:\"{moduleDefinitionJson.Get<string>("ServiceName").ToLower()}\",object:\"{contentTypeDefinitionJson.Get<string>("ObjectNamePrefix")?.ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectName").ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectNameSuffix")?.ToLower()}\"" }
 			};
 		}
 

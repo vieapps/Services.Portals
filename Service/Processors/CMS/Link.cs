@@ -2,7 +2,6 @@
 using System;
 using System.Linq;
 using System.Xml.Linq;
-using System.Xml.XPath;
 using System.Dynamic;
 using System.Globalization;
 using System.Threading;
@@ -831,7 +830,7 @@ namespace net.vieapps.Services.Portals
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(contentType?.WorkingPrivileges);
 			if (!gotRights)
 			{
-				var organization = contentType?.Organization ?? await organizationJson.Get<string>("ID", "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+				var organization = contentType?.Organization ?? await organizationJson.Get("ID", "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 				gotRights = requestInfo.Session.User.ID.IsEquals(organization?.OwnerID);
 			}
 			if (!gotRights)
@@ -1230,22 +1229,23 @@ namespace net.vieapps.Services.Portals
 
 		internal static XElement SetSelected(this XElement xml, string requestedURL)
 		{
+			var isSelected = false;
+
 			var subMenu = xml.Element("SubMenu");
 			if (subMenu != null && subMenu.HasElements)
+			{
 				subMenu.Elements().ForEach(element => element.SetSelected(requestedURL));
+				isSelected = subMenu.Elements().Any(element => "true".IsEquals(element.Element("Selected").Value));
+			}
 
-			var isSelected = subMenu != null && subMenu.HasElements && subMenu.XPathSelectElements("//Selected").Any(element => "true".IsEquals(element.Value));
 			if (!isSelected)
 			{
-				var url = xml.Element("URL").Value;
-				isSelected = string.IsNullOrWhiteSpace(url) || url.Equals("#")
-					? false
-					: url.IsEquals("~/") || url.IsEquals("~/index") || url.IsEquals("~/index.html") || url.IsEquals("~/index.aspx") || url.IsEquals("~/default") || url.IsEquals("~/default.html") || url.IsEquals("~/default.aspx")
-						? requestedURL.IsEquals("~/") || requestedURL.IsEquals("~/index") || requestedURL.IsEquals("~/default")
-						: requestedURL.IsStartsWith(url.Replace(".html", ""));
+				var url = xml.Element("URL").Value?.Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "").Trim();
+				if (!string.IsNullOrWhiteSpace(url) && !url.IsEquals("#"))
+					isSelected = url.IsEquals("~/") || url.IsEquals("~/index") || url.IsEquals("~/default") ? requestedURL.IsEquals(url) : requestedURL.IsStartsWith(url);
 			}
-			xml.Element("Selected").Value = isSelected.ToString().ToLower();
 
+			xml.Element("Selected").Value = $"{isSelected}".ToLower();
 			return xml;
 		}
 

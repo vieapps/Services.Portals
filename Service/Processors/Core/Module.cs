@@ -139,7 +139,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateModuleInstance().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default, string correlationID = null, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default, string correlationID = null, bool clearHtmlCacheKeys = true, bool doRefresh = true)
 		{
 			// data cache keys
 			var sort = Sorts<Module>.Ascending("Title");
@@ -150,10 +150,11 @@ namespace net.vieapps.Services.Portals
 				.ToList();
 
 			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = new[] { module.Desktop?.GetSetCacheKey() }.Concat(module.Organization?.GetDesktopCacheKey() ?? new List<string>()).ToList();
+			var htmlCacheKeys = new List<string>();
 
-			if (doRefresh)
+			if (clearHtmlCacheKeys)
 			{
+				htmlCacheKeys = new[] { module.Desktop?.GetSetCacheKey() }.Concat(module.Organization?.GetDesktopCacheKey() ?? new List<string>()).ToList();
 				var desktopSetCacheKeys = new List<string>();
 				await module.ContentTypes.ForEachAsync(async (contentType, _) =>
 				{
@@ -184,12 +185,12 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Module module, string correlationID = null)
 			=> module.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Module module, RequestInfo requestInfo, CancellationToken cancellationToken)
+		internal static List<Task> ClearRelatedCacheAsync(this Module module, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHtmlCacheKeys = false)
 		{
 			module.Remove();
-			return new[]
+			return module.ContentTypes.Select(contentType => contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken, clearHtmlCacheKeys)).SelectMany(tasks => tasks).Concat(new[]
 			{
-				module.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false),
+				module.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHtmlCacheKeys, false),
 				Utility.Cache.RemoveAsync(module, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -197,7 +198,7 @@ namespace net.vieapps.Services.Portals
 					Data = module.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken)
-			}.Concat(module.ContentTypes.Select(contentType => contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken)).SelectMany(tasks => tasks)).ToList();
+			}).ToList();
 		}
 
 		internal static async Task<JObject> SearchModulesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)

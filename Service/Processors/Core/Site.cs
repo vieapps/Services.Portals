@@ -240,7 +240,7 @@ namespace net.vieapps.Services.Portals
 			return Task.CompletedTask;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearHtmlCacheKeys = true, bool doRefresh = true)
 		{
 			// data cache keys
 			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
@@ -252,7 +252,10 @@ namespace net.vieapps.Services.Portals
 				.ToList();
 
 			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = site.Organization.GetDesktopCacheKey().Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time" }).ToList();
+			var theme = site.Theme ?? site.Organization.Theme ?? "defaut";
+			var htmlCacheKeys = clearHtmlCacheKeys
+				? site.Organization.GetDesktopCacheKey().Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time", $"js#o_{site.OrganizationID}", $"js#o_{site.OrganizationID}:time", "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }).ToList()
+				: new List<string>();
 
 			// clear related cache
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
@@ -266,12 +269,12 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Site site, string correlationID = null)
 			=> site.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Site site, RequestInfo requestInfo, CancellationToken cancellationToken)
+		internal static List<Task> ClearRelatedCacheAsync(this Site site, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHtmlCacheKeys = false)
 		{
 			site.Remove();
 			return new List<Task>
 			{
-				site.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false),
+				site.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHtmlCacheKeys, false),
 				Utility.Cache.RemoveAsync(site, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{

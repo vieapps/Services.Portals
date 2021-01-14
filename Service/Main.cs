@@ -1773,7 +1773,7 @@ namespace net.vieapps.Services.Portals
 				var parentIdentity = requestInfo.GetQueryParameter("x-parent");
 				var contentIdentity = requestInfo.GetQueryParameter("x-content");
 				var pageNumber = requestInfo.GetQueryParameter("x-page");
-				var fileSurfname = $"_p[{(string.IsNullOrWhiteSpace(parentIdentity) ? "none" : parentIdentity.Left(32) + (parentIdentity.Length > 32 ? "---" : "")).GetANSIUri()}]_c[{(string.IsNullOrWhiteSpace(contentIdentity) ? "none" : contentIdentity.Left(32) + (contentIdentity.Length > 32 ? "---" : "")).GetANSIUri()}]";
+				var fileSuffixName = $"_p[{(string.IsNullOrWhiteSpace(parentIdentity) ? "none" : parentIdentity.Left(32) + (parentIdentity.Length > 32 ? "---" : "")).GetANSIUri()}]_c[{(string.IsNullOrWhiteSpace(contentIdentity) ? "none" : contentIdentity.Left(32) + (contentIdentity.Length > 32 ? "---" : "")).GetANSIUri()}]";
 
 				async Task<JObject> generateAsync(ContentType portletContentType, JObject requestJson)
 				{
@@ -1791,7 +1791,7 @@ namespace net.vieapps.Services.Portals
 					{
 						var portletTitle = requestJson.Get<string>("Title");
 						var portletID = requestJson.Get<string>("ID");
-						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portletTitle}_{portletID}".GetANSIUri()}{fileSurfname}_request.json"), requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
+						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portletTitle}_{portletID}".GetANSIUri()}{fileSuffixName}_request.json"), requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
 					}
 					return data;
 				}
@@ -1804,7 +1804,7 @@ namespace net.vieapps.Services.Portals
 					if (data != null)
 						portletData[portlet.ID] = data;
 					if (writeDesktopLogs)
-						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSurfname}_response.json"), data?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
+						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSuffixName}_response.json"), data?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
 				}, cancellationToken, true, this.RunDesktopGeneratorInParallelsMode).ConfigureAwait(false);
 				stepwatch.Stop();
 				this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete prepare portlets' data of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").Run();
@@ -1821,7 +1821,7 @@ namespace net.vieapps.Services.Portals
 					{
 						var action = !string.IsNullOrWhiteSpace(parentIdentity) && !string.IsNullOrWhiteSpace(contentIdentity) ? portlet.OriginalPortlet.AlternativeAction : portlet.OriginalPortlet.Action;
 						var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
-						portletHtmls[portlet.ID] = await this.GeneratePortletAsync(portlet, isList, portletData.TryGetValue(portlet.ID, out var data) ? data : null, siteJson, desktopsJson, organization.AlwaysUseHtmlSuffix, requestInfo.CorrelationID, token, writeDesktopLogs, fileSurfname).ConfigureAwait(false);
+						portletHtmls[portlet.ID] = await this.GeneratePortletAsync(portlet, isList, portletData.TryGetValue(portlet.ID, out var data) ? data : null, siteJson, desktopsJson, organization.AlwaysUseHtmlSuffix, requestInfo.CorrelationID, token, writeDesktopLogs, fileSuffixName).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
@@ -1832,9 +1832,10 @@ namespace net.vieapps.Services.Portals
 				// generate desktop
 				string title = "", metaTags = "", body = "", stylesheets = "", scripts = "";
 				var gotErrorOnGenerateDesktop = false;
+				var mainPortlet = !string.IsNullOrWhiteSpace(desktop.MainPortletID) && portletData.ContainsKey(desktop.MainPortletID) ? portletData[desktop.MainPortletID] : null;
 				try
 				{
-					var desktopData = await this.GenerateDesktopAsync(desktop, organization, site, string.IsNullOrWhiteSpace(desktop.MainPortletID) || !portletData.TryGetValue(desktop.MainPortletID, out var mainPortlet) ? null : mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					var desktopData = await this.GenerateDesktopAsync(desktop, organization, site, mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					title = desktopData.Item1;
 					metaTags = desktopData.Item2;
 					body = desktopData.Item3;
@@ -1903,8 +1904,7 @@ namespace net.vieapps.Services.Portals
 					stylesheets += string.IsNullOrWhiteSpace(portletStylesheets) ? "" : $"<style>{portletStylesheets.MinifyCss()}</style>";
 				}
 
-				scripts = "<script src=\"" + this.JQuerySource + "\"></script><script>var $j=$;var __vieapps={URLs:{root:\"~/\",portals:\"" + Utility.PortalsHttpURI + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}}},language:{{language}},isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>" + scripts;
-
+				scripts = "<script src=\"" + this.JQuerySource + "\"></script><script>var $j=$;var __vieapps={ids:{" + (mainPortlet?.Get<string>("IDs") ?? $"system:\"{organization.ID}\",service:\"{this.ServiceName.ToLower()}\"") + $",parent:\"{parentIdentity}\",content:\"{contentIdentity}\"" + "},URLs:{root:\"~/\",portals:\"" + Utility.PortalsHttpURI + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}}},language:{{language}},isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>" + scripts;
 				var zoneHtmls = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 				desktop.Portlets.OrderBy(portlet => portlet.Zone).ThenBy(portlet => portlet.OrderIndex).ForEach(portlet =>
 				{
@@ -2136,7 +2136,7 @@ namespace net.vieapps.Services.Portals
 			return responseJson;
 		}
 
-		async Task<Tuple<string, bool>> GeneratePortletAsync(Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix = true, string correlationID = null, CancellationToken cancellationToken = default, bool writeLogs = false, string fileSurfname = null)
+		async Task<Tuple<string, bool>> GeneratePortletAsync(Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix = true, string correlationID = null, CancellationToken cancellationToken = default, bool writeLogs = false, string fileSuffixName = null)
 		{
 			// get original first
 			var stopwatch = Stopwatch.StartNew();
@@ -2486,7 +2486,7 @@ namespace net.vieapps.Services.Portals
 						content = xml.Transform(xslTemplate, optionsJson.Get<bool>("EnableDocumentFunctionAndInlineScripts", false));
 						if (writeLogs)
 						{
-							var filename = $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSurfname}";
+							var filename = $"{$"{theportlet.Title}_{theportlet.ID}".GetANSIUri()}{fileSuffixName}";
 							await Task.WhenAll
 							(
 								this.WriteLogsAsync(correlationID, $"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request"),
@@ -3032,7 +3032,9 @@ namespace net.vieapps.Services.Portals
 				["desktop-alias"] = desktop.Alias,
 				["alias"] = desktop.Alias,
 				["main-portlet-type"] = mainPortletType.ToLower().Replace(".", "-"),
-				["main-portlet-action"] = mainPortletAction.ToLower()
+				["main-portlet-action"] = mainPortletAction.ToLower(),
+				["parent-identity"] = parentIdentity ?? "",
+				["content-identity"] = contentIdentity ?? ""
 			});
 
 			return new Tuple<string, string, string, string, string>(title, metaTags, body, stylesheets, scripts);
@@ -4292,6 +4294,7 @@ namespace net.vieapps.Services.Portals
 			Organization organization = null;
 			Module module = null;
 			ContentType contentType = null;
+			Site site = null;
 			Desktop desktop = null;
 			switch (requestInfo.GetObjectIdentity().ToLower())
 			{
@@ -4311,6 +4314,11 @@ namespace net.vieapps.Services.Portals
 					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(contentType?.Organization?.OwnerID) || requestInfo.Session.User.IsAdministrator(contentType?.WorkingPrivileges);
 					break;
 
+				case "site":
+					site = await identity.GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(site?.Organization?.OwnerID) || requestInfo.Session.User.IsModerator(site?.WorkingPrivileges);
+					break;
+
 				case "desktop":
 					desktop = await identity.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop?.Organization?.OwnerID) || requestInfo.Session.User.IsModerator(desktop?.WorkingPrivileges);
@@ -4328,13 +4336,26 @@ namespace net.vieapps.Services.Portals
 			var tasks = new List<Task>();
 
 			if (desktop != null)
-				tasks = desktop.ClearRelatedCacheAsync(requestInfo, cancellationToken).ToList();
+				tasks = desktop.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
+
+			if (site != null)
+			{
+				tasks = site.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
+				var desktops = await Desktop.FindAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", site.SystemID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+				await desktops.ForEachAsync(async (thedesktop, _) =>
+				{
+					tasks = thedesktop.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).Concat(tasks).ToList();
+					var desktopCacheKeys = await Utility.Cache.GetSetMembersAsync(thedesktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
+					if (desktopCacheKeys.Count > 0)
+						tasks = new[] { Utility.Cache.RemoveAsync(desktopCacheKeys.Concat(new[] { thedesktop.GetSetCacheKey() }), cancellationToken) }.Concat(tasks).ToList();
+				}, cancellationToken, true, false).ConfigureAwait(false);
+			}
 
 			if (contentType != null)
-				tasks = contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken).ToList();
+				tasks = contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
 
 			if (module != null)
-				tasks = module.ClearRelatedCacheAsync(requestInfo, cancellationToken).ToList();
+				tasks = module.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
 
 			if (organization != null)
 			{
@@ -4347,10 +4368,17 @@ namespace net.vieapps.Services.Portals
 				roles.ForEach(role => tasks = role.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
 
 				organization.Modules.ForEach(themodule => tasks = themodule.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
-				organization.Sites.ForEach(site => tasks = site.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
 
 				var desktops = await Desktop.FindAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				desktops.ForEach(thedesktop => tasks = thedesktop.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
+				await desktops.ForEachAsync(async (thedesktop, _) =>
+				{
+					tasks = thedesktop.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList();
+					var desktopCacheKeys = await Utility.Cache.GetSetMembersAsync(thedesktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
+					if (desktopCacheKeys.Count > 0)
+						tasks = new[] { Utility.Cache.RemoveAsync(desktopCacheKeys.Concat(new[] { thedesktop.GetSetCacheKey() }), cancellationToken) }.Concat(tasks).ToList();
+				}, cancellationToken, true, false).ConfigureAwait(false);
+
+				organization.Sites.ForEach(thesite => tasks = thesite.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
 
 				tasks = organization.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList();
 			}
@@ -4361,14 +4389,75 @@ namespace net.vieapps.Services.Portals
 			if (Utility.WriteCacheLogs)
 				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear related cache successful [{tasks.Count} tasks] - Execution times: {stopwatch.GetElapsedTimes()}", cancellationToken, "Caches").ConfigureAwait(false);
 
+			// re-load
 			if (organization != null)
-				await $"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(1, requestInfo.CorrelationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]");
+			{
+				// re-load organization & sites/modules/content-types
+				organization = await organization.ID.GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+				await Task.WhenAll(
+					organization.FindSitesAsync(cancellationToken, false),
+					organization.FindModulesAsync(cancellationToken, false)
+				).ConfigureAwait(false);
+				await organization.Modules.ForEachAsync(async (themodule, _) => await themodule.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
+				await Task.WhenAll(
+					organization.SetAsync(false, true, cancellationToken),
+					Task.WhenAll(organization.Sites.Select(thesite => thesite.SetAsync(false, true, cancellationToken))),
+					Task.WhenAll(organization.Modules.Select(themodule => themodule.SetAsync(true, cancellationToken))),
+					Task.WhenAll(organization.Modules.Select(themodule => Task.WhenAll(themodule.ContentTypes.Select(theContentType => theContentType.SetAsync(true, cancellationToken)))))
+				).ConfigureAwait(false);
+
+				// re-load home desktop and refresh HTML
+				desktop = await Desktop.GetAsync<Desktop>(organization.HomeDesktopID, cancellationToken).ConfigureAwait(false);
+				await Task.WhenAll(
+					desktop.FindChildrenAsync(cancellationToken, false),
+					desktop.FindPortletsAsync(cancellationToken, false)
+				).ConfigureAwait(false);
+				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				await $"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(0, requestInfo.CorrelationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]");
+			}
+			
+			if (module != null)
+			{
+				module = await Module.GetAsync<Module>(module.ID, cancellationToken).ConfigureAwait(false);
+				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
+				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+			}
+			
+			if (contentType != null)
+			{
+				contentType = await ContentType.GetAsync<ContentType>(contentType.ID, cancellationToken).ConfigureAwait(false);
+				await contentType.SetAsync(true, cancellationToken).ConfigureAwait(false);
+			}
+			
+			if (site != null)
+			{
+				site = await Site.GetAsync<Site>(site.ID, cancellationToken).ConfigureAwait(false);
+				desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
+				await Task.WhenAll(
+					desktop.FindChildrenAsync(cancellationToken, false),
+					desktop.FindPortletsAsync(cancellationToken, false)
+				).ConfigureAwait(false);
+				await Task.WhenAll(
+					site.SetAsync(false, true, cancellationToken),
+					desktop.SetAsync(false, true, cancellationToken)
+				).ConfigureAwait(false);
+			}
+			
+			if (desktop != null)
+			{
+				desktop = await Desktop.GetAsync<Desktop>(desktop.ID, cancellationToken).ConfigureAwait(false);
+				await Task.WhenAll(
+					desktop.FindChildrenAsync(cancellationToken, false),
+					desktop.FindPortletsAsync(cancellationToken, false)
+				).ConfigureAwait(false);
+				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			}
 
 			return new JObject();
 		}
 		#endregion
 
-		#region Approaval
+		#region Approval
 		async Task<JToken> ApproveAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare

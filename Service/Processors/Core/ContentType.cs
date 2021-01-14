@@ -133,7 +133,7 @@ namespace net.vieapps.Services.Portals
 			return Task.CompletedTask;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this ContentType contentType, CancellationToken cancellationToken, string correlationID = null, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this ContentType contentType, CancellationToken cancellationToken, string correlationID = null, bool clearHtmlCacheKeys = true, bool doRefresh = true)
 		{
 			// data cache keys
 			var sort = Sorts<ContentType>.Ascending("Title");
@@ -143,22 +143,27 @@ namespace net.vieapps.Services.Portals
 				.Concat(Extensions.GetRelatedCacheKeys(ContentTypeProcessor.GetContentTypesFilter(contentType.SystemID, contentType.RepositoryID, null), sort))
 				.Concat(Extensions.GetRelatedCacheKeys(ContentTypeProcessor.GetContentTypesFilter(contentType.SystemID, null, contentType.ContentTypeDefinitionID), sort))
 				.Concat(await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false))
+				.Concat(new[] { contentType.GetSetCacheKey() })
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 
 			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = contentType.Organization?.GetDesktopCacheKey() ?? new List<string>();
-			await new[] { contentType.Desktop?.GetSetCacheKey() }
-				.Concat(await contentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? new List<string>())
-				.Where(id => !string.IsNullOrWhiteSpace(id))
-				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.ToList()
-				.ForEachAsync(async (desktopSetCacheKey, _) =>
-				{
-					var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
-					if (cacheKeys != null && cacheKeys.Count > 0)
-						htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
-				}, cancellationToken, true, false).ConfigureAwait(false);
+			var htmlCacheKeys = new List<string>();
+			if (clearHtmlCacheKeys)
+			{
+				htmlCacheKeys = contentType.Organization?.GetDesktopCacheKey() ?? new List<string>();
+				await new[] { contentType.Desktop?.GetSetCacheKey() }
+					.Concat(await contentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? new List<string>())
+					.Where(id => !string.IsNullOrWhiteSpace(id))
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToList()
+					.ForEachAsync(async (desktopSetCacheKey, _) =>
+					{
+						var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
+						if (cacheKeys != null && cacheKeys.Count > 0)
+							htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
+					}, cancellationToken, true, false).ConfigureAwait(false);
+			}
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// clear related cache
@@ -173,12 +178,12 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this ContentType contentType, string correlationID = null)
 			=> contentType.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this ContentType contentType, RequestInfo requestInfo, CancellationToken cancellationToken)
+		internal static List<Task> ClearRelatedCacheAsync(this ContentType contentType, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHtmlCacheKeys = false)
 		{
 			contentType.Remove();
 			return new List<Task>
 			{
-				contentType.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false),
+				contentType.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHtmlCacheKeys, false),
 				Utility.Cache.RemoveAsync(contentType, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{

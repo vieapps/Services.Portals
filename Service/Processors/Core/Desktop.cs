@@ -213,7 +213,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateDesktopInstance().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null, bool clearHtmlCacheKeys = true, bool doRefresh = true)
 		{
 			// cache keys of the individual content
 			var sort = Sorts<Desktop>.Ascending("Title");
@@ -222,11 +222,12 @@ namespace net.vieapps.Services.Portals
 				dataCacheKeys = Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), sort).Concat(dataCacheKeys).ToList();
 			if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
 				dataCacheKeys = Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, oldParentID), sort).Concat(dataCacheKeys).ToList();
-			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Concat(new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" }).ToList();
 
 			// cache keys of desktop HTMLs
-			var htmlCacheKeys = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).ToList();
-			htmlCacheKeys = htmlCacheKeys.Concat(new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" }).ToList();
+			var htmlCacheKeys = clearHtmlCacheKeys
+				? (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(new[] { desktop.GetSetCacheKey() }).ToList()
+				: new List<string>();
 
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
@@ -239,12 +240,12 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Desktop desktop, string correlationID = null)
 			=> desktop.ClearRelatedCacheAsync(null, CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Desktop desktop, RequestInfo requestInfo, CancellationToken cancellationToken)
+		internal static List<Task> ClearRelatedCacheAsync(this Desktop desktop, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHtmlCacheKeys = false)
 		{
 			desktop.Remove();
-			return new List<Task>
+			return (desktop._portlets ?? new List<Portlet>()).Select(portlet => portlet.ClearRelatedCacheAsync(requestInfo, cancellationToken, clearHtmlCacheKeys)).SelectMany(tasks => tasks).Concat(new List<Task>
 			{
-				desktop.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, false),
+				desktop.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, clearHtmlCacheKeys, false),
 				Utility.Cache.RemoveAsync(desktop, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -252,7 +253,7 @@ namespace net.vieapps.Services.Portals
 					Data = desktop.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken)
-			}.Concat((desktop._portlets ?? new List<Portlet>()).Select(portlet => portlet.ClearRelatedCacheAsync(requestInfo, cancellationToken)).SelectMany(tasks => tasks)).ToList();
+			}).ToList();
 		}
 
 		internal static async Task<JObject> SearchDesktopsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
