@@ -14,10 +14,10 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
-using Microsoft.Extensions.Logging;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -585,7 +585,7 @@ namespace net.vieapps.Services.Portals
 										{ "organizationID", contentType?.OrganizationID },
 										{ "moduleID", contentType?.ModuleID },
 										{ "contentTypeID", contentType?.ID },
-										{ "objectName", contentType?.GetObjectName() },
+										{ "objectName", contentType?.ContentTypeDefinition.GetObjectName() },
 										{ "nested", contentType?.ContentTypeDefinition.NestedObject },
 										{ "multiple", definition.Multiple != null && definition.Multiple.Value }
 									}
@@ -644,25 +644,25 @@ namespace net.vieapps.Services.Portals
 		async Task PrepareLanguagesAsync(CancellationToken cancellationToken = default)
 		{
 			var correlationID = UtilityService.NewUUID;
-			try
+			Utility.Languages.Clear();
+			await UtilityService.GetAppSetting("Portals:Languages", "vi-VN|en-US").ToList("|", true).ForEachAsync(async (language, _) => await new[] { "common", "notifications", "portals", "portals.cms", "users" }.ForEachAsync(async (module, __) =>
 			{
-				Utility.Languages.Clear();
-				await UtilityService.GetAppSetting("Portals:Languages", "vi-VN|en-US").ToList("|", true).ForEachAsync(async (language, _) => await new[] { "common", "portals", "portals.cms", "users" }.ForEachAsync(async (module, __) =>
+				if (!Utility.Languages.TryGetValue(language, out var languages))
 				{
-					if (!Utility.Languages.TryGetValue(language, out var languages))
-					{
-						languages = new ExpandoObject();
-						Utility.Languages[language] = languages;
-					}
+					languages = new ExpandoObject();
+					Utility.Languages[language] = languages;
+				}
+				try
+				{
 					languages.Merge(JObject.Parse(await UtilityService.FetchWebResourceAsync($"{Utility.APIsHttpURI}/statics/i18n/{module}/{language}.json", cancellationToken).ConfigureAwait(false)).ToExpandoObject());
-				}, cancellationToken, true, false).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
-				if (this.IsDebugResultsEnabled)
-					await this.WriteLogsAsync(correlationID, $"Gathering i18n language resources successful => {Utility.Languages.Select(kvp => kvp.Key).Join(" - ")}", null, this.ServiceName, "CMS.Portals", LogLevel.Debug).ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				await this.WriteLogsAsync(correlationID, $"Error occurred while gathering i18n language resources => {ex.Message}", ex, this.ServiceName, "CMS.Portals", LogLevel.Error).ConfigureAwait(false);
-			}
+				}
+				catch (Exception ex)
+				{
+					await this.WriteLogsAsync(correlationID, $"Error occurred while gathering i18n language resources => {ex.Message}", ex, this.ServiceName, "CMS.Portals", LogLevel.Error).ConfigureAwait(false);
+				}
+			}, cancellationToken, true, false).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
+			if (this.IsDebugResultsEnabled)
+				await this.WriteLogsAsync(correlationID, $"Gathering i18n language resources successful => {Utility.Languages.Select(kvp => kvp.Key).Join(" - ")}", null, this.ServiceName, "CMS.Portals", LogLevel.Debug).ConfigureAwait(false);
 		}
 
 		async Task GetOEmbedProvidersAsync(CancellationToken cancellationToken = default)
@@ -3231,10 +3231,6 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				switch (objectName.ToLower())
 				{
-					case "organization":
-					case "core.organization":
-						break;
-
 					case "role":
 					case "core.role":
 					case "site":
@@ -3257,7 +3253,7 @@ namespace net.vieapps.Services.Portals
 
 					case "category":
 					case "cms.category":
-						gotRights = requestInfo.Session.User.IsAdministrator(module?.WorkingPrivileges, organization?.WorkingPrivileges);
+						gotRights = requestInfo.Session.User.IsModerator(module?.WorkingPrivileges, organization?.WorkingPrivileges);
 						break;
 
 					case "content":
@@ -3284,9 +3280,9 @@ namespace net.vieapps.Services.Portals
 				var filterBy = requestJson.Get<JObject>("FilterBy");
 				var sortBy = requestJson.Get<JObject>("SortBy");
 				var pagination = requestJson.Get("Pagination", new JObject());
-				var pageSize = pagination.Get<int>("PageSize", 20);
-				var pageNumber = pagination.Get<int>("PageNumber", 1);
-				var maxPages = pagination.Get<int>("MaxPages", 0);
+				var pageSize = pagination.Get("PageSize", 20);
+				var pageNumber = pagination.Get("PageNumber", 1);
+				var maxPages = pagination.Get("MaxPages", 0);
 				switch (objectName.ToLower())
 				{
 					case "organization":
@@ -4336,28 +4332,6 @@ namespace net.vieapps.Services.Portals
 			var stopwatch = Stopwatch.StartNew();
 			var tasks = new List<Task>();
 
-			if (desktop != null)
-				tasks = desktop.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
-
-			if (site != null)
-			{
-				tasks = site.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
-				var desktops = await Desktop.FindAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", site.SystemID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				await desktops.ForEachAsync(async (thedesktop, _) =>
-				{
-					tasks = thedesktop.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).Concat(tasks).ToList();
-					var desktopCacheKeys = await Utility.Cache.GetSetMembersAsync(thedesktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
-					if (desktopCacheKeys.Count > 0)
-						tasks = new[] { Utility.Cache.RemoveAsync(desktopCacheKeys.Concat(new[] { thedesktop.GetSetCacheKey() }), cancellationToken) }.Concat(tasks).ToList();
-				}, cancellationToken, true, false).ConfigureAwait(false);
-			}
-
-			if (contentType != null)
-				tasks = contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
-
-			if (module != null)
-				tasks = module.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
-
 			if (organization != null)
 			{
 				tasks.Add(Utility.Cache.RemoveAsync(organization.GetDesktopCacheKey(), cancellationToken));
@@ -4384,8 +4358,29 @@ namespace net.vieapps.Services.Portals
 				tasks = organization.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList();
 			}
 
-			await Task.WhenAll(tasks).ConfigureAwait(false);
+			else if (module != null)
+				tasks = module.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
 
+			else if (contentType != null)
+				tasks = contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
+
+			else if (site != null)
+			{
+				tasks = site.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
+				var desktops = await Desktop.FindAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", site.SystemID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+				await desktops.ForEachAsync(async (thedesktop, _) =>
+				{
+					tasks = thedesktop.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).Concat(tasks).ToList();
+					var desktopCacheKeys = await Utility.Cache.GetSetMembersAsync(thedesktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
+					if (desktopCacheKeys.Count > 0)
+						tasks = new[] { Utility.Cache.RemoveAsync(desktopCacheKeys.Concat(new[] { thedesktop.GetSetCacheKey() }), cancellationToken) }.Concat(tasks).ToList();
+				}, cancellationToken, true, false).ConfigureAwait(false);
+			}
+
+			else if (desktop != null)
+				tasks = desktop.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
+
+			await Task.WhenAll(tasks).ConfigureAwait(false);
 			stopwatch.Stop();
 			if (Utility.WriteCacheLogs)
 				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear related cache successful [{tasks.Count} tasks] - Execution times: {stopwatch.GetElapsedTimes()}", cancellationToken, "Caches").ConfigureAwait(false);
@@ -4417,20 +4412,20 @@ namespace net.vieapps.Services.Portals
 				await $"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(0, requestInfo.CorrelationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]");
 			}
 			
-			if (module != null)
+			else if (module != null)
 			{
 				module = await Module.GetAsync<Module>(module.ID, cancellationToken).ConfigureAwait(false);
 				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 			
-			if (contentType != null)
+			else if (contentType != null)
 			{
 				contentType = await ContentType.GetAsync<ContentType>(contentType.ID, cancellationToken).ConfigureAwait(false);
 				await contentType.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
-			
-			if (site != null)
+
+			else if (site != null)
 			{
 				site = await Site.GetAsync<Site>(site.ID, cancellationToken).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
@@ -4442,9 +4437,10 @@ namespace net.vieapps.Services.Portals
 					site.SetAsync(false, true, cancellationToken),
 					desktop.SetAsync(false, true, cancellationToken)
 				).ConfigureAwait(false);
+				await $"{Utility.PortalsHttpURI}/~{site.Organization?.Alias}/{desktop.Alias}".RefreshWebPageAsync(0, requestInfo.CorrelationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]");
 			}
-			
-			if (desktop != null)
+
+			else if (desktop != null)
 			{
 				desktop = await Desktop.GetAsync<Desktop>(desktop.ID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
@@ -4564,51 +4560,52 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			var json = @object.ToJson();
 			if (!update)
-				return new JObject();
+				return json;
 
-			// do approval process
-			if (site != null)
-			{
-				site.Status = approvalStatus;
-				site.LastModified = DateTime.Now;
-				site.LastModifiedID = requestInfo.Session.User.ID;
-				return await site.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
-			}
-			
+			// do the approval process
 			if (@object is Organization)
 			{
 				organization.Status = approvalStatus;
 				organization.LastModified = DateTime.Now;
 				organization.LastModifiedID = requestInfo.Session.User.ID;
-				return await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+				json = await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
 			}
 
-			if (@object is Content content)
+			else if (site != null)
+			{
+				site.Status = approvalStatus;
+				site.LastModified = DateTime.Now;
+				site.LastModifiedID = requestInfo.Session.User.ID;
+				json = await site.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+			}
+			
+			else if (@object is Content content)
 			{
 				content.Status = approvalStatus;
 				content.LastModified = DateTime.Now;
 				content.LastModifiedID = requestInfo.Session.User.ID;
-				return await content.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+				json = await content.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
 			}
 
-			if (@object is Item item)
+			else if (@object is Item item)
 			{
 				item.Status = approvalStatus;
 				item.LastModified = DateTime.Now;
 				item.LastModifiedID = requestInfo.Session.User.ID;
-				return await item.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+				json = await item.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
 			}
 
-			if (@object is Link link)
+			else if (@object is Link link)
 			{
 				link.Status = approvalStatus;
 				link.LastModified = DateTime.Now;
 				link.LastModifiedID = requestInfo.Session.User.ID;
-				return await link.UpdateAsync(requestInfo, oldStatus, null, cancellationToken).ConfigureAwait(false);
+				json = await link.UpdateAsync(requestInfo, oldStatus, null, cancellationToken).ConfigureAwait(false);
 			}
 
-			return @object.ToJson();
+			return json;
 		}
 		#endregion
 
