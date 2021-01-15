@@ -127,43 +127,43 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IBusinessObject.Organization => this.Organization;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string ModuleID => this.RepositoryID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Module Module => (this.ModuleID ?? "").GetModuleByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalModule IBusinessObject.Module => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string ContentTypeID => this.RepositoryEntityID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public ContentType ContentType => (this.ContentTypeID ?? "").GetContentTypeByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalContentType IBusinessObject.ContentType => this.ContentType;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Category ParentCategory => CategoryProcessor.GetCategoryByID(this.ParentID);
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public Category ParentCategory => (this.ParentID ?? "").GetCategoryByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.ParentCategory ?? this.Module as RepositoryBase;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IBusinessEntity IBusinessEntity.Parent => this.ParentCategory;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => this.ParentCategory ?? this.Module as IPortalObject;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		INestedObject INestedObject.Parent => this.ParentCategory;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -203,13 +203,13 @@ namespace net.vieapps.Services.Portals
 				? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindCategoriesAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetCategoryByID()).ToList();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Category> Children => this.FindChildren();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		List<INestedObject> INestedObject.Children => this.Children?.Select(category => category as INestedObject).ToList();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.ParentCategory?.Desktop;
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)

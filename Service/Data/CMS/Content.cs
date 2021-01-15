@@ -1,21 +1,17 @@
 ﻿#region Related components
 using System;
-using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-using System.Dynamic;
+using MsgPack.Serialization;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
 using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
-using System.Xml.Linq;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -159,43 +155,43 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IBusinessObject.Organization => this.Organization;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string ModuleID => this.RepositoryID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Module Module => (this.ModuleID ?? "").GetModuleByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalModule IBusinessObject.Module => this.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string ContentTypeID => this.RepositoryEntityID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public ContentType ContentType => (this.ContentTypeID ?? "").GetContentTypeByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalContentType IBusinessObject.ContentType => this.ContentType;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Category Category => (this.CategoryID ?? "").GetCategoryByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.Category;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IBusinessEntity IBusinessEntity.Parent => this.Category;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => this.Category;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop Desktop => this.Category?.Desktop ?? this.ContentType?.Desktop;
 
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)

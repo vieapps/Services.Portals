@@ -148,7 +148,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateOrganizationInstance().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null, bool clearHtmlCacheKeys = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null, bool clearHTMLs = true, bool doRefresh = true)
 		{
 			// data cache keys
 			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
@@ -157,7 +157,7 @@ namespace net.vieapps.Services.Portals
 				.ToList();
 
 			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = clearHtmlCacheKeys
+			var htmlCacheKeys = clearHTMLs
 				? organization.GetDesktopCacheKey().Concat(new[] { $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" }).ToList()
 				: new List<string>();
 
@@ -173,12 +173,12 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Organization organization, string correlationID = null)
 			=> organization.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Organization organization, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHtmlCacheKeys = false)
+		internal static List<Task> ClearRelatedCacheAsync(this Organization organization, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHTMLs = false)
 		{
 			organization.Remove();
 			return new List<Task>
 			{
-				organization.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHtmlCacheKeys, false),
+				organization.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHTMLs, false),
 				Utility.Cache.RemoveAsync(organization, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{

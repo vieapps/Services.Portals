@@ -1,15 +1,11 @@
 ﻿#region Related components
 using System;
-using System.Linq;
 using System.Diagnostics;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-using System.Dynamic;
+using MsgPack.Serialization;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
 using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Security;
@@ -114,42 +110,49 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override Privileges OriginalPrivileges { get; set; }
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override Privileges WorkingPrivileges => this.Desktop?.WorkingPrivileges;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.Desktop;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string ModuleID => this.ContentType?.ModuleID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Module Module => this.ContentType?.Module;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string ContentTypeID => this.RepositoryEntityID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public ContentType ContentType => (this.ContentTypeID ?? "").GetContentTypeByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public ContentTypeDefinition ContentTypeDefinition => this.ContentType?.ContentTypeDefinition;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID();
 
 		internal Portlet _originalPortlet;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public Portlet TheOriginalPortlet
+		{
+			get => this._originalPortlet;
+			set => this._originalPortlet = value;
+		}
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Portlet OriginalPortlet => string.IsNullOrWhiteSpace(this.OriginalPortletID) ? this : this._originalPortlet ?? (this._originalPortlet = Portlet.Get<Portlet>(this.OriginalPortletID));
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop OriginalDesktop => this.OriginalPortlet?.Desktop;
 
 		internal void Normalize()

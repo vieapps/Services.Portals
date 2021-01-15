@@ -1,13 +1,7 @@
 ﻿#region Related components
 using System;
-using System.Linq;
 using System.Diagnostics;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Xml.Serialization;
-using System.Dynamic;
 using MsgPack.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
@@ -168,25 +162,25 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override Privileges OriginalPrivileges { get; set; }
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override Privileges WorkingPrivileges => this.Organization?.WorkingPrivileges;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.Organization;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => this.Organization;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop HomeDesktop => (this.HomeDesktopID ?? "").GetDesktopByID() ?? this.Organization?.HomeDesktop;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop SearchDesktop => (this.SearchDesktopID ?? "").GetDesktopByID() ?? this.Organization?.SearchDesktop;
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)

@@ -143,7 +143,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override Privileges OriginalPrivileges { get; set; }
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override Privileges WorkingPrivileges => this.Organization?.WorkingPrivileges;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -152,19 +152,19 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop ParentDesktop => (this.ParentID ?? "").GetDesktopByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.ParentDesktop ?? this.Organization as RepositoryBase;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => this.ParentDesktop ?? this.Organization as IPortalObject;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		INestedObject INestedObject.Parent => this.ParentDesktop;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -210,15 +210,15 @@ namespace net.vieapps.Services.Portals
 				? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindDesktopsAsync(this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetDesktopByID()).ToList();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Desktop> Children => this.FindChildren();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		List<INestedObject> INestedObject.Children => this.Children?.Select(desktop => desktop as INestedObject).ToList();
 
 		internal List<Portlet> _portlets;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Portlet> Portlets
 		{
 			get => this._portlets ?? (this._portlets = this.FindPortlets());

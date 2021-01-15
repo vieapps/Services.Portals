@@ -3,13 +3,11 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-using System.Dynamic;
+using MsgPack.Serialization;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
 using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -83,19 +81,19 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Role ParentRole => (this.ParentID ?? "").GetRoleByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.ParentRole ?? this.Organization as RepositoryBase;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => this.ParentRole ?? this.Organization as IPortalObject;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		INestedObject INestedObject.Parent => this.ParentRole;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -135,10 +133,10 @@ namespace net.vieapps.Services.Portals
 				? this.FindChildren(notifyPropertyChanged, await(this.SystemID ?? "").FindRolesAsync(this.ID, cancellationToken).ConfigureAwait(false))
 				: this._childrenIDs.Select(id => id.GetRoleByID()).ToList();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Role> Children => this.FindChildren();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		List<INestedObject> INestedObject.Children => this.Children?.Select(role => role as INestedObject).ToList();
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)

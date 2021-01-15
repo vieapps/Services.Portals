@@ -117,7 +117,7 @@ namespace net.vieapps.Services.Portals
 			return portlets != null && portlets.Count > 0 ? portlets.Last().OrderIndex : -1;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken = default, string correlationID = null, bool clearHtmlCacheKeys = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken = default, string correlationID = null, bool clearHTMLs = true, bool doRefresh = true)
 		{
 			// data cache keys
 			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Portlet>.And(Filters<Portlet>.Equals("DesktopID", portlet.DesktopID)), Sorts<Portlet>.Ascending("Zone").ThenByAscending("OrderIndex"));
@@ -128,7 +128,7 @@ namespace net.vieapps.Services.Portals
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = new List<string>();
 
-			if (clearHtmlCacheKeys)
+			if (clearHTMLs)
 			{
 				var desktopSetCacheKeys = await Utility.GetSetCacheKeysAsync(Filters<Portlet>.Equals("ID", portlet.ID), cancellationToken).ConfigureAwait(false);
 				await desktopSetCacheKeys.ForEachAsync(async (desktopSetCacheKey, _) =>
@@ -153,11 +153,11 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Portlet portlet, string correlationID = null)
 			=> portlet.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Portlet portlet, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHtmlCacheKeys = false)
+		internal static List<Task> ClearRelatedCacheAsync(this Portlet portlet, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHTMLs = false)
 		{
 			return new List<Task>
 			{
-				portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHtmlCacheKeys, false),
+				portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHTMLs, false),
 				Utility.Cache.RemoveAsync(portlet, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -786,7 +786,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// clear related cache
-			portlet.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			if (requestInfo.GetHeaderParameter("x-converter") == null)
+				portlet.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = portlet.ToJson();

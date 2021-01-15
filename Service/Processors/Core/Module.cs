@@ -139,7 +139,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateModuleInstance().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default, string correlationID = null, bool clearHtmlCacheKeys = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default, string correlationID = null, bool clearHTMLs = true, bool doRefresh = true)
 		{
 			// data cache keys
 			var sort = Sorts<Module>.Ascending("Title");
@@ -152,7 +152,7 @@ namespace net.vieapps.Services.Portals
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = new List<string>();
 
-			if (clearHtmlCacheKeys)
+			if (clearHTMLs)
 			{
 				htmlCacheKeys = new[] { module.Desktop?.GetSetCacheKey() }.Concat(module.Organization?.GetDesktopCacheKey() ?? new List<string>()).ToList();
 				var desktopSetCacheKeys = new List<string>();
@@ -185,12 +185,12 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Module module, string correlationID = null)
 			=> module.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Module module, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHtmlCacheKeys = false)
+		internal static List<Task> ClearRelatedCacheAsync(this Module module, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHTMLs = false)
 		{
 			module.Remove();
-			return module.ContentTypes.Select(contentType => contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken, clearHtmlCacheKeys)).SelectMany(tasks => tasks).Concat(new[]
+			return module.ContentTypes.Select(contentType => contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken, clearHTMLs)).SelectMany(tasks => tasks).Concat(new[]
 			{
-				module.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHtmlCacheKeys, false),
+				module.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHTMLs, false),
 				Utility.Cache.RemoveAsync(module, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{

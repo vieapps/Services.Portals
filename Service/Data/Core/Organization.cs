@@ -129,19 +129,19 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.ID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => null;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override Privileges WorkingPrivileges => this.OriginalPrivileges ?? new Privileges(true);
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop DefaultDesktop => this.HomeDesktop ?? DesktopProcessor.Desktops.Values.Where(desktop => desktop.SystemID.IsEquals(this.ID)).FirstOrDefault();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop HomeDesktop => (this.HomeDesktopID ?? "").GetDesktopByID();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop SearchDesktop => (this.SearchDesktopID ?? "").GetDesktopByID();
 
 		[Ignore, BsonIgnore, XmlIgnore]
@@ -207,7 +207,7 @@ namespace net.vieapps.Services.Portals
 				? this.FindSites(await (this.ID ?? "").FindSitesAsync(cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
 				: this._siteIDs.Select(siteID => siteID.GetSiteByID()).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Site> Sites => this.FindSites();
 
 		internal List<string> _moduleIDs;
@@ -237,7 +237,7 @@ namespace net.vieapps.Services.Portals
 				? this.FindModules(await (this.ID ?? "").FindModulesAsync(null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
 				: this._moduleIDs.Select(id => id.GetModuleByID()).ToList();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Module> Modules => this.FindModules();
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)

@@ -103,7 +103,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
@@ -115,13 +115,13 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => this.Organization;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public ModuleDefinition ModuleDefinition => Utility.ModuleDefinitions.TryGetValue(this.ModuleDefinitionID, out var moduleDefinition) ? moduleDefinition : null;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string RepositoryDefinitionTypeName => this.ModuleDefinition?.RepositoryDefinitionTypeName;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public RepositoryDefinition RepositoryDefinition
 		{
 			get
@@ -131,7 +131,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.Organization?.DefaultDesktop;
 
 		internal List<string> _contentTypeIDs;
@@ -161,7 +161,7 @@ namespace net.vieapps.Services.Portals
 				? this.FindContentTypes(await (this.SystemID ?? "").FindContentTypesAsync(this.ID, null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
 				: this._contentTypeIDs.Select(id => id.GetContentTypeByID()).ToList();
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<ContentType> ContentTypes => this.FindContentTypes();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]

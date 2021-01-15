@@ -133,7 +133,7 @@ namespace net.vieapps.Services.Portals
 			return Task.CompletedTask;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this ContentType contentType, CancellationToken cancellationToken, string correlationID = null, bool clearHtmlCacheKeys = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this ContentType contentType, CancellationToken cancellationToken, string correlationID = null, bool clearHTMLs = true, bool doRefresh = true)
 		{
 			// data cache keys
 			var sort = Sorts<ContentType>.Ascending("Title");
@@ -149,7 +149,7 @@ namespace net.vieapps.Services.Portals
 
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = new List<string>();
-			if (clearHtmlCacheKeys)
+			if (clearHTMLs)
 			{
 				htmlCacheKeys = contentType.Organization?.GetDesktopCacheKey() ?? new List<string>();
 				await new[] { contentType.Desktop?.GetSetCacheKey() }
@@ -178,12 +178,12 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this ContentType contentType, string correlationID = null)
 			=> contentType.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this ContentType contentType, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHtmlCacheKeys = false)
+		internal static List<Task> ClearRelatedCacheAsync(this ContentType contentType, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHTMLs = false)
 		{
 			contentType.Remove();
 			return new List<Task>
 			{
-				contentType.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHtmlCacheKeys, false),
+				contentType.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHTMLs, false),
 				Utility.Cache.RemoveAsync(contentType, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{

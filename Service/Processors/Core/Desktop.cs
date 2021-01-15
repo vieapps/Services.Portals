@@ -213,7 +213,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateDesktopInstance().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null, bool clearHtmlCacheKeys = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null, bool clearHTMLs = true, bool doRefresh = true)
 		{
 			// cache keys of the individual content
 			var sort = Sorts<Desktop>.Ascending("Title");
@@ -225,7 +225,7 @@ namespace net.vieapps.Services.Portals
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Concat(new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" }).ToList();
 
 			// cache keys of desktop HTMLs
-			var htmlCacheKeys = clearHtmlCacheKeys
+			var htmlCacheKeys = clearHTMLs
 				? (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).Concat(new[] { desktop.GetSetCacheKey() }).ToList()
 				: new List<string>();
 
@@ -240,12 +240,12 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Desktop desktop, string correlationID = null)
 			=> desktop.ClearRelatedCacheAsync(null, CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Desktop desktop, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHtmlCacheKeys = false)
+		internal static List<Task> ClearRelatedCacheAsync(this Desktop desktop, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHTMLs = false)
 		{
 			desktop.Remove();
-			return (desktop._portlets ?? new List<Portlet>()).Select(portlet => portlet.ClearRelatedCacheAsync(requestInfo, cancellationToken, clearHtmlCacheKeys)).SelectMany(tasks => tasks).Concat(new List<Task>
+			return (desktop._portlets ?? new List<Portlet>()).Select(portlet => portlet.ClearRelatedCacheAsync(requestInfo, cancellationToken, clearHTMLs)).SelectMany(tasks => tasks).Concat(new List<Task>
 			{
-				desktop.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, clearHtmlCacheKeys, false),
+				desktop.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, clearHTMLs, false),
 				Utility.Cache.RemoveAsync(desktop, cancellationToken),
 				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
 				{
