@@ -418,6 +418,10 @@ namespace net.vieapps.Services.Portals
 						json = await this.ApproveAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 						break;
 
+					case "move":
+						json = await this.MoveAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+						break;
+
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 						#endregion
@@ -4411,14 +4415,14 @@ namespace net.vieapps.Services.Portals
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 				await $"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(0, requestInfo.CorrelationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]");
 			}
-			
+
 			else if (module != null)
 			{
 				module = await Module.GetAsync<Module>(module.ID, cancellationToken).ConfigureAwait(false);
 				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
-			
+
 			else if (contentType != null)
 			{
 				contentType = await ContentType.GetAsync<ContentType>(contentType.ID, cancellationToken).ConfigureAwait(false);
@@ -4471,7 +4475,7 @@ namespace net.vieapps.Services.Portals
 
 			var organization = @object is Organization
 				? @object as Organization
-				:  await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+				: await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
@@ -4580,7 +4584,7 @@ namespace net.vieapps.Services.Portals
 				site.LastModifiedID = requestInfo.Session.User.ID;
 				json = await site.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
 			}
-			
+
 			else if (@object is Content content)
 			{
 				content.Status = approvalStatus;
@@ -4606,6 +4610,118 @@ namespace net.vieapps.Services.Portals
 			}
 
 			return json;
+		}
+		#endregion
+
+		#region Move
+		async Task<JToken> MoveAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// prepare
+			if (!await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false))
+				throw new AccessDeniedException();
+
+			if (!requestInfo.Verb.IsEquals("GET"))
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			var objectName = requestInfo.GetObjectIdentity();
+			var objectID = requestInfo.GetObjectIdentity(true, true);
+			var @object = "ContentType".IsEquals(objectName)
+				? await (objectID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) as IPortalObject
+				: "Category".IsEquals(objectName)
+					? await (objectID ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false) as IPortalObject
+					: null;
+			if (@object == null)
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			// move content-type and/or all belong items/links to oher module
+			if (@object is ContentType contentType)
+			{
+				var module = await (requestInfo.GetParameter("x-module-id") ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (module == null)
+					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+				objectName = contentType.ContentTypeDefinition.GetObjectName();
+				if ("CMS.Item".IsEquals(objectName))
+				{
+					// get all objects
+					var objects = await Item.FindAsync(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+
+					// update objects
+					await objects.ForEachAsync(async (item, _) =>
+					{
+						item.RepositoryID = module.ID;
+						item.LastModified = DateTime.Now;
+						item.LastModifiedID = requestInfo.Session.User.ID;
+						await Item.UpdateAsync(item, false, cancellationToken).ConfigureAwait(false);
+						await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+						{
+							Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+							Data = item.ToJson(),
+							DeviceID = "*"
+						}, cancellationToken).ConfigureAwait(false);
+					}, cancellationToken, true, false).ConfigureAwait(false);
+
+					// update content-type
+					contentType.RepositoryID = module.ID;
+					await contentType.UpdateAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+				}
+				else if ("CMS.Link".IsEquals(objectName))
+				{
+					// get all objects
+					var objects = await Link.FindAsync(Filters<Link>.Equals("RepositoryEntityID", contentType.ID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+
+					// update objects
+					await objects.ForEachAsync(async (link, _) =>
+					{
+						link.RepositoryID = module.ID;
+						link.LastModified = DateTime.Now;
+						link.LastModifiedID = requestInfo.Session.User.ID;
+						await Link.UpdateAsync(link, false, cancellationToken).ConfigureAwait(false);
+						await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+						{
+							Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+							Data = link.ToJson(),
+							DeviceID = "*"
+						}, cancellationToken).ConfigureAwait(false);
+					}, cancellationToken, true, false).ConfigureAwait(false);
+
+					// update content-type
+					contentType.RepositoryID = module.ID;
+					await contentType.UpdateAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+				}
+			}
+
+			// move all belong contents to other category
+			else if (@object is Category category)
+			{
+				var cntType = await (requestInfo.GetParameter("x-content-type-id") ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+				var destination = await (requestInfo.GetParameter("x-category-id") ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (cntType == null || destination == null || category.ID.Equals(destination.ID) || !category.RepositoryEntityID.Equals(destination.RepositoryEntityID) || !category.RepositoryID.Equals(destination.RepositoryID))
+					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+				// get all objects
+				var objects = await Content.FindAsync(Filters<Content>.Equals("CategoryID", category.ID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
+
+				// update objects
+				await objects.ForEachAsync(async (content, _) =>
+				{
+					content.CategoryID = destination.ID;
+					content.LastModified = DateTime.Now;
+					content.LastModifiedID = requestInfo.Session.User.ID;
+					await Content.UpdateAsync(content, false, cancellationToken).ConfigureAwait(false);
+					await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+					{
+						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+						Data = content.ToJson(),
+						DeviceID = "*"
+					}, cancellationToken).ConfigureAwait(false);
+				}, cancellationToken, true, false).ConfigureAwait(false);
+
+				// clear related cache
+				await cntType.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false).ConfigureAwait(false);
+			}
+
+			return new JObject();
 		}
 		#endregion
 

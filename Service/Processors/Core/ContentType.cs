@@ -366,31 +366,8 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateAsync(this ContentType contentType, RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			// prepare
-			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null)
-				throw new InformationNotFoundException();
-			else if (contentType.Organization == null)
-				throw new InformationInvalidException("The organization is invalid");
-
-			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(contentType.Organization.OwnerID) || requestInfo.Session.User.IsModerator(contentType.Organization.WorkingPrivileges);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// gathering formation
-			contentType.UpdateContentTypeInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,ContentTypeDefinitionID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-			});
-
-			// validate extended properties
-			contentType.EntityDefinition?.ValidateExtendedPropertyDefinitions(contentType.ID);
-
 			// update
 			await ContentType.UpdateAsync(contentType, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			contentType.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
@@ -418,6 +395,35 @@ namespace net.vieapps.Services.Portals
 
 			// response
 			return response;
+		}
+
+		internal static async Task<JObject> UpdateContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		{
+			// prepare
+			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (contentType == null)
+				throw new InformationNotFoundException();
+			else if (contentType.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(contentType.Organization.OwnerID) || requestInfo.Session.User.IsModerator(contentType.Organization.WorkingPrivileges);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// gathering formation
+			contentType.UpdateContentTypeInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,ContentTypeDefinitionID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			{
+				obj.LastModified = DateTime.Now;
+				obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.NormalizeExtras();
+			});
+
+			// validate extended properties
+			contentType.EntityDefinition?.ValidateExtendedPropertyDefinitions(contentType.ID);
+
+			// update
+			return await contentType.UpdateAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> DeleteContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
