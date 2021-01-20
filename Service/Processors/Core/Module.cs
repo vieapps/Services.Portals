@@ -139,38 +139,38 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateModuleInstance().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default, string correlationID = null, bool clearHTMLs = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
 			// data cache keys
 			var sort = Sorts<Module>.Ascending("Title");
-			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Module>.And(), sort)
-				.Concat(Extensions.GetRelatedCacheKeys(ModuleProcessor.GetModulesFilter(module.SystemID), sort))
-				.Concat(Extensions.GetRelatedCacheKeys(ModuleProcessor.GetModulesFilter(module.SystemID, module.ModuleDefinitionID), sort))
-				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.ToList();
+			var dataCacheKeys = clearDataCache
+				? Extensions.GetRelatedCacheKeys(Filters<Module>.And(), sort)
+					.Concat(Extensions.GetRelatedCacheKeys(ModuleProcessor.GetModulesFilter(module.SystemID), sort))
+					.Concat(Extensions.GetRelatedCacheKeys(ModuleProcessor.GetModulesFilter(module.SystemID, module.ModuleDefinitionID), sort))
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToList()
+				: new List<string>();
 
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = new List<string>();
-
-			if (clearHTMLs)
+			if (clearHtmlCache)
 			{
 				htmlCacheKeys = new[] { module.Desktop?.GetSetCacheKey() }.Concat(module.Organization?.GetDesktopCacheKey() ?? new List<string>()).ToList();
 				var desktopSetCacheKeys = new List<string>();
-				await module.ContentTypes.ForEachAsync(async (contentType, _) =>
+				await module.ContentTypes.ForEachAsync(async contentType =>
 				{
 					desktopSetCacheKeys = desktopSetCacheKeys.Concat(await contentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? new List<string>()).ToList();
-				}, cancellationToken, true, false).ConfigureAwait(false);
+				}, true, false).ConfigureAwait(false);
 				await desktopSetCacheKeys.Where(id => !string.IsNullOrWhiteSpace(id))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
-					.ForEachAsync(async (desktopSetCacheKey, _) =>
+					.ForEachAsync(async desktopSetCacheKey =>
 					{
 						var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
 						if (cacheKeys != null && cacheKeys.Count > 0)
 							htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
-					}, cancellationToken, true, false).ConfigureAwait(false);
+					}, true, false).ConfigureAwait(false);
 			}
-
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// clear related cache
@@ -185,20 +185,31 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Module module, string correlationID = null)
 			=> module.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Module module, RequestInfo requestInfo, CancellationToken cancellationToken, bool clearHTMLs = false)
+		internal static async Task ClearCacheAsync(this Module module, CancellationToken cancellationToken, string correlationID = null, bool clearObjectsCache = true, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
 		{
-			module.Remove();
-			return module.ContentTypes.Select(contentType => contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken, clearHTMLs)).SelectMany(tasks => tasks).Concat(new[]
+			var tasks = new List<Task>();
+
+			// clear cache of business objects
+			if (clearObjectsCache)
+				tasks = tasks.Concat(module.ContentTypes.Select(contentType => contentType.ClearCacheAsync(cancellationToken, correlationID, clearObjectsCache, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh))).ToList();
+
+			// clear related cache
+			tasks.Add(module.ClearRelatedCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh));
+
+			// celar object cache
+			tasks = tasks.Concat(new[]
 			{
-				module.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, clearHTMLs, false),
-				Utility.Cache.RemoveAsync(module, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				Utility.Cache.RemoveAsync(module.Remove(), cancellationToken),
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 				{
 					Type = $"{module.GetObjectName()}#Delete",
 					Data = module.ToJson(),
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
+				}, cancellationToken),
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a module [{module.Title} - ID: {module.ID}]", CancellationToken.None, "Caches") : Task.CompletedTask
 			}).ToList();
+
+			await Task.WhenAll(tasks).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> SearchModulesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -226,7 +237,17 @@ namespace net.vieapps.Services.Portals
 
 				gotRights = "true".IsEquals(requestInfo.GetHeaderParameter("x-init")) || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
 				if (!gotRights)
+				{
+					Utility.WriteLogAsync(
+						requestInfo,
+						$"User doesn't have permission to complete the request\r\n - ID: {requestInfo.Session.User.ID} - Roles: {requestInfo.Session.User.Roles.Join(", ")}"
+						+ $"\r\nPrivileges (Organization): {organization.WorkingPrivileges.ToJson()}"
+						+ $"\r\nRequest: {requestInfo.ToJson()}",
+						cancellationToken,
+						"Privileges"
+					).Run();
 					throw new AccessDeniedException();
+				}
 			}
 
 			// process cache
@@ -342,7 +363,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			module.SendNotificationAsync("Create", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+			module.SendNotificationAsync("Create", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo).Run();
 
 			// response
 			return response;
@@ -397,19 +418,21 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// update
+			var privileges = module.OriginalPrivileges?.Copy();
 			module.UpdateModuleInstance(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
 			});
-			await Task.WhenAll(
-				Module.UpdateAsync(module, requestInfo.Session.User.ID, cancellationToken),
-				module.SetAsync(false, cancellationToken)
-			).ConfigureAwait(false);
-			module.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			await Module.UpdateAsync(module, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
+			// clear cache
+			var clearObjectsCache = !(module.OriginalPrivileges ?? new Privileges()).IsEquals(privileges);
+			await module.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, clearObjectsCache, true, false, false).ConfigureAwait(false);
 
 			// send update messages
+			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			var response = module.ToJson();
 			var objectName = module.GetTypeName(true);
 			await Task.WhenAll(
@@ -428,7 +451,10 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			module.SendNotificationAsync("Update", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+			module.SendNotificationAsync("Update", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo).Run();
+
+			// broadcast update when the privileges were changed
+			// ...
 
 			// response
 			return response;
@@ -444,7 +470,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(module.Organization.OwnerID) || requestInfo.Session.User.IsModerator(module.Organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(module.Organization.OwnerID) || requestInfo.Session.User.IsAdministrator(module.Organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -453,13 +479,28 @@ namespace net.vieapps.Services.Portals
 
 			// delete
 			await Module.DeleteAsync<Module>(module.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await module.Remove().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			await module.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, false, true, false, false).ConfigureAwait(false);
 
 			// update instance/cache of organization
-			if (module.Organization._moduleIDs != null)
+			var organization = module.Organization;
+			if (organization != null && organization._moduleIDs != null)
 			{
-				module.Organization._moduleIDs.Remove(module.ID);
-				await module.Organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				organization._moduleIDs.Remove(module.ID);
+				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				await Task.WhenAll(
+					Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+					{
+						Type = $"{requestInfo.ServiceName}#{organization.GetObjectName()}#Update",
+						Data = organization.ToJson(),
+						DeviceID = "*"
+					}, cancellationToken),
+					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{organization.GetObjectName()}#Update",
+						Data = organization.ToJson(),
+						ExcludedNodeID = Utility.NodeID
+					}, cancellationToken)
+				).ConfigureAwait(false);
 			}
 
 			// send update messages
@@ -481,7 +522,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			module.SendNotificationAsync("Delete", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+			module.SendNotificationAsync("Delete", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo).Run();
 
 			// response
 			return response;

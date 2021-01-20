@@ -131,10 +131,24 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Role role, string correlationID = null)
 			=> role.ClearRelatedCacheAsync(null, CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Role role, RequestInfo requestInfo, CancellationToken cancellationToken)
+		internal static Task ClearCacheAsync(this Role role, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true)
+			=> Task.WhenAll(new[]
+			{
+				clearRelatedDataCache ? role.ClearRelatedCacheAsync(null, cancellationToken, correlationID) : Task.CompletedTask,
+				Utility.Cache.RemoveAsync(role.Remove(), cancellationToken),
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				{
+					Type = $"{role.GetObjectName()}#Delete",
+					Data = role.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}, cancellationToken),
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a role [{role.Title} - ID: {role.ID}]", CancellationToken.None, "Caches") : Task.CompletedTask
+			});
+
+		internal static IEnumerable<Task> ClearRelatedCacheAsync(this Role role, RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			role.Remove();
-			return new List<Task>
+			return new[]
 			{
 				role.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID),
 				Utility.Cache.RemoveAsync(role, cancellationToken),
@@ -345,12 +359,12 @@ namespace net.vieapps.Services.Portals
 
 			// send the messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notification
-			role.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+			role.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo).Run();
 
 			// response
 			return response;
@@ -476,33 +490,33 @@ namespace net.vieapps.Services.Portals
 
 			requestUser.Extra.Clear();
 			requestUser.Extra["RemovedRoles"] = new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(Utility.EncryptionKey);
-			await beRemovedUserIDs.ForEachAsync(async (userID, token) =>
+			await beRemovedUserIDs.ForEachAsync(async userID =>
 			{
 				try
 				{
 					requestUser.Query["object-identity"] = userID;
-					await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, token)).ConfigureAwait(false);
+					await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, cancellationToken)).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
 					onServiceCallerGotError?.Invoke(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex);
 				}
-			}, cancellationToken, true, false).ConfigureAwait(false);
+			}, true, false).ConfigureAwait(false);
 
 			requestUser.Extra.Clear();
 			requestUser.Extra["AddedRoles"] = new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(Utility.EncryptionKey);
-			await beAddedUserIDs.ForEachAsync(async (userID, token) =>
+			await beAddedUserIDs.ForEachAsync(async userID =>
 			{
 				try
 				{
 					requestUser.Query["object-identity"] = userID;
-					await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, token)).ConfigureAwait(false);
+					await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, cancellationToken)).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
 					onServiceCallerGotError?.Invoke(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex);
 				}
-			}, cancellationToken, true, false).ConfigureAwait(false);
+			}, true, false).ConfigureAwait(false);
 
 			// update parent
 			var updateMessages = new List<UpdateMessage>();
@@ -513,7 +527,7 @@ namespace net.vieapps.Services.Portals
 			{
 				await role.ParentRole.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 				role.ParentRole._childrenIDs.Add(role.ID);
-				await role.ParentRole.SetAsync(true).ConfigureAwait(false);
+				await role.ParentRole.SetAsync(true, cancellationToken).ConfigureAwait(false);
 
 				var json = role.ParentRole.ToJson(true, false);
 
@@ -584,12 +598,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notification
-			role.SendNotificationAsync("Update", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+			role.SendNotificationAsync("Update", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo).Run();
 
 			// response
 			return response;
@@ -605,7 +619,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(role.Organization.OwnerID) || requestInfo.Session.User.IsModerator(role.Organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(role.Organization.OwnerID) || requestInfo.Session.User.IsAdministrator(role.Organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -625,7 +639,8 @@ namespace net.vieapps.Services.Portals
 					child.LastModified = DateTime.Now;
 					child.LastModifiedID = requestInfo.Session.User.ID;
 					await Role.UpdateAsync(child, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					child.Set().SendNotificationAsync("Update", child.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+					child.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run(); ;
+					child.SendNotificationAsync("Update", child.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo).Run();
 
 					var json = child.ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
@@ -653,7 +668,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			role.Remove().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			await role.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true).ConfigureAwait(false);
 
 			// update users
 			var beRemovedUserIDs = role.UserIDs ?? new List<string>();
@@ -714,12 +729,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update  messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notification
-			role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+			role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo).Run();
 
 			// response
 			return response;
@@ -740,10 +755,10 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			role.Remove().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			await role.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true).ConfigureAwait(false);
 
 			// send notification
-			role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+			role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo).Run();
 
 			// update users
 			var beRemovedUserIDs = role.UserIDs ?? new List<string>();

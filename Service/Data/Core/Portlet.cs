@@ -165,7 +165,15 @@ namespace net.vieapps.Services.Portals
 			else
 				this.Action = this.AlternativeAction = null;
 
-			this.CommonSettings?.Normalize(settings => (settings.Template ?? "").ValidateTemplate());
+			this.CommonSettings?.Normalize(settings =>
+			{
+				(settings.Template ?? "").ValidateTemplate();
+				settings.IconURI = settings.IconURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/");
+				if (settings.TitleUISettings != null)
+					settings.TitleUISettings.BackgroundImageURI = settings.TitleUISettings.BackgroundImageURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/");
+				if (settings.ContentUISettings != null)
+					settings.ContentUISettings.BackgroundImageURI = settings.ContentUISettings.BackgroundImageURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/");
+			});
 
 			this.ExpressionID = string.IsNullOrWhiteSpace(this.ExpressionID) ? null : this.ExpressionID;
 			this.ListSettings?.Normalize(settings =>

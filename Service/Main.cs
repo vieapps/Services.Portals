@@ -1802,7 +1802,7 @@ namespace net.vieapps.Services.Portals
 
 				var language = desktop.WorkingLanguage ?? site.Language ?? "vi-VN";
 				var portletData = new ConcurrentDictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
-				await desktop.Portlets.ForEachAsync(async (portlet, _) =>
+				await desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async (portlet, _) =>
 				{
 					var data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, language, parentIdentity, contentIdentity, pageNumber, generateAsync, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					if (data != null)
@@ -1819,7 +1819,7 @@ namespace net.vieapps.Services.Portals
 					this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate HTML of {desktopInfo}", null, this.ServiceName, "Process.Http.Request").Run();
 
 				var portletHtmls = new ConcurrentDictionary<string, Tuple<string, bool>>(StringComparer.OrdinalIgnoreCase);
-				var generatePortletsTask = desktop.Portlets.ForEachAsync(async (portlet, token) =>
+				var generatePortletsTask = desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async (portlet, token) =>
 				{
 					try
 					{
@@ -4227,7 +4227,7 @@ namespace net.vieapps.Services.Portals
 					}))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList();
-				this.StartTimer(async () => await homeURLs.ForEachAsync((url, _) => url.RefreshWebPageAsync(), CancellationToken.None, true, this.RunDesktopGeneratorInParallelsMode).ConfigureAwait(false), 3 * 60);
+				this.StartTimer(async () => await homeURLs.ForEachAsync(url => url.RefreshWebPageAsync(), true, this.RunDesktopGeneratorInParallelsMode).ConfigureAwait(false), 3 * 60);
 				if (this.IsDebugLogEnabled)
 					this.WriteLogsAsync(UtilityService.NewUUID, $"The timer to refresh the home desktops of '{organization.Title}' [{organization.ID}] was started - Interval: 3 minutes\r\nURLs:\r\n\t{homeURLs.Join("\r\n\t")}", null, this.ServiceName, "Caches").Run();
 			}
@@ -4255,7 +4255,7 @@ namespace net.vieapps.Services.Portals
 				.ToList();
 				if (refreshUrls.Count > 0)
 				{
-					this.RefreshTimers[organization.ID] = this.StartTimer(async () => await refreshUrls.ForEachAsync((url, _) => url.RefreshWebPageAsync(), CancellationToken.None, true, this.RunDesktopGeneratorInParallelsMode).ConfigureAwait(false), (organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7) * 60);
+					this.RefreshTimers[organization.ID] = this.StartTimer(async () => await refreshUrls.ForEachAsync(url => url.RefreshWebPageAsync(), true, this.RunDesktopGeneratorInParallelsMode).ConfigureAwait(false), (organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7) * 60);
 					if (this.IsDebugLogEnabled)
 						this.WriteLogsAsync(UtilityService.NewUUID, $"The timer to the specified addresses of '{organization.Title}' [{organization.ID}] was started - Interval: {(organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7)} minutes\r\nURLs:\r\n\t{refreshUrls.Join("\r\n\t")}", null, this.ServiceName, "Caches").Run();
 				}
@@ -4330,94 +4330,16 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// clear related cache
-			if (Utility.WriteCacheLogs)
-				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear all related cache{(organization != null ? " of the whole organization" : "")} [{requestInfo.GetURI()}]", cancellationToken, "Caches").ConfigureAwait(false);
-
 			var stopwatch = Stopwatch.StartNew();
-			var tasks = new List<Task>();
-
-			if (organization != null)
-			{
-				tasks.Add(Utility.Cache.RemoveAsync(organization.GetDesktopCacheKey(), cancellationToken));
-
-				var expressions = await Expression.FindAsync(Filters<Expression>.And(Filters<Expression>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				expressions.ForEach(expression => tasks = expression.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
-
-				var roles = await Role.FindAsync(Filters<Role>.And(Filters<Role>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				roles.ForEach(role => tasks = role.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
-
-				organization.Modules.ForEach(themodule => tasks = themodule.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
-
-				var desktops = await Desktop.FindAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				await desktops.ForEachAsync(async (thedesktop, _) =>
-				{
-					tasks = thedesktop.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList();
-					var desktopCacheKeys = await Utility.Cache.GetSetMembersAsync(thedesktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
-					if (desktopCacheKeys.Count > 0)
-						tasks = new[] { Utility.Cache.RemoveAsync(desktopCacheKeys.Concat(new[] { thedesktop.GetSetCacheKey() }), cancellationToken) }.Concat(tasks).ToList();
-				}, cancellationToken, true, false).ConfigureAwait(false);
-
-				organization.Sites.ForEach(thesite => tasks = thesite.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList());
-
-				tasks = organization.ClearRelatedCacheAsync(requestInfo, cancellationToken).Concat(tasks).ToList();
-			}
-
-			else if (module != null)
-				tasks = module.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
-
-			else if (contentType != null)
-				tasks = contentType.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
-
-			else if (site != null)
-			{
-				tasks = site.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
-				var desktops = await Desktop.FindAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", site.SystemID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				await desktops.ForEachAsync(async (thedesktop, _) =>
-				{
-					tasks = thedesktop.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).Concat(tasks).ToList();
-					var desktopCacheKeys = await Utility.Cache.GetSetMembersAsync(thedesktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
-					if (desktopCacheKeys.Count > 0)
-						tasks = new[] { Utility.Cache.RemoveAsync(desktopCacheKeys.Concat(new[] { thedesktop.GetSetCacheKey() }), cancellationToken) }.Concat(tasks).ToList();
-				}, cancellationToken, true, false).ConfigureAwait(false);
-			}
-
-			else if (desktop != null)
-				tasks = desktop.ClearRelatedCacheAsync(requestInfo, cancellationToken, true).ToList();
-
-			await Task.WhenAll(tasks).ConfigureAwait(false);
-			stopwatch.Stop();
 			if (Utility.WriteCacheLogs)
-				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear related cache successful [{tasks.Count} tasks] - Execution times: {stopwatch.GetElapsedTimes()}", cancellationToken, "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear all cache{(organization != null ? " of the whole organization" : "")} [{requestInfo.GetURI()}]", cancellationToken, "Caches").ConfigureAwait(false);
 
-			// re-load
 			if (organization != null)
-			{
-				// re-load organization & sites/modules/content-types
-				organization = await organization.ID.GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll(
-					organization.FindSitesAsync(cancellationToken, false),
-					organization.FindModulesAsync(cancellationToken, false)
-				).ConfigureAwait(false);
-				await organization.Modules.ForEachAsync(async (themodule, _) => await themodule.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false), cancellationToken, true, false).ConfigureAwait(false);
-				await Task.WhenAll(
-					organization.SetAsync(false, true, cancellationToken),
-					Task.WhenAll(organization.Sites.Select(thesite => thesite.SetAsync(false, true, cancellationToken))),
-					Task.WhenAll(organization.Modules.Select(themodule => themodule.SetAsync(true, cancellationToken))),
-					Task.WhenAll(organization.Modules.Select(themodule => Task.WhenAll(themodule.ContentTypes.Select(theContentType => theContentType.SetAsync(true, cancellationToken)))))
-				).ConfigureAwait(false);
-
-				// re-load home desktop and refresh HTML
-				desktop = await Desktop.GetAsync<Desktop>(organization.HomeDesktopID, cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll(
-					desktop.FindChildrenAsync(cancellationToken, false),
-					desktop.FindPortletsAsync(cancellationToken, false)
-				).ConfigureAwait(false);
-				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-				await $"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(0, requestInfo.CorrelationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]");
-			}
+				await organization.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true, false).ConfigureAwait(false);
 
 			else if (module != null)
 			{
+				await module.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true, false).ConfigureAwait(false);
 				module = await Module.GetAsync<Module>(module.ID, cancellationToken).ConfigureAwait(false);
 				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
@@ -4425,12 +4347,14 @@ namespace net.vieapps.Services.Portals
 
 			else if (contentType != null)
 			{
+				await contentType.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true, false).ConfigureAwait(false);
 				contentType = await ContentType.GetAsync<ContentType>(contentType.ID, cancellationToken).ConfigureAwait(false);
 				await contentType.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 
 			else if (site != null)
 			{
+				await site.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
 				site = await Site.GetAsync<Site>(site.ID, cancellationToken).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
@@ -4446,6 +4370,7 @@ namespace net.vieapps.Services.Portals
 
 			else if (desktop != null)
 			{
+				await desktop.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(desktop.ID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
 					desktop.FindChildrenAsync(cancellationToken, false),
@@ -4453,6 +4378,10 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
+
+			stopwatch.Stop();
+			if (Utility.WriteCacheLogs)
+				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear related cache successful - Execution times: {stopwatch.GetElapsedTimes()}", cancellationToken, "Caches").ConfigureAwait(false);
 
 			return new JObject();
 		}
@@ -4647,7 +4576,7 @@ namespace net.vieapps.Services.Portals
 					var objects = await Item.FindAsync(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
 
 					// update objects
-					await objects.ForEachAsync(async (item, _) =>
+					await objects.ForEachAsync(async item =>
 					{
 						item.RepositoryID = module.ID;
 						item.LastModified = DateTime.Now;
@@ -4659,7 +4588,7 @@ namespace net.vieapps.Services.Portals
 							Data = item.ToJson(),
 							DeviceID = "*"
 						}, cancellationToken).ConfigureAwait(false);
-					}, cancellationToken, true, false).ConfigureAwait(false);
+					}, true, false).ConfigureAwait(false);
 
 					// update content-type
 					contentType.RepositoryID = module.ID;
@@ -4671,7 +4600,7 @@ namespace net.vieapps.Services.Portals
 					var objects = await Link.FindAsync(Filters<Link>.Equals("RepositoryEntityID", contentType.ID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
 
 					// update objects
-					await objects.ForEachAsync(async (link, _) =>
+					await objects.ForEachAsync(async link =>
 					{
 						link.RepositoryID = module.ID;
 						link.LastModified = DateTime.Now;
@@ -4683,7 +4612,7 @@ namespace net.vieapps.Services.Portals
 							Data = link.ToJson(),
 							DeviceID = "*"
 						}, cancellationToken).ConfigureAwait(false);
-					}, cancellationToken, true, false).ConfigureAwait(false);
+					}, true, false).ConfigureAwait(false);
 
 					// update content-type
 					contentType.RepositoryID = module.ID;
@@ -4703,7 +4632,7 @@ namespace net.vieapps.Services.Portals
 				var objects = await Content.FindAsync(Filters<Content>.Equals("CategoryID", category.ID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
 
 				// update objects
-				await objects.ForEachAsync(async (content, _) =>
+				await objects.ForEachAsync(async content =>
 				{
 					content.CategoryID = destination.ID;
 					content.LastModified = DateTime.Now;
@@ -4715,7 +4644,7 @@ namespace net.vieapps.Services.Portals
 						Data = content.ToJson(),
 						DeviceID = "*"
 					}, cancellationToken).ConfigureAwait(false);
-				}, cancellationToken, true, false).ConfigureAwait(false);
+				}, true, false).ConfigureAwait(false);
 
 				// clear related cache
 				await cntType.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false).ConfigureAwait(false);

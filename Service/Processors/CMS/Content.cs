@@ -135,9 +135,14 @@ namespace net.vieapps.Services.Portals
 					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			}
 
-			// page size to clear related cached
+			// store page size to clear related cached
 			if (string.IsNullOrWhiteSpace(query))
 				Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).Run();
+
+			// store object identities to clear related cached
+			var contentType = objects.FirstOrDefault()?.ContentType;
+			if (contentType != null)
+				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.ID)).Run();
 
 			// return the results
 			return new Tuple<long, List<Content>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
@@ -369,7 +374,10 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken)).ConfigureAwait(false);
 
 			// send notification
-			content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, cancellationToken).Run();
+			content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo).Run();
+
+			// store object identity to clear related cached
+			Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.ID).Run();
 
 			// response
 			return response;
@@ -389,8 +397,8 @@ namespace net.vieapps.Services.Portals
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(content.Organization.OwnerID);
 			if (!gotRights)
 				gotRights = content.Status.Equals(ApprovalStatus.Published)
-					? requestInfo.Session.User.IsViewer(content.WorkingPrivileges)
-					: requestInfo.Session.User.ID.IsEquals(content.CreatedID) || requestInfo.Session.User.IsEditor(content.WorkingPrivileges);
+					? requestInfo.Session.User.IsViewer(content.WorkingPrivileges, content.ContentType?.WorkingPrivileges)
+					: requestInfo.Session.User.ID.IsEquals(content.CreatedID) || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType?.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -469,7 +477,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken).ConfigureAwait(false);
 
 			// send notification
-			content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, cancellationToken).Run();
+			content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo).Run();
 
 			// response
 			return response;
@@ -485,11 +493,11 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(content.Organization.OwnerID) || requestInfo.Session.User.IsEditor(content.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(content.Organization.OwnerID) || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				gotRights = content.Status.Equals(ApprovalStatus.Draft) || content.Status.Equals(ApprovalStatus.Pending) || content.Status.Equals(ApprovalStatus.Rejected)
 					? requestInfo.Session.User.ID.IsEquals(content.CreatedID)
-					: requestInfo.Session.User.IsEditor(content.WorkingPrivileges);
+					: requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -563,11 +571,11 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(content.Organization.OwnerID) || requestInfo.Session.User.IsModerator(content.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(content.Organization.OwnerID) || requestInfo.Session.User.IsModerator(content.WorkingPrivileges, content.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				gotRights = content.Status.Equals(ApprovalStatus.Draft) || content.Status.Equals(ApprovalStatus.Pending) || content.Status.Equals(ApprovalStatus.Rejected)
-					? requestInfo.Session.User.ID.IsEquals(content.CreatedID) || requestInfo.Session.User.IsEditor(content.WorkingPrivileges)
-					: requestInfo.Session.User.IsModerator(content.WorkingPrivileges);
+					? requestInfo.Session.User.ID.IsEquals(content.CreatedID) || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges)
+					: requestInfo.Session.User.IsModerator(content.WorkingPrivileges, content.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -588,7 +596,10 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken).ConfigureAwait(false);
 
 			// send notification
-			content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo, cancellationToken).Run();
+			content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo).Run();
+
+			// store object identity to clear related cached
+			Utility.Cache.RemoveSetMembersAsync(content.ContentType.ObjectCacheKeys, content.ID).Run();
 
 			// response
 			return response;
@@ -850,8 +861,8 @@ namespace net.vieapps.Services.Portals
 
 				// check permission
 				var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || @object.Status.Equals(ApprovalStatus.Published)
-					? requestInfo.Session.User.IsViewer(@object.WorkingPrivileges)
-					: requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges);
+					? requestInfo.Session.User.IsViewer(@object.WorkingPrivileges, @object.ContentType.WorkingPrivileges)
+					: requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, @object.ContentType.WorkingPrivileges);
 				if (!gotRights)
 					throw new AccessDeniedException();
 
@@ -859,7 +870,7 @@ namespace net.vieapps.Services.Portals
 				var validatePublishedTime = options.Get("ValidatePublished", options.Get("ValidatePublishedTime", options.Get("ValidateWithPublishedTime", false)));
 				if (validatePublishedTime && @object.Status.Equals(ApprovalStatus.Published) && @object.PublishedTime.Value > DateTime.Now)
 				{
-					if (!isSystemAdministrator && !requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) && !requestInfo.Session.User.ID.IsEquals(@object.CreatedID) && !requestInfo.Session.User.IsEditor(@object.WorkingPrivileges))
+					if (!isSystemAdministrator && !requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) && !requestInfo.Session.User.ID.IsEquals(@object.CreatedID) && !requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, @object.ContentType.WorkingPrivileges))
 						throw new AccessDeniedException();
 				}
 
@@ -879,7 +890,7 @@ namespace net.vieapps.Services.Portals
 					// get related contents
 					var relateds = new List<Content>();
 					var relatedsTask = showRelateds && @object.Relateds != null
-						? @object.Relateds.ForEachAsync(async (id, token) => relateds.Add(await Content.GetAsync<Content>(id, token).ConfigureAwait(false)), cancellationToken)
+						? @object.Relateds.ForEachAsync(async id => relateds.Add(await Content.GetAsync<Content>(id, cancellationToken).ConfigureAwait(false)))
 						: Task.CompletedTask;
 
 					// get other contents
@@ -895,7 +906,7 @@ namespace net.vieapps.Services.Portals
 						{
 							newersTask = Task.FromResult(new List<Content>());
 							oldersTask = Task.FromResult(new List<Content>());
-							await otherIDs.ForEachAsync(async (id, token) => others.Add(await Content.GetAsync<Content>(id, token).ConfigureAwait(false)), cancellationToken).ConfigureAwait(false);
+							await otherIDs.ForEachAsync(async id => others.Add(await Content.GetAsync<Content>(id, cancellationToken).ConfigureAwait(false))).ConfigureAwait(false);
 						}
 						else
 						{
@@ -955,7 +966,7 @@ namespace net.vieapps.Services.Portals
 						{
 							var cacheKeyOfOthers = $"{@object.GetCacheKey()}:others";
 							if (!await Utility.Cache.ExistsAsync(cacheKeyOfOthers, cancellationToken).ConfigureAwait(false))
-								await Utility.Cache.SetAsync(cacheKeyOfOthers, others.Select(other => other.ID).ToList(), Utility.Cache.ExpirationTime / 2, cancellationToken).ConfigureAwait(false);
+								await Utility.Cache.SetAsync(cacheKeyOfOthers, others.Select(other => other.ID).ToList(), cancellationToken).ConfigureAwait(false);
 						}
 
 						otherThumbnails = others.Count < 1
@@ -1020,10 +1031,9 @@ namespace net.vieapps.Services.Portals
 						relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
 						{
 							var relatedXml = new XElement("Content", new XElement("ID", related.ID));
-							relatedXml.Add(new XElement("Title", related.Title), new XElement("Summary", related.Summary?.NormalizeHTMLBreaks()));
+							relatedXml.Add(new XElement("Title", related.Title), new XElement("Author", related.Author ?? ""), new XElement("Summary", related.Summary?.NormalizeHTMLBreaks() ?? ""));
 							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value).UpdateDateTime(cultureInfo, customDateTimeFormat));
-							relatedXml.Add(new XElement("URL", related.GetURL(desktop)));
-							relatedXml.Add(new XElement("Category", related.Category?.Title, new XAttribute("URL", related.Category?.GetURL(desktop))));
+							relatedXml.Add(new XElement("URL", related.GetURL(desktop) ?? ""), new XElement("Category", related.Category?.Title ?? "", new XAttribute("URL", related.Category?.GetURL(desktop) ?? "")));
 							relatedsXml.Add(relatedXml);
 						});
 						dataXml.Add(relatedsXml);
@@ -1046,8 +1056,8 @@ namespace net.vieapps.Services.Portals
 							otherXml.Element("StartDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
 							otherXml.Element("EndDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
 							otherXml.Element("PublishedTime")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
-							otherXml.Add(new XElement("Category", other.Category?.Title, new XAttribute("URL", other.Category?.GetURL(desktop))));
-							otherXml.Add(new XElement("URL", other.GetURL(desktop)));
+							otherXml.Add(new XElement("Category", other.Category?.Title ?? "", new XAttribute("URL", other.Category?.GetURL(desktop) ?? "")));
+							otherXml.Add(new XElement("URL", other.GetURL(desktop) ?? ""));
 							var thumbnailURL = otherThumbnails?.GetThumbnailURL(other.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
 							otherXml.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
 							if (!string.IsNullOrWhiteSpace(other.Summary))
@@ -1065,10 +1075,10 @@ namespace net.vieapps.Services.Portals
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", category.Title),
-							new XElement("Description", category.Description?.NormalizeHTMLBreaks()),
-							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks()),
-							new XElement("URL", category.GetURL(desktop)),
-							new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+							new XElement("Description", category.Description?.NormalizeHTMLBreaks() ?? ""),
+							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
+							new XElement("URL", category.GetURL(desktop) ?? ""),
+							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
 						));
 					}
 
@@ -1078,6 +1088,7 @@ namespace net.vieapps.Services.Portals
 					// update cache
 					Task.WhenAll(
 						Utility.Cache.SetAsync(cacheKey, data),
+						@object.ContentType != null ? Utility.Cache.AddSetMemberAsync(@object.ContentType.ObjectCacheKeys, @object.ID) : Task.CompletedTask,
 						@object.ContentType != null ? Utility.Cache.AddSetMembersAsync(@object.ContentType.GetSetCacheKey(), new[] { cacheKey }) : Task.CompletedTask,
 						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate details of CMS.Content [{@object.ContentType?.Title} - ID: {@object.ContentType?.ID} - Set: {@object.ContentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", CancellationToken.None, "Caches") : Task.CompletedTask
 					).Run();

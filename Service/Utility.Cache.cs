@@ -33,9 +33,10 @@ namespace net.vieapps.Services.Portals
 		/// Gets the key for storing a set of keys that related to a content-type
 		/// </summary>
 		/// <param name="contentType"></param>
+		/// <param name="suffix"></param>
 		/// <returns></returns>
-		public static string GetSetCacheKey(this ContentType contentType)
-			=> contentType.Organization.GetSetCacheKey($"ContentType:{contentType.ID}");
+		public static string GetSetCacheKey(this ContentType contentType, string suffix = null)
+			=> contentType.Organization.GetSetCacheKey($"ContentType:{contentType.ID}{suffix}");
 
 		/// <summary>
 		/// Gets the key for storing a set of keys that related to a desktop
@@ -106,7 +107,8 @@ namespace net.vieapps.Services.Portals
 		{
 			var cacheKeys = new List<string>
 			{
-				organization.HomeDesktop?.GetDesktopCacheKey("https://site.vieapps.net/")
+				organization.HomeDesktop?.GetDesktopCacheKey("https://site.vieapps.net/"),
+				$"{organization.ID}:{organization.HomeDesktop?.Alias.GenerateUUID()}"
 			};
 			if (organization.Sites != null && organization.Sites.Count > 0)
 				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey("https://site.vieapps.net/"))).ToList();

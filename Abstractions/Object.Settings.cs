@@ -304,7 +304,7 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public string Style { get; set; }
 
-		public void Normalize()
+		public void Normalize(Action<UI> onCompleted = null)
 		{
 			this.Padding = string.IsNullOrWhiteSpace(this.Padding) ? null : this.Padding.Trim();
 			this.Margin = string.IsNullOrWhiteSpace(this.Margin) ? null : this.Margin.Trim();
@@ -318,6 +318,7 @@ namespace net.vieapps.Services.Portals.Settings
 			this.BackgroundImageSize = string.IsNullOrWhiteSpace(this.BackgroundImageSize) ? null : this.BackgroundImageSize.Trim();
 			this.Css = string.IsNullOrWhiteSpace(this.Css) ? null : this.Css.Trim();
 			this.Style = string.IsNullOrWhiteSpace(this.Style) ? null : this.Style.Trim();
+			onCompleted?.Invoke(this);
 		}
 
 		public string GetStyle()

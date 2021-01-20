@@ -116,39 +116,41 @@ namespace net.vieapps.Services.Portals
 			return Task.CompletedTask;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
 			// data cache keys
 			var sort = Sorts<Expression>.Ascending("Title");
-			var dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Expression>.And(), sort)
-				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(null), sort))
-				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID), sort))
-				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, expression.ContentTypeDefinitionID), sort))
-				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, null), sort))
-				.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, null, expression.ContentTypeDefinitionID), sort))
-				.ToList();
+			var dataCacheKeys = clearDataCache
+				? Extensions.GetRelatedCacheKeys(Filters<Expression>.And(), sort)
+					.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(null), sort))
+					.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID), sort))
+					.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, expression.ContentTypeDefinitionID), sort))
+					.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, null), sort))
+					.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, null, expression.ContentTypeDefinitionID), sort))
+					.ToList()
+				: new List<string>();
 
-			if (!string.IsNullOrWhiteSpace(expression.RepositoryEntityID) && !string.IsNullOrWhiteSpace(expression.ContentTypeDefinitionID))
+			if (clearDataCache)
 			{
-				var filter = Filters<Expression>.Or
-				(
-					Filters<Expression>.Equals("ContentTypeDefinitionID", expression.ContentTypeDefinitionID),
-					Filters<Expression>.Equals("RepositoryEntityID", expression.RepositoryEntityID)
-				);
-				dataCacheKeys = dataCacheKeys.Concat(Extensions.GetRelatedCacheKeys(filter, sort))
-					.Concat(Extensions.GetRelatedCacheKeys(Filters<Expression>.And(Filters<Expression>.Equals("RepositoryID", expression.RepositoryID), filter), sort))
-					.ToList();
+				if (!string.IsNullOrWhiteSpace(expression.RepositoryEntityID) && !string.IsNullOrWhiteSpace(expression.ContentTypeDefinitionID))
+				{
+					var filter = Filters<Expression>.Or
+					(
+						Filters<Expression>.Equals("ContentTypeDefinitionID", expression.ContentTypeDefinitionID),
+						Filters<Expression>.Equals("RepositoryEntityID", expression.RepositoryEntityID)
+					);
+					dataCacheKeys = dataCacheKeys.Concat(Extensions.GetRelatedCacheKeys(filter, sort))
+						.Concat(Extensions.GetRelatedCacheKeys(Filters<Expression>.And(Filters<Expression>.Equals("RepositoryID", expression.RepositoryID), filter), sort))
+						.ToList();
+				}
+				if (expression.ContentType != null)
+					dataCacheKeys = dataCacheKeys.Concat(await Utility.Cache.GetSetMembersAsync(expression.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).ToList();
 			}
-
-			if (expression.ContentType != null)
-				dataCacheKeys = dataCacheKeys.Concat(await Utility.Cache.GetSetMembersAsync(expression.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).ToList();
-
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = new List<string>();
-
-			if (doRefresh)
+			if (clearHtmlCache)
 			{
 				var desktopSetCacheKeys = await Utility.GetSetCacheKeysAsync(Filters<Portlet>.And(Filters<Portlet>.Equals("ExpressionID", expression.ID), Filters<Portlet>.IsNull("OriginalPortletID")), cancellationToken).ConfigureAwait(false);
 				await desktopSetCacheKeys.ForEachAsync(async (desktopSetCacheKey, _) =>
@@ -158,7 +160,6 @@ namespace net.vieapps.Services.Portals
 						htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
 				}, cancellationToken, true, false).ConfigureAwait(false);
 			}
-
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// clear related cache
@@ -173,21 +174,19 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Expression expression, string correlationID = null)
 			=> expression.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
-		internal static List<Task> ClearRelatedCacheAsync(this Expression expression, RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			expression.Remove();
-			return new List<Task>
+		internal static Task ClearCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
+			=> Task.WhenAll(new[]
 			{
-				expression.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false),
-				Utility.Cache.RemoveAsync(expression, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				expression.ClearRelatedCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),
+				Utility.Cache.RemoveAsync(expression.Remove(), cancellationToken),
+				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 				{
 					Type = $"{expression.GetObjectName()}#Delete",
 					Data = expression.ToJson(),
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
-			};
-		}
+				}, cancellationToken),
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of an expression [{expression.Title} - ID: {expression.ID}]", CancellationToken.None, "Caches") : Task.CompletedTask
+			});
 
 		internal static async Task<JObject> SearchExpressionsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -212,7 +211,7 @@ namespace net.vieapps.Services.Portals
 				if (organization == null)
 					throw new InformationExistedException("The organization is invalid");
 
-				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsViewer(organization.WorkingPrivileges);
 				if (!gotRights)
 					throw new AccessDeniedException();
 			}
@@ -304,7 +303,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			expression.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+			expression.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo).Run();
 
 			// response
 			return expression.ToJson();
@@ -383,7 +382,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			expression.SendNotificationAsync("Update", expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+			expression.SendNotificationAsync("Update", expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo).Run();
 
 			// response
 			return response;
@@ -399,13 +398,13 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(expression.Organization.OwnerID) || requestInfo.Session.User.IsModerator(expression.Organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(expression.Organization.OwnerID) || requestInfo.Session.User.IsAdministrator(expression.Organization.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// delete
 			await Expression.DeleteAsync<Expression>(expression.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			expression.Remove().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			await expression.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
 
 			// send update messages
 			var response = expression.ToJson();
@@ -426,7 +425,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			expression.SendNotificationAsync("Delete", expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).Run();
+			expression.SendNotificationAsync("Delete", expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo).Run();
 
 			// response
 			return response;

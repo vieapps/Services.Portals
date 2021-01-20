@@ -41,7 +41,11 @@ namespace net.vieapps.Services.Portals
 				CategoryProcessor.CategoriesByAlias[$"{category.RepositoryEntityID}:{category.Alias}"] = category;
 
 				if (updateCache)
-					Utility.Cache.SetAsync(category).Run();
+					Task.WhenAll
+					(
+						Utility.Cache.SetAsync(category),
+						Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.ID)
+					).Run();
 			}
 			return category;
 		}
@@ -128,7 +132,7 @@ namespace net.vieapps.Services.Portals
 			var filter = CategoryProcessor.GetCategoriesFilter(systemID, repositoryID, repositoryEntityID, parentID);
 			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
 			var categories = await Category.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-			await categories.ForEachAsync((category, token) => category.SetAsync(false, updateCache, token), cancellationToken).ConfigureAwait(false);
+			categories.ForEach(category => category.Set(false, updateCache));
 			return categories;
 		}
 
@@ -253,6 +257,11 @@ namespace net.vieapps.Services.Portals
 			// page size to clear related cached
 			if (string.IsNullOrWhiteSpace(query))
 				Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).Run();
+
+			// store object identities to clear related cached
+			var contentType = objects.FirstOrDefault()?.ContentType;
+			if (contentType != null)
+				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.ID)).Run();
 
 			// return the results
 			return new Tuple<long, List<Category>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
@@ -441,12 +450,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notification
-			category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, cancellationToken).Run();
+			category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo).Run();
 
 			// response
 			return response;
@@ -638,12 +647,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notification
-			category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken).Run();
+			category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo).Run();
 
 			// response
 			return response;
@@ -689,7 +698,7 @@ namespace net.vieapps.Services.Portals
 
 			Category first = null;
 			var notificationTasks = new List<Task>();
-			await request.Get<JArray>("Categories").ForEachAsync(async (info, _) =>
+			await request.Get<JArray>("Categories").ForEachAsync(async info =>
 			{
 				var id = info.Get<string>("ID");
 				var orderIndex = info.Get<int>("OrderIndex");
@@ -700,7 +709,7 @@ namespace net.vieapps.Services.Portals
 					item.LastModified = DateTime.Now;
 					item.LastModifiedID = requestInfo.Session.User.ID;
 					await Category.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					notificationTasks.Add(item.SendNotificationAsync("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo, cancellationToken));
+					notificationTasks.Add(item.SendNotificationAsync("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo));
 					var json = item.Set(false, true).ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
 					{
@@ -744,8 +753,8 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			await Task.WhenAll
 			(
-				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notification
@@ -786,7 +795,7 @@ namespace net.vieapps.Services.Portals
 					child.LastModifiedID = requestInfo.Session.User.ID;
 
 					await Category.UpdateAsync(child, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					child.SendNotificationAsync("Update", child.ContentType.Notifications, child.Status, child.Status, requestInfo, cancellationToken).Run();
+					child.SendNotificationAsync("Update", child.ContentType.Notifications, child.Status, child.Status, requestInfo).Run();
 
 					var json = child.Set().ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
@@ -842,12 +851,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notification
-			category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken).Run();
+			category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo).Run();
 
 			// response
 			return response;
@@ -861,16 +870,16 @@ namespace net.vieapps.Services.Portals
 			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
 
 			var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-			await children.ForEachAsync(async (child, token) =>
+			await children.ForEachAsync(async child =>
 			{
-				var messages = await child.DeleteChildrenAsync(requestInfo, token).ConfigureAwait(false);
+				var messages = await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 				updateMessages = updateMessages.Concat(messages.Item1).ToList();
 				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-			}, cancellationToken, true, false).ConfigureAwait(false);
+			}, true, false).ConfigureAwait(false);
 
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			category.Remove().ClearRelatedCacheAsync(cancellationToken).Run();
-			category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken).Run();
+			category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo).Run();
 
 			var json = category.ToJson();
 			updateMessages.Add(new UpdateMessage
@@ -993,7 +1002,7 @@ namespace net.vieapps.Services.Portals
 			var addChildren = options.Get("ShowChildrens", options.Get("ShowChildren", options.Get("AddChildrens", options.Get("AddChildren", false))));
 
 			if (addChildren)
-				await objects.Where(category => category._childrenIDs == null).ForEachAsync((category, _) => category.FindChildrenAsync(cancellationToken), cancellationToken, true, false).ConfigureAwait(false);
+				await objects.Where(category => category._childrenIDs == null).ForEachAsync(category => category.FindChildrenAsync(cancellationToken), true, false).ConfigureAwait(false);
 
 			var categories = objects.Select(category => category.ToJson(
 				addChildren,
@@ -1069,7 +1078,7 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 					subMenu = new JArray();
-					await children.ForEachAsync(async (child, token) => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), level + 1, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, token).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
+					await children.ForEachAsync(async child => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), level + 1, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false)), true, false).ConfigureAwait(false);
 				}
 
 				// update children

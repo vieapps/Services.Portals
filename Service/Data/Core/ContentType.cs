@@ -174,6 +174,9 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID() ?? this.Module?.Desktop;
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		internal string ObjectCacheKeys => this.GetSetCacheKey(":ObjectIDs");
+
 		internal void NormalizeExtras()
 		{
 			this.Notifications?.Normalize();

@@ -127,6 +127,11 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(query))
 				Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).Run();
 
+			// store object identities to clear related cached
+			var contentType = objects.FirstOrDefault()?.ContentType;
+			if (contentType != null)
+				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.ID)).Run();
+
 			// return the results
 			return new Tuple<long, List<Item>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
 		}
@@ -295,7 +300,10 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken).ConfigureAwait(false);
 
 			// send notification
-			item.SendNotificationAsync("Create", item.ContentType.Notifications, ApprovalStatus.Draft, item.Status, requestInfo, cancellationToken).Run();
+			item.SendNotificationAsync("Create", item.ContentType.Notifications, ApprovalStatus.Draft, item.Status, requestInfo).Run();
+
+			// store object identity to clear related cached
+			Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.ID).Run();
 
 			// response
 			return response;
@@ -312,7 +320,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/item-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(item.Organization.OwnerID) || requestInfo.Session.User.IsViewer(item.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(item.Organization.OwnerID) || requestInfo.Session.User.IsViewer(item.WorkingPrivileges, item.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -374,7 +382,7 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken).ConfigureAwait(false);
 
 			// send notification
-			item.SendNotificationAsync("Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, cancellationToken).Run();
+			item.SendNotificationAsync("Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo).Run();
 
 			// response
 			return response;
@@ -390,11 +398,11 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/item-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(item.Organization.OwnerID) || requestInfo.Session.User.IsEditor(item.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(item.Organization.OwnerID) || requestInfo.Session.User.IsEditor(item.WorkingPrivileges, item.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				gotRights = item.Status.Equals(ApprovalStatus.Draft) || item.Status.Equals(ApprovalStatus.Pending) || item.Status.Equals(ApprovalStatus.Rejected)
 					? requestInfo.Session.User.ID.IsEquals(item.CreatedID)
-					: requestInfo.Session.User.IsEditor(item.WorkingPrivileges);
+					: requestInfo.Session.User.IsEditor(item.WorkingPrivileges, item.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -426,11 +434,11 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/item-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(item.Organization.OwnerID) || requestInfo.Session.User.IsModerator(item.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(item.Organization.OwnerID) || requestInfo.Session.User.IsModerator(item.WorkingPrivileges, item.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				gotRights = item.Status.Equals(ApprovalStatus.Draft) || item.Status.Equals(ApprovalStatus.Pending) || item.Status.Equals(ApprovalStatus.Rejected)
-					? requestInfo.Session.User.ID.IsEquals(item.CreatedID) || requestInfo.Session.User.IsEditor(item.WorkingPrivileges)
-					: requestInfo.Session.User.IsModerator(item.WorkingPrivileges);
+					? requestInfo.Session.User.ID.IsEquals(item.CreatedID) || requestInfo.Session.User.IsEditor(item.WorkingPrivileges, item.ContentType.WorkingPrivileges)
+					: requestInfo.Session.User.IsModerator(item.WorkingPrivileges, item.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -451,7 +459,10 @@ namespace net.vieapps.Services.Portals
 			}, cancellationToken).ConfigureAwait(false);
 
 			// send notification
-			item.SendNotificationAsync("Delete", item.ContentType.Notifications, item.Status, item.Status, requestInfo, cancellationToken).Run();
+			item.SendNotificationAsync("Delete", item.ContentType.Notifications, item.Status, item.Status, requestInfo).Run();
+
+			// store object identity to clear related cached
+			Utility.Cache.RemoveSetMembersAsync(item.ContentType.ObjectCacheKeys, item.ID).Run();
 
 			// response
 			return response;
@@ -657,8 +668,8 @@ namespace net.vieapps.Services.Portals
 
 				// check permission
 				var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || @object.Status.Equals(ApprovalStatus.Published)
-					? requestInfo.Session.User.IsViewer(@object.WorkingPrivileges)
-					: requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges);
+					? requestInfo.Session.User.IsViewer(@object.WorkingPrivileges, @object.ContentType.WorkingPrivileges)
+					: requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, @object.ContentType.WorkingPrivileges);
 				if (!gotRights)
 					throw new AccessDeniedException();
 
@@ -781,6 +792,7 @@ namespace net.vieapps.Services.Portals
 					// update cache
 					Task.WhenAll(
 						Utility.Cache.SetAsync(cacheKey, data),
+						@object.ContentType != null ? Utility.Cache.AddSetMemberAsync(@object.ContentType.ObjectCacheKeys, @object.ID) : Task.CompletedTask,
 						@object.ContentType != null ? Utility.Cache.AddSetMembersAsync(@object.ContentType.GetSetCacheKey(), new[] { cacheKey }) : Task.CompletedTask,
 						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate details of CMS.Item [{@object.ContentType?.Title} - ID: {@object.ContentType?.ID} - Set: {@object.ContentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", CancellationToken.None, "Caches") : Task.CompletedTask
 					).Run();

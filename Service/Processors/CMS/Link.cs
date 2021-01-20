@@ -148,6 +148,11 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(query))
 				Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).Run();
 
+			// store object identities to clear related cached
+			var contentType = objects.FirstOrDefault()?.ContentType;
+			if (contentType != null)
+				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.ID)).Run();
+
 			// return the results
 			return new Tuple<long, List<Link>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
 		}
@@ -348,12 +353,15 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notification
-			link.SendNotificationAsync("Create", link.ContentType.Notifications, ApprovalStatus.Draft, link.Status, requestInfo, cancellationToken).Run();
+			link.SendNotificationAsync("Create", link.ContentType.Notifications, ApprovalStatus.Draft, link.Status, requestInfo).Run();
+
+			// store object identity to clear related cached
+			Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.ID).Run();
 
 			// response
 			return response;
@@ -370,7 +378,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(link.Organization.OwnerID) || requestInfo.Session.User.IsViewer(link.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(link.Organization.OwnerID) || requestInfo.Session.User.IsViewer(link.WorkingPrivileges, link.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -507,12 +515,12 @@ namespace net.vieapps.Services.Portals
 
 			// send messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notification
-			link.SendNotificationAsync("Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).Run();
+			link.SendNotificationAsync("Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo).Run();
 
 			// response
 			return response;
@@ -528,7 +536,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(link.Organization.OwnerID) || requestInfo.Session.User.IsEditor(link.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(link.Organization.OwnerID) || requestInfo.Session.User.IsEditor(link.WorkingPrivileges, link.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -596,7 +604,7 @@ namespace net.vieapps.Services.Portals
 
 			Link first = null;
 			var notificationTasks = new List<Task>();
-			await request.Get<JArray>("Links").ForEachAsync(async (info, _) =>
+			await request.Get<JArray>("Links").ForEachAsync(async info =>
 			{
 				var id = info.Get<string>("ID");
 				var orderIndex = info.Get<int>("OrderIndex");
@@ -653,8 +661,8 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync((message, token) => Utility.RTUService.SendUpdateMessageAsync(message, token), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, token) => Utility.RTUService.SendInterCommunicateMessageAsync(message, token), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notifications
@@ -674,7 +682,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(link.Organization.OwnerID) || requestInfo.Session.User.IsModerator(link.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(link.Organization.OwnerID) || requestInfo.Session.User.IsModerator(link.WorkingPrivileges, link.ContentType.WorkingPrivileges);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -685,7 +693,7 @@ namespace net.vieapps.Services.Portals
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
 			var children = await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Link>();
-			await children.Where(child => child != null).ForEachAsync(async (child, _) =>
+			await children.Where(child => child != null).ForEachAsync(async child =>
 			{
 				// update children to root
 				if (updateChildren)
@@ -719,7 +727,7 @@ namespace net.vieapps.Services.Portals
 					updateMessages = updateMessages.Concat(messages.Item1).ToList();
 					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
 				}
-			}, cancellationToken, true, false).ConfigureAwait(false);
+			}, true, false).ConfigureAwait(false);
 
 			await Link.DeleteAsync<Link>(link.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await link.ClearRelatedCacheAsync(requestInfo.CorrelationID).ConfigureAwait(false);
@@ -744,12 +752,15 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			await Task.WhenAll
 			(
-				updateMessages.ForEachAsync((message, _) => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), cancellationToken, true, false),
-				communicateMessages.ForEachAsync((message, _) => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken), cancellationToken)
+				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
+				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
 			).ConfigureAwait(false);
 
 			// send notification
-			link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, cancellationToken).Run();
+			link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo).Run();
+
+			// store object identity to clear related cached
+			Utility.Cache.RemoveSetMembersAsync(link.ContentType.ObjectCacheKeys, link.ID).Run();
 
 			// response
 			return response;
@@ -762,12 +773,12 @@ namespace net.vieapps.Services.Portals
 			var objectName = link.GetObjectName();
 
 			var children = await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Link>();
-			await children.Where(child => child != null).ForEachAsync(async (child, _) =>
+			await children.Where(child => child != null).ForEachAsync(async child =>
 			{
 				var messages = await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 				updateMessages = updateMessages.Concat(messages.Item1).ToList();
 				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-			}, cancellationToken, true, false).ConfigureAwait(false);
+			}, true, false).ConfigureAwait(false);
 
 			await Link.DeleteAsync<Link>(link.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
@@ -785,7 +796,8 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			});
 
-			link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, cancellationToken).Run();
+			link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo).Run();
+			Utility.Cache.RemoveSetMembersAsync(link.ContentType.ObjectCacheKeys, link.ID).Run();
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
@@ -928,6 +940,7 @@ namespace net.vieapps.Services.Portals
 					// update cache
 					Task.WhenAll(
 						Utility.Cache.SetAsync(cacheKey, data),
+						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, parent.ChildrenIDs ?? new List<string>()) : Task.CompletedTask,
 						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), new[] { cacheKey }) : Task.CompletedTask,
 						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", CancellationToken.None, "Caches") : Task.CompletedTask
 					).Run();
@@ -970,7 +983,7 @@ namespace net.vieapps.Services.Portals
 					// generate xml
 					Exception exception = null;
 					var dataXml = XElement.Parse("<Data/>");
-					await objects.ForEachAsync(async (@object, _) =>
+					await objects.ForEachAsync(async @object =>
 					{
 						// check
 						if (exception != null)
@@ -1015,7 +1028,7 @@ namespace net.vieapps.Services.Portals
 						{
 							exception = requestInfo.GetRuntimeException(ex, null, (msg, exc) => requestInfo.WriteErrorAsync(exc, cancellationToken, $"Error occurred while generating a link => {msg} : {@object.ToJson()}", "Errors").Run());
 						}
-					}, cancellationToken, true, false).ConfigureAwait(false);
+					}, true, false).ConfigureAwait(false);
 
 					// check error
 					if (exception != null)
