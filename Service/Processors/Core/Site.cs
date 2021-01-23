@@ -263,13 +263,10 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{site.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
-
-		internal static Task ClearRelatedCacheAsync(this Site site, string correlationID = null)
-			=> site.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
 		internal static Task ClearCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
 			=> Task.WhenAll(new[]
@@ -282,7 +279,7 @@ namespace net.vieapps.Services.Portals
 					Data = site.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", CancellationToken.None, "Caches") : Task.CompletedTask
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask
 			});
 
 		internal static async Task<JObject> SearchSitesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -303,28 +300,20 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 			{
 				// get organization
-				var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("SystemID");
+				var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
 				var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (organization == null)
 					throw new InformationExistedException("The organization is invalid");
 
-				gotRights = requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+				gotRights = requestInfo.Session.User.IsModerator(null, null, organization, requestInfo.CorrelationID);
 				if (!gotRights)
-				{
-					Utility.WriteLogAsync(
-						requestInfo,
-						$"User doesn't have permission to complete the request\r\n - ID: {requestInfo.Session.User.ID} - Roles: {requestInfo.Session.User.Roles.Join(", ")}"
-						+ $"\r\nPrivileges (Organization): {organization.WorkingPrivileges.ToJson()}"
-						+ $"\r\nRequest: {requestInfo.ToJson()}",
-						cancellationToken,
-						"Privileges"
-					).Run();
 					throw new AccessDeniedException();
-				}
 			}
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
+			var json = string.IsNullOrWhiteSpace(query)
+				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+				: null;
 			if (!string.IsNullOrWhiteSpace(json))
 				return JObject.Parse(json);
 
@@ -374,7 +363,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsModerator(organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization, requestInfo.CorrelationID);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -399,7 +388,7 @@ namespace net.vieapps.Services.Portals
 			await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			site.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			site.Set().ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
 
 			// update organization
 			if (organization._siteIDs == null)
@@ -432,7 +421,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			site.SendNotificationAsync("Create", site.Organization.Notifications, ApprovalStatus.Draft, site.Status, requestInfo).Run();
+			site.SendNotificationAsync("Create", site.Organization.Notifications, ApprovalStatus.Draft, site.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// response
 			return response;
@@ -449,7 +438,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(site.Organization.OwnerID) || requestInfo.Session.User.IsViewer(site.Organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, site.Organization, requestInfo.CorrelationID);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -500,7 +489,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			site.SendNotificationAsync("Update", site.Organization.Notifications, oldStatus, site.Status, requestInfo, cancellationToken).Run();
+			site.SendNotificationAsync("Update", site.Organization.Notifications, oldStatus, site.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// response
 			return response;
@@ -516,7 +505,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(site.Organization.OwnerID) || requestInfo.Session.User.IsModerator(site.Organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, site.Organization, requestInfo.CorrelationID);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -553,7 +542,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(site.Organization.OwnerID) || requestInfo.Session.User.IsAdministrator(site.Organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, site.Organization, requestInfo.CorrelationID);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -561,7 +550,7 @@ namespace net.vieapps.Services.Portals
 			await Site.DeleteAsync<Site>(site.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			await site.Remove().ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
+			await site.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
 
 			// update organization
 			var organization = site.Organization;
@@ -610,7 +599,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			site.SendNotificationAsync("Delete", site.Organization.Notifications, site.Status, site.Status, requestInfo, cancellationToken).Run();
+			site.SendNotificationAsync("Delete", site.Organization.Notifications, site.Status, site.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// response
 			return response;
@@ -634,8 +623,10 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// clear related cache
-			if (requestInfo.GetHeaderParameter("x-converter") == null)
-				site.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			if (requestInfo.GetHeaderParameter("x-converter") != null)
+				site.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+			else
+				await site.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// send update messages
 			var json = site.Set().ToJson();

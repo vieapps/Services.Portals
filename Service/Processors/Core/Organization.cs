@@ -167,20 +167,17 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", CancellationToken.None, "Caches") : Task.CompletedTask,
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
-
-		internal static Task ClearRelatedCacheAsync(this Organization organization, string correlationID = null)
-			=> organization.ClearRelatedCacheAsync(CancellationToken.None, correlationID);
 
 		internal static async Task ClearCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null, bool clearObjectsCache = true, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
 		{
 			// clear cache of home desktop (html)
 			var tasks = new List<Task>
 			{
-				Utility.Cache.RemoveAsync(organization.GetDesktopCacheKey(), cancellationToken)
+				organization.ClearRelatedCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, false)
 			};
 
 			// clear cache of objects
@@ -215,7 +212,7 @@ namespace net.vieapps.Services.Portals
 					Data = organization.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of an organization [{organization.Title} - ID: {organization.ID}]", CancellationToken.None, "Caches") : Task.CompletedTask
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of an organization [{organization.Title} - ID: {organization.ID}]", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask
 			}).ToList();
 
 			await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -226,7 +223,15 @@ namespace net.vieapps.Services.Portals
 				organization.FindSitesAsync(cancellationToken, false),
 				organization.FindModulesAsync(cancellationToken, false)
 			).ConfigureAwait(false);
-			await organization.Modules.ForEachAsync(async module => await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false), true, false).ConfigureAwait(false);
+			await organization.Modules.ForEachAsync(async module =>
+			{
+				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
+				await Task.WhenAll
+				(
+					Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"The module was reloaded when all cache were clean\r\n{module.ToJson()}", cancellationToken, "Caches") : Task.CompletedTask,
+					Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"The content-types were reloaded when all cache were clean\r\n{module.ContentTypes.Select(contentType => contentType.ToJson().ToString(Formatting.Indented)).Join("\r\n")}", cancellationToken, "Caches") : Task.CompletedTask
+				).ConfigureAwait(false);
+			}, true, false).ConfigureAwait(false);
 			await Task.WhenAll(
 				organization.SetAsync(false, true, cancellationToken),
 				Task.WhenAll(organization.Sites.Select(site => site.SetAsync(false, true, cancellationToken))),
@@ -244,15 +249,8 @@ namespace net.vieapps.Services.Portals
 
 			await Task.WhenAll
 			(
-				$"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(0, correlationID, $"Refresh home desktop when all cache of an organization were clean [{organization.Title} - ID: {organization.ID}]"),
-				Utility.WriteLogAsync(
-					correlationID,
-					$"Organization and home desktop were reloaded when all cache were clean"
-					+ $"\r\nOrganizations' privileges: {organization.WorkingPrivileges?.ToJson()}"
-					+ $"\r\nDesktops' privileges: {homedesktop.WorkingPrivileges?.ToJson()}",
-					cancellationToken,
-					"Caches"
-				)
+				$"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(0, correlationID, $"Refresh the home desktop when all cache of an organization were clean [{organization.Title} - ID: {organization.ID}]"),
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"The organization was reloaded when all cache were clean\r\n{organization.ToJson()}", cancellationToken, "Caches") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -350,7 +348,7 @@ namespace net.vieapps.Services.Portals
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			organization.Set().ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			organization.Set().ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var response = organization.ToJson();
@@ -371,7 +369,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			organization.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, organization.Status, requestInfo).Run();
+			organization.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, organization.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// start the refresh timer
 			await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
@@ -393,7 +391,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationNotFoundException();
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsViewer(organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization, requestInfo.CorrelationID);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -451,7 +449,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send notification
-			organization.SendNotificationAsync("Update", organization.Notifications, oldStatus, organization.Status, requestInfo).Run();
+			organization.SendNotificationAsync("Update", organization.Notifications, oldStatus, organization.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// restart the refresh timer
 			await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
@@ -472,7 +470,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationNotFoundException();
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization.OwnerID) || requestInfo.Session.User.IsAdministrator(organization.WorkingPrivileges);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, organization, requestInfo.CorrelationID);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -534,8 +532,10 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// clear related cache
-			if (requestInfo.GetHeaderParameter("x-converter") == null)
-				organization.ClearRelatedCacheAsync(requestInfo.CorrelationID).Run();
+			if (requestInfo.GetHeaderParameter("x-converter") != null)
+				organization.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+			else
+				await organization.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// send update messages
 			var json = organization.Set().ToJson();
