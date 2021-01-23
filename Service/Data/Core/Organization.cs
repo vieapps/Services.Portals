@@ -130,6 +130,9 @@ namespace net.vieapps.Services.Portals
 		public string OrganizationID => this.ID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public override RepositoryBase Parent => null;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => null;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]

@@ -173,25 +173,22 @@ namespace net.vieapps.Services.Portals
 				if (this._childrenIDs == null)
 				{
 					this._children = links ?? (this.SystemID ?? "").FindLinks(this.RepositoryID, this.RepositoryEntityID, this.ID);
-					this._childrenIDs = this._children.Select(link => link.ID).ToList();
+					this._childrenIDs = this._children?.Where(link => link != null).Select(link => link.ID).ToList() ?? new List<string>();
 					if (notifyPropertyChanged)
 						this.NotifyPropertyChanged("Childrens");
 				}
-				this._children = this._children ?? this._childrenIDs.Select(id => Link.Get<Link>(id)).ToList();
+				return this._children ?? (this._children = this._childrenIDs?.Select(id => Link.Get<Link>(id)).Where(link => link != null).ToList() ?? new List<Link>());
 			}
-			return this._children;
+			else
+				return this._children ?? new List<Link>();
 		}
 
 		internal async Task<List<Link>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
-		{
-			if (this.ChildrenMode.Equals(ChildrenMode.Normal))
-			{
-				if (this._childrenIDs == null)
-					return this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindLinksAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false));
-				this._children = this._children ?? this._childrenIDs.Select(id => Link.Get<Link>(id)).ToList();
-			}
-			return this._children;
-		}
+			=> this.ChildrenMode.Equals(ChildrenMode.Normal)
+				? this._childrenIDs == null
+					? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindLinksAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false))
+					: this._children ?? (this._children = this._childrenIDs?.Select(id => Link.Get<Link>(id)).Where(link => link != null).ToList() ?? new List<Link>())
+				: this._children ?? new List<Link>();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Link> Children => this.FindChildren();
@@ -202,15 +199,7 @@ namespace net.vieapps.Services.Portals
 		public override void ProcessPropertyChanged(string name)
 		{
 			if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
-				Task.WhenAll(
-					Utility.Cache.SetAsync(this),
-					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
-					{
-						Type = $"{this.GetObjectName()}#Update",
-						Data = this.ToJson(false, false),
-						ExcludedNodeID = Utility.NodeID
-					})
-				).Run();
+				Utility.Cache.SetAsync(this).Run();
 		}
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)

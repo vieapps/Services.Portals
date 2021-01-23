@@ -176,6 +176,8 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
+		internal List<Category> _children;
+
 		internal List<string> _childrenIDs;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -189,19 +191,18 @@ namespace net.vieapps.Services.Portals
 		{
 			if (this._childrenIDs == null)
 			{
-				categories = categories ?? (this.SystemID ?? "").FindCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
-				this._childrenIDs = categories?.Where(category => category != null).Select(category => category.ID).ToList() ?? new List<string>();
+				this._children = categories ?? (this.SystemID ?? "").FindCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
+				this._childrenIDs = this._children?.Where(category => category != null).Select(category => category.ID).ToList() ?? new List<string>();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("Childrens");
-				return categories ?? new List<Category>();
 			}
-			return this._childrenIDs.Select(id => id.GetCategoryByID()).ToList();
+			return this._children ?? (this._children = this._childrenIDs?.Select(id => id.GetCategoryByID()).Where(category => category != null).ToList() ?? new List<Category>());
 		}
 
 		internal async Task<List<Category>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
 				? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindCategoriesAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false))
-				: this._childrenIDs.Select(id => id.GetCategoryByID()).ToList();
+				: this._children ?? (this._children = this._childrenIDs?.Select(id => id.GetCategoryByID()).Where(category => category != null).ToList() ?? new List<Category>());
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Category> Children => this.FindChildren();
@@ -248,7 +249,8 @@ namespace net.vieapps.Services.Portals
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 			else if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
-				Task.WhenAll(
+				Task.WhenAll
+				(
 					this.SetAsync(false, true),
 					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 					{
