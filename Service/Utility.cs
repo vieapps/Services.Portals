@@ -43,6 +43,12 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static ILogger Logger { get; internal set; }
 
+		internal static bool WriteMessageLogs => Utility.Logger.IsEnabled(LogLevel.Debug) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false"));
+
+		internal static bool Preload => "true".IsEquals(UtilityService.GetAppSetting("Portals:Preload", "true"));
+
+		internal static bool RunProcessorInParallelsMode => "Parallels".IsEquals(UtilityService.GetAppSetting("Portals:Processoor", "Parallels"));
+
 		/// <summary>
 		/// Gets the key for encrypting/decrypting data with AES
 		/// </summary>
@@ -446,8 +452,8 @@ namespace net.vieapps.Services.Portals
 					var urlEnd = image.IndexOf("\"", urlStart + 1);
 					if (urlEnd < 0)
 						urlEnd = image.IndexOf("'", urlStart + 1);
-					
-						var url = image.Substring(urlStart, urlEnd - urlStart);
+
+					var url = image.Substring(urlStart, urlEnd - urlStart);
 					var webpURL = url.IsContains("image=svg") ? url : url.GetWebpImageURL();
 					if (!url.IsEquals(webpURL))
 						image = $"<picture><source srcset=\"{webpURL}\"/>{image}</picture>";
@@ -746,7 +752,7 @@ namespace net.vieapps.Services.Portals
 		/// Runs this task and forget its
 		/// </summary>
 		/// <param name="task"></param>
-		internal static void Run(this Task task, string correlationID = null, string log = null)
+		internal static void Run(this Task task, string correlationID = null, string log = null, Action<Task> onSuccess = null, Action<Task, Exception> onFailure = null)
 			=> Task.Run(async () =>
 			{
 				try
@@ -754,20 +760,27 @@ namespace net.vieapps.Services.Portals
 					var stopwatch = Stopwatch.StartNew();
 					await task.ConfigureAwait(false);
 					stopwatch.Stop();
-					if (!string.IsNullOrWhiteSpace(correlationID))
+					if (onSuccess != null)
+						onSuccess(task);
+					else if (!string.IsNullOrWhiteSpace(correlationID))
 						await Utility.LoggingService.WriteLogAsync(correlationID, null, null, ServiceBase.ServiceComponent.ServiceName, "Tasks", $"A forgetable task was completed {(string.IsNullOrWhiteSpace(log) ? "" : $"({log})")} - Execution times: {stopwatch.GetElapsedTimes()}", null).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
-					Utility.Logger.LogError($"Error occurred while running a forgetable task => {ex.Message}", ex);
-					await Utility.LoggingService.WriteLogAsync(correlationID, null, null, ServiceBase.ServiceComponent.ServiceName, "Tasks", $"Error occurred while running a forgetable task => {ex.Message}", ex.GetStack()).ConfigureAwait(false);
+					if (onFailure != null)
+						onFailure(task, ex);
+					else
+					{
+						Utility.Logger.LogError($"Error occurred while running a forgetable task => {ex.Message}", ex);
+						await Utility.LoggingService.WriteLogAsync(correlationID, null, null, ServiceBase.ServiceComponent.ServiceName, "Tasks", $"Error occurred while running a forgetable task => {ex.Message}", ex.GetStack()).ConfigureAwait(false);
+					}
 				}
-			}, CancellationToken.None)
+			}, ServiceBase.ServiceComponent.CancellationToken)
 			.ContinueWith(result =>
 			{
 				if (result.Exception != null)
 					Utility.Logger.LogError($"Unexpected rrror occurred while running a forgetable task => {result.Exception.Message}", result.Exception);
-			}, CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default)
+			}, ServiceBase.ServiceComponent.CancellationToken, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default)
 			.ConfigureAwait(false);
 
 		internal static string MinifyJs(this string data)
@@ -778,6 +791,108 @@ namespace net.vieapps.Services.Portals
 
 		internal static string MinifyHtml(this string data)
 			=> UtilityService.RemoveWhitespaces(data).Replace("\r", "").Replace("\n\t", "").Replace("\t", "").Replace("> <", "><").Replace(" >", ">").Replace(" />", "/>");
+
+		internal static bool IsAdministrator(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		{
+			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsAdministrator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+			if (!@is)
+				Utility.WriteLogAsync
+				(
+					correlationID ?? UtilityService.NewUUID,
+					$"MANAGE: The user doesn't have enough permission - ID: {user.ID} - Roles: {user.Roles.Join(", ")}"
+					+ $"\r\nPrivileges: {privileges?.ToJson()}"
+					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
+					+ $"\r\nOrganization: {organization?.ToJson()}",
+					ServiceBase.ServiceComponent.CancellationToken,
+					"Privileges"
+				).Run();
+			return @is;
+		}
+
+		internal static bool IsModerator(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		{
+			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsModerator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+			if (!@is)
+				Utility.WriteLogAsync
+				(
+					correlationID ?? UtilityService.NewUUID,
+					$"MODERATE: The user doesn't have enough permission - ID: {user.ID} - Roles: {user.Roles.Join(", ")}"
+					+ $"\r\nPrivileges: {privileges?.ToJson()}"
+					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
+					+ $"\r\nOrganization: {organization?.ToJson()}",
+					ServiceBase.ServiceComponent.CancellationToken,
+					"Privileges"
+				).Run();
+			return @is;
+		}
+
+		internal static bool IsEditor(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		{
+			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsEditor(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+			if (!@is)
+				Utility.WriteLogAsync
+				(
+					correlationID ?? UtilityService.NewUUID,
+					$"EDIT: The user doesn't have enough permission - ID: {user.ID} - Roles: {user.Roles.Join(", ")}"
+					+ $"\r\nPrivileges: {privileges?.ToJson()}"
+					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
+					+ $"\r\nOrganization: {organization?.ToJson()}",
+					ServiceBase.ServiceComponent.CancellationToken,
+					"Privileges"
+				).Run();
+			return @is;
+		}
+
+		internal static bool IsContributor(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		{
+			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsContributor(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+			if (!@is)
+				Utility.WriteLogAsync
+				(
+					correlationID ?? UtilityService.NewUUID,
+					$"CONTRIBUTE: The user doesn't have enough permission - ID: {user.ID} - Roles: {user.Roles.Join(", ")}"
+					+ $"\r\nPrivileges: {privileges?.ToJson()}"
+					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
+					+ $"\r\nOrganization: {organization?.ToJson()}",
+					ServiceBase.ServiceComponent.CancellationToken,
+					"Privileges"
+				).Run();
+			return @is;
+		}
+
+		internal static bool IsViewer(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		{
+			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsViewer(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+			if (!@is)
+				Utility.WriteLogAsync
+				(
+					correlationID ?? UtilityService.NewUUID,
+					$"VIEW: The user doesn't have enough permission - ID: {user.ID} - Roles: {user.Roles.Join(", ")}"
+					+ $"\r\nPrivileges: {privileges?.ToJson()}"
+					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
+					+ $"\r\nOrganization: {organization?.ToJson()}",
+					ServiceBase.ServiceComponent.CancellationToken,
+					"Privileges"
+				).Run();
+			return @is;
+		}
+
+		internal static bool IsDownloader(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		{
+			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsDownloader(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+			if (!@is)
+				Utility.WriteLogAsync
+				(
+					correlationID ?? UtilityService.NewUUID,
+					$"DOWNLOAD: The user doesn't have enough permission - ID: {user.ID} - Roles: {user.Roles.Join(", ")}"
+					+ $"\r\nPrivileges: {privileges?.ToJson()}"
+					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
+					+ $"\r\nOrganization: {organization?.ToJson()}",
+					ServiceBase.ServiceComponent.CancellationToken,
+					"Privileges"
+				).Run();
+			return @is;
+		}
 	}
 
 	//  --------------------------------------------------------------------------------------------

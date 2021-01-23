@@ -50,19 +50,19 @@ namespace net.vieapps.Services.Portals
 		{
 			var desktopIDs = new List<string>();
 			var portlets = await Portlet.FindAsync(filter, null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-			await portlets.ForEachAsync(async (portlet, _) =>
+			await portlets.ForEachAsync(async portlet =>
 			{
 				var mappingPortlets = await Portlet.FindAsync(Filters<Portlet>.Equals("OriginalPortletID", portlet.ID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
 				desktopIDs = desktopIDs.Concat(new[] { portlet.DesktopID }).Concat(mappingPortlets.Select(mappingPortlet => mappingPortlet.DesktopID)).ToList();
-			}, cancellationToken, true, false).ConfigureAwait(false);
+			}, true, false).ConfigureAwait(false);
 
 			var desktops = new List<Desktop>();
-			await desktopIDs.Where(desktopID => !string.IsNullOrWhiteSpace(desktopID) && desktopID.IsValidUUID()).Distinct(StringComparer.OrdinalIgnoreCase).ToList().ForEachAsync(async (desktopID, _) =>
+			await desktopIDs.Where(desktopID => !string.IsNullOrWhiteSpace(desktopID) && desktopID.IsValidUUID()).Distinct(StringComparer.OrdinalIgnoreCase).ToList().ForEachAsync(async desktopID =>
 			{
 				var desktop = await desktopID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (desktop != null)
 					desktops.Add(desktop);
-			}, cancellationToken, true, false).ConfigureAwait(false);
+			}, true, false).ConfigureAwait(false);
 			return desktops.Select(desktop => desktop.GetSetCacheKey()).ToList();
 		}
 
@@ -138,11 +138,11 @@ namespace net.vieapps.Services.Portals
 					await Task.Delay(delay * 1000).ConfigureAwait(false);
 				await UtilityService.GetWebPageAsync(url, Utility.RefresherRefererURL).ConfigureAwait(false);
 				if (Utility.WriteCacheLogs)
-					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"{message ?? "Refresh an url successful"} => {url}", CancellationToken.None, "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"{message ?? "Refresh an url successful"} => {url}", ServiceBase.ServiceComponent.CancellationToken, "Caches").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"Error occurred while refreshing an url ({url}) => {ex.Message} [{ex.GetType()}]", CancellationToken.None, "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"Error occurred while refreshing an url ({url}) => {ex.Message} [{ex.GetType()}]", ServiceBase.ServiceComponent.CancellationToken, "Caches").ConfigureAwait(false);
 			}
 		}
 	}

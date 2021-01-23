@@ -1085,8 +1085,6 @@ namespace net.vieapps.Services.Portals
 
 		bool RemoveDesktopHtmlWhitespaces => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:RemoveWhitespaces", "true"));
 
-		bool RunDesktopGeneratorInParallelsMode => "Parallels".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:Generator", "Parallels"));
-
 #if NETSTANDARD2_0
 		string BodyEncoding => UtilityService.GetAppSetting("Portals:Desktops:Body:Encoding", "gzip");
 #else
@@ -1809,7 +1807,7 @@ namespace net.vieapps.Services.Portals
 						portletData[portlet.ID] = data;
 					if (writeDesktopLogs)
 						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSuffixName}_response.json"), data?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
-				}, cancellationToken, true, this.RunDesktopGeneratorInParallelsMode).ConfigureAwait(false);
+				}, cancellationToken, true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
 				stepwatch.Stop();
 				this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete prepare portlets' data of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").Run();
 
@@ -1831,7 +1829,7 @@ namespace net.vieapps.Services.Portals
 					{
 						portletHtmls[portlet.ID] = new Tuple<string, bool>(this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, portlet.ID), true);
 					}
-				}, cancellationToken, true, this.RunDesktopGeneratorInParallelsMode);
+				}, cancellationToken, true, Utility.RunProcessorInParallelsMode);
 
 				// generate desktop
 				string title = "", metaTags = "", body = "", stylesheets = "", scripts = "";
@@ -3252,12 +3250,12 @@ namespace net.vieapps.Services.Portals
 					case "core.content.type":
 					case "expression":
 					case "core.expression":
-						gotRights = requestInfo.Session.User.IsAdministrator(organization?.WorkingPrivileges);
+						gotRights = requestInfo.Session.User.IsAdministrator(null, null, organization, requestInfo.CorrelationID);
 						break;
 
 					case "category":
 					case "cms.category":
-						gotRights = requestInfo.Session.User.IsModerator(module?.WorkingPrivileges, organization?.WorkingPrivileges);
+						gotRights = requestInfo.Session.User.IsModerator(module?.WorkingPrivileges, null, organization, requestInfo.CorrelationID);
 						break;
 
 					case "content":
@@ -3270,7 +3268,7 @@ namespace net.vieapps.Services.Portals
 					case "cms.contact":
 					case "utils.contact":
 					case "utilities.contact":
-						gotRights = requestInfo.Session.User.IsEditor(contentType?.WorkingPrivileges, organization?.WorkingPrivileges);
+						gotRights = requestInfo.Session.User.IsEditor(contentType?.WorkingPrivileges, null, organization, requestInfo.CorrelationID);
 						break;
 				}
 			if (!gotRights)
@@ -3831,7 +3829,7 @@ namespace net.vieapps.Services.Portals
 					var totalRecords = objects.Count();
 					var counter = 0;
 					var exceptions = new List<Exception>();
-					await objects.ForEachAsync(async (@object, _) =>
+					await objects.ForEachAsync(async @object =>
 					{
 						var @event = "Update";
 						try
@@ -3918,17 +3916,17 @@ namespace net.vieapps.Services.Portals
 								Type = $"{ServiceBase.ServiceComponent.ServiceName}#{objectName}#Update",
 								DeviceID = "*",
 								Data = (@object as RepositoryBase)?.ToJson()
-							}, this.CancellationTokenSource.Token).Run();
+							}, this.CancellationToken).Run();
 
 							// clear related cache
 							if (@object is Category category)
-								category.Set().ClearRelatedCacheAsync(processID).Run();
+								category.Set().ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 							else if (@object is Content content)
-								content.ClearRelatedCacheAsync(processID).Run();
+								content.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 							else if (@object is Item item)
-								item.ClearRelatedCacheAsync(processID).Run();
+								item.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 							else if (@object is Link link)
-								link.ClearRelatedCacheAsync(processID).Run();
+								link.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 						}
 						catch (Exception ex)
 						{
@@ -3949,7 +3947,7 @@ namespace net.vieapps.Services.Portals
 								{ "Percentage", $"{counter * 100/totalRecords:#0.0}%" }
 							}
 						}, this.CancellationTokenSource.Token).ConfigureAwait(false);
-					}, this.CancellationTokenSource.Token, true, false).ConfigureAwait(false);
+					}, true, false).ConfigureAwait(false);
 
 					// final
 					onCompleted?.Invoke(objects);
@@ -4115,10 +4113,11 @@ namespace net.vieapps.Services.Portals
 		#region Process communicate message of Portals service
 		protected override async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			// prepare
-			var stopwatch = Stopwatch.StartNew();
+			// check
 			if (message?.Type == null || message?.Data == null)
 				return;
+
+			var stopwatch = Stopwatch.StartNew();
 
 			// messages of a refresh timer for an organization
 			if (message.Type.IsStartsWith("RefreshTimer#"))
@@ -4167,8 +4166,8 @@ namespace net.vieapps.Services.Portals
 				await message.ProcessInterCommunicateMessageOfCategoryAsync(cancellationToken).ConfigureAwait(false);
 
 			stopwatch.Stop();
-			if (this.IsDebugLogEnabled)
-				this.WriteLogs(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Message: {message?.ToJson()}", null, this.ServiceName, "Communicates");
+			if (Utility.WriteMessageLogs)
+				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", cancellationToken, "Messages").ConfigureAwait(false);
 		}
 		#endregion
 
@@ -4227,7 +4226,7 @@ namespace net.vieapps.Services.Portals
 					}))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList();
-				this.StartTimer(async () => await homeURLs.ForEachAsync(url => url.RefreshWebPageAsync(), true, this.RunDesktopGeneratorInParallelsMode).ConfigureAwait(false), 3 * 60);
+				this.StartTimer(async () => await homeURLs.ForEachAsync(url => url.RefreshWebPageAsync(), true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false), 3 * 60);
 				if (this.IsDebugLogEnabled)
 					this.WriteLogsAsync(UtilityService.NewUUID, $"The timer to refresh the home desktops of '{organization.Title}' [{organization.ID}] was started - Interval: 3 minutes\r\nURLs:\r\n\t{homeURLs.Join("\r\n\t")}", null, this.ServiceName, "Caches").Run();
 			}
@@ -4255,7 +4254,7 @@ namespace net.vieapps.Services.Portals
 				.ToList();
 				if (refreshUrls.Count > 0)
 				{
-					this.RefreshTimers[organization.ID] = this.StartTimer(async () => await refreshUrls.ForEachAsync(url => url.RefreshWebPageAsync(), true, this.RunDesktopGeneratorInParallelsMode).ConfigureAwait(false), (organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7) * 60);
+					this.RefreshTimers[organization.ID] = this.StartTimer(async () => await refreshUrls.ForEachAsync(url => url.RefreshWebPageAsync(), true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false), (organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7) * 60);
 					if (this.IsDebugLogEnabled)
 						this.WriteLogsAsync(UtilityService.NewUUID, $"The timer to the specified addresses of '{organization.Title}' [{organization.ID}] was started - Interval: {(organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7)} minutes\r\nURLs:\r\n\t{refreshUrls.Join("\r\n\t")}", null, this.ServiceName, "Caches").Run();
 				}
@@ -4431,7 +4430,7 @@ namespace net.vieapps.Services.Portals
 						if (!gotRights)
 							gotRights = (int)bizObject.Status < (int)ApprovalStatus.Approved
 								? requestInfo.Session.User.ID.IsEquals(@object.CreatedID)
-								: requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges);
+								: requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges, bizObject.Organization as Organization, requestInfo.CorrelationID);
 					}
 					else if (site != null)
 					{
@@ -4453,8 +4452,8 @@ namespace net.vieapps.Services.Portals
 						update = !approvalStatus.Equals(bizObject.Status);
 						if (!gotRights)
 							gotRights = (int)bizObject.Status < (int)ApprovalStatus.Approved
-								? requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges)
-								: requestInfo.Session.User.IsModerator(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges);
+								? requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges, bizObject.Organization as Organization, requestInfo.CorrelationID)
+								: requestInfo.Session.User.IsModerator(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges, bizObject.Organization as Organization, requestInfo.CorrelationID);
 					}
 					else if (site != null)
 					{
@@ -4475,7 +4474,7 @@ namespace net.vieapps.Services.Portals
 						oldStatus = bizObject.Status;
 						update = !approvalStatus.Equals(bizObject.Status);
 						if (!gotRights)
-							gotRights = requestInfo.Session.User.IsModerator(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges);
+							gotRights = requestInfo.Session.User.IsModerator(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges, bizObject.Organization as Organization, requestInfo.CorrelationID);
 					}
 					else if (site != null)
 					{
@@ -4555,7 +4554,7 @@ namespace net.vieapps.Services.Portals
 			var objectName = requestInfo.GetObjectIdentity();
 			var objectID = requestInfo.GetObjectIdentity(true, true);
 			var @object = "ContentType".IsEquals(objectName)
-				? await (objectID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) as IPortalObject
+				? await (objectID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false)
 				: "Category".IsEquals(objectName)
 					? await (objectID ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false) as IPortalObject
 					: null;

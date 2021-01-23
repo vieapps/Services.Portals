@@ -24,9 +24,20 @@ namespace net.vieapps.Services.Portals
 {
 	public class Handler
 	{
-		bool UseShortURLs => "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
 
-		string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
+		#region Static properties
+		static HashSet<string> Initializers { get; } = "_initializer,initializer.aspx,initializer.ashx".ToHashSet();
+
+		static HashSet<string> Validators { get; } = "_validator,validator.aspx,validator.ashx".ToHashSet();
+
+		static HashSet<string> LogIns { get; } = "_login,_signin,_signup,_register,_admin,_users,_cms,login.aspx,login.ashx,signin.aspx,signin.ashx,signup.aspx,signup.ashx,register.aspx,register.ashx,admin.aspx,admin.ashx,users.aspx,users.ashx,cms.aspx,cms.ashx".ToHashSet();
+
+		static HashSet<string> LogOuts { get; } = "_logout,_signout,logout.aspx,logout.ashx,signout.aspx,signout.ashx".ToHashSet();
+
+		static bool UseShortURLs => "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
+
+		static string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
+		#endregion
 
 		RequestDelegate Next { get; }
 
@@ -51,7 +62,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// load balancing health check
-			else if (context.Request.Path.Value.IsEquals(this.LoadBalancingHealthCheckUrl))
+			else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancingHealthCheckUrl))
 				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 
 			// process portals' requests and invoke next middle ware
@@ -171,25 +182,8 @@ namespace net.vieapps.Services.Portals
 				// special parameters (like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity)
 				if (pathSegments.Length > 0 && !string.IsNullOrWhiteSpace(pathSegments[0]))
 				{
-					// indicator
-					if (pathSegments[0].IsEndsWith(".txt"))
-					{
-						systemIdentity = "~indicators";
-						query["x-indicator"] = pathSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".txt", "").ToLower();
-						requestSegments = new string[] { };
-					}
-
-					// special resources (_assets, _css, _fonts, _images, _js)
-					else if (pathSegments[0].StartsWith("_"))
-					{
-						systemIdentity = "~resources";
-						query["x-resource"] = pathSegments[0].Right(pathSegments[0].Length - 1).GetANSIUri(true, true);
-						query["x-path"] = pathSegments.Skip(1).Join("/");
-						requestSegments = new string[] { };
-					}
-
 					// system/oranization identity or service
-					else if (pathSegments[0].StartsWith("~"))
+					if (pathSegments[0].StartsWith("~"))
 					{
 						// specifict service
 						if (requestSegments[0].IsEquals("~apis.service") || requestSegments[0].IsEquals("~apis.gateway"))
@@ -207,52 +201,74 @@ namespace net.vieapps.Services.Portals
 							query["object-identity"] = requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]) ? requestSegments[2].GetANSIUri() : "";
 						}
 					}
-				}
 
-				// special requests
-				if (pathSegments.Length > 0 && !string.IsNullOrWhiteSpace(pathSegments[0]) && pathSegments[0].StartsWith("~") && requestSegments.Length > 0)
-				{
-					// indicator
-					if (requestSegments[0].IsEndsWith(".txt"))
+					// special requests (_initializer, _validator, _login, _logout) or special resources (_assets, _css, _fonts, _images, _js)
+					else if (pathSegments[0].StartsWith("_"))
 					{
-						query["x-indicator"] = requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".txt", "").ToLower();
-						requestSegments = new string[] { };
+						// special requests
+						if (Handler.Initializers.Contains(pathSegments[0].ToLower()))
+							specialRequest = "initializer";
+
+						else if (Handler.Validators.Contains(pathSegments[0].ToLower()))
+							specialRequest = "validator";
+
+						else if (Handler.LogIns.Contains(pathSegments[0].ToLower()))
+							specialRequest = "login";
+
+						else if (Handler.LogOuts.Contains(pathSegments[0].ToLower()))
+							specialRequest = "logout";
+
+						// special resources
+						else
+						{
+							systemIdentity = "~resources";
+							query["x-resource"] = pathSegments[0].Right(pathSegments[0].Length - 1).GetANSIUri(true, true);
+							query["x-path"] = pathSegments.Skip(1).Join("/");
+						}
+
+						// no info
+						requestSegments = Array.Empty<string>();
 					}
 
-					// session initializer
-					else if (requestSegments[0].IsEquals("_initializer"))
+					// HTTP indicator
+					else if (pathSegments[0].IsEndsWith(".txt"))
 					{
-						specialRequest = "initializer";
-						requestSegments = new string[] { };
-					}
-
-					// session validator
-					else if (requestSegments[0].IsEquals("_validator"))
-					{
-						specialRequest = "validator";
-						requestSegments = new string[] { };
-					}
-
-					// session login
-					else if (requestSegments[0].IsEquals("_login") || requestSegments[0].IsEquals("_signin") || requestSegments[0].IsEquals("_admin") || requestSegments[0].IsEquals("login.aspx") || requestSegments[0].IsEquals("signin.aspx") || requestSegments[0].IsEquals("admin.aspx"))
-					{
-						specialRequest = "login";
-						requestSegments = new string[] { };
-					}
-
-					// session logout
-					else if (requestSegments[0].IsEquals("_logout") || requestSegments[0].IsEquals("_signout") || requestSegments[0].IsEquals("logout.aspx") || requestSegments[0].IsEquals("signout.aspx"))
-					{
-						specialRequest = "logout";
-						requestSegments = new string[] { };
+						systemIdentity = "~indicators";
+						query["x-indicator"] = pathSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".txt", "").ToLower();
+						requestSegments = Array.Empty<string>();
 					}
 				}
 
 				// normalize info of requests
-				if (requestSegments.Length > 0 && !specialRequest.IsEquals("service"))
+				if (requestSegments.Length > 0 && specialRequest.IsEquals(""))
 				{
+					// special requests
+					if (Handler.Initializers.Contains(requestSegments[0].ToLower()))
+					{
+						specialRequest = "initializer";
+						requestSegments = Array.Empty<string>();
+					}
+
+					else if (Handler.Validators.Contains(requestSegments[0].ToLower()))
+					{
+						specialRequest = "validator";
+						requestSegments = Array.Empty<string>();
+					}
+
+					else if (Handler.LogIns.Contains(requestSegments[0].ToLower()))
+					{
+						specialRequest = "login";
+						requestSegments = Array.Empty<string>();
+					}
+
+					else if (Handler.LogOuts.Contains(requestSegments[0].ToLower()))
+					{
+						specialRequest = "logout";
+						requestSegments = Array.Empty<string>();
+					}
+
 					// request of legacy systems
-					if (requestSegments[0].IsEndsWith(".ashx"))
+					else if (requestSegments[0].IsEndsWith(".ashx"))
 						legacyRequest = requestSegments.Join("/");
 
 					// parameters of desktop and contents
@@ -303,7 +319,7 @@ namespace net.vieapps.Services.Portals
 				dictionary["x-url"] = "https".IsEquals(context.GetHeaderParameter("x-forwarded-proto") ?? context.GetHeaderParameter("x-original-proto")) && !"https".IsEquals(requestURI.Scheme)
 					? requestURI.AbsoluteUri.Replace(StringComparison.OrdinalIgnoreCase, $"{requestURI.Scheme}://", "https://")
 					: requestURI.AbsoluteUri;
-				dictionary["x-use-short-urls"] = this.UseShortURLs.ToString().ToLower();
+				dictionary["x-use-short-urls"] = Handler.UseShortURLs.ToString().ToLower();
 				dictionary["x-environment-is-mobile"] = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
 				dictionary["x-environment-os-info"] = (session.AppAgent ?? "").GetOSInfo();
 			});
