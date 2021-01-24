@@ -319,5 +319,8 @@ namespace net.vieapps.Services.Portals
 			=> DateTime.TryParse(value, out var datetime)
 				? datetime.GetTimeQuarter().ToString(format ?? "dd/MM/yyyy hh:mm tt", CultureInfo.GetCultureInfo(cultureCode ?? "vi-VN"))
 				: value;
+
+		public int GetRandom(int max)
+			=> UtilityService.GetRandomNumber(0, max) + 1;
 	}
 }
