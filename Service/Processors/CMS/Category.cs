@@ -266,7 +266,7 @@ namespace net.vieapps.Services.Portals
 			// store object identities to clear related cached
 			var contentType = objects.FirstOrDefault()?.ContentType;
 			if (contentType != null)
-				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.ID), ServiceBase.ServiceComponent.CancellationToken).Run();
+				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// return the results
 			return new Tuple<long, List<Category>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
@@ -462,6 +462,9 @@ namespace net.vieapps.Services.Portals
 			// send notification
 			category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
+			// store object cache key to clear related cached
+			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+
 			// response
 			return response;
 		}
@@ -533,6 +536,9 @@ namespace net.vieapps.Services.Portals
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken).ConfigureAwait(false);
+
+			// store object cache key to clear related cached
+			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// response
 			return response;
@@ -841,6 +847,7 @@ namespace net.vieapps.Services.Portals
 			// delete vs
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await category.Remove().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			Utility.Cache.RemoveSetMembersAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// message to update to all other connected clients
 			var response = category.ToJson();
@@ -889,7 +896,7 @@ namespace net.vieapps.Services.Portals
 
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			category.Remove().ClearRelatedCacheAsync(cancellationToken).Run();
-			category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+			Utility.Cache.RemoveSetMembersAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			var json = category.ToJson();
 			updateMessages.Add(new UpdateMessage
@@ -904,6 +911,9 @@ namespace net.vieapps.Services.Portals
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
 			});
+
+			category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
@@ -1122,8 +1132,9 @@ namespace net.vieapps.Services.Portals
 				await Category.UpdateAsync(category, true, cancellationToken).ConfigureAwait(false);
 			}
 
-			// clear related cache
+			// update cache
 			category.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// send update messages
 			var json = category.Set().ToJson();

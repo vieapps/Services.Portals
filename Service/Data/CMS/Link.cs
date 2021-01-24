@@ -174,6 +174,7 @@ namespace net.vieapps.Services.Portals
 				{
 					this._children = links ?? (this.SystemID ?? "").FindLinks(this.RepositoryID, this.RepositoryEntityID, this.ID);
 					this._childrenIDs = this._children?.Where(link => link != null).Select(link => link.ID).ToList() ?? new List<string>();
+					Utility.Cache.AddSetMembersAsync(this.ContentType.ObjectCacheKeys, this._children?.Where(link => link != null).Select(link => link.GetCacheKey()), ServiceBase.ServiceComponent.CancellationToken).Run();
 					if (notifyPropertyChanged)
 						this.NotifyPropertyChanged("Childrens");
 				}
@@ -199,7 +200,7 @@ namespace net.vieapps.Services.Portals
 		public override void ProcessPropertyChanged(string name)
 		{
 			if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
-				Utility.Cache.SetAsync(this).Run();
+				Utility.Cache.SetAsync(this, ServiceBase.ServiceComponent.CancellationToken).Run();
 		}
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)

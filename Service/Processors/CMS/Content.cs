@@ -378,7 +378,7 @@ namespace net.vieapps.Services.Portals
 			// send notification
 			content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
-			// store object identity to clear related cached
+			// store object cache key to clear related cached
 			Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// response
@@ -447,7 +447,7 @@ namespace net.vieapps.Services.Portals
 					ExcludedNodeID = Utility.NodeID
 				}, cancellationToken).ConfigureAwait(false);
 
-			// store object identity to clear related cached
+			// store object cache key to clear related cached
 			Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// response
@@ -603,7 +603,7 @@ namespace net.vieapps.Services.Portals
 			// send notification
 			content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
-			// store object identity to clear related cached
+			// store object cache key to clear related cached
 			Utility.Cache.RemoveSetMembersAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// response
