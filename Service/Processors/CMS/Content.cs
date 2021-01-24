@@ -1231,8 +1231,9 @@ namespace net.vieapps.Services.Portals
 				await Content.UpdateAsync(content, true, cancellationToken).ConfigureAwait(false);
 			}
 
-			// clear related cache
+			// update cache
 			content.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+			Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// send update messages
 			var json = content.ToJson();
