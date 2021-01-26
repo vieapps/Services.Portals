@@ -189,9 +189,105 @@ namespace net.vieapps.Services.Portals
 					catch { }
 				}).ConfigureAwait(false);
 
+				// refine thumbnail images
+				if (args?.FirstOrDefault(arg => arg.IsEquals("/refine-thumbnails")) != null)
+					this.RefineThumbnailImagesAsync().Run();
+
 				// invoke next action
 				next?.Invoke(this);
 			});
+		#endregion
+
+		#region Authorizations
+		protected override bool IsAdministrator(IUser user, RepositoryBase @object)
+			=> @object is IPortalObject portalObject
+				? user != null && user.IsAdministrator(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, (portalObject.OrganizationID ?? "").GetOrganizationByID())
+				: base.IsAdministrator(user, @object);
+
+		protected override async Task<bool> IsAdministratorAsync(IUser user, string objectName, RepositoryBase @object, string correlationID = null, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsAdministrator(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false), correlationID)) || await this.IsSystemAdministratorAsync(user, correlationID, cancellationToken).ConfigureAwait(false)
+				: await base.IsAdministratorAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false);
+
+		protected override bool IsModerator(IUser user, RepositoryBase @object)
+			=> @object is IPortalObject portalObject
+				? user != null && user.IsModerator(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, (portalObject.OrganizationID ?? "").GetOrganizationByID())
+				: base.IsModerator(user, @object);
+
+		protected override async Task<bool> IsModeratorAsync(IUser user, string objectName, RepositoryBase @object, string correlationID = null, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsModerator(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false), correlationID)) || await this.IsAdministratorAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false)
+				: await base.IsModeratorAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false);
+
+		protected override bool IsEditor(IUser user, RepositoryBase @object)
+			=> @object is IPortalObject portalObject
+				? user != null && user.IsEditor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, (portalObject.OrganizationID ?? "").GetOrganizationByID())
+				: base.IsEditor(user, @object);
+
+		protected override async Task<bool> IsEditorAsync(IUser user, string objectName, RepositoryBase @object, string correlationID = null, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsEditor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false), correlationID)) || await this.IsModeratorAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false)
+				: await base.IsEditorAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false);
+
+		protected override bool IsContributor(IUser user, RepositoryBase @object)
+			=> @object is IPortalObject portalObject
+				? user != null && user.IsContributor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, (portalObject.OrganizationID ?? "").GetOrganizationByID())
+				: base.IsContributor(user, @object);
+
+		protected override async Task<bool> IsContributorAsync(IUser user, string objectName, RepositoryBase @object, string correlationID = null, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsContributor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false), correlationID)) || await this.IsEditorAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false)
+				: await base.IsContributorAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false);
+
+		protected override bool IsViewer(IUser user, RepositoryBase @object)
+			=> @object is IPortalObject portalObject
+				? user != null && user.IsViewer(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, (portalObject.OrganizationID ?? "").GetOrganizationByID())
+				: base.IsViewer(user, @object);
+
+		protected override async Task<bool> IsViewerAsync(IUser user, string objectName, RepositoryBase @object, string correlationID = null, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsViewer(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false), correlationID)) || await this.IsContributorAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false)
+				: await base.IsViewerAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false);
+
+		protected override bool IsDownloader(IUser user, RepositoryBase @object)
+			=> @object is IPortalObject portalObject
+				? user != null && user.IsDownloader(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, (portalObject.OrganizationID ?? "").GetOrganizationByID())
+				: base.IsDownloader(user, @object);
+
+		protected override async Task<bool> IsDownloaderAsync(IUser user, string objectName, RepositoryBase @object, string correlationID = null, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsDownloader(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false), correlationID)) || await this.IsViewerAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false)
+				: await base.IsDownloaderAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false);
+
+		public override async Task<bool> CanManageAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsAdministrator(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
+				: await base.CanManageAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+
+		public override async Task<bool> CanModerateAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsModerator(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
+				: await base.CanModerateAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+
+		public override async Task<bool> CanEditAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsEditor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
+				: await base.CanEditAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+
+		public override async Task<bool> CanContributeAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsContributor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
+				: await base.CanContributeAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+
+		public override async Task<bool> CanViewAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsViewer(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
+				: await base.CanViewAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+
+		public override async Task<bool> CanDownloadAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
+			=> @object is IPortalObject portalObject
+				? (user != null && user.IsDownloader(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
+				: await base.CanDownloadAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
 		#endregion
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
@@ -430,7 +526,7 @@ namespace net.vieapps.Services.Portals
 				stopwatch.Stop();
 				this.WriteLogs(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}");
 				if (this.IsDebugResultsEnabled)
-					this.WriteLogs(requestInfo, $"- Request:\r\n{requestInfo.ToString(this.JsonFormat)}\r\n- Response:\r\n{json?.ToString(this.JsonFormat)}");
+					this.WriteLogs(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}");
 				return json;
 			}
 			catch (Exception ex)
@@ -699,7 +795,7 @@ namespace net.vieapps.Services.Portals
 		#region Process Core Portals objects
 		async Task<JObject> ProcessOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -723,7 +819,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -747,7 +843,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -771,7 +867,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -797,7 +893,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessPortletAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -821,7 +917,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessModuleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -845,7 +941,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessContentTypeAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -869,7 +965,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessExpressionAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -895,7 +991,7 @@ namespace net.vieapps.Services.Portals
 		#region Process CMS Portals object
 		async Task<JObject> ProcessCategoryAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -921,7 +1017,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessContentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -945,7 +1041,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessItemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -969,7 +1065,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessLinkAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -3112,7 +3208,7 @@ namespace net.vieapps.Services.Portals
 		{
 			try
 			{
-				var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+				var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 				switch (requestInfo.ObjectName.ToLower().Trim())
 				{
 					case "category":
@@ -3164,7 +3260,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException($"The requested menu is invalid (its not nested object) [Content-Type ID: {contentType.ID} - Menu ID: {repositoryObjectID}]");
 
 			// check permission
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.IsViewer(@object.WorkingPrivileges);
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.IsViewer(@object.WorkingPrivileges);
 			if (!gotRights)
 			{
 				var organization = @object is IPortalObject
@@ -4289,7 +4385,7 @@ namespace net.vieapps.Services.Portals
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
 			// check permissions
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
 			var gotRights = false;
 			Organization organization = null;
 			Module module = null;
@@ -4417,7 +4513,7 @@ namespace net.vieapps.Services.Portals
 
 			var update = false;
 			var oldStatus = ApprovalStatus.Draft;
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.IsAuthorizedAsync(requestInfo, "Organization", Components.Security.Action.Approve, cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.ID.IsEquals(organization.OwnerID);
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.ID.IsEquals(organization.OwnerID);
 
 			switch (approvalStatus)
 			{
@@ -4650,6 +4746,58 @@ namespace net.vieapps.Services.Portals
 			}
 
 			return new JObject();
+		}
+		#endregion
+
+		#region Refine thumbnail images
+		async Task RefineThumbnailImagesAsync()
+		{
+			var correlationID = UtilityService.NewUUID;
+			try
+			{
+				var stopwatch = Stopwatch.StartNew();
+				var sort = Sorts<Content>.Ascending("Created");
+				var totalRecords = await Content.CountAsync(null, "", this.CancellationToken).ConfigureAwait(false);
+				var pageSize = 100;
+				var pageNumber = 1;
+				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+
+				this.WriteLogsAsync(correlationID, $"Start to refine thumbnail image of {totalRecords:###,###,###,##0} CMS contents", null, this.ServiceName, "Thumbnails").Run();
+				while (pageNumber <= totalPages)
+				{
+					var objects = await Content.FindAsync(null, sort, pageSize, pageNumber, null, this.CancellationToken).ConfigureAwait(false);
+					await objects.ForEachAsync(async @object => await this.SendInterCommunicateMessageAsync(new CommunicateMessage("Files")
+					{
+						Type = "Thumbnail#Refine",
+						Data = new JObject
+						{
+							{ "ServiceName", this.ServiceName },
+							{ "ObjectName", "Content" },
+							{ "SystemID", @object.SystemID },
+							{ "EntityInfo", @object.RepositoryEntityID },
+							{ "ObjectID", @object.ID },
+							{ "Filename", $"{@object.ID}.jpg" },
+							{ "Size", 0 },
+							{ "ContentType", "image/jpeg" },
+							{ "IsTemporary", false },
+							{ "IsShared", false },
+							{ "IsTracked", false },
+							{ "IsThumbnail", true },
+							{ "Title", "" },
+							{ "Description", "" },
+							{ "LastModified", @object.LastModified },
+							{ "LastModifiedID", @object.LastModifiedID }
+						}
+					}, this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+					pageNumber++;
+				}
+				stopwatch.Stop();
+				this.WriteLogsAsync(correlationID, $"Complete to refine thumbnail image of {totalRecords:###,###,###,##0} CMS contents - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Thumbnails").Run();
+			}
+			catch (Exception ex)
+			{
+				await this.WriteLogsAsync(correlationID, $"Error occurred while refining thumbnail images => {ex.Message}", ex, this.ServiceName, "Thumbnails").ConfigureAwait(false);
+			}
 		}
 		#endregion
 

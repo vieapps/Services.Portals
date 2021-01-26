@@ -792,7 +792,7 @@ namespace net.vieapps.Services.Portals
 		internal static string MinifyHtml(this string data)
 			=> UtilityService.RemoveWhitespaces(data).Replace("\r", "").Replace("\n\t", "").Replace("\t", "").Replace("> <", "><").Replace(" >", ">").Replace(" />", "/>");
 
-		internal static bool IsAdministrator(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsAdministrator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
 		{
 			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsAdministrator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 			if (!@is)
@@ -804,12 +804,12 @@ namespace net.vieapps.Services.Portals
 					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
 					+ $"\r\nOrganization: {organization?.ToJson()}",
 					ServiceBase.ServiceComponent.CancellationToken,
-					"Privileges"
+					"Authorization"
 				).Run();
 			return @is;
 		}
 
-		internal static bool IsModerator(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsModerator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
 		{
 			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsModerator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 			if (!@is)
@@ -821,12 +821,12 @@ namespace net.vieapps.Services.Portals
 					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
 					+ $"\r\nOrganization: {organization?.ToJson()}",
 					ServiceBase.ServiceComponent.CancellationToken,
-					"Privileges"
+					"Authorization"
 				).Run();
 			return @is;
 		}
 
-		internal static bool IsEditor(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsEditor(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
 		{
 			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsEditor(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 			if (!@is)
@@ -838,12 +838,12 @@ namespace net.vieapps.Services.Portals
 					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
 					+ $"\r\nOrganization: {organization?.ToJson()}",
 					ServiceBase.ServiceComponent.CancellationToken,
-					"Privileges"
+					"Authorization"
 				).Run();
 			return @is;
 		}
 
-		internal static bool IsContributor(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsContributor(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
 		{
 			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsContributor(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 			if (!@is)
@@ -855,12 +855,12 @@ namespace net.vieapps.Services.Portals
 					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
 					+ $"\r\nOrganization: {organization?.ToJson()}",
 					ServiceBase.ServiceComponent.CancellationToken,
-					"Privileges"
+					"Authorization"
 				).Run();
 			return @is;
 		}
 
-		internal static bool IsViewer(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsViewer(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
 		{
 			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsViewer(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 			if (!@is)
@@ -872,12 +872,12 @@ namespace net.vieapps.Services.Portals
 					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
 					+ $"\r\nOrganization: {organization?.ToJson()}",
 					ServiceBase.ServiceComponent.CancellationToken,
-					"Privileges"
+					"Authorization"
 				).Run();
 			return @is;
 		}
 
-		internal static bool IsDownloader(this User user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsDownloader(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
 		{
 			var @is = user.ID.IsEquals(organization?.OwnerID) || user.IsDownloader(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 			if (!@is)
@@ -889,7 +889,7 @@ namespace net.vieapps.Services.Portals
 					+ $"\r\nPrivileges (Parent): {parentPrivileges?.ToJson()}"
 					+ $"\r\nOrganization: {organization?.ToJson()}",
 					ServiceBase.ServiceComponent.CancellationToken,
-					"Privileges"
+					"Authorization"
 				).Run();
 			return @is;
 		}
@@ -897,6 +897,6 @@ namespace net.vieapps.Services.Portals
 
 	//  --------------------------------------------------------------------------------------------
 
-	[Repository(ServiceName = "Portals", ID = "A0000000000000000000000000000001", Title = "CMS", Description = "Services of the CMS Portals", Directory = "CMS", ExtendedPropertiesTableName = "T_Portals_Extended_Properties")]
+	[Repository(ServiceName = "Portals", ID = "A0000000000000000000000000000001", Title = "CMS", Description = "Services of the CMS Portals", Directory = "cms", ExtendedPropertiesTableName = "T_Portals_Extended_Properties")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 }
