@@ -575,10 +575,12 @@ namespace net.vieapps.Services.Portals
 		/// <param name="html"></param>
 		/// <param name="rootURL"></param>
 		/// <param name="forDisplaying"></param>
+		/// <param name="filesHttpURI"></param>
+		/// <param name="portalsHttpURI"></param>
 		/// <returns></returns>
-		public static string NormalizeURLs(this string html, string rootURL, bool forDisplaying = true)
+		public static string NormalizeURLs(this string html, string rootURL, bool forDisplaying = true, string filesHttpURI = null, string portalsHttpURI = null)
 			=> forDisplaying
-				? html?.Replace("~~~/", rootURL).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~/", rootURL).Replace("~#/", $"{Utility.PortalsHttpURI}/")
+				? html?.Replace("~~~/", rootURL).Replace("~~/", $"{filesHttpURI ?? Utility.FilesHttpURI}/").Replace("~#/", $"{portalsHttpURI ?? Utility.PortalsHttpURI}/").Replace("~/", rootURL)
 				: html?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, rootURL, "~/");
 
 		/// <summary>
@@ -589,17 +591,19 @@ namespace net.vieapps.Services.Portals
 		/// <param name="systemIdentity"></param>
 		/// <param name="useShortURLs"></param>
 		/// <param name="forDisplaying"></param>
+		/// <param name="filesHttpURI"></param>
+		/// <param name="portalsHttpURI"></param>
 		/// <returns></returns>
-		public static string NormalizeURLs(this string html, Uri requestURI, string systemIdentity, bool useShortURLs = true, bool forDisplaying = true)
+		public static string NormalizeURLs(this string html, Uri requestURI, string systemIdentity, bool useShortURLs = true, bool forDisplaying = true, string filesHttpURI = null, string portalsHttpURI = null)
 		{
 			if (string.IsNullOrWhiteSpace(html))
 				return html;
 
 			html = forDisplaying
-				? html.Replace("~/_", Utility.PortalsHttpURI + "/_")
-				: html.Replace(Utility.PortalsHttpURI + "/_", "~/_");
+				? html.Replace("~/_", $"{portalsHttpURI ?? Utility.PortalsHttpURI}/_")
+				: html.Replace($"{Utility.PortalsHttpURI}/_", "~/_");
 
-			html = html.NormalizeURLs(forDisplaying ? requestURI.GetRootURL(systemIdentity, useShortURLs) : requestURI.GetRootURL(systemIdentity), forDisplaying);
+			html = html.NormalizeURLs(forDisplaying ? requestURI.GetRootURL(systemIdentity, useShortURLs) : requestURI.GetRootURL(systemIdentity), forDisplaying, filesHttpURI, portalsHttpURI);
 
 			if (forDisplaying && useShortURLs && requestURI.IsPortalsHttpURI())
 				html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{Utility.PortalsHttpURI}/~{systemIdentity}/\"/>");
@@ -619,10 +623,9 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(html) || organization == null)
 				return html;
 
+			var rootURL = new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false);
 			if (forDisplaying)
-				return html.Replace("~/_", Utility.PortalsHttpURI + "/_").NormalizeURLs(new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false));
-
-			html = html.Replace(Utility.PortalsHttpURI + "/_", "~/_");
+				return html.NormalizeURLs(rootURL, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
 
 			var domains = new List<string>();
 			organization.Sites.ForEach(site =>
@@ -637,10 +640,11 @@ namespace net.vieapps.Services.Portals
 				});
 			});
 
-			new[] { new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false) }
+			html = html.Replace($"{Utility.PortalsHttpURI}/_", "~/_");
+			new[] { rootURL }
 				.Concat(domains.Select(domain => $"http://{domain}/"))
 				.Concat(domains.Select(domain => $"https://{domain}/"))
-				.ForEach(rootURL => html = html.NormalizeURLs(rootURL, false));
+				.ForEach(url => html = html.NormalizeURLs(url, false));
 
 			return html;
 		}
