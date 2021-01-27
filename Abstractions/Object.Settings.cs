@@ -10,7 +10,6 @@ using Newtonsoft.Json.Converters;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
-using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 #endregion
 
@@ -68,7 +67,12 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public void Normalize()
 		{
-			this.EndpointURLs = (this.EndpointURLs ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => url.Replace("\r", "").ToList("\n")).SelectMany(url => url).Where(url => !string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("http://") || url.IsStartsWith("https://"))).ToList();
+			this.EndpointURLs = (this.EndpointURLs ?? new List<string>())
+				.Where(url => !string.IsNullOrWhiteSpace(url))
+				.Select(url => url.Replace("\r", "").ToList("\n"))
+				.SelectMany(urls => urls)
+				.Where(url => !string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("http://") || url.IsStartsWith("https://")))
+				.ToList();
 			this.EndpointURLs = this.EndpointURLs.Count < 1 ? null : this.EndpointURLs;
 			if (string.IsNullOrWhiteSpace(this.AdditionalQuery))
 				this.AdditionalQuery = null;
@@ -185,7 +189,12 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public void Normalize()
 		{
-			this.Addresses = (this.Addresses ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			this.Addresses = (this.Addresses ?? new List<string>())
+				.Where(address => !string.IsNullOrWhiteSpace(address))
+				.Select(address => address.Trim().Replace("\r", "").ToArray("\n"))
+				.SelectMany(addresses => addresses)
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
 			this.Addresses = this.Addresses.Count < 1 ? null : this.Addresses;
 			this.Interval = this.Interval < 1 ? 15 : this.Interval;
 		}
@@ -203,7 +212,12 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public void Normalize()
 		{
-			this.Addresses = (this.Addresses ?? new List<string>()).Where(url => !string.IsNullOrWhiteSpace(url)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			this.Addresses = (this.Addresses ?? new List<string>())
+				.Where(address => !string.IsNullOrWhiteSpace(address))
+				.Select(address => address.Trim().Replace("\r", "").ToArray("\n"))
+				.SelectMany(addresses => addresses)
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
 			this.Addresses = this.Addresses.Count < 1 ? null : this.Addresses;
 		}
 	}
