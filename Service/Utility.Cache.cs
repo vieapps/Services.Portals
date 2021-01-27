@@ -113,7 +113,7 @@ namespace net.vieapps.Services.Portals
 			if (organization.Sites != null && organization.Sites.Count > 0)
 				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey("https://site.vieapps.net/"))).ToList();
 			cacheKeys = cacheKeys.Where(cacheKey => cacheKey != null).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			return cacheKeys.Concat(cacheKeys.Select(cacheKey => $"{cacheKey}:time")).ToList();
+			return cacheKeys.Concat(cacheKeys.Select(cacheKey => new[] { $"{cacheKey}:time", $"{cacheKey}:expiration" }).SelectMany(keys => keys)).ToList();
 		}
 
 		/// <summary>
@@ -136,7 +136,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (delay > 0)
 					await Task.Delay(delay * 1000).ConfigureAwait(false);
-				await UtilityService.GetWebPageAsync(url, Utility.RefresherRefererURL).ConfigureAwait(false);
+				await UtilityService.GetWebPageAsync(url, Utility.RefresherRefererURL, null, ServiceBase.ServiceComponent.CancellationToken).ConfigureAwait(false);
 				if (Utility.WriteCacheLogs)
 					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"{message ?? "Refresh an url successful"} => {url}", ServiceBase.ServiceComponent.CancellationToken, "Caches").ConfigureAwait(false);
 			}
