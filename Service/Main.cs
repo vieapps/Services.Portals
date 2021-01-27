@@ -2,10 +2,8 @@
 using System;
 using System.IO;
 using System.Net;
-using System.Text;
 using System.Linq;
 using System.Data;
-using System.Xml;
 using System.Xml.Linq;
 using System.Diagnostics;
 using System.Dynamic;
@@ -15,7 +13,6 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Utility;
@@ -23,7 +20,6 @@ using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Caching;
 using net.vieapps.Services.Portals.Exceptions;
-using System.Security.Cryptography;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -278,6 +274,23 @@ namespace net.vieapps.Services.Portals
 			=> @object is IPortalObject portalObject
 				? (user != null && user.IsContributor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
 				: await base.CanContributeAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+
+		public override async Task<bool> CanContributeAsync(User user, string objectName, string systemID, string entityInfo, string objectID, CancellationToken cancellationToken = default)
+		{
+			var canContribute = await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false);
+			if (!canContribute)
+			{
+				if (!string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(entityInfo) && !string.IsNullOrWhiteSpace(objectID))
+					canContribute = await this.CanContributeAsync(user, objectName, await this.GetBusinessObjectAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+				else if (user != null)
+				{
+					var contentType = RepositoryMediator.GetBusinessRepositoryEntity(entityInfo) as ContentType;
+					var organization = contentType?.Organization ?? await (systemID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+					canContribute = user.IsContributor(contentType?.WorkingPrivileges, contentType?.Parent?.WorkingPrivileges, organization);
+				}
+			}
+			return canContribute;
+		}
 
 		public override async Task<bool> CanViewAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
 			=> @object is IPortalObject portalObject
@@ -795,7 +808,7 @@ namespace net.vieapps.Services.Portals
 		#region Process Core Portals objects
 		async Task<JObject> ProcessOrganizationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -819,7 +832,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessSiteAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -843,7 +856,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessRoleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -867,7 +880,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessDesktopAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -893,7 +906,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessPortletAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -917,7 +930,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessModuleAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -941,7 +954,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessContentTypeAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -965,7 +978,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessExpressionAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -991,7 +1004,7 @@ namespace net.vieapps.Services.Portals
 		#region Process CMS Portals object
 		async Task<JObject> ProcessCategoryAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -1017,7 +1030,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessContentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -1041,7 +1054,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessItemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -1065,7 +1078,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JObject> ProcessLinkAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
 			{
 				case "GET":
@@ -1742,6 +1755,7 @@ namespace net.vieapps.Services.Portals
 			var forceCache = requestInfo.GetParameter("forceCache") != null;
 			var cacheKey = desktop.GetDesktopCacheKey(requestURI);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
+			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
 
 			// check "If-Modified-Since" request to reduce traffict
 			var eTag = $"desktop#{cacheKey}";
@@ -1780,25 +1794,40 @@ namespace net.vieapps.Services.Portals
 			var isMobile = "true".IsEquals(requestInfo.GetHeaderParameter("x-environment-is-mobile")) ? "true" : "false";
 			var osInfo = requestInfo.GetHeaderParameter("x-environment-os-info") ?? "Generic OS";
 
-			// response as cached HTML
+			// get cache of HTML
 			var html = processCache && !forceCache ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
-			if (!string.IsNullOrWhiteSpace(html))
+
+			// normalize the cache of HTML when got request from the refresher
+			if (!string.IsNullOrWhiteSpace(html) && Utility.RefresherRefererURL.IsEquals(requestInfo.GetHeaderParameter("Referer")))
 			{
-				if (Utility.RefresherRefererURL.IsEquals(requestInfo.GetHeaderParameter("Referer")))
+				// got specified expiration time => clear to refresh
+				if (await Utility.Cache.ExistsAsync(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false))
+				{
+					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken).ConfigureAwait(false);
+					html = null;
+				}
+
+				// no expiration => re-update cache
+				else
 				{
 					lastModified = lastModified ?? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
 					Task.WhenAll
 					(
-						Utility.Cache.SetAsync(cacheKey, html, ServiceBase.ServiceComponent.CancellationToken),
-						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, ServiceBase.ServiceComponent.CancellationToken)
+						Utility.Cache.SetAsync(cacheKey, html, this.CancellationToken),
+						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, this.CancellationToken)
 					).Run();
 				}
+			}
+
+			// response as cache of HTML
+			if (!string.IsNullOrWhiteSpace(html))
+			{
 				html = this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.CorrelationID);
 				lastModified = lastModified ?? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false);
 				if (string.IsNullOrWhiteSpace(lastModified))
 				{
 					lastModified = DateTime.Now.ToHttpString();
-					Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, ServiceBase.ServiceComponent.CancellationToken).Run();
+					Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, this.CancellationToken).Run();
 				}
 				headers = new Dictionary<string, string>(headers)
 				{
@@ -1889,21 +1918,21 @@ namespace net.vieapps.Services.Portals
 					{
 						var portletTitle = requestJson.Get<string>("Title");
 						var portletID = requestJson.Get<string>("ID");
-						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portletTitle}_{portletID}".GetANSIUri()}{fileSuffixName}_request.json"), requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
+						UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portletTitle}_{portletID}".GetANSIUri()}{fileSuffixName}_request.json"), requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, this.CancellationToken).Run();
 					}
 					return data;
 				}
 
 				var language = desktop.WorkingLanguage ?? site.Language ?? "vi-VN";
 				var portletData = new ConcurrentDictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
-				await desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async (portlet, _) =>
+				await desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 				{
 					var data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, language, parentIdentity, contentIdentity, pageNumber, generateAsync, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					if (data != null)
 						portletData[portlet.ID] = data;
 					if (writeDesktopLogs)
-						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSuffixName}_response.json"), data?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
-				}, cancellationToken, true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
+						UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSuffixName}_response.json"), data?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, this.CancellationToken).Run();
+				}, true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
 				stepwatch.Stop();
 				this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete prepare portlets' data of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").Run();
 
@@ -1912,20 +1941,20 @@ namespace net.vieapps.Services.Portals
 				if (writeDesktopLogs)
 					this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate HTML of {desktopInfo}", null, this.ServiceName, "Process.Http.Request").Run();
 
-				var portletHtmls = new ConcurrentDictionary<string, Tuple<string, bool>>(StringComparer.OrdinalIgnoreCase);
-				var generatePortletsTask = desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async (portlet, token) =>
+				var portletHtmls = new ConcurrentDictionary<string, Tuple<string, bool, int>>(StringComparer.OrdinalIgnoreCase);
+				var generatePortletsTask = desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 				{
 					try
 					{
 						var action = !string.IsNullOrWhiteSpace(parentIdentity) && !string.IsNullOrWhiteSpace(contentIdentity) ? portlet.OriginalPortlet.AlternativeAction : portlet.OriginalPortlet.Action;
 						var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
-						portletHtmls[portlet.ID] = await this.GeneratePortletAsync(portlet, isList, portletData.TryGetValue(portlet.ID, out var data) ? data : null, siteJson, desktopsJson, organization.AlwaysUseHtmlSuffix, requestInfo.CorrelationID, token, writeDesktopLogs, fileSuffixName).ConfigureAwait(false);
+						portletHtmls[portlet.ID] = await this.GeneratePortletAsync(portlet, isList, portletData.TryGetValue(portlet.ID, out var data) ? data : null, siteJson, desktopsJson, organization.AlwaysUseHtmlSuffix, requestInfo.CorrelationID, cancellationToken, writeDesktopLogs, fileSuffixName).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
-						portletHtmls[portlet.ID] = new Tuple<string, bool>(this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, portlet.ID), true);
+						portletHtmls[portlet.ID] = new Tuple<string, bool, int>(this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, portlet.ID), true, 0);
 					}
-				}, cancellationToken, true, Utility.RunProcessorInParallelsMode);
+				}, true, Utility.RunProcessorInParallelsMode);
 
 				// generate desktop
 				string title = "", metaTags = "", body = "", stylesheets = "", scripts = "";
@@ -1955,8 +1984,10 @@ namespace net.vieapps.Services.Portals
 
 					portletHtmls.Where(kvp => !kvp.Value.Item2).Select(kvp => kvp.Key).ToList().ForEach(portletID =>
 					{
-						var portletHtml = portletHtmls[portletID].Item1;
-						var portletGotError = portletHtmls[portletID].Item2;
+						var portletDataInfo = portletHtmls[portletID];
+						var portletHtml = portletDataInfo.Item1;
+						var portletGotError = portletDataInfo.Item2;
+						var portletCacheExpiration = portletDataInfo.Item3;
 						var portletScript = "";
 						var portletStylesheet = "";
 
@@ -1994,7 +2025,7 @@ namespace net.vieapps.Services.Portals
 						}
 						catch { }
 
-						portletHtmls[portletID] = new Tuple<string, bool>(portletHtml, portletGotError);
+						portletHtmls[portletID] = new Tuple<string, bool, int>(portletHtml, portletGotError, portletCacheExpiration);
 						portletScripts += portletScript;
 						portletStylesheets += portletStylesheet;
 					});
@@ -2040,8 +2071,8 @@ namespace net.vieapps.Services.Portals
 				html = html.Insert(html.IndexOf("</body>"), body + scripts);
 
 				// minify
-				html = html.Replace(Utility.FilesHttpURI, "~~");
-				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html.Trim();
+				html = html.Replace(Utility.FilesHttpURI, "~~").Trim();
+				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
 
 				// prepare caching
 				if (processCache && !portletHtmls.Values.Any(data => data.Item2))
@@ -2054,11 +2085,18 @@ namespace net.vieapps.Services.Portals
 						{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
 						{ "Cache-Control", "public" }
 					};
+					var cacheExpiration = 0;
+					portletHtmls.Values.Where(data => data.Item3 > 0).ForEach(data =>
+					{
+						if (cacheExpiration < data.Item3)
+							cacheExpiration = data.Item3;
+					});
 					Task.WhenAll
 					(
-						Utility.Cache.SetAsync(cacheKey, html, ServiceBase.ServiceComponent.CancellationToken),
-						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, ServiceBase.ServiceComponent.CancellationToken),
-						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), new[] { cacheKey, cacheKeyOfLastModified }, ServiceBase.ServiceComponent.CancellationToken)
+						Utility.Cache.SetAsync(cacheKey, html, cacheExpiration, this.CancellationToken),
+						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, cacheExpiration, this.CancellationToken),
+						cacheExpiration > 0 ? Utility.Cache.SetAsync(cacheKeyOfExpiration, cacheExpiration, cacheExpiration, this.CancellationToken) : Utility.Cache.RemoveAsync(cacheKeyOfExpiration, this.CancellationToken),
+						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, this.CancellationToken)
 					).Run();
 				}
 
@@ -2235,7 +2273,7 @@ namespace net.vieapps.Services.Portals
 			return responseJson;
 		}
 
-		async Task<Tuple<string, bool>> GeneratePortletAsync(Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix = true, string correlationID = null, CancellationToken cancellationToken = default, bool writeLogs = false, string fileSuffixName = null)
+		async Task<Tuple<string, bool, int>> GeneratePortletAsync(Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix = true, string correlationID = null, CancellationToken cancellationToken = default, bool writeLogs = false, string fileSuffixName = null)
 		{
 			// get original first
 			var stopwatch = Stopwatch.StartNew();
@@ -2334,6 +2372,7 @@ namespace net.vieapps.Services.Portals
 			var html = "";
 			var objectType = "";
 			var gotError = false;
+			var cacheExpiration = data != null && Int32.TryParse(data["CacheExpiration"]?.ToString(), out var expiration) && expiration > 0 ? expiration : 0;
 			var contentType = data != null ? await (portlet.RepositoryEntityID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) : null;
 
 			if (contentType != null)
@@ -2586,12 +2625,12 @@ namespace net.vieapps.Services.Portals
 						if (writeLogs)
 						{
 							var filename = $"{$"{theportlet.Title}_{theportlet.ID}".GetANSIUri()}{fileSuffixName}";
-							await Task.WhenAll
+							Task.WhenAll
 							(
 								this.WriteLogsAsync(correlationID, $"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request"),
-								UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xml"), xml.ToString(), false, null, cancellationToken),
-								UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xsl"), xslTemplate, false, null, cancellationToken)
-							).ConfigureAwait(false);
+								UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xml"), xml.ToString(), false, null, this.CancellationToken),
+								UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xsl"), xslTemplate, false, null, this.CancellationToken)
+							).Run();
 						}
 					}
 					catch (Exception ex)
@@ -2657,7 +2696,7 @@ namespace net.vieapps.Services.Portals
 			if (writeLogs)
 				this.WriteLogsAsync(correlationID, $"HTML code of {portletInfo} has been generated - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").Run();
 
-			return new Tuple<string, bool>(html, gotError);
+			return new Tuple<string, bool, int>(html, gotError, cacheExpiration);
 		}
 
 		async Task<Tuple<string, string, string, string, string>> GenerateDesktopAsync(Desktop desktop, Organization organization, Site site, JObject mainPortlet, string parentIdentity, string contentIdentity, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
@@ -3167,7 +3206,7 @@ namespace net.vieapps.Services.Portals
 				["os-mode"] = osMode,
 				["correlationID"] = correlationID,
 				["correlation-id"] = correlationID
-			}).NormalizeURLs(requestURI, organization.Alias, useShortURLs);
+			}).NormalizeURLs(requestURI, organization.Alias, useShortURLs, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
 		}
 
 		JObject GenerateErrorJson(Exception exception, RequestInfo requestInfo, bool addErrorStack, string errorMessage = null)
@@ -3208,7 +3247,7 @@ namespace net.vieapps.Services.Portals
 		{
 			try
 			{
-				var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+				var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 				switch (requestInfo.ObjectName.ToLower().Trim())
 				{
 					case "category":
@@ -3321,11 +3360,11 @@ namespace net.vieapps.Services.Portals
 			var requestJson = requestInfo.GetRequestJson();
 			var objectName = requestJson.Get("ObjectName", "").Trim();
 
-			var module = await (requestJson.Get<string>("RepositoryID") ?? requestJson.Get<string>("ModuleID") ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-			var contentType = await (requestJson.Get<string>("RepositoryEntityID") ?? requestJson.Get<string>("ContentTypeID") ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			var contentType = await(requestJson.Get<string>("RepositoryEntityID") ?? requestJson.Get<string>("ContentTypeID") ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			var module = contentType?.Module ?? await (requestJson.Get<string>("RepositoryID") ?? requestJson.Get<string>("ModuleID") ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			var organization = contentType?.Organization ?? module?.Organization ?? await (requestJson.Get<string>("SystemID") ?? requestJson.Get<string>("OrganizationID") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false);
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
 				switch (objectName.ToLower())
 				{
@@ -3364,7 +3403,7 @@ namespace net.vieapps.Services.Portals
 					case "cms.contact":
 					case "utils.contact":
 					case "utilities.contact":
-						gotRights = requestInfo.Session.User.IsEditor(contentType?.WorkingPrivileges, null, organization, requestInfo.CorrelationID);
+						gotRights = requestInfo.Session.User.IsEditor(contentType?.WorkingPrivileges, contentType?.Module?.WorkingPrivileges, organization, requestInfo.CorrelationID);
 						break;
 				}
 			if (!gotRights)
@@ -4322,6 +4361,7 @@ namespace net.vieapps.Services.Portals
 					}))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList();
+
 				this.StartTimer(async () => await homeURLs.ForEachAsync(url => url.RefreshWebPageAsync(), true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false), 3 * 60);
 				if (this.IsDebugLogEnabled)
 					this.WriteLogsAsync(UtilityService.NewUUID, $"The timer to refresh the home desktops of '{organization.Title}' [{organization.ID}] was started - Interval: 3 minutes\r\nURLs:\r\n\t{homeURLs.Join("\r\n\t")}", null, this.ServiceName, "Caches").Run();
@@ -4348,6 +4388,7 @@ namespace net.vieapps.Services.Portals
 				.Where(url => !string.IsNullOrWhiteSpace(url))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
+
 				if (refreshUrls.Count > 0)
 				{
 					this.RefreshTimers[organization.ID] = this.StartTimer(async () => await refreshUrls.ForEachAsync(url => url.RefreshWebPageAsync(), true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false), (organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7) * 60);
@@ -4367,6 +4408,7 @@ namespace net.vieapps.Services.Portals
 				this.StopTimer(timer);
 				if (this.IsDebugLogEnabled)
 					this.WriteLogsAsync(UtilityService.NewUUID, $"The timer to the specified addresses of '{organization.Title}' [{organization.ID}] was stopped", null, this.ServiceName, "Caches").Run();
+
 				if (restart)
 					this.StartRefreshTimer(organization, false);
 			}
@@ -4385,7 +4427,7 @@ namespace net.vieapps.Services.Portals
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
 			// check permissions
-			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false);
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			var gotRights = false;
 			Organization organization = null;
 			Module module = null;
