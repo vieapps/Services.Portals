@@ -3,11 +3,9 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-using System.Dynamic;
 using MsgPack.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
@@ -183,6 +181,12 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore]
 		public List<Settings.HttpIndicator> HttpIndicators { get; set; }
 
+		[Ignore, BsonIgnore, XmlIgnore]
+		public string FakeFilesHttpURI { get; set; }
+
+		[Ignore, BsonIgnore, XmlIgnore]
+		public string FakePortalsHttpURI { get; set; }
+
 		internal List<string> _siteIDs = null;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -285,6 +289,8 @@ namespace net.vieapps.Services.Portals
 			this.HttpIndicators?.ForEach(indicator => indicator?.Normalize());
 			this.HttpIndicators = this.HttpIndicators?.Where(indicator => indicator != null && !string.IsNullOrWhiteSpace(indicator.Name) && !string.IsNullOrWhiteSpace(indicator.Content)).ToList();
 			this.HttpIndicators = this.HttpIndicators == null || this.HttpIndicators.Count < 1 ? null : this.HttpIndicators;
+			this.FakeFilesHttpURI = string.IsNullOrWhiteSpace(this.FakeFilesHttpURI) ? null : this.FakeFilesHttpURI.Trim();
+			this.FakePortalsHttpURI = string.IsNullOrWhiteSpace(this.FakePortalsHttpURI) ? null : this.FakePortalsHttpURI.Trim();
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			OrganizationProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
@@ -308,6 +314,8 @@ namespace net.vieapps.Services.Portals
 				this.RedirectUrls = this._json["RedirectUrls"]?.FromJson<Settings.RedirectUrls>();
 				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
 				this.HttpIndicators = this._json["HttpIndicators"]?.FromJson<List<Settings.HttpIndicator>>();
+				this.FakeFilesHttpURI = this._json["FakeFilesHttpURI"]?.FromJson<string>();
+				this.FakePortalsHttpURI = this._json["FakePortalsHttpURI"]?.FromJson<string>();
 				this.PrepareRedirectAddresses();
 			}
 			else if (OrganizationProcessor.ExtraProperties.Contains(name))
