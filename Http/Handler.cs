@@ -53,7 +53,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					["Access-Control-Allow-Methods"] = "HEAD,GET"
+					["Access-Control-Allow-Methods"] = "HEAD,GET,POST"
 				};
 				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
 					headers["Access-Control-Allow-Headers"] = requestHeaders;
@@ -657,12 +657,12 @@ namespace net.vieapps.Services.Portals
 										await Global.WriteLogsAsync(Global.Logger, "RTU",
 											$"Successfully process an inter-communicate message" + "\r\n" +
 											$"- Type: {message?.Type}" + "\r\n" +
-											$"- Message: {message?.Data?.ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}"
+											$"- Message: {message?.Data?.ToString(Global.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}"
 										, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 								}
 								catch (Exception ex)
 								{
-									await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+									await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 								}
 							},
 							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
@@ -683,12 +683,12 @@ namespace net.vieapps.Services.Portals
 											await Global.WriteLogsAsync(Global.Logger, "RTU",
 												$"Successfully process an inter-communicate message" + "\r\n" +
 												$"- Type: {message?.Type}" + "\r\n" +
-												$"- Message: {message?.Data?.ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}"
+												$"- Message: {message?.Data?.ToString(Global.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}"
 											, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 									}
 									catch (Exception ex)
 									{
-										await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None)}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+										await Global.WriteLogsAsync(Global.Logger, "RTU", $"{ex.Message} => {message?.ToJson().ToString(Global.IsDebugLogEnabled ? Formatting.Indented : Formatting.None)}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 									}
 								}
 							},
