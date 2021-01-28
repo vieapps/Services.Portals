@@ -4435,28 +4435,28 @@ namespace net.vieapps.Services.Portals
 			{
 				case "organization":
 					organization = await identity.GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(organization?.OwnerID) || requestInfo.Session.User.IsAdministrator(organization?.WorkingPrivileges);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, organization, requestInfo.CorrelationID);
 					break;
 
 				case "module":
 					module = await identity.GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(module?.Organization?.OwnerID) || requestInfo.Session.User.IsAdministrator(module?.WorkingPrivileges);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(module?.WorkingPrivileges, null, module?.Organization, requestInfo.CorrelationID);
 					break;
 
 				case "contenttype":
 				case "content.type":
 					contentType = await identity.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(contentType?.Organization?.OwnerID) || requestInfo.Session.User.IsAdministrator(contentType?.WorkingPrivileges);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(contentType?.WorkingPrivileges, contentType?.Module?.WorkingPrivileges, contentType?.Organization, requestInfo.CorrelationID);
 					break;
 
 				case "site":
 					site = await identity.GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(site?.Organization?.OwnerID) || requestInfo.Session.User.IsModerator(site?.WorkingPrivileges);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, site?.Organization, requestInfo.CorrelationID);
 					break;
 
 				case "desktop":
 					desktop = await identity.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(desktop?.Organization?.OwnerID) || requestInfo.Session.User.IsModerator(desktop?.WorkingPrivileges);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, desktop?.Organization, requestInfo.CorrelationID);
 					break;
 			}
 
@@ -4491,11 +4491,13 @@ namespace net.vieapps.Services.Portals
 				await site.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
 				site = await Site.GetAsync<Site>(site.ID, cancellationToken).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll(
+				await Task.WhenAll
+				(
 					desktop.FindChildrenAsync(cancellationToken, false),
 					desktop.FindPortletsAsync(cancellationToken, false)
 				).ConfigureAwait(false);
-				await Task.WhenAll(
+				await Task.WhenAll
+				(
 					site.SetAsync(false, true, cancellationToken),
 					desktop.SetAsync(false, true, cancellationToken)
 				).ConfigureAwait(false);
@@ -4506,7 +4508,8 @@ namespace net.vieapps.Services.Portals
 			{
 				await desktop.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(desktop.ID, cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll(
+				await Task.WhenAll
+				(
 					desktop.FindChildrenAsync(cancellationToken, false),
 					desktop.FindPortletsAsync(cancellationToken, false)
 				).ConfigureAwait(false);
