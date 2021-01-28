@@ -327,13 +327,13 @@ namespace net.vieapps.Services.Portals
 			}
 			else if ((name.IsEquals("Modules") || name.IsEquals("Sites")) && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
 				Task.WhenAll(
-					this.SetAsync(false, true),
+					this.SetAsync(false, true, ServiceBase.ServiceComponent.CancellationToken),
 					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 					{
 						Type = $"{this.GetObjectName()}#Update",
 						Data = this.ToJson(false, false),
 						ExcludedNodeID = Utility.NodeID
-					})
+					}, ServiceBase.ServiceComponent.CancellationToken)
 				).Run();
 		}
 
