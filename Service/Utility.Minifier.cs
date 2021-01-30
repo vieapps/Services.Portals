@@ -12,8 +12,8 @@ namespace net.vieapps.Services.Portals
 
 		static bool IsEOF(this int @char)
 			=> @char == -1;
-		
-			/// <summary>
+
+		/// <summary>
 		/// Minifies Javascript code
 		/// </summary>
 		/// <param name="stream"></param>
@@ -24,7 +24,8 @@ namespace net.vieapps.Services.Portals
 			var isEOF = false;
 			var isInComment = false;
 			var isInStringVariable = false;
-			var isInLiterialStringVariable = false;
+			var isInLiterialString = false;
+			var isInLiterialExpression = false;
 			var isDoubleSlashComment = false;
 			var decoder = Encoding.UTF8.GetDecoder();
 			var buffer = new char[1];
@@ -48,17 +49,21 @@ namespace net.vieapps.Services.Portals
 					if (thisChar == '\n')
 						isIgnore = true;
 
-					else if (thisChar == ' ' && !isInStringVariable && !isInLiterialStringVariable)
+					else if (thisChar == ' ' && !isInStringVariable)
 					{
-						if (lastChar == ' ' || lastChar == '>' || lastChar == '<' || Minifier.IsDelimiter(lastChar))
-							isIgnore = true;
-
+						if (isInLiterialString)
+							isIgnore = isInLiterialExpression;
 						else
 						{
-							nextChar = reader.PeekChar();
-							isEOF = nextChar.IsEOF();
-							if (!isEOF)
-								isIgnore = nextChar == '>' || nextChar == '<' || nextChar == '}' || nextChar == ')' || Minifier.IsDelimiter(nextChar);
+							if (lastChar == ' ' || lastChar == '>' || lastChar == '<' || Minifier.IsDelimiter(lastChar))
+								isIgnore = true;
+							else
+							{
+								nextChar = reader.PeekChar();
+								isEOF = nextChar.IsEOF();
+								if (!isEOF)
+									isIgnore = nextChar == '>' || nextChar == '<' || nextChar == '}' || nextChar == ')' || Minifier.IsDelimiter(nextChar);
+							}
 						}
 					}
 
@@ -78,23 +83,10 @@ namespace net.vieapps.Services.Portals
 						}
 					}
 
-					else if (!isInComment && thisChar == '`')
-					{
-						isInLiterialStringVariable = !isInLiterialStringVariable;
-						if (isInLiterialStringVariable)
-							isIgnore = false;
-					}
-
-					else if (!isInComment && !isInLiterialStringVariable && !isInStringVariable && (thisChar == '\'' || thisChar == '"') && lastChar != '\\')
-					{
-						isInStringVariable = !isInStringVariable;
-						if (isInStringVariable)
-							isIgnore = false;
-					}
-
 					// ignore all characters till we reach end of comment
 					if (isInComment)
 					{
+						isInLiterialString = isInLiterialExpression = isInStringVariable = false;
 						isIgnore = true;
 						while (true)
 						{
@@ -114,6 +106,31 @@ namespace net.vieapps.Services.Portals
 								isInComment = false;
 								break;
 							}
+						}
+					}
+
+					// special characters (string)
+					else if (!isIgnore)
+					{
+						if (thisChar == '`')
+						{
+							isInLiterialString = !isInLiterialString;
+							isInLiterialExpression = isInStringVariable = false;
+						}
+						else if (thisChar == '{' && lastChar == '$' && isInLiterialString)
+						{
+							isInLiterialExpression = true;
+							isInStringVariable = false;
+						}
+						else if (thisChar == '}' && isInLiterialString && isInLiterialExpression)
+						{
+							isInLiterialExpression = isInStringVariable = false;
+						}
+						else if ((thisChar == '\'' || thisChar == '"') && lastChar != '\\')
+						{
+							isInStringVariable = isInLiterialString
+								? isInLiterialExpression && !isInStringVariable
+								: !isInStringVariable;
 						}
 					}
 
@@ -195,7 +212,7 @@ namespace net.vieapps.Services.Portals
 						nextChar = reader.PeekChar();
 						if (nextChar == '*')
 						{
-							isInComment =  isIgnore = true;
+							isInComment = isIgnore = true;
 							isDoubleSlashComment = false;
 						}
 						else if (nextChar == '/')
