@@ -1323,7 +1323,7 @@ namespace net.vieapps.Services.Portals
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
 				// prepare
-				identity = identity.Replace(".css", "").ToLower().Trim();
+				identity = identity.Replace(StringComparison.OrdinalIgnoreCase, ".css", "").ToLower().Trim();
 				var eTag = $"css#{identity.GenerateUUID()}";
 				var cacheKey = $"css#{identity}";
 				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
@@ -1444,7 +1444,7 @@ namespace net.vieapps.Services.Portals
 				if (!requestInfo.Query.TryGetValue("x-path", out var identity) || string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
-				identity = identity.Replace(".js", "").ToLower().Trim();
+				identity = identity.Replace(StringComparison.OrdinalIgnoreCase, ".js", "").ToLower().Trim();
 				var eTag = $"js#{identity.GenerateUUID()}";
 				var cacheKey = $"js#{identity}";
 				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
