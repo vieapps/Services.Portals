@@ -253,9 +253,8 @@ namespace net.vieapps.Services.Portals
 				: new List<string>();
 
 			// html cache keys (desktop HTMLs)
-			var theme = site.Theme ?? site.Organization.Theme ?? "defaut";
 			var htmlCacheKeys = clearHtmlCache
-				? site.Organization.GetDesktopCacheKey().Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time", $"js#o_{site.OrganizationID}", $"js#o_{site.OrganizationID}:time", "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }).ToList()
+				? site.Organization.GetDesktopCacheKey().Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time", $"js#o_{site.OrganizationID}", $"js#o_{site.OrganizationID}:time" }).ToList()
 				: new List<string>();
 
 			// clear related cache

@@ -1284,7 +1284,11 @@ namespace net.vieapps.Services.Portals
 
 				if (this.CacheDesktopResources)
 				{
-					Utility.Cache.SetAsync($"{eTag}:time", lastModified, ServiceBase.ServiceComponent.CancellationToken).Run();
+					Task.WhenAll
+					(
+						Utility.Cache.SetAsync($"{eTag}:time", lastModified, this.CancellationToken),
+						Utility.Cache.AddSetMemberAsync("Statics", $"{eTag}:time", this.CancellationToken)
+					).Run();
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
 						{ "ETag", eTag },
@@ -1351,7 +1355,12 @@ namespace net.vieapps.Services.Portals
 						}
 						else
 							lastModified = this.GetThemeResourcesLastModified(identity, "css").ToHttpString();
-						Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, ServiceBase.ServiceComponent.CancellationToken).Run();
+						
+						Task.WhenAll
+						(
+							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, this.CancellationToken),
+							Utility.Cache.AddSetMemberAsync("Statics", $"{cacheKey}:time", this.CancellationToken)
+						).Run();
 					}
 
 					if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
@@ -1412,8 +1421,9 @@ namespace net.vieapps.Services.Portals
 					if (!(identity.Length == 34 && identity.Right(32).IsValidUUID()) && !this.ExcludedThemes.Contains(identity))
 						Task.WhenAll
 						(
-							Utility.Cache.SetAsync(cacheKey, resources, ServiceBase.ServiceComponent.CancellationToken),
-							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, ServiceBase.ServiceComponent.CancellationToken)
+							Utility.Cache.SetAsync(cacheKey, resources, this.CancellationToken),
+							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, this.CancellationToken),
+							Utility.Cache.AddSetMembersAsync("Statics", new[] { cacheKey, $"{cacheKey}:time" }, this.CancellationToken)
 						).Run();
 				}
 
@@ -1466,7 +1476,12 @@ namespace net.vieapps.Services.Portals
 						}
 						else
 							lastModified = this.GetThemeResourcesLastModified(identity, "js").ToHttpString();
-						Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, ServiceBase.ServiceComponent.CancellationToken).Run();
+
+						Task.WhenAll
+						(
+							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, this.CancellationToken),
+							Utility.Cache.AddSetMemberAsync("Statics", $"{cacheKey}:time", this.CancellationToken)
+						).Run();
 					}
 
 					if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
@@ -1534,8 +1549,9 @@ namespace net.vieapps.Services.Portals
 					if (!(identity.Length == 34 && identity.Right(32).IsValidUUID()) && !this.ExcludedThemes.Contains(identity))
 						Task.WhenAll
 						(
-							Utility.Cache.SetAsync(cacheKey, resources, ServiceBase.ServiceComponent.CancellationToken),
-							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, ServiceBase.ServiceComponent.CancellationToken)
+							Utility.Cache.SetAsync(cacheKey, resources, this.CancellationToken),
+							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, this.CancellationToken),
+							Utility.Cache.AddSetMembersAsync("Statics", new[] { cacheKey, $"{cacheKey}:time" }, this.CancellationToken)
 						).Run();
 				}
 
@@ -1587,7 +1603,7 @@ namespace net.vieapps.Services.Portals
 			throw new InformationNotFoundException($"The requested resource is not found [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 		}
 
-		async Task<string> GetThemeResourcesAsync(string theme, string type, CancellationToken cancellationToken)
+		async Task<string> GetThemeResourcesAsync(string theme, string type, CancellationToken cancellationToken, string filesHttpURI = null, string portalsHttpURI = null)
 		{
 			var isJs = type.IsEquals("js");
 			var resources = this.IsDebugLogEnabled ? $"/* {(isJs ? "scripts" : "stylesheets")} of the '{theme}' theme */\r\n" : "";
@@ -1595,7 +1611,7 @@ namespace net.vieapps.Services.Portals
 			if (directory.Exists)
 				await directory.GetFiles($"*.{type}").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, _) =>
 				{
-					var resource = (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~#/", $"{Utility.PortalsHttpURI}/");
+					var resource = (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~~/", $"{filesHttpURI ?? Utility.FilesHttpURI}/").Replace("~#/", $"{portalsHttpURI ?? Utility.PortalsHttpURI}/");
 					resources += (isJs ? ";" : "") + (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n" : "")
 						+ (this.DontMinifyThemes.Contains(theme) ? resource : isJs ? resource.MinifyJs() : resource.MinifyCss()) + "\r\n";
 				}, cancellationToken, true, false).ConfigureAwait(false);
@@ -2029,7 +2045,31 @@ namespace net.vieapps.Services.Portals
 					stylesheets += string.IsNullOrWhiteSpace(portletStylesheets) ? "" : $"<style>{portletStylesheets.MinifyCss()}</style>";
 				}
 
+				// prepare all SCRIPT tags of body
+				try
+				{
+					var bodyScript = "";
+					var start = body.PositionOf("<script");
+					while (start > -1)
+					{
+						var end = body.PositionOf("</script>", start);
+						bodyScript += body.Substring(start, end - start);
+						body = body.Remove(start, end - start + 9);
+
+						start = bodyScript.PositionOf("<script");
+						end = bodyScript.PositionOf(">", start);
+						bodyScript = bodyScript.Remove(start, end - start + 1);
+
+						start = body.PositionOf("<script");
+					}
+					scripts += string.IsNullOrWhiteSpace(bodyScript) ? "" : $"<script>{bodyScript.MinifyJs()}</script>";
+				}
+				catch { }
+
+				// all scripts
 				scripts = "<script>var __vieapps={ids:{" + (mainPortlet?.Get<string>("IDs") ?? $"system:\"{organization.ID}\",service:\"{this.ServiceName.ToLower()}\"") + $",parent:\"{parentIdentity}\",content:\"{contentIdentity}\"" + "},URLs:{root:\"~/\",portals:\"" + (organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}}},language:{{language}},isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>" + scripts;
+
+				// prepare HTML of all zones
 				var zoneHtmls = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 				desktop.Portlets.OrderBy(portlet => portlet.Zone).ThenBy(portlet => portlet.OrderIndex).ForEach(portlet =>
 				{
@@ -4469,7 +4509,15 @@ namespace net.vieapps.Services.Portals
 				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear all cache{(organization != null ? " of the whole organization" : "")} [{requestInfo.GetURI()}]", cancellationToken, "Caches").ConfigureAwait(false);
 
 			if (organization != null)
+			{
 				await organization.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true, false).ConfigureAwait(false);
+				var theme = organization.Theme ?? "defaut";
+				await Task.WhenAll
+				(
+					Utility.Cache.RemoveAsync(await Utility.Cache.GetSetMembersAsync("Statics", this.CancellationToken).ConfigureAwait(false), this.CancellationToken),
+					Utility.Cache.RemoveAsync(new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }.Distinct(StringComparer.OrdinalIgnoreCase), this.CancellationToken)
+				).ConfigureAwait(false);
+			}
 
 			else if (module != null)
 			{
@@ -4489,6 +4537,13 @@ namespace net.vieapps.Services.Portals
 			else if (site != null)
 			{
 				await site.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
+				var siteTheme = site.Theme ?? site.Organization.Theme ?? "defaut";
+				var organizationTheme = site.Organization.Theme ?? "defaut";
+				await Task.WhenAll
+				(
+					Utility.Cache.RemoveAsync(await Utility.Cache.GetSetMembersAsync("Statics", this.CancellationToken).ConfigureAwait(false), this.CancellationToken),
+					Utility.Cache.RemoveAsync(new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{siteTheme}", $"css#{siteTheme}:time", $"js#{siteTheme}", $"js#{siteTheme}:time", $"css#{organizationTheme}", $"css#{organizationTheme}:time", $"js#{organizationTheme}", $"js#{organizationTheme}:time" }.Distinct(StringComparer.OrdinalIgnoreCase), this.CancellationToken)
+				).ConfigureAwait(false);
 				site = await Site.GetAsync<Site>(site.ID, cancellationToken).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll
