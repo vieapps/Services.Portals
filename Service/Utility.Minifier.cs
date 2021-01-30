@@ -24,6 +24,7 @@ namespace net.vieapps.Services.Portals
 			var isEOF = false;
 			var isInComment = false;
 			var isInStringVariable = false;
+			var isInLiterialStringVariable = false;
 			var isDoubleSlashComment = false;
 			var decoder = Encoding.UTF8.GetDecoder();
 			var buffer = new char[1];
@@ -47,7 +48,7 @@ namespace net.vieapps.Services.Portals
 					if (thisChar == '\n')
 						isIgnore = true;
 
-					else if (thisChar == ' ' && !isInStringVariable)
+					else if (thisChar == ' ' && !isInStringVariable && !isInLiterialStringVariable)
 					{
 						if (lastChar == ' ' || lastChar == '>' || lastChar == '<' || Minifier.IsDelimiter(lastChar))
 							isIgnore = true;
@@ -77,7 +78,14 @@ namespace net.vieapps.Services.Portals
 						}
 					}
 
-					else if (!isInComment && (thisChar == '\'' || thisChar == '"') && lastChar != '\\')
+					else if (!isInComment && thisChar == '`')
+					{
+						isInLiterialStringVariable = !isInLiterialStringVariable;
+						if (isInLiterialStringVariable)
+							isIgnore = false;
+					}
+
+					else if (!isInComment && !isInLiterialStringVariable && !isInStringVariable && (thisChar == '\'' || thisChar == '"') && lastChar != '\\')
 					{
 						isInStringVariable = !isInStringVariable;
 						if (isInStringVariable)
@@ -167,7 +175,10 @@ namespace net.vieapps.Services.Portals
 
 					else if (thisChar == ' ')
 					{
-						if (lastChar == ' ' || lastChar == '>' || lastChar == '}' || Minifier.IsDelimiter(lastChar))
+						if (lastChar == '-')
+							isIgnore = false;
+
+						else if (lastChar == ' ' || lastChar == '>' || lastChar == '}' || Minifier.IsDelimiter(lastChar))
 							isIgnore = true;
 
 						else
