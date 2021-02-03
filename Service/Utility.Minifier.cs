@@ -1,6 +1,8 @@
 ﻿#region Related components
 using System.IO;
 using System.Text;
+using System.Linq;
+using System.Collections.Generic;
 using net.vieapps.Components.Utility;
 #endregion
 
@@ -12,6 +14,8 @@ namespace net.vieapps.Services.Portals
 
 		static bool IsEOF(this int @char)
 			=> @char == -1;
+
+		static int BlockSize = 16384;
 
 		/// <summary>
 		/// Minifies Javascript code
@@ -155,7 +159,22 @@ namespace net.vieapps.Services.Portals
 		/// <param name="data"></param>
 		/// <returns></returns>
 		public static string MinifyJs(string data)
-			=> Minifier.MinifyJs(data.ToBytes(Encoding.UTF8));
+		{
+			var blocks = new List<string>();
+			while (data.Length > 0)
+			{
+				var block = data.Length > Minifier.BlockSize ? data.Substring(0, Minifier.BlockSize) : data;
+				data = data.Remove(0, block.Length);
+				if (data.Length > 0)
+					while (block.Last() != '}' && data.Length > 0)
+					{
+						block += data.First();
+						data = data.Remove(0, 1);
+					}
+				blocks.Add(block);
+			}
+			return blocks.Select(block => Minifier.MinifyJs(block.ToBytes(Encoding.UTF8))).Join("");
+		}
 
 		/// <summary>
 		/// Minifies CSS code
@@ -270,6 +289,21 @@ namespace net.vieapps.Services.Portals
 		/// <param name="data"></param>
 		/// <returns></returns>
 		public static string MinifyCss(string data)
-			=> Minifier.MinifyCss(data.ToBytes(Encoding.UTF8));
+		{
+			var blocks = new List<string>();
+			while (data.Length > 0)
+			{
+				var block = data.Length > Minifier.BlockSize ? data.Substring(0, Minifier.BlockSize) : data;
+				data = data.Remove(0, block.Length);
+				if (data.Length > 0)
+					while (block.Last() != '}' && data.Length > 0)
+					{
+						block += data.First();
+						data = data.Remove(0, 1);
+					}
+				blocks.Add(block);
+			}
+			return blocks.Select(block => Minifier.MinifyCss(block.ToBytes(Encoding.UTF8))).Join("");
+		}
 	}
 }
