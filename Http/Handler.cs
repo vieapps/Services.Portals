@@ -377,13 +377,13 @@ namespace net.vieapps.Services.Portals
 							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 							var requestSegments = legacyRequest.ToArray("/").ToList();
 
-							if (requestSegments[0].IsEquals("Download.ashx"))
+							if (requestSegments[0].IsEquals("Download.ashx") || requestSegments[0].IsEquals("Download.aspx"))
 								requestSegments[0] = "downloads";
 							else
 							{
-								requestSegments[0] = requestSegments[0].IsEquals("File.ashx") || requestSegments[0].IsEquals("Image.ashx")
+								requestSegments[0] = requestSegments[0].IsEquals("File.ashx") || requestSegments[0].IsEquals("File.aspx") || requestSegments[0].IsEquals("Image.ashx") || requestSegments[0].IsEquals("Image.aspx")
 									? "files"
-									: requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "").ToLower() + "s";
+									: requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").ToLower() + "s";
 								if (!requestSegments[1].IsValidUUID())
 									requestSegments.Insert(1, systemIdentityJson?.Get<string>("ID"));
 							}
