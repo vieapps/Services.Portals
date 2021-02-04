@@ -2,32 +2,25 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Text;
 using System.Diagnostics;
-using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
 using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Hosting;
-#if !NETCOREAPP2_1
 using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.Extensions.Hosting;
-#endif
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using net.vieapps.Components.Utility;
-using net.vieapps.Components.Caching;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -65,9 +58,7 @@ namespace net.vieapps.Services.Portals
 				.AddAuthentication(options =>
 				{
 					options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-#if !NETCOREAPP2_1
 					options.RequireAuthenticatedSignIn = false;
-#endif
 				})
 				.AddCookie(options =>
 				{
@@ -79,19 +70,16 @@ namespace net.vieapps.Services.Portals
 				});
 
 			// config cookies
-#if !NETCOREAPP2_1
 			services.Configure<CookiePolicyOptions>(options =>
 			{
 				options.MinimumSameSitePolicy = SameSiteMode.Lax;
 				options.HttpOnly = HttpOnlyPolicy.Always;
 			});
-#endif
 
 			// config authentication with proxy/load balancer
 			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
 
-#if !NETCOREAPP2_1
 			else
 			{
 				var certificateHeader = "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseAzure"))
@@ -100,7 +88,6 @@ namespace net.vieapps.Services.Portals
 				if (!string.IsNullOrWhiteSpace(certificateHeader))
 					services.AddCertificateForwarding(options => options.CertificateHeader = certificateHeader);
 			}
-#endif
 
 			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
 			var dataProtection = services.AddDataProtection()
@@ -122,7 +109,6 @@ namespace net.vieapps.Services.Portals
 			if ("true".IsEquals(UtilityService.GetAppSetting("DataProtection:DisableAutomaticKeyGeneration")))
 				dataProtection.DisableAutomaticKeyGeneration();
 
-#if !NETCOREAPP2_1
 			// config options of IIS server (for working with InProcess hosting model)
 			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISInProcess")))
 				services.Configure<IISServerOptions>(options =>
@@ -130,19 +116,9 @@ namespace net.vieapps.Services.Portals
 					options.AllowSynchronousIO = true;
 					options.MaxRequestBodySize = 1024 * 1024 * (Int32.TryParse(UtilityService.GetAppSetting("Limits:Body"), out var limitSize) ? limitSize : 10);
 				});
-#endif
 		}
 
-		public void Configure(
-			IApplicationBuilder appBuilder,
-#if !NETCOREAPP2_1
-			IHostApplicationLifetime appLifetime,
-			IWebHostEnvironment environment
-#else
-			IApplicationLifetime appLifetime,
-			IHostingEnvironment environment
-#endif
-		)
+		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
 		{
 			// settings
 			var stopwatch = Stopwatch.StartNew();
@@ -197,21 +173,26 @@ namespace net.vieapps.Services.Portals
 					Global.Logger.LogError($"Error occurred while assigning web-proxy => {ex.Message}", ex);
 				}
 
-			// prepare WAMP connections
+			// connect to API Gateway
 			Handler.Connect();
 
-			// middleware
+			// setup WebSocket
+			Handler.InitializeWebSocket();
+
+			// setup the middleware
 			appBuilder
 				.UseForwardedHeaders(Global.GetForwardedHeadersOptions())
 				.UseStatusCodeHandler()
 				.UseResponseCompression()
 				.UseCache()
 				.UseSession()
-#if !NETCOREAPP2_1
 				.UseCertificateForwarding()
 				.UseCookiePolicy()
-#endif
 				.UseAuthentication()
+				.UseWebSockets(new WebSocketOptions
+				{
+					KeepAliveInterval = Handler.WebSocket.KeepAliveInterval
+				})
 				.UseMiddleware<Handler>();
 
 			// on started

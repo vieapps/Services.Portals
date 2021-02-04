@@ -1,14 +1,14 @@
 ﻿#region Related components
 using System;
-using System.Net;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.WebSockets;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Logging;
@@ -17,6 +17,7 @@ using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
+using net.vieapps.Components.WebSockets;
 using net.vieapps.Components.Utility;
 #endregion
 
@@ -37,6 +38,8 @@ namespace net.vieapps.Services.Portals
 		static bool UseShortURLs => "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
 
 		static string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
+
+		internal static Components.WebSockets.WebSocket WebSocket { get; private set; }
 		#endregion
 
 		RequestDelegate Next { get; }
@@ -45,38 +48,50 @@ namespace net.vieapps.Services.Portals
 
 		public async Task Invoke(HttpContext context)
 		{
-			// CORS: allow origin
-			context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+			// request of WebSocket
+			if (context.WebSockets.IsWebSocketRequest)
+				await Task.WhenAll
+				(
+					Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.Connection.RemoteIpAddress}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
+					Handler.WebSocket.WrapAsync(context)
+				).ConfigureAwait(false);
 
-			// CORS: options
-			if (context.Request.Method.IsEquals("OPTIONS"))
-			{
-				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					["Access-Control-Allow-Methods"] = "HEAD,GET,POST"
-				};
-				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
-					headers["Access-Control-Allow-Headers"] = requestHeaders;
-				context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
-				await context.FlushAsync(Global.CancellationTokenSource.Token).ConfigureAwait(false);
-			}
-
-			// load balancing health check
-			else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancingHealthCheckUrl))
-				await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
-
-			// process portals' requests and invoke next middle ware
+			// request of HTTP
 			else
 			{
-				await this.ProcessRequestAsync(context).ConfigureAwait(false);
-				try
+				// CORS: allow origin
+				context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+
+				// CORS: options
+				if (context.Request.Method.IsEquals("OPTIONS"))
 				{
-					await this.Next.Invoke(context).ConfigureAwait(false);
+					var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+					{
+						["Access-Control-Allow-Methods"] = "HEAD,GET,POST"
+					};
+					if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
+						headers["Access-Control-Allow-Headers"] = requestHeaders;
+					context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
+					await context.FlushAsync(Global.CancellationTokenSource.Token).ConfigureAwait(false);
 				}
-				catch (InvalidOperationException) { }
-				catch (Exception ex)
+
+				// load balancing health check
+				else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancingHealthCheckUrl))
+					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+
+				// process portals' requests and invoke next middle ware
+				else
 				{
-					Global.Logger.LogCritical($"Error occurred while invoking the next middleware => {ex.Message}", ex);
+					await this.ProcessRequestAsync(context).ConfigureAwait(false);
+					try
+					{
+						await this.Next.Invoke(context).ConfigureAwait(false);
+					}
+					catch (InvalidOperationException) { }
+					catch (Exception ex)
+					{
+						Global.Logger.LogCritical($"Error occurred while invoking the next middleware => {ex.Message}", ex);
+					}
 				}
 			}
 		}
@@ -335,13 +350,13 @@ namespace net.vieapps.Services.Portals
 					using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
 					{
 						// call the Portals service to identify the system
-						if (string.IsNullOrWhiteSpace(systemIdentity))
+						if (string.IsNullOrWhiteSpace(systemIdentity) || "~indicators".IsEquals(systemIdentity))
 						{
 							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 							queryString["x-system"] = systemIdentityJson?.Get<string>("Alias");
 						}
 
-						// request of portal desktops
+						// request of portal desktops/resources
 						if (string.IsNullOrWhiteSpace(legacyRequest))
 						{
 							// call Portals service to process the request
@@ -359,6 +374,7 @@ namespace net.vieapps.Services.Portals
 						// request of legacy system (files and medias)
 						else
 						{
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 							var requestSegments = legacyRequest.ToArray("/").ToList();
 
 							if (requestSegments[0].IsEquals("Download.ashx"))
@@ -369,10 +385,7 @@ namespace net.vieapps.Services.Portals
 									? "files"
 									: requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "").ToLower() + "s";
 								if (!requestSegments[1].IsValidUUID())
-								{
-									systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 									requestSegments.Insert(1, systemIdentityJson?.Get<string>("ID"));
-								}
 							}
 
 							if (requestSegments[0].IsEquals("files") && requestSegments[3].Contains("-") && requestSegments[3].Length > 32)
@@ -393,7 +406,7 @@ namespace net.vieapps.Services.Portals
 								requestSegments = requestSegments.Take(7).ToList();
 							}
 
-							var filesHttpURI = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
+							var filesHttpURI = systemIdentityJson?.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
 							while (filesHttpURI.IsEndsWith("/"))
 								filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1).Trim();
 
@@ -476,6 +489,77 @@ namespace net.vieapps.Services.Portals
 						var invalidException = new InvalidRequestException();
 						context.ShowHttpError(invalidException.GetHttpStatusCode(), invalidException.Message, invalidException.GetType().GetTypeName(true), context.GetCorrelationID(), invalidException, Global.IsDebugLogEnabled);
 						break;
+				}
+		}
+
+		internal static void InitializeWebSocket()
+		{
+			Handler.WebSocket = new Components.WebSockets.WebSocket(Logger.GetLoggerFactory(), Global.CancellationTokenSource.Token)
+			{
+				KeepAliveInterval = TimeSpan.FromSeconds(Int32.TryParse(UtilityService.GetAppSetting("Proxy:KeepAliveInterval", "45"), out var interval) ? interval : 45),
+				OnError = async (websocket, exception) => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).ConfigureAwait(false),
+				OnMessageReceived = async (websocket, result, data) => await (websocket == null ? Task.CompletedTask : Handler.ProcessWebSocketRequestAsync(websocket, result, data)).ConfigureAwait(false),
+			};
+		}
+
+		static async Task ProcessWebSocketRequestAsync(ManagedWebSocket websocket, WebSocketReceiveResult result, byte[] data)
+		{
+			// prepare
+			var correlationID = UtilityService.NewUUID;
+			var requestMsg = result.MessageType.Equals(WebSocketMessageType.Text) ? data.GetString() : null;
+			if (string.IsNullOrWhiteSpace(requestMsg))
+				return;
+
+			var requestObj = requestMsg.ToExpandoObject();
+			var requestID = requestObj.Get<string>("ID");
+			var serviceName = requestObj.Get("ServiceName", "");
+			var objectName = requestObj.Get("ObjectName", "");
+			var verb = requestObj.Get("Verb", "GET").ToUpper();
+			var header = new Dictionary<string, string>(requestObj.Get("Header", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
+			var query = new Dictionary<string, string>(requestObj.Get("Query", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
+
+			// register session
+			var session = websocket.Get<Session>("Session") ?? Global.CurrentHttpContext.GetSession();
+			if (serviceName.IsEquals("APIs") && objectName.IsEquals("Session") && verb.IsEquals("REG"))
+			{
+				session.DeviceID = header.ContainsKey("x-device-id") ? header["x-device-id"] : UtilityService.NewUUID + "@web";
+				websocket.Set("Session", session);
+			}
+
+			// call a service of APIs
+			else
+				try
+				{
+					var response = new JObject
+					{
+						{ "ID", requestID },
+						{ "Type", $"{serviceName.GetCapitalizedFirstLetter()}#{objectName.GetCapitalizedFirstLetter()}#{verb.GetCapitalizedFirstLetter()}" },
+						{ "Data", await Global.CallServiceAsync(new RequestInfo(session, serviceName, objectName, verb, query, header, null, null, correlationID), Global.CancellationToken).ConfigureAwait(false) }
+					};
+					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					try
+					{
+						var response = new JObject
+						{
+							{ "ID", requestID },
+							{ "Type", "Error" },
+							{ "Error", new JObject
+								{
+									{ "Type", ex.GetTypeName(true) },
+									{ "Message", ex.Message },
+									{ "Stack", ex.StackTrace }
+								}
+							}
+						};
+						await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+					}
+					catch (Exception e)
+					{
+						Global.Logger.LogError($"Cannot send an error to client via WebSocket => {e.Message}", e);
+					}
 				}
 		}
 
