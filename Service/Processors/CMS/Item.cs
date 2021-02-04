@@ -477,7 +477,7 @@ namespace net.vieapps.Services.Portals
 			item.SendNotificationAsync("Delete", item.ContentType.Notifications, item.Status, item.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// store object cache key to clear related cached
-			Utility.Cache.RemoveSetMembersAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+			Utility.Cache.RemoveSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// response
 			return response;

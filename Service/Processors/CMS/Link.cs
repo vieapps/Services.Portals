@@ -774,7 +774,7 @@ namespace net.vieapps.Services.Portals
 			link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// remove object cache key
-			Utility.Cache.RemoveSetMembersAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+			Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// response
 			return response;
@@ -796,7 +796,7 @@ namespace net.vieapps.Services.Portals
 
 			await Link.DeleteAsync<Link>(link.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
-			Utility.Cache.RemoveSetMembersAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+			Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			var json = link.ToJson();
 			updateMessages.Add(new UpdateMessage

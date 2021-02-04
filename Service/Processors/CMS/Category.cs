@@ -850,7 +850,7 @@ namespace net.vieapps.Services.Portals
 			// delete vs
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await category.Remove().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			Utility.Cache.RemoveSetMembersAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+			Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// message to update to all other connected clients
 			var response = category.ToJson();
@@ -899,7 +899,7 @@ namespace net.vieapps.Services.Portals
 
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			category.Remove().ClearRelatedCacheAsync(cancellationToken).Run();
-			Utility.Cache.RemoveSetMembersAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+			Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			var json = category.ToJson();
 			updateMessages.Add(new UpdateMessage
