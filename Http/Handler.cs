@@ -283,7 +283,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// request of legacy systems
-					else if (requestSegments[0].IsEndsWith(".ashx"))
+					else if (requestSegments[0].IsEndsWith(".ashx") || requestSegments[0].IsEndsWith(".aspx"))
 						legacyRequest = requestSegments.Join("/");
 
 					// parameters of desktop and contents
