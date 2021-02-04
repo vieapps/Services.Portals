@@ -1167,7 +1167,9 @@ namespace net.vieapps.Services.Portals
 				? new JObject
 				{
 					{ "ID", organization.ID },
-					{ "Alias", organization.Alias }
+					{ "Alias", organization.Alias },
+					{ "FilesHttpURI", organization.FakeFilesHttpURI ?? Utility.FilesHttpURI },
+					{ "PortalsHttpURI", organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI }
 				}
 				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(requestInfo.Header.TryGetValue("x-host", out host) && !string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
 		}
@@ -1270,6 +1272,39 @@ namespace net.vieapps.Services.Portals
 				};
 			}
 
+			// prepare required info
+			string filePath = null, identity = null;
+			if (type.IsEquals("assets"))
+				filePath = requestInfo.GetQueryParameter("x-path");
+
+			else if (type.IsStartsWith("theme"))
+			{
+				var paths = requestInfo.GetQueryParameter("x-path")?.ToList("/", true, true);
+				type = paths != null && paths.Count > 1
+					? paths[1].IsStartsWith("css")
+						? "css"
+						: paths[1].IsStartsWith("js") || paths[1].IsStartsWith("javascript") || paths[1].IsStartsWith("script")
+							? "js"
+							:  paths[1].IsStartsWith("img") || paths[1].IsStartsWith("image") ? "images" : paths[1].IsStartsWith("font") ? "fonts" : ""
+					: "";
+				if (type.IsEquals("images") || type.IsEquals("fonts"))
+					filePath = paths?.Join("/");
+				else
+					identity = paths != null && paths.Count > 0 ? paths[0] : null;
+			}
+
+			else if (type.IsStartsWith("css") || type.IsStartsWith("js") || type.IsStartsWith("javascript") || type.IsStartsWith("script"))
+			{
+				type = type.IsStartsWith("css") ? "css" : "js";
+				identity = requestInfo.GetQueryParameter("x-path")?.Replace(StringComparison.OrdinalIgnoreCase, $".{type}", "").ToLower().Trim();
+			}
+
+			else
+			{
+				type = type.IsStartsWith("img") || type.IsStartsWith("image") ? "images" : type.IsStartsWith("font") ? "fonts" : "";
+				filePath = requestInfo.GetQueryParameter("x-path");
+			}
+
 			// special headers
 			var noneMatch = requestInfo.GetHeaderParameter("If-None-Match");
 			var modifiedSince = requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since");
@@ -1278,7 +1313,7 @@ namespace net.vieapps.Services.Portals
 			if (type.IsEquals("assets") || type.IsEquals("images") || type.IsEquals("fonts"))
 			{
 				// prepare
-				if (!requestInfo.Query.TryGetValue("x-path", out var filePath) || string.IsNullOrWhiteSpace(filePath))
+				if (string.IsNullOrWhiteSpace(filePath))
 					throw new InformationNotFoundException();
 
 				// check special headers to reduce traffict
@@ -1300,16 +1335,11 @@ namespace net.vieapps.Services.Portals
 					};
 
 				// prepare resource file
-				var fileInfo = new FileInfo(Path.Combine(Utility.DataFilesDirectory, type, filePath));
-				if (!type.IsEquals("assets"))
-				{
-					var pathSegments = filePath.ToArray('/');
-					filePath = pathSegments.Skip(1).Join(Path.DirectorySeparatorChar.ToString());
-					fileInfo = new FileInfo(Path.Combine(Utility.DataFilesDirectory, "themes", pathSegments[0], type, filePath));
-				}
+				var fileInfo = type.IsEquals("assets")
+					? new FileInfo(Path.Combine(Utility.DataFilesDirectory, type, filePath))
+					: new FileInfo(Path.Combine(Utility.DataFilesDirectory, "themes", filePath));
 				if (!fileInfo.Exists)
 					throw new InformationNotFoundException(filePath);
-
 
 				// response
 				lastModified = fileInfo.LastWriteTime.ToHttpString();
@@ -1360,11 +1390,8 @@ namespace net.vieapps.Services.Portals
 			if (type.IsEquals("css"))
 			{
 				// verify
-				if (!requestInfo.Query.TryGetValue("x-path", out var identity) || string.IsNullOrWhiteSpace(identity))
+				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-
-				// prepare
-				identity = identity.Replace(StringComparison.OrdinalIgnoreCase, ".css", "").ToLower().Trim();
 				var eTag = $"css#{identity.GenerateUUID()}";
 				var cacheKey = $"css#{identity}";
 				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
@@ -1396,7 +1423,7 @@ namespace net.vieapps.Services.Portals
 						}
 						else
 							lastModified = this.GetThemeResourcesLastModified(identity, "css").ToHttpString();
-						
+
 						Task.WhenAll
 						(
 							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, this.CancellationToken),
@@ -1488,10 +1515,8 @@ namespace net.vieapps.Services.Portals
 			if (type.IsEquals("js") || type.IsEquals("javascript") || type.IsEquals("script") || type.IsEquals("scripts"))
 			{
 				// prepare
-				if (!requestInfo.Query.TryGetValue("x-path", out var identity) || string.IsNullOrWhiteSpace(identity))
+				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-
-				identity = identity.Replace(StringComparison.OrdinalIgnoreCase, ".js", "").ToLower().Trim();
 				var eTag = $"js#{identity.GenerateUUID()}";
 				var cacheKey = $"js#{identity}";
 				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
@@ -2999,28 +3024,28 @@ namespace net.vieapps.Services.Portals
 			// add the required stylesheet libraries
 			var stylesheets = site.UseInlineStylesheets
 				? (await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css"), null, cancellationToken).ConfigureAwait(false)).MinifyCss() + await this.GetThemeResourcesAsync("default", "css", cancellationToken).ConfigureAwait(false)
-				: $"<link rel=\"stylesheet\" href=\"~#/_assets/default.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/><link rel=\"stylesheet\" href=\"~#/_css/default.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
+				: $"<link rel=\"stylesheet\" href=\"~#/_assets/default.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/><link rel=\"stylesheet\" href=\"~#/_themes/default/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the organization theme
 			var organizationTheme = organization.Theme ?? "default";
 			if (!"default".IsEquals(organizationTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(organizationTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_css/{organizationTheme}.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{organizationTheme}/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the site theme
 			var siteTheme = site.Theme ?? "default";
 			if (!"default".IsEquals(siteTheme) && organizationTheme.IsEquals(siteTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(siteTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_css/{siteTheme}.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{siteTheme}/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the desktop theme
 			var desktopTheme = desktop.WorkingTheme ?? "default";
 			if (!"default".IsEquals(desktopTheme) && organizationTheme.IsEquals(desktopTheme) && siteTheme.IsEquals(desktopTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(desktopTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_css/{desktopTheme}.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{desktopTheme}/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the site
 			if (!string.IsNullOrWhiteSpace(site.Stylesheets))
@@ -3068,7 +3093,7 @@ namespace net.vieapps.Services.Portals
 
 			scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync("default", "js", cancellationToken).ConfigureAwait(false)
-					: $"<script src=\"~#/_js/default.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
+					: $"<script src=\"~#/_themes/default/js/all.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
 
 			// add scripts of the organization theme
 			if (!"default".IsEquals(organizationTheme))
@@ -3085,7 +3110,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(organizationTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script src=\"~#/_js/{organizationTheme}.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
+					: $"<script src=\"~#/_themes/{organizationTheme}/js/all.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
 			}
 
 			// add scripts of the site theme
@@ -3103,7 +3128,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(siteTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script src=\"~#/_js/{siteTheme}.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
+					: $"<script src=\"~#/_themes/{siteTheme}/js/all.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
 			}
 
 			// add scripts of the desktop theme
@@ -3121,7 +3146,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(desktopTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script src=\"~#/_js/{desktopTheme}.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
+					: $"<script src=\"~#/_themes/{desktopTheme}/js/all.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
 			}
 
 			// add the scripts of the organization
@@ -3424,7 +3449,7 @@ namespace net.vieapps.Services.Portals
 			var requestJson = requestInfo.GetRequestJson();
 			var objectName = requestJson.Get("ObjectName", "").Trim();
 
-			var contentType = await(requestJson.Get<string>("RepositoryEntityID") ?? requestJson.Get<string>("ContentTypeID") ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			var contentType = await (requestJson.Get<string>("RepositoryEntityID") ?? requestJson.Get<string>("ContentTypeID") ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 			var module = contentType?.Module ?? await (requestJson.Get<string>("RepositoryID") ?? requestJson.Get<string>("ModuleID") ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			var organization = contentType?.Organization ?? module?.Organization ?? await (requestJson.Get<string>("SystemID") ?? requestJson.Get<string>("OrganizationID") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 
