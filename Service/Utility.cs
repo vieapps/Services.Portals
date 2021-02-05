@@ -368,7 +368,7 @@ namespace net.vieapps.Services.Portals
 							: "thumbnailwebps";
 				url = (url.IsStartsWith("~~/") ? "~~" : Utility.FilesHttpURI) + $"/{handler}/" + (segments[0].IsStartsWith("thumbnail") ? segments.Skip(1).Join("/") : $"{segments[1]}/{segments.Skip(3).Join("/")}.webp");
 				if (segments[0].IsStartsWith("thumbnail") && (url.IsEndsWith(".png") || url.IsEndsWith(".jpg")))
-					url = url.Left(url.Length - 4) + ".webp";
+					url = (segments[2].Equals("0") ? url.Left(url.Length - 4) : url) + ".webp";
 				url += useTransparentAsPng ? (url.IndexOf("?") > 0 ? "&" : "?") + "transparent=." : "";
 			}
 			return url;
