@@ -15,7 +15,7 @@ namespace net.vieapps.Services.Portals
 		static bool IsEOF(this int @char)
 			=> @char == -1;
 
-		static int BlockSize = 16384;
+		static readonly int BlockSize = 16384;
 
 		/// <summary>
 		/// Minifies Javascript code
@@ -53,21 +53,16 @@ namespace net.vieapps.Services.Portals
 					if (thisChar == '\n')
 						isIgnore = true;
 
-					else if (thisChar == ' ' && !isInStringVariable)
+					else if (thisChar == ' ' && !isInStringVariable && (!isInLiterialString || isInLiterialExpression))
 					{
-						if (isInLiterialString)
-							isIgnore = isInLiterialExpression;
+						if (lastChar == ' ' || lastChar == '>' || lastChar == '<' || Minifier.IsDelimiter(lastChar))
+							isIgnore = true;
 						else
 						{
-							if (lastChar == ' ' || lastChar == '>' || lastChar == '<' || Minifier.IsDelimiter(lastChar))
-								isIgnore = true;
-							else
-							{
-								nextChar = reader.PeekChar();
-								isEOF = nextChar.IsEOF();
-								if (!isEOF)
-									isIgnore = nextChar == '>' || nextChar == '<' || nextChar == '}' || nextChar == ')' || Minifier.IsDelimiter(nextChar);
-							}
+							nextChar = reader.PeekChar();
+							isEOF = nextChar.IsEOF();
+							if (!isEOF)
+								isIgnore = nextChar == '>' || nextChar == '<' || nextChar == '}' || nextChar == ')' || Minifier.IsDelimiter(nextChar);
 						}
 					}
 
@@ -142,7 +137,7 @@ namespace net.vieapps.Services.Portals
 						minified += decoder.GetChars(new[] { (byte)thisChar }, 0, 1, buffer, 0) > 0 ? $"{buffer[0]}" : "";
 					lastChar = thisChar;
 				}
-			return minified;
+			return minified.Replace("; }", ";}");
 		}
 
 		/// <summary>
@@ -222,7 +217,7 @@ namespace net.vieapps.Services.Portals
 							nextChar = reader.PeekChar();
 							isEOF = nextChar.IsEOF();
 							if (!isEOF)
-								isIgnore = nextChar != '-' && (nextChar == '>' || Minifier.IsDelimiter(nextChar));
+								isIgnore = nextChar != '-' && nextChar != '[' && (nextChar == '>' || Minifier.IsDelimiter(nextChar));
 						}
 					}
 
@@ -272,7 +267,7 @@ namespace net.vieapps.Services.Portals
 						minified += decoder.GetChars(new[] { (byte)thisChar }, 0, 1, buffer, 0) > 0 ? $"{buffer[0]}" : "";
 					lastChar = thisChar;
 				}
-			return minified;
+			return minified.Replace("; }", ";}");
 		}
 
 		/// <summary>
