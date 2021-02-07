@@ -2160,14 +2160,7 @@ namespace net.vieapps.Services.Portals
 
 				// minify
 				html = html.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/").Trim();
-				try
-				{
-					html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
-				}
-				catch (Exception ex)
-				{
-					this.WriteLogsAsync(requestInfo.CorrelationID, $"Error occurred while removing white-spaces of HTML code => {ex.Message}", ex, this.ServiceName, "Process.Http.Minifier").Run();
-				}
+				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml(requestInfo.CorrelationID) : html;
 
 				// prepare caching
 				if (processCache && !portletHtmls.Values.Any(data => data.Item2))

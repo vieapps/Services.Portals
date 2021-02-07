@@ -793,8 +793,19 @@ namespace net.vieapps.Services.Portals
 		internal static string MinifyCss(this string data)
 			=> Minifier.MinifyCss(data);
 
-		internal static string MinifyHtml(this string data)
-			=> UtilityService.RemoveWhitespaces(data).Replace("\r", "").Replace("\n\t", "").Replace("\t", "").Replace("> <", "><").Replace(" >", ">").Replace(" />", "/>");
+		internal static string MinifyHtml(this string data, string correlationID)
+		{
+			var html = data;
+			try
+			{
+				html = UtilityService.RemoveWhitespaces(data);
+			}
+			catch (Exception ex)
+			{
+				Utility.WriteLogAsync(correlationID, $"Error occurred while removing white-spaces of HTML code => {ex.Message}\r\n{ex.StackTrace}", ServiceBase.ServiceComponent.CancellationToken, "Minifier").Run();
+			}
+			return html.Replace("\r", "").Replace("\n\t", "").Replace("\t", "").Replace("> <", "><").Replace(" >", ">").Replace(" />", "/>");
+		}
 
 		internal static bool IsAdministrator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
 		{
