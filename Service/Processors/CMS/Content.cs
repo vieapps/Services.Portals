@@ -456,6 +456,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> UpdateAsync(this Content content, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken)
 		{
+			if (content.Status.Equals(ApprovalStatus.Published) && content.PublishedTime == null)
+				content.PublishedTime = DateTime.Now;
+
 			// update
 			await Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
@@ -534,12 +537,9 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
 				content.EndDate = date.ToDTString(false, false);
 
-			content.PublishedTime = null;
 			dateString = request.Get<string>("PublishedTime");
 			if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
 				content.PublishedTime = date;
-			if (content.PublishedTime == null && content.Status.Equals(ApprovalStatus.Published))
-				content.PublishedTime = DateTime.Now;
 
 			content.OtherCategories = content.OtherCategories?.Where(id => !content.CategoryID.IsEquals(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			content.OtherCategories = content.OtherCategories != null && content.OtherCategories.Count > 0 ? content.OtherCategories : null;
@@ -888,7 +888,7 @@ namespace net.vieapps.Services.Portals
 
 				// validate the published time
 				var validatePublishedTime = options.Get("ValidatePublished", options.Get("ValidatePublishedTime", options.Get("ValidateWithPublishedTime", false)));
-				if (validatePublishedTime && @object.Status.Equals(ApprovalStatus.Published) && @object.PublishedTime.Value > DateTime.Now)
+				if (validatePublishedTime && @object.Status.Equals(ApprovalStatus.Published) && @object.PublishedTime != null && @object.PublishedTime.Value > DateTime.Now)
 				{
 					if (!isSystemAdministrator && !requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) && !requestInfo.Session.User.ID.IsEquals(@object.CreatedID) && !requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID))
 						throw new AccessDeniedException();
@@ -986,12 +986,12 @@ namespace net.vieapps.Services.Portals
 					if (showRelateds)
 					{
 						var relatedsXml = new XElement("Relateds");
-						relateds = relatedsTask.Result.Where(related => related != null && related.ID != null && related.ID != @object.ID && related.Status.Equals(ApprovalStatus.Published) && related.PublishedTime.Value <= DateTime.Now).ToList();
+						relateds = relatedsTask.Result.Where(related => related != null && related.ID != null && related.ID != @object.ID && related.Status.Equals(ApprovalStatus.Published) && related.PublishedTime != null && related.PublishedTime.Value <= DateTime.Now).ToList();
 						relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
 						{
 							var relatedXml = new XElement("Content", new XElement("ID", related.ID));
 							relatedXml.Add(new XElement("Title", related.Title), new XElement("Author", related.Author ?? ""), new XElement("Summary", related.Summary?.NormalizeHTMLBreaks() ?? ""));
-							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime.Value).UpdateDateTime(cultureInfo, customDateTimeFormat));
+							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime != null ? related.PublishedTime.Value : DateTime.Now).UpdateDateTime(cultureInfo, customDateTimeFormat));
 							relatedXml.Add(new XElement("URL", related.GetURL(desktop) ?? ""), new XElement("Category", related.Category?.Title ?? "", new XAttribute("URL", related.Category?.GetURL(desktop) ?? "")));
 							relatedsXml.Add(relatedXml);
 						});
@@ -1139,7 +1139,7 @@ namespace net.vieapps.Services.Portals
 						Filters<Content>.GreaterOrEquals("EndDate", DateTime.Now.ToDTString(false, false))
 					),
 					Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()),
-					Filters<Content>.GreaterOrEquals("PublishedTime", @object.PublishedTime.Value.GetTimeQuarter())
+					Filters<Content>.GreaterOrEquals("PublishedTime", @object.PublishedTime != null ? @object.PublishedTime.Value.GetTimeQuarter() : DateTime.Now.GetTimeQuarter())
 				), Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime"), numberOfOthers, 1, @object.ContentTypeID, $"{objectCacheKey}:newers", cancellationToken);
 
 				var oldersTask = Content.FindAsync(Filters<Content>.And
@@ -1153,7 +1153,7 @@ namespace net.vieapps.Services.Portals
 						Filters<Content>.GreaterOrEquals("EndDate", DateTime.Now.ToDTString(false, false))
 					),
 					Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()),
-					Filters<Content>.LessThanOrEquals("PublishedTime", @object.PublishedTime.Value.GetTimeQuarter())
+					Filters<Content>.LessThanOrEquals("PublishedTime", @object.PublishedTime != null ? @object.PublishedTime.Value.GetTimeQuarter() : DateTime.Now.GetTimeQuarter())
 				), Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime"), numberOfOthers, 1, @object.ContentTypeID, $"{objectCacheKey}:olders", cancellationToken);
 
 				if (Utility.RunProcessorInParallelsMode)
@@ -1174,7 +1174,7 @@ namespace net.vieapps.Services.Portals
 				relatedCacheKeys.Add($"{objectCacheKey}:olders");
 			}
 
-			others = others.Where(other => other != null && other.ID != null && other.ID != @object.ID && other.Status.Equals(ApprovalStatus.Published) && other.PublishedTime.Value <= DateTime.Now).ToList();
+			others = others.Where(other => other != null && other.ID != null && other.ID != @object.ID && other.Status.Equals(ApprovalStatus.Published) && other.PublishedTime != null && other.PublishedTime.Value <= DateTime.Now).ToList();
 			var objectCacheKeys = others.Select(obj => obj.GetCacheKey()).ToList();
 			await Task.WhenAll
 			(
