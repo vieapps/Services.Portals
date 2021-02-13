@@ -2279,6 +2279,7 @@ namespace net.vieapps.Services.Portals
 						{ "SortBy", expresion?.Sort?.ToJson() },
 					}
 				},
+				{ "IsAutoPageNumber", isList && portlet.ListSettings != null && portlet.ListSettings.AutoPageNumber },
 				{ "Pagination", new JObject
 					{
 						{ "PageSize", isList && portlet.ListSettings != null ? portlet.ListSettings.PageSize : 0 },
@@ -2287,7 +2288,6 @@ namespace net.vieapps.Services.Portals
 						{ "NumberOfPageLinks", portlet.PaginationSettings != null ? portlet.PaginationSettings.NumberOfPageLinks : 7 }
 					}
 				},
-				{ "IsAutoPageNumber", isList && portlet.ListSettings != null && portlet.ListSettings.AutoPageNumber },
 				{ "Options", optionsJson },
 				{ "Language", language ?? "vi-VN" },
 				{ "Desktops", new JObject

@@ -8,6 +8,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
@@ -104,7 +105,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 		}
 
-		static async Task<Tuple<long, List<Content>, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
+		static async Task<Tuple<List<Content>, long, int, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, bool randomPage = false, int minRandomPage = 0, int maxRandomPage = 0)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -117,6 +118,15 @@ namespace net.vieapps.Services.Portals
 				: string.IsNullOrWhiteSpace(query)
 					? await Content.CountAsync(filter, contentTypeID, true, cacheKeyOfTotalObjects, 0, cancellationToken).ConfigureAwait(false)
 					: await Content.CountAsync(query, filter, contentTypeID, cancellationToken).ConfigureAwait(false);
+
+			// page number
+			if (randomPage)
+			{
+				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+				minRandomPage = minRandomPage > 0 && minRandomPage <= totalPages ? minRandomPage : 1;
+				maxRandomPage = maxRandomPage > 0 && maxRandomPage <= totalPages ? maxRandomPage : totalPages;
+				pageNumber = UtilityService.GetRandomNumber(minRandomPage, maxRandomPage);
+			}
 
 			// search objects
 			var objects = totalRecords > 0
@@ -147,7 +157,7 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// return the results
-			return new Tuple<long, List<Content>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
+			return new Tuple<List<Content>, long, int, JToken, List<string>>(objects, totalRecords, pageNumber, thumbnails, cacheKeys);
 		}
 
 		internal static async Task<JObject> SearchContentsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -210,9 +220,9 @@ namespace net.vieapps.Services.Portals
 
 			// search if has no cache
 			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
-			var totalRecords = results.Item1;
-			var objects = results.Item2;
-			var thumbnails = results.Item3;
+			var objects = results.Item1;
+			var totalRecords = results.Item2;
+			var thumbnails = results.Item4;
 
 			JToken attachments = null;
 			var showAttachments = requestInfo.GetParameter("ShowAttachments") != null;
@@ -255,7 +265,7 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(query))
 			{
 				await Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
-				var cacheKeys = new[] { cacheKeyOfObjectsJson }.Concat(results.Item4).ToList();
+				var cacheKeys = new[] { cacheKeyOfObjectsJson }.Concat(results.Item5).ToList();
 				Task.WhenAll(
 					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, ServiceBase.ServiceComponent.CancellationToken),
 					Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask
@@ -635,6 +645,16 @@ namespace net.vieapps.Services.Portals
 			var showPageLinks = paginationJson.Get("ShowPageLinks", true);
 			var numberOfPageLinks = paginationJson.Get("NumberOfPageLinks", 7);
 
+			var randomPage = false;
+			var minRandomPage = 0;
+			var maxRandomPage = 0;
+			if (requestJson.Get("IsAutoPageNumber", false))
+			{
+				randomPage = options.Get("RandomPage", false);
+				minRandomPage = options.Get("MinRandomPage", 0);
+				maxRandomPage = options.Get("MaxRandomPage", 0);
+			}
+
 			var cultureInfo = CultureInfo.GetCultureInfo(requestJson.Get("Language", "vi-VN"));
 			var customDateTimeFormat = options.Get<string>("CustomDateTimeFormat");
 			var action = requestJson.Get<string>("Action");
@@ -733,8 +753,18 @@ namespace net.vieapps.Services.Portals
 				};
 
 				// get cache
+				var cacheKeyOfTotalObjects = Extensions.GetCacheKeyOfTotalObjects(filter, sort);
+				long totalRecords = -1;
+				if (randomPage && await Utility.Cache.ExistsAsync(cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false))
+				{
+					totalRecords = await Utility.Cache.GetAsync<long>(cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false);
+					var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+					minRandomPage = minRandomPage > 0 && minRandomPage <= totalPages ? minRandomPage : 1;
+					maxRandomPage = maxRandomPage > 0 && maxRandomPage <= totalPages ? maxRandomPage : totalPages;
+					pageNumber = UtilityService.GetRandomNumber(minRandomPage, maxRandomPage);
+				}
+
 				JToken categoryThumbnails = null;
-				long totalRecords = 0;
 				var cacheKey = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
 				data = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 
@@ -742,10 +772,11 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(data))
 				{
 					// search
-					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
-					totalRecords = results.Item1;
-					var objects = results.Item2;
-					var thumbnails = results.Item3;
+					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, true, randomPage, minRandomPage, maxRandomPage).ConfigureAwait(false);
+					var objects = results.Item1;
+					totalRecords = results.Item2;
+					pageNumber = results.Item3;
+					var thumbnails = results.Item4;
 
 					// generate xml
 					Exception exception = null;
@@ -813,8 +844,8 @@ namespace net.vieapps.Services.Portals
 					Task.WhenAll
 					(
 						Utility.Cache.SetAsync(cacheKey, data, ServiceBase.ServiceComponent.CancellationToken),
-						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item4.Concat(new[] { cacheKey }), ServiceBase.ServiceComponent.CancellationToken) : Task.CompletedTask,
-						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item4.Count + 1}): {results.Item4.Concat(new[] { cacheKey }).Join(", ")}", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask
+						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item5.Concat(new[] { cacheKey }), ServiceBase.ServiceComponent.CancellationToken) : Task.CompletedTask,
+						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item5.Count + 1}): {results.Item5.Concat(new[] { cacheKey }).Join(", ")}", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask
 					).Run();
 
 					// preload
@@ -823,8 +854,7 @@ namespace net.vieapps.Services.Portals
 				}
 				else if (showPagination)
 				{
-					var cacheKeyOfTotalObjects = Extensions.GetCacheKeyOfTotalObjects(filter, sort);
-					totalRecords = await Utility.Cache.GetAsync<long>(cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false);
+					totalRecords = totalRecords < 0 ? await Utility.Cache.GetAsync<long>(cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false) : totalRecords;
 					if (totalRecords < 1)
 					{
 						await Utility.Cache.RemoveAsync(cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false);
@@ -1090,6 +1120,7 @@ namespace net.vieapps.Services.Portals
 				{ "SortBy", sortBy },
 				{ "SEOInfo", seoInfo },
 				{ "CoverURI", coverURI },
+				{ "CacheExpiration", randomPage ? Utility.Logger.IsEnabled(LogLevel.Debug) ? 3 : 13 : 0 },
 				{ "IDs", ids + $",service:\"{moduleDefinitionJson.Get<string>("ServiceName").ToLower()}\",object:\"{contentTypeDefinitionJson.Get<string>("ObjectNamePrefix")?.ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectName").ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectNameSuffix")?.ToLower()}\"" }
 			};
 		}
