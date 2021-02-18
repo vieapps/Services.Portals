@@ -47,27 +47,27 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
-		public static List<Link> FindLinks(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null)
+		public static List<Link> FindLinks(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool processCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Link>();
 			var filter = LinkProcessor.GetLinksFilter(systemID, repositoryID, repositoryEntityID, parentID);
 			var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
-			return Link.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
+			return Link.Find(filter, sort, 0, 1, processCache ? Extensions.GetCacheKey(filter, sort, 0, 1) : null);
 		}
 
-		public static Task<List<Link>> FindLinksAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default)
+		public static Task<List<Link>> FindLinksAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool processCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return Task.FromResult(new List<Link>());
 			var filter = LinkProcessor.GetLinksFilter(systemID, repositoryID, repositoryEntityID, parentID);
 			var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
-			return Link.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken);
+			return Link.FindAsync(filter, sort, 0, 1, processCache ? Extensions.GetCacheKey(filter, sort, 0, 1) : null, cancellationToken);
 		}
 
 		internal static async Task<int> GetLastOrderIndexAsync(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default)
 		{
-			var links = await systemID.FindLinksAsync(repositoryID, repositoryEntityID, parentID, cancellationToken).ConfigureAwait(false);
+			var links = await systemID.FindLinksAsync(repositoryID, repositoryEntityID, parentID, cancellationToken, false).ConfigureAwait(false);
 			return links != null && links.Count > 0 ? links.Last().OrderIndex : -1;
 		}
 
@@ -285,24 +285,28 @@ namespace net.vieapps.Services.Portals
 
 			var link = request.CreateLinkInstance("Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
+				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
 				obj.RepositoryID = module.ID;
 				obj.RepositoryEntityID = contentType.ID;
 				obj.ParentID = obj.ParentLink != null ? obj.ParentID : null;
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj._children = new List<Link>();
 				obj._childrenIDs = new List<string>();
 			});
 
-			link.OrderIndex = (await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
-
 			if (link.ChildrenMode.Equals(ChildrenMode.Normal) || string.IsNullOrWhiteSpace(link.LookupRepositoryID) || string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) || string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
 			{
 				link.ChildrenMode = ChildrenMode.Normal;
 				link.LookupRepositoryID = link.LookupRepositoryEntityID = link.LookupRepositoryObjectID = null;
 			}
+
+			// clear related cache and prepare order index
+			var parentLink = link.ParentLink;
+			if (parentLink != null)
+				await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false).ConfigureAwait(false);
+			link.OrderIndex = 1 + await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false);
 
 			// create new
 			await Link.CreateAsync(link, cancellationToken).ConfigureAwait(false);
@@ -313,10 +317,9 @@ namespace net.vieapps.Services.Portals
 			var objectName = link.GetObjectName();
 
 			// update parent
-			var parentLink = link.ParentLink;
 			while (parentLink != null)
 			{
-				parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).Run();
+				await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 				parentLink._children = null;
 				parentLink._childrenIDs = null;
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -401,10 +404,11 @@ namespace net.vieapps.Services.Portals
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
 			if (isRefresh)
 			{
+				await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false).ConfigureAwait(false);
 				await Utility.Cache.RemoveAsync(link, cancellationToken).ConfigureAwait(false);
 				link = await Link.GetAsync<Link>(link.ID, cancellationToken).ConfigureAwait(false);
-				link._childrenIDs = null;
 				link._children = null;
+				link._childrenIDs = null;
 			}
 
 			if (link._childrenIDs == null)
@@ -453,7 +457,7 @@ namespace net.vieapps.Services.Portals
 			var parentLink = link.ParentLink;
 			while (parentLink != null)
 			{
-				parentLink.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+				await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 				parentLink._children = null;
 				parentLink._childrenIDs = null;
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -481,11 +485,10 @@ namespace net.vieapps.Services.Portals
 				parentLink = await Link.GetAsync<Link>(oldParentID, cancellationToken).ConfigureAwait(false);
 				if (parentLink != null)
 				{
-					parentLink.ClearRelatedCacheAsync(cancellationToken).Run();
+					await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 					parentLink._children = null;
 					parentLink._childrenIDs = null;
 					await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-					parentLink._childrenIDs.Remove(link.ID);
 					await Utility.Cache.SetAsync(parentLink, cancellationToken).ConfigureAwait(false);
 
 					var json = parentLink.ToJson(true, false);
@@ -565,9 +568,11 @@ namespace net.vieapps.Services.Portals
 				link.LookupRepositoryID = link.LookupRepositoryEntityID = link.LookupRepositoryObjectID = null;
 			}
 
-			if (link.ParentLink != null && !link.ParentID.IsEquals(oldParentID))
+			var parentLink = link.ParentLink;
+			if (parentLink != null && !link.ParentID.IsEquals(oldParentID))
 			{
-				link.OrderIndex = (await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
+				await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false).ConfigureAwait(false);
+				link.OrderIndex = 1 + await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false);
 				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			}
 
@@ -626,7 +631,7 @@ namespace net.vieapps.Services.Portals
 					item.LastModified = DateTime.Now;
 					item.LastModifiedID = requestInfo.Session.User.ID;
 
-					await Category.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await Link.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 					notificationTasks.Add(item.SendNotificationAsync("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken));
 
 					var json = item.ToJson(true, false);
@@ -650,8 +655,8 @@ namespace net.vieapps.Services.Portals
 			if (link != null)
 			{
 				await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-				link._childrenIDs = null;
 				link._children = null;
+				link._childrenIDs = null;
 				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await Utility.Cache.SetAsync(link, cancellationToken).ConfigureAwait(false);
 
@@ -955,7 +960,7 @@ namespace net.vieapps.Services.Portals
 					Task.WhenAll
 					(
 						Utility.Cache.SetAsync(cacheKey, data, ServiceBase.ServiceComponent.CancellationToken),
-						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, new[] { parent.ID.GetCacheKey() }.Concat((parent.Children ?? new List<Link>()).Select(obj => obj.GetCacheKey())), ServiceBase.ServiceComponent.CancellationToken) : Task.CompletedTask,
+						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, new[] { parent.ID.GetCacheKey() }.Concat((parent.Children ?? new List<Link>()).Where(obj => obj != null && obj.ID != null && obj.ID.IsValidUUID()).Select(obj => obj.GetCacheKey())), ServiceBase.ServiceComponent.CancellationToken) : Task.CompletedTask,
 						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), new[] { cacheKey }, ServiceBase.ServiceComponent.CancellationToken) : Task.CompletedTask,
 						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask
 					).Run();
@@ -1065,7 +1070,8 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// update cache
-					Task.WhenAll(
+					Task.WhenAll
+					(
 						Utility.Cache.SetAsync(cacheKey, dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting), ServiceBase.ServiceComponent.CancellationToken),
 						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item4.Concat(new[] { cacheKey }), ServiceBase.ServiceComponent.CancellationToken) : Task.CompletedTask,
 						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item4.Count + 1}): {results.Item4.Concat(new[] { cacheKey }).Join(", ")}", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask
