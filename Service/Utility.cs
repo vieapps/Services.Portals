@@ -356,7 +356,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static string GetWebpImageURL(this string url, bool useTransparentAsPng = false)
 		{
-			if (!string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("~~/") || url.IsStartsWith(Utility.FilesHttpURI)))
+			if (!string.IsNullOrWhiteSpace(url) && !url.IsEndsWith(".webp") && !url.IsContains("image=webp") && (url.IsStartsWith("~~/") || url.IsStartsWith(Utility.FilesHttpURI)))
 			{
 				var segments = new Uri(url.Replace("~~/", $"{Utility.FilesHttpURI}/")).AbsolutePath.ToList("/").Skip(1).ToList();
 				var handler = segments[0].IsStartsWith("thumbnail") ? segments[0].ToLower() : "webp.image";
