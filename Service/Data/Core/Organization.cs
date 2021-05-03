@@ -179,6 +179,9 @@ namespace net.vieapps.Services.Portals
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
 		[Ignore, BsonIgnore, XmlIgnore]
+		public Settings.WebHook WebHookSettings { get; set; } = new Settings.WebHook();
+
+		[Ignore, BsonIgnore, XmlIgnore]
 		public List<Settings.HttpIndicator> HttpIndicators { get; set; }
 
 		[Ignore, BsonIgnore, XmlIgnore]
@@ -286,6 +289,7 @@ namespace net.vieapps.Services.Portals
 			this.RedirectUrls = this.RedirectUrls != null && this.RedirectUrls.Addresses == null && !this.RedirectUrls.AllHttp404 ? null : this.RedirectUrls;
 			this.EmailSettings?.Normalize();
 			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
+			this.WebHookSettings?.Normalize();
 			this.HttpIndicators?.ForEach(indicator => indicator?.Normalize());
 			this.HttpIndicators = this.HttpIndicators?.Where(indicator => indicator != null && !string.IsNullOrWhiteSpace(indicator.Name) && !string.IsNullOrWhiteSpace(indicator.Content)).ToList();
 			this.HttpIndicators = this.HttpIndicators == null || this.HttpIndicators.Count < 1 ? null : this.HttpIndicators;
@@ -313,6 +317,7 @@ namespace net.vieapps.Services.Portals
 				this.RefreshUrls = this._json["RefreshUrls"]?.FromJson<Settings.RefreshUrls>();
 				this.RedirectUrls = this._json["RedirectUrls"]?.FromJson<Settings.RedirectUrls>();
 				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
+				this.WebHookSettings = this._json["WebHookSettings"]?.FromJson<Settings.WebHook>();
 				this.HttpIndicators = this._json["HttpIndicators"]?.FromJson<List<Settings.HttpIndicator>>();
 				this.FakeFilesHttpURI = this._json["FakeFilesHttpURI"]?.FromJson<string>();
 				this.FakePortalsHttpURI = this._json["FakePortalsHttpURI"]?.FromJson<string>();
@@ -328,12 +333,12 @@ namespace net.vieapps.Services.Portals
 			else if ((name.IsEquals("Modules") || name.IsEquals("Sites")) && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
 				Task.WhenAll(
 					this.SetAsync(false, true, ServiceBase.ServiceComponent.CancellationToken),
-					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+					new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 					{
 						Type = $"{this.GetObjectName()}#Update",
 						Data = this.ToJson(false, false),
 						ExcludedNodeID = Utility.NodeID
-					}, ServiceBase.ServiceComponent.CancellationToken)
+					}.SendAsync()
 				).Run();
 		}
 

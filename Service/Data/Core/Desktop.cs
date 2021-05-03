@@ -291,14 +291,15 @@ namespace net.vieapps.Services.Portals
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 			else if ((name.IsEquals("Childrens") || name.IsEquals("ThePortlets")) && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
-				Task.WhenAll(
+				Task.WhenAll
+				(
 					this.SetAsync(false, true),
-					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+					new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 					{
 						Type = $"{this.GetObjectName()}#Update",
 						Data = this.ToJson(false, false),
 						ExcludedNodeID = Utility.NodeID
-					})
+					}.SendAsync()
 				).Run();
 		}
 

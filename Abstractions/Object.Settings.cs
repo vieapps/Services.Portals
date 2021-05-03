@@ -41,65 +41,24 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	public class WebHookNotifications
+	public class WebHookNotifications : WebHook
 	{
-		public WebHookNotifications() { }
+		public WebHookNotifications() : base() { }
 
 		public List<string> EndpointURLs { get; set; } = new List<string>();
 
-		public string SignAlgorithm { get; set; } = "SHA256";
-
-		public string SignKey { get; set; }
-
-		public string SignatureName { get; set; }
-
-		public bool SignatureAsHex { get; set; } = true;
-
-		public bool SignatureInQuery { get; set; } = false;
-
 		public bool GenerateIdentity { get; set; } = false;
 
-		[FormControl(ControlType = "TextArea")]
-		public string AdditionalQuery { get; set; }
-
-		[FormControl(ControlType = "TextArea")]
-		public string AdditionalHeader { get; set; }
-
-		public void Normalize()
+		public override void Normalize()
 		{
 			this.EndpointURLs = (this.EndpointURLs ?? new List<string>())
 				.Where(url => !string.IsNullOrWhiteSpace(url))
-				.Select(url => url.Replace("\r", "").ToList("\n"))
+				.Select(url => url.Replace("\t", "").Replace("\r", "").ToList("\n"))
 				.SelectMany(urls => urls)
 				.Where(url => !string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("http://") || url.IsStartsWith("https://")))
 				.ToList();
 			this.EndpointURLs = this.EndpointURLs.Count < 1 ? null : this.EndpointURLs;
-			if (string.IsNullOrWhiteSpace(this.AdditionalQuery))
-				this.AdditionalQuery = null;
-			else
-				try
-				{
-					this.AdditionalQuery = JObject.Parse(this.AdditionalQuery) != null
-						? this.AdditionalQuery = this.AdditionalQuery.Trim()
-						: null;
-				}
-				catch
-				{
-					this.AdditionalQuery = null;
-				}
-			if (string.IsNullOrWhiteSpace(this.AdditionalHeader))
-				this.AdditionalHeader = null;
-			else
-				try
-				{
-					this.AdditionalHeader = JObject.Parse(this.AdditionalHeader) != null
-						? this.AdditionalHeader = this.AdditionalHeader.Trim()
-						: null;
-				}
-				catch
-				{
-					this.AdditionalHeader = null;
-				}
+			base.Normalize();
 		}
 	}
 
@@ -263,6 +222,57 @@ namespace net.vieapps.Services.Portals.Settings
 			this.Signature = string.IsNullOrWhiteSpace(this.Signature) ? null : this.Signature.Trim();
 			this.Smtp?.Normalize();
 			this.Smtp = string.IsNullOrWhiteSpace(this.Smtp?.Host) ? null : this.Smtp;
+		}
+	}
+
+	public class WebHook
+	{
+		public WebHook() { }
+
+		public string SignAlgorithm { get; set; } = "SHA256";
+
+		public string SignKey { get; set; }
+
+		public string SignatureName { get; set; }
+
+		public bool SignatureAsHex { get; set; } = true;
+
+		public bool SignatureInQuery { get; set; } = false;
+
+		[FormControl(ControlType = "TextArea")]
+		public string AdditionalQuery { get; set; }
+
+		[FormControl(ControlType = "TextArea")]
+		public string AdditionalHeader { get; set; }
+
+		public virtual void Normalize()
+		{
+			if (string.IsNullOrWhiteSpace(this.AdditionalQuery))
+				this.AdditionalQuery = null;
+			else
+				try
+				{
+					this.AdditionalQuery = JObject.Parse(this.AdditionalQuery) != null
+						? this.AdditionalQuery = this.AdditionalQuery.Trim()
+						: null;
+				}
+				catch
+				{
+					this.AdditionalQuery = null;
+				}
+			if (string.IsNullOrWhiteSpace(this.AdditionalHeader))
+				this.AdditionalHeader = null;
+			else
+				try
+				{
+					this.AdditionalHeader = JObject.Parse(this.AdditionalHeader) != null
+						? this.AdditionalHeader = this.AdditionalHeader.Trim()
+						: null;
+				}
+				catch
+				{
+					this.AdditionalHeader = null;
+				}
 		}
 	}
 

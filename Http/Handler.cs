@@ -44,7 +44,8 @@ namespace net.vieapps.Services.Portals
 
 		RequestDelegate Next { get; }
 
-		public Handler(RequestDelegate next) => this.Next = next;
+		public Handler(RequestDelegate next)
+			=> this.Next = next;
 
 		public async Task Invoke(HttpContext context)
 		{
@@ -317,6 +318,11 @@ namespace net.vieapps.Services.Portals
 					query["x-desktop"] = "-default";
 			});
 
+			// validate HTTP Verb
+			var httpVerb = (context.Request.Method ?? "GET").ToUpper();
+			if (httpVerb.IsEquals("POST") && !specialRequest.IsEquals("service"))
+				throw new MethodNotAllowedException(httpVerb);
+
 			var extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			if (queryString.Remove("x-request-extra", out var extraInfo) && !string.IsNullOrWhiteSpace(extraInfo))
 				try
@@ -344,9 +350,6 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(specialRequest))
 				try
 				{
-					if (!context.Request.Method.IsEquals("GET"))
-						throw new MethodNotAllowedException(context.Request.Method);
-
 					using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
 					{
 						// call the Portals service to identify the system
@@ -472,7 +475,7 @@ namespace net.vieapps.Services.Portals
 					case "service":
 						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
 						{
-							var requestInfo = new RequestInfo(session, queryString["service-name"], queryString["object-name"], "GET", queryString, headers, null, extra, context.GetCorrelationID());
+							var requestInfo = new RequestInfo(session, queryString["service-name"], queryString["object-name"], httpVerb, queryString, headers, null, extra, context.GetCorrelationID());
 							try
 							{
 								await context.WriteAsync(await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Services").ConfigureAwait(false), cts.Token).ConfigureAwait(false);
@@ -787,15 +790,12 @@ namespace net.vieapps.Services.Portals
 						await Router.OutgoingChannel.UpdateAsync(Router.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
 						try
 						{
-							await Task.WhenAll(
-								Global.InitializeLoggingServiceAsync(),
-								Global.InitializeRTUServiceAsync()
-							).ConfigureAwait(false);
-							Global.Logger.LogInformation("Helper services are succesfully initialized");
+							await Global.InitializeLoggingServiceAsync().ConfigureAwait(false);
+							Global.Logger.LogInformation("The logging service are succesfully initialized");
 						}
 						catch (Exception ex)
 						{
-							Global.Logger.LogError($"Error occurred while initializing helper services: {ex.Message}", ex);
+							Global.Logger.LogError($"Error occurred while initializing the logging service: {ex.Message}", ex);
 						}
 					})
 					.ContinueWith(async task => await Global.RegisterServiceAsync().ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion)

@@ -16,7 +16,7 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the cache storage
 		/// </summary>
-		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", UtilityService.GetAppSetting("Cache:ExpirationTime", "30").CastAs<int>(), false, UtilityService.GetAppSetting("Cache:Provider"), Components.Utility.Logger.GetLoggerFactory());
+		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory());
 
 		internal static bool WriteCacheLogs => Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches", "false"));
 
@@ -142,7 +142,11 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
-				await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"Error occurred while refreshing an url ({url}) => {ex.Message} [{ex.GetType()}]", ServiceBase.ServiceComponent.CancellationToken, "Caches").ConfigureAwait(false);
+				try
+				{
+					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"Error occurred while refreshing an url ({url}) => {ex.Message} [{ex.GetType()}]", ServiceBase.ServiceComponent.CancellationToken, "Caches").ConfigureAwait(false);
+				}
+				catch { }
 			}
 		}
 	}

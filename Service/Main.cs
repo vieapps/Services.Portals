@@ -119,7 +119,6 @@ namespace net.vieapps.Services.Portals
 				while (Utility.CmsPortalsHttpURI.EndsWith("/"))
 					Utility.CmsPortalsHttpURI = Utility.CmsPortalsHttpURI.Left(Utility.CmsPortalsHttpURI.Length - 1);
 
-				Utility.RTUService = this.RTUService;
 				Utility.MessagingService = this.MessagingService;
 				Utility.LoggingService = this.LoggingService;
 				Utility.Logger = this.Logger;
@@ -130,12 +129,10 @@ namespace net.vieapps.Services.Portals
 
 				Utility.DefaultSite = UtilityService.GetAppSetting("Portals:Default:SiteID", "").GetSiteByID();
 				Utility.NotRecognizedAliases.Add($"Site:{new Uri(Utility.PortalsHttpURI).Host}");
-				Utility.DataFilesDirectory = UtilityService.GetAppSetting("Path:Portals");
-				Utility.TempFilesDirectory = UtilityService.GetAppSetting("Path:Temp");
 
-				this.StartTimer(async () => await this.SendDefinitionInfoAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 15 * 60);
-				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 5 * 60);
-				this.StartTimer(async () => await this.PrepareLanguagesAsync(this.CancellationTokenSource.Token).ConfigureAwait(false), 5 * 60);
+				this.StartTimer(async () => await this.SendDefinitionInfoAsync(this.CancellationToken).ConfigureAwait(false), 15 * 60);
+				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationToken).ConfigureAwait(false), 5 * 60);
+				this.StartTimer(async () => await this.PrepareLanguagesAsync(this.CancellationToken).ConfigureAwait(false), 5 * 60);
 
 				this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
 				this.Logger?.LogDebug($"Portals' data files directory: {Utility.DataFilesDirectory ?? "None"}");
@@ -143,13 +140,13 @@ namespace net.vieapps.Services.Portals
 				Task.Run(async () =>
 				{
 					// wait for a few times
-					await Task.Delay(UtilityService.GetRandomNumber(678, 789), this.CancellationTokenSource.Token).ConfigureAwait(false);
+					await Task.Delay(UtilityService.GetRandomNumber(678, 789), this.CancellationToken).ConfigureAwait(false);
 
 					// get OEmbed providers
-					await this.GetOEmbedProvidersAsync(this.CancellationTokenSource.Token).ConfigureAwait(false);
+					await this.GetOEmbedProvidersAsync(this.CancellationToken).ConfigureAwait(false);
 
 					// prepare multi-languges
-					await this.PrepareLanguagesAsync(this.CancellationTokenSource.Token).ConfigureAwait(false);
+					await this.PrepareLanguagesAsync(this.CancellationToken).ConfigureAwait(false);
 
 					// gathering definitions
 					try
@@ -157,7 +154,7 @@ namespace net.vieapps.Services.Portals
 						await this.SendInterCommunicateMessageAsync(new CommunicateMessage("CMS.Portals")
 						{
 							Type = "Definition#RequestInfo"
-						}, this.CancellationTokenSource.Token).ConfigureAwait(false);
+						}, this.CancellationToken).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
@@ -176,7 +173,7 @@ namespace net.vieapps.Services.Portals
 				// start the refresh timers
 				Task.Run(async () =>
 				{
-					await Task.Delay(UtilityService.GetRandomNumber(2345, 3456), this.CancellationTokenSource.Token).ConfigureAwait(false);
+					await Task.Delay(UtilityService.GetRandomNumber(2345, 3456), this.CancellationToken).ConfigureAwait(false);
 					try
 					{
 						var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1).ConfigureAwait(false);
@@ -1161,7 +1158,12 @@ namespace net.vieapps.Services.Portals
 			string host;
 			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
-				organization = (requestInfo.Header.TryGetValue("x-host", out host) && !string.IsNullOrWhiteSpace(host) ? await host.GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false) : Utility.DefaultSite)?.Organization;
+			{
+				var site = requestInfo.Header.TryGetValue("x-host", out host) && !string.IsNullOrWhiteSpace(host)
+					? await host.GetSiteByDomainAsync(Utility.DefaultSite?.ID, cancellationToken).ConfigureAwait(false)
+					: null;
+				organization = (site ?? Utility.DefaultSite)?.Organization;
+			}
 
 			return organization != null
 				? new JObject
@@ -1171,7 +1173,7 @@ namespace net.vieapps.Services.Portals
 					{ "FilesHttpURI", organization.FakeFilesHttpURI ?? Utility.FilesHttpURI },
 					{ "PortalsHttpURI", organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI }
 				}
-				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(requestInfo.Header.TryGetValue("x-host", out host) && !string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
+				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(requestInfo.Header.TryGetValue("x-host", out host) && !string.IsNullOrWhiteSpace(host) ? host : "unknown")})");
 		}
 
 		Task<JToken> ProcessHttpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
@@ -1181,7 +1183,7 @@ namespace net.vieapps.Services.Portals
 					? this.ProcessHttpResourceRequestAsync(requestInfo, cancellationToken)
 					: this.ProcessHttpDesktopRequestAsync(requestInfo, cancellationToken);
 
-		#region Process resource  requests of Portals HTTP service
+		#region Process resource requests of Portals HTTP service
 		bool WriteDesktopLogs => this.Logger.IsEnabled(LogLevel.Trace) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
 
 		HashSet<string> DontCacheThemes => UtilityService.GetAppSetting("Portals:Desktops:Resources:DontCacheThemes", "").Trim().ToLower().ToHashSet();
@@ -1358,6 +1360,7 @@ namespace net.vieapps.Services.Portals
 					).Run();
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
+						{ "X-Portal-Resource-Cache", eTag },
 						{ "ETag", eTag },
 						{ "Last-Modified", lastModified },
 						{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
@@ -1485,6 +1488,7 @@ namespace net.vieapps.Services.Portals
 					if ((identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity))
 						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 						{
+							{ "X-Portal-Resource-Cache", cacheKey },
 							{ "ETag", eTag },
 							{ "Last-Modified", lastModified },
 							{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
@@ -1625,6 +1629,7 @@ namespace net.vieapps.Services.Portals
 					if ((identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity))
 						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 						{
+							{ "X-Portal-Resource-Cache", cacheKey },
 							{ "ETag", eTag },
 							{ "Last-Modified", lastModified },
 							{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
@@ -1661,12 +1666,12 @@ namespace net.vieapps.Services.Portals
 			var resources = this.IsDebugLogEnabled ? $"/* {(isJs ? "scripts" : "stylesheets")} of the '{theme}' theme */\r\n" : "";
 			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", theme, type));
 			if (directory.Exists)
-				await directory.GetFiles($"*.{type}").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async (fileInfo, _) =>
+				await directory.GetFiles($"*.{type}").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo =>
 				{
 					var resource = await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false);
 					resources += (isJs ? ";" : "") + (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n" : "")
 						+ (isJs ? this.DontMinifyJsThemes.Contains(theme) ? resource : resource.MinifyJs() : this.DontMinifyCssThemes.Contains(theme) ? resource : resource.MinifyCss()) + "\r\n";
-				}, cancellationToken, true, false).ConfigureAwait(false);
+				}, true, false).ConfigureAwait(false);
 			return resources;
 		}
 
@@ -1895,6 +1900,7 @@ namespace net.vieapps.Services.Portals
 				}
 				headers = new Dictionary<string, string>(headers)
 				{
+					{ "X-Portal-Desktop-Cache", cacheKey },
 					{ "ETag", eTag },
 					{ "Last-Modified", lastModified },
 					{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
@@ -3075,7 +3081,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// add default scripts
-			var scripts = "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js") + "\"></script>"
+			var scripts = "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js") + "\"></script>"
 				+ "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js") + "\"></script>"
 				+ (site.UseInlineScripts ? "<script>" + (await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js"), null, cancellationToken).ConfigureAwait(false)).MinifyJs() : $"<script src=\"~#/_assets/default.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>");
 
@@ -3704,18 +3710,18 @@ namespace net.vieapps.Services.Portals
 					case "core.organization":
 						this.Import<Organization>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => Task.WhenAll(
 							@object.SetAsync(),
-							Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+							new UpdateMessage
 							{
 								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
-							}, this.CancellationTokenSource.Token),
-							Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+							}.SendAsync(),
+							new CommunicateMessage(requestInfo.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
 								ExcludedNodeID = Utility.NodeID
-							}, this.CancellationTokenSource.Token)
+							}.SendAsync()
 						).Run()));
 						break;
 
@@ -3723,18 +3729,18 @@ namespace net.vieapps.Services.Portals
 					case "core.role":
 						this.Import<Role>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => Task.WhenAll(
 							@object.SetAsync(),
-							Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+							new UpdateMessage
 							{
 								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
-							}, this.CancellationTokenSource.Token),
-							Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+							}.SendAsync(),
+							new CommunicateMessage(requestInfo.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
 								ExcludedNodeID = Utility.NodeID
-							}, this.CancellationTokenSource.Token)
+							}.SendAsync()
 						).Run()));
 						break;
 
@@ -3742,18 +3748,18 @@ namespace net.vieapps.Services.Portals
 					case "core.site":
 						this.Import<Site>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => Task.WhenAll(
 							@object.SetAsync(),
-							Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+							new UpdateMessage
 							{
 								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
-							}, this.CancellationTokenSource.Token),
-							Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+							}.SendAsync(),
+							new CommunicateMessage(requestInfo.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
 								ExcludedNodeID = Utility.NodeID
-							}, this.CancellationTokenSource.Token)
+							}.SendAsync()
 						).Run()));
 						break;
 
@@ -3761,18 +3767,18 @@ namespace net.vieapps.Services.Portals
 					case "core.desktop":
 						this.Import<Desktop>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => Task.WhenAll(
 							@object.SetAsync(),
-							Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+							new UpdateMessage
 							{
 								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
-							}, this.CancellationTokenSource.Token),
-							Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+							}.SendAsync(),
+							new CommunicateMessage(requestInfo.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
 								ExcludedNodeID = Utility.NodeID
-							}, this.CancellationTokenSource.Token)
+							}.SendAsync()
 						).Run()));
 						break;
 
@@ -3785,18 +3791,18 @@ namespace net.vieapps.Services.Portals
 					case "core.module":
 						this.Import<Module>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => Task.WhenAll(
 							@object.SetAsync(),
-							Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+							new UpdateMessage
 							{
 								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
-							}, this.CancellationTokenSource.Token),
-							Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+							}.SendAsync(),
+							new CommunicateMessage(requestInfo.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
 								ExcludedNodeID = Utility.NodeID
-							}, this.CancellationTokenSource.Token)
+							}.SendAsync()
 						).Run()));
 						break;
 
@@ -3807,18 +3813,18 @@ namespace net.vieapps.Services.Portals
 					case "core.content.type":
 						this.Import<ContentType>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => Task.WhenAll(
 							@object.SetAsync(),
-							Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+							new UpdateMessage
 							{
 								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
-							}, this.CancellationTokenSource.Token),
-							Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+							}.SendAsync(),
+							new CommunicateMessage(requestInfo.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
 								ExcludedNodeID = Utility.NodeID
-							}, this.CancellationTokenSource.Token)
+							}.SendAsync()
 						).Run()));
 						break;
 
@@ -3826,18 +3832,18 @@ namespace net.vieapps.Services.Portals
 					case "core.expression":
 						this.Import<Expression>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => Task.WhenAll(
 							@object.SetAsync(),
-							Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+							new UpdateMessage
 							{
 								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
-							}, this.CancellationTokenSource.Token),
-							Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+							}.SendAsync(),
+							new CommunicateMessage(requestInfo.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
 								ExcludedNodeID = Utility.NodeID
-							}, this.CancellationTokenSource.Token)
+							}.SendAsync()
 						).Run()));
 						break;
 
@@ -3846,18 +3852,18 @@ namespace net.vieapps.Services.Portals
 						this.Import<Category>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object => Task.WhenAll(
 							@object.SetAsync(false, false, this.CancellationTokenSource.Token),
 							@object.ClearRelatedCacheAsync(this.CancellationTokenSource.Token),
-							Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+							new UpdateMessage
 							{
 								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
-							}, this.CancellationTokenSource.Token),
-							Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+							}.SendAsync(),
+							new CommunicateMessage(requestInfo.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
 								ExcludedNodeID = Utility.NodeID
-							}, this.CancellationTokenSource.Token)
+							}.SendAsync()
 						).Run()));
 						break;
 
@@ -4135,12 +4141,12 @@ namespace net.vieapps.Services.Portals
 
 							// send update message
 							objectName = objectName ?? (@object as RepositoryBase)?.GetObjectName();
-							Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+							new UpdateMessage
 							{
 								Type = $"{ServiceBase.ServiceComponent.ServiceName}#{objectName}#Update",
 								DeviceID = "*",
 								Data = (@object as RepositoryBase)?.ToJson()
-							}, this.CancellationToken).Run();
+							}.SendAsync().Run();
 
 							// clear related cache
 							if (@object is Category category)
@@ -4238,7 +4244,7 @@ namespace net.vieapps.Services.Portals
 			}).ConfigureAwait(false);
 		#endregion
 
-		#region Sync objects
+		#region Sync objects (via sync requests or web-hook messages)
 		public override async Task<JToken> SyncAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
@@ -4246,82 +4252,17 @@ namespace net.vieapps.Services.Portals
 			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationTokenSource.Token))
 				try
 				{
-					// validate
-					var json = await base.SyncAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+					// validate & sync
+					var json = await base.SyncAsync(requestInfo, cts.Token).ConfigureAwait(false);
+					json = await this.SyncObjectAsync(requestInfo, cts.Token, requestInfo.GetHeaderParameter("x-converter") == null).ConfigureAwait(false);
 
-					// sync
-					switch (requestInfo.ObjectName.ToLower())
-					{
-						case "organization":
-						case "core.organization":
-							json = await requestInfo.SyncOrganizationAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "role":
-						case "core.role":
-							json = await requestInfo.SyncRoleAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "module":
-						case "core.module":
-							json = await requestInfo.SyncModuleAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "contenttype":
-						case "content.type":
-						case "core.contenttype":
-						case "core.content.type":
-							json = await requestInfo.SyncContentTypeAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "expression":
-						case "core.expression":
-							json = await requestInfo.SyncExpressionAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "site":
-						case "core.site":
-							json = await requestInfo.SyncSiteAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "desktop":
-						case "core.desktop":
-							json = await requestInfo.SyncDesktopAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "portlet":
-						case "core.portlet":
-							json = await requestInfo.SyncPortletAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "category":
-						case "cms.category":
-							json = await requestInfo.SyncCategoryAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "content":
-						case "cms.content":
-							json = await requestInfo.SyncContentAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "item":
-						case "cms.item":
-							json = await requestInfo.SyncItemAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						case "link":
-						case "cms.link":
-							json = await requestInfo.SyncLinkAsync(cts.Token).ConfigureAwait(false);
-							break;
-
-						default:
-							throw new InvalidRequestException($"The request for synchronizing is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
-					}
-
+					// write logs
 					stopwatch.Stop();
 					this.WriteLogs(requestInfo, $"Sync success - Execution times: {stopwatch.GetElapsedTimes()}");
 					if (this.IsDebugResultsEnabled)
 						this.WriteLogs(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}");
+
+					// return info
 					return json;
 				}
 				catch (Exception ex)
@@ -4332,6 +4273,118 @@ namespace net.vieapps.Services.Portals
 
 		protected override Task SendSyncRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 			=> base.SendSyncRequestAsync(requestInfo, cancellationToken);
+
+		public override async Task ProcessWebHookMessageAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			var stopwatch = Stopwatch.StartNew();
+			if (this.IsDebugLogEnabled)
+				this.WriteLogs(requestInfo, $"Start process a web-hook message");
+
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
+				try
+				{
+					// prepare
+					var organization = await (requestInfo.GetHeaderParameter("SystemID") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false);
+					if (organization == null)
+						throw new InformationInvalidException("Invalid (no system)");
+
+					var settings = organization.WebHookSettings ?? new Settings.WebHook();
+					var signAlgorithm = settings.SignAlgorithm;
+					var signKey = settings.SignKey ?? requestInfo.Session.AppID ?? organization.ID;
+					var signatureName = settings.SignatureName;
+					var signatureAsHex = settings.SignatureAsHex;
+					var signatureInQuery = settings.SignatureInQuery;
+					var query = new Dictionary<string, string>();
+					if (!string.IsNullOrWhiteSpace(settings.AdditionalQuery))
+						(settings.AdditionalQuery.ToJson() as JObject).ForEach(kvp => query[kvp.Key] = kvp.Value.ToString());
+					var header = new Dictionary<string, string>();
+					if (!string.IsNullOrWhiteSpace(settings.AdditionalHeader))
+						(settings.AdditionalHeader.ToJson() as JObject).ForEach(kvp => header[kvp.Key] = kvp.Value.ToString());
+
+					// process
+					requestInfo.ValidateWebHookMessage(signAlgorithm, signKey, signatureName, signatureAsHex, signatureInQuery, query, header);
+					this.SyncObject(requestInfo, stopwatch);
+				}
+				catch (Exception ex)
+				{
+					throw this.GetRuntimeException(requestInfo, ex, stopwatch, "Error occurred while processing a web-hook message");
+				}
+		}
+
+		void SyncObject(RequestInfo requestInfo, Stopwatch stopwatch)
+			=> Task.Run(async () =>
+			{
+				try
+				{
+					await this.SyncObjectAsync(requestInfo, this.CancellationToken, false).ConfigureAwait(false);
+					stopwatch.Stop();
+					if (this.IsDebugLogEnabled)
+						await this.WriteLogsAsync(requestInfo, $"Process a web-hook message successful - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled ? $"\r\nMessage: {requestInfo.ToString(this.JsonFormat)}" : "")).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await this.WriteLogsAsync(requestInfo, "Error occurred while processing a web-hook message", ex, LogLevel.Error).ConfigureAwait(false);
+				}
+			}).ConfigureAwait(false);
+
+		Task<JObject> SyncObjectAsync(RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications)
+		{
+			switch (requestInfo.ObjectName.ToLower())
+			{
+				case "organization":
+				case "core.organization":
+					return requestInfo.SyncOrganizationAsync(cancellationToken, sendNotifications);
+
+				case "role":
+				case "core.role":
+					return requestInfo.SyncRoleAsync(cancellationToken, sendNotifications);
+
+				case "module":
+				case "core.module":
+					return requestInfo.SyncModuleAsync(cancellationToken, sendNotifications);
+
+				case "contenttype":
+				case "content.type":
+				case "core.contenttype":
+				case "core.content.type":
+					return requestInfo.SyncContentTypeAsync(cancellationToken, sendNotifications);
+
+				case "expression":
+				case "core.expression":
+					return requestInfo.SyncExpressionAsync(cancellationToken, sendNotifications);
+
+				case "site":
+				case "core.site":
+					return requestInfo.SyncSiteAsync(cancellationToken, sendNotifications);
+
+				case "desktop":
+				case "core.desktop":
+					return requestInfo.SyncDesktopAsync(cancellationToken, sendNotifications);
+
+				case "portlet":
+				case "core.portlet":
+					return requestInfo.SyncPortletAsync(cancellationToken);
+
+				case "category":
+				case "cms.category":
+					return requestInfo.SyncCategoryAsync(cancellationToken, sendNotifications);
+
+				case "content":
+				case "cms.content":
+					return requestInfo.SyncContentAsync(cancellationToken, sendNotifications);
+
+				case "item":
+				case "cms.item":
+					return requestInfo.SyncItemAsync(cancellationToken, sendNotifications);
+
+				case "link":
+				case "cms.link":
+					return requestInfo.SyncLinkAsync(cancellationToken, sendNotifications);
+
+				default:
+					return Task.FromException<JObject>(new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})"));
+			}
+		}
 		#endregion
 
 		#region Process communicate message of Portals service
@@ -4826,12 +4879,12 @@ namespace net.vieapps.Services.Portals
 						item.LastModified = DateTime.Now;
 						item.LastModifiedID = requestInfo.Session.User.ID;
 						await Item.UpdateAsync(item, false, cancellationToken).ConfigureAwait(false);
-						await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+						await new UpdateMessage
 						{
 							Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 							Data = item.ToJson(),
 							DeviceID = "*"
-						}, cancellationToken).ConfigureAwait(false);
+						}.SendAsync().ConfigureAwait(false);
 					}, true, false).ConfigureAwait(false);
 
 					// update content-type
@@ -4850,12 +4903,12 @@ namespace net.vieapps.Services.Portals
 						link.LastModified = DateTime.Now;
 						link.LastModifiedID = requestInfo.Session.User.ID;
 						await Link.UpdateAsync(link, false, cancellationToken).ConfigureAwait(false);
-						await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+						await new UpdateMessage
 						{
 							Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 							Data = link.ToJson(),
 							DeviceID = "*"
-						}, cancellationToken).ConfigureAwait(false);
+						}.SendAsync().ConfigureAwait(false);
 					}, true, false).ConfigureAwait(false);
 
 					// update content-type
@@ -4882,12 +4935,12 @@ namespace net.vieapps.Services.Portals
 					content.LastModified = DateTime.Now;
 					content.LastModifiedID = requestInfo.Session.User.ID;
 					await Content.UpdateAsync(content, false, cancellationToken).ConfigureAwait(false);
-					await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+					await new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 						Data = content.ToJson(),
 						DeviceID = "*"
-					}, cancellationToken).ConfigureAwait(false);
+					}.SendAsync().ConfigureAwait(false);
 				}, true, false).ConfigureAwait(false);
 
 				// clear related cache

@@ -6,7 +6,6 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -41,7 +40,7 @@ namespace net.vieapps.Services.Portals
 				CategoryProcessor.CategoriesByAlias[$"{category.RepositoryEntityID}:{category.Alias}"] = category;
 
 				if (updateCache)
-					Utility.Cache.SetAsync(category, ServiceBase.ServiceComponent.CancellationToken).Run();
+					Utility.Cache.SetAsync(category, Utility.CancellationToken).Run();
 			}
 			return category;
 		}
@@ -218,7 +217,7 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS category [{category.Title} - ID: {category.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask,
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS category [{category.Title} - ID: {category.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", Utility.CancellationToken, "Caches") : Task.CompletedTask,
 				doRefresh ? category.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{category.Organization.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS category was clean [{category.Title} - ID: {category.ID}]") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{category.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS category was clean [{category.Title} - ID: {category.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
@@ -242,7 +241,7 @@ namespace net.vieapps.Services.Portals
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
 					? await Category.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
-					: await Category.SearchAsync(query, filter, pageSize, pageNumber, contentTypeID, cancellationToken).ConfigureAwait(false)
+					: await Category.SearchAsync(query, filter, null, pageSize, pageNumber, contentTypeID, cancellationToken).ConfigureAwait(false)
 				: new List<Category>();
 
 			// search thumbnails
@@ -257,12 +256,12 @@ namespace net.vieapps.Services.Portals
 
 			// page size to clear related cached
 			if (string.IsNullOrWhiteSpace(query))
-				Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, ServiceBase.ServiceComponent.CancellationToken).Run();
+				Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, Utility.CancellationToken).Run();
 
 			// store object identities to clear related cached
 			var contentType = objects.FirstOrDefault()?.ContentType;
 			if (contentType != null)
-				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), ServiceBase.ServiceComponent.CancellationToken).Run();
+				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), Utility.CancellationToken).Run();
 
 			// return the results
 			return new Tuple<long, List<Category>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
@@ -401,7 +400,7 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			await Category.CreateAsync(category, cancellationToken).ConfigureAwait(false);
-			category.Set().ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+			category.Set().ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -454,15 +453,15 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			await Task.WhenAll
 			(
-				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
-				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
+				updateMessages.SendAsync(),
+				communicateMessages.SendAsync()
 			).ConfigureAwait(false);
 
 			// send notification
-			category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+			category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, Utility.CancellationToken).Run();
 
 			// store object cache key to clear related cached
-			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).Run();
 
 			// response
 			return response;
@@ -508,12 +507,12 @@ namespace net.vieapps.Services.Portals
 				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await Task.WhenAll(
 					category.SetAsync(false, true, cancellationToken),
-					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+					new CommunicateMessage(requestInfo.ServiceName)
 					{
 						Type = $"{category.GetObjectName()}#Update",
 						Data = category.ToJson(false, false),
 						ExcludedNodeID = Utility.NodeID
-					}, cancellationToken)
+					}.SendAsync()
 				).ConfigureAwait(false);
 			}
 
@@ -521,23 +520,23 @@ namespace net.vieapps.Services.Portals
 			var objectName = category.GetObjectName();
 			var response = category.ToJson(true, false);
 
-			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			await new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
-			}, cancellationToken).ConfigureAwait(false);
+			}.SendAsync().ConfigureAwait(false);
 			if (isRefresh)
-				await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				await new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken).ConfigureAwait(false);
+				}.SendAsync().ConfigureAwait(false);
 
 			// store object cache key to clear related cached
-			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).Run();
 
 			// response
 			return response;
@@ -583,7 +582,7 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			await Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			category.Set().ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+			category.Set().ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -660,13 +659,14 @@ namespace net.vieapps.Services.Portals
 			});
 
 			// send update messages
-			await Task.WhenAll(
-				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
-				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
+			await Task.WhenAll
+			(
+				updateMessages.SendAsync(),
+				communicateMessages.SendAsync()
 			).ConfigureAwait(false);
 
 			// send notification
-			category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+			category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, Utility.CancellationToken).Run();
 
 			// response
 			return response;
@@ -724,7 +724,7 @@ namespace net.vieapps.Services.Portals
 					item.LastModifiedID = requestInfo.Session.User.ID;
 
 					await Category.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					notificationTasks.Add(item.Set().SendNotificationAsync("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken));
+					notificationTasks.Add(item.Set().SendNotificationAsync("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo, Utility.CancellationToken));
 
 					var json = item.ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
@@ -767,13 +767,13 @@ namespace net.vieapps.Services.Portals
 				});
 			}
 			else if (first != null)
-				first.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 
 			// send update messages
 			await Task.WhenAll
 			(
-				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
-				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
+				updateMessages.SendAsync(),
+				communicateMessages.SendAsync()
 			).ConfigureAwait(false);
 
 			// send notification
@@ -814,7 +814,7 @@ namespace net.vieapps.Services.Portals
 					child.LastModifiedID = requestInfo.Session.User.ID;
 
 					await Category.UpdateAsync(child, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					child.SendNotificationAsync("Update", child.ContentType.Notifications, child.Status, child.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+					child.SendNotificationAsync("Update", child.ContentType.Notifications, child.Status, child.Status, requestInfo, Utility.CancellationToken).Run();
 
 					var json = child.Set().ToJson(true, false);
 					updateMessages.Add(new UpdateMessage
@@ -850,7 +850,7 @@ namespace net.vieapps.Services.Portals
 			// delete vs
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await category.Remove().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+			Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).Run();
 
 			// message to update to all other connected clients
 			var response = category.ToJson();
@@ -870,13 +870,14 @@ namespace net.vieapps.Services.Portals
 			});
 
 			// send update messages
-			await Task.WhenAll(
-				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
-				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
+			await Task.WhenAll
+			(
+				updateMessages.SendAsync(),
+				communicateMessages.SendAsync()
 			).ConfigureAwait(false);
 
 			// send notification
-			category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+			category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, Utility.CancellationToken).Run();
 
 			// response
 			return response;
@@ -899,7 +900,7 @@ namespace net.vieapps.Services.Portals
 
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			category.Remove().ClearRelatedCacheAsync(cancellationToken).Run();
-			Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+			Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).Run();
 
 			var json = category.ToJson();
 			updateMessages.Add(new UpdateMessage
@@ -915,7 +916,7 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			});
 
-			category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+			category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, Utility.CancellationToken).Run();
 
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
@@ -1116,51 +1117,70 @@ namespace net.vieapps.Services.Portals
 			return menu;
 		}
 
-		internal static async Task<JObject> SyncCategoryAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SyncCategoryAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
 		{
+			var @event = requestInfo.GetHeaderParameter("Event");
+			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
+				@event = "Update";
+
 			var data = requestInfo.GetBodyExpando();
 			var category = await data.Get<string>("ID").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (category == null)
+
+			if (!@event.IsEquals("Delete"))
 			{
-				category = Category.CreateInstance(data);
-				category.NormalizeExtras();
-				category.Extras = data.Get<string>("Extras") ?? category.Extras;
-				await Category.CreateAsync(category, cancellationToken).ConfigureAwait(false);
+				if (category == null)
+				{
+					category = Category.CreateInstance(data);
+					category.NormalizeExtras();
+					category.Extras = data.Get<string>("Extras") ?? category.Extras;
+					await Category.CreateAsync(category, cancellationToken).ConfigureAwait(false);
+				}
+				else
+				{
+					category.Fill(data);
+					category.NormalizeExtras();
+					category.Extras = data.Get<string>("Extras") ?? category.Extras;
+					await Category.UpdateAsync(category, true, cancellationToken).ConfigureAwait(false);
+				}
 			}
-			else
-			{
-				category.Fill(data);
-				category.NormalizeExtras();
-				category.Extras = data.Get<string>("Extras") ?? category.Extras;
-				await Category.UpdateAsync(category, true, cancellationToken).ConfigureAwait(false);
-			}
+			else if (category != null)
+				await Category.DeleteAsync<Category>(category.ID, category.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			category.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
-			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), ServiceBase.ServiceComponent.CancellationToken).Run();
+			category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
+			if (@event.IsEquals("Delete"))
+				Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).Run();
+			else
+				Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).Run();
+
+			// send notifications
+			if (sendNotifications)
+				category.SendNotificationAsync(@event, category.ContentType.Notifications, category.Status, category.Status, requestInfo, Utility.CancellationToken).Run();
 
 			// send update messages
-			var json = category.Set().ToJson();
+			var json = @event.IsEquals("Delete")
+				? category.Remove().ToJson()
+				: category.Set().ToJson();
 			var objectName = category.GetObjectName();
-			await Task.WhenAll(
-				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			await Task.WhenAll
+			(
+				new UpdateMessage
 				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
 					Data = json,
 					DeviceID = "*"
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				}.SendAsync(),
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{objectName}#{@event}",
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
+				}.SendAsync()
 			).ConfigureAwait(false);
 
 			// return the response
 			return new JObject
 			{
-				{ "Sync", "Success" },
 				{ "ID", category.ID },
 				{ "Type", objectName }
 			};

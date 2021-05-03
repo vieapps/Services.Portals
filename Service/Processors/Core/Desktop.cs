@@ -200,11 +200,13 @@ namespace net.vieapps.Services.Portals
 					: desktop.UpdateDesktopInstance(message.Data.ToExpandoObject());
 				desktop._portlets = null;
 				desktop._childrenIDs = null;
-				await Task.WhenAll(
+				await Task.WhenAll
+				(
 					desktop.FindPortletsAsync(cancellationToken, false),
 					desktop.FindChildrenAsync(cancellationToken, false)
 				).ConfigureAwait(false);
-				await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async (portlet, token) => portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, token).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+				if (desktop.Portlets != null)
+					await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async portlet => portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 				desktop.Set();
 			}
 
@@ -245,12 +247,12 @@ namespace net.vieapps.Services.Portals
 			{
 				desktop.ClearRelatedCacheAsync(null, cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),
 				Utility.Cache.RemoveAsync(desktop.Remove(), cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 				{
 					Type = $"{desktop.GetObjectName()}#Delete",
 					Data = desktop.ToJson(),
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken),
+				}.SendAsync(),
 				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask
 			}));
 
@@ -314,7 +316,7 @@ namespace net.vieapps.Services.Portals
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
 					? await Desktop.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
-					: await Desktop.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
+					: await Desktop.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<Desktop>();
 
 			// build response
@@ -474,8 +476,8 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			await Task.WhenAll(
-				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
-				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
+				updateMessages.SendAsync(),
+				communicateMessages.SendAsync()
 			).ConfigureAwait(false);
 
 			// send notification
@@ -531,20 +533,20 @@ namespace net.vieapps.Services.Portals
 			// send update message
 			var objectName = desktop.GetTypeName(true);
 			var response = desktop.ToJson(true, false);
-			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			await new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
-			}, cancellationToken).ConfigureAwait(false);
+			}.SendAsync().ConfigureAwait(false);
 			if (isRefresh)
-				await Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				await new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken).ConfigureAwait(false);
+				}.SendAsync().ConfigureAwait(false);
 
 			// response
 			return response;
@@ -668,8 +670,8 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			await Task.WhenAll
 			(
-				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
-				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
+				updateMessages.SendAsync(),
+				communicateMessages.SendAsync()
 			).ConfigureAwait(false);
 
 			// send notification
@@ -717,18 +719,18 @@ namespace net.vieapps.Services.Portals
 			var objectName = desktop.GetTypeName(true);
 			var response = desktop.ToJson(true, false);
 			await Task.WhenAll(
-				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
 					DeviceID = "*"
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				}.SendAsync(),
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
+				}.SendAsync()
 			).ConfigureAwait(false);
 
 			// response
@@ -814,9 +816,10 @@ namespace net.vieapps.Services.Portals
 			});
 
 			// send update messages
-			await Task.WhenAll(
-				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
-				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
+			await Task.WhenAll
+			(
+				updateMessages.SendAsync(),
+				communicateMessages.SendAsync()
 			).ConfigureAwait(false);
 
 			// send notification
@@ -866,51 +869,67 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
-		internal static async Task<JObject> SyncDesktopAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SyncDesktopAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
 		{
+			var @event = requestInfo.GetHeaderParameter("Event");
+			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
+				@event = "Update";
+
 			var data = requestInfo.GetBodyExpando();
 			var desktop = await data.Get<string>("ID").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (desktop == null)
+
+			if (!@event.IsEquals("Delete"))
 			{
-				desktop = Desktop.CreateInstance(data);
-				desktop.Extras = data.Get<string>("Extras") ?? desktop.Extras;
-				await Desktop.CreateAsync(desktop, cancellationToken).ConfigureAwait(false);
+				if (desktop == null)
+				{
+					desktop = Desktop.CreateInstance(data);
+					desktop.Extras = data.Get<string>("Extras") ?? desktop.Extras;
+					await Desktop.CreateAsync(desktop, cancellationToken).ConfigureAwait(false);
+				}
+				else
+				{
+					desktop.Fill(data);
+					desktop.Extras = data.Get<string>("Extras") ?? desktop.Extras;
+					await Desktop.UpdateAsync(desktop, true, cancellationToken).ConfigureAwait(false);
+				}
 			}
-			else
-			{
-				desktop.Fill(data);
-				desktop.Extras = data.Get<string>("Extras") ?? desktop.Extras;
-				await Desktop.UpdateAsync(desktop, true, cancellationToken).ConfigureAwait(false);
-			}
+			else if (desktop != null)
+				await Desktop.DeleteAsync<Desktop>(desktop.ID, desktop.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// clear related cache
-			if (requestInfo.GetHeaderParameter("x-converter") != null)
-				desktop.ClearRelatedCacheAsync(null, ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
-			else
+			if (requestInfo.GetHeaderParameter("x-converter") == null || @event.IsEquals("Delete"))
 				await desktop.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			else
+				desktop.ClearRelatedCacheAsync(null, ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+
+			// send notifications
+			if (sendNotifications)
+				desktop.SendNotificationAsync(@event, desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// send update messages
-			var json = desktop.Set().ToJson();
+			var json = @event.IsEquals("Delete")
+				? desktop.Remove().ToJson()
+				: desktop.Set().ToJson();
 			var objectName = desktop.GetTypeName(true);
-			await Task.WhenAll(
-				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			await Task.WhenAll
+			(
+				new UpdateMessage
 				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
 					Data = json,
 					DeviceID = "*"
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				}.SendAsync(),
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{objectName}#{@event}",
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
+				}.SendAsync()
 			).ConfigureAwait(false);
 
 			// return the response
 			return new JObject
 			{
-				{ "Sync", "Success" },
 				{ "ID", desktop.ID },
 				{ "Type", objectName }
 			};

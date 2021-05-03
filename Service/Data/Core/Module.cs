@@ -211,12 +211,12 @@ namespace net.vieapps.Services.Portals
 			else if (name.IsEquals("ContentTypes") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
 				Task.WhenAll(
 					this.SetAsync(true),
-					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+					new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 					{
 						Type = $"{this.GetObjectName()}#Update",
 						Data = this.ToJson(false, false),
 						ExcludedNodeID = Utility.NodeID
-					})
+					}.SendAsync()
 				).Run();
 		}
 	}

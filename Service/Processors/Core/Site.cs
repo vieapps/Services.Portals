@@ -271,12 +271,12 @@ namespace net.vieapps.Services.Portals
 			{
 				site.ClearRelatedCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),
 				Utility.Cache.RemoveAsync(site.Remove(), cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 				{
 					Type = $"{site.GetObjectName()}#Delete",
 					Data = site.ToJson(),
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken),
+				}.SendAsync(),
 				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask
 			});
 
@@ -330,7 +330,7 @@ namespace net.vieapps.Services.Portals
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
 					? await Site.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
-					: await Site.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
+					: await Site.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<Site>();
 
 			// build response
@@ -398,24 +398,24 @@ namespace net.vieapps.Services.Portals
 			var response = site.ToJson();
 			var objectName = site.GetTypeName(true);
 			await Task.WhenAll(
-				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 					Data = response,
 					DeviceID = "*"
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				}.SendAsync(),
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Create",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				}.SendAsync(),
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{organization.GetTypeName(true)}#Update",
 					Data = organization.ToJson(),
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
+				}.SendAsync()
 			).ConfigureAwait(false);
 
 			// send notification
@@ -450,13 +450,13 @@ namespace net.vieapps.Services.Portals
 
 			// send update message
 			var response = site.ToJson();
-			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			await new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{site.GetTypeName(true)}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}, cancellationToken).ConfigureAwait(false);
+			}.SendAsync().ConfigureAwait(false);
 
 			// response
 			return response;
@@ -472,18 +472,18 @@ namespace net.vieapps.Services.Portals
 			var response = site.ToJson();
 			var objectName = site.GetTypeName(true);
 			await Task.WhenAll(
-				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
 					DeviceID = "*"
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				}.SendAsync(),
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
+				}.SendAsync()
 			).ConfigureAwait(false);
 
 			// send notification
@@ -557,43 +557,44 @@ namespace net.vieapps.Services.Portals
 				organization._siteIDs.Remove(site.ID);
 				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll(
-					Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{organization.GetObjectName()}#Update",
 						Data = organization.ToJson(),
 						DeviceID = "*"
-					}, cancellationToken),
-					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+					}.SendAsync(),
+					new CommunicateMessage(requestInfo.ServiceName)
 					{
 						Type = $"{organization.GetObjectName()}#Update",
 						Data = organization.ToJson(),
 						ExcludedNodeID = Utility.NodeID
-					}, cancellationToken)
+					}.SendAsync()
 				).ConfigureAwait(false);
 			}
 
 			// send update messages
 			var response = site.ToJson();
 			var objectName = site.GetTypeName(true);
-			await Task.WhenAll(
-				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			await Task.WhenAll
+			(
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 					Data = response,
 					DeviceID = "*"
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				}.SendAsync(),
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Delete",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				}.SendAsync(),
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{site.Organization.GetTypeName(true)}#Update",
 					Data = site.Organization.ToJson(),
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
+				}.SendAsync()
 			).ConfigureAwait(false);
 
 			// send notification
@@ -603,51 +604,68 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> SyncSiteAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SyncSiteAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
 		{
+			var @event = requestInfo.GetHeaderParameter("Event");
+			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
+				@event = "Update";
+
 			var data = requestInfo.GetBodyExpando();
 			var site = await data.Get<string>("ID").GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (site == null)
+			var oldStatus = site != null ? site.Status : ApprovalStatus.Pending;
+
+			if (!@event.IsEquals("Delete"))
 			{
-				site = Site.CreateInstance(data);
-				site.Extras = data.Get<string>("Extras") ?? site.Extras;
-				await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
+				if (site == null)
+				{
+					site = Site.CreateInstance(data);
+					site.Extras = data.Get<string>("Extras") ?? site.Extras;
+					await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
+				}
+				else
+				{
+					site.Fill(data);
+					site.Extras = data.Get<string>("Extras") ?? site.Extras;
+					await Site.UpdateAsync(site, true, cancellationToken).ConfigureAwait(false);
+				}
 			}
-			else
-			{
-				site.Fill(data);
-				site.Extras = data.Get<string>("Extras") ?? site.Extras;
-				await Site.UpdateAsync(site, true, cancellationToken).ConfigureAwait(false);
-			}
+			else if (site != null)
+				await Site.DeleteAsync<Site>(site.ID, site.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// clear related cache
-			if (requestInfo.GetHeaderParameter("x-converter") != null)
-				site.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
-			else
+			if (requestInfo.GetHeaderParameter("x-converter") == null || @event.IsEquals("Delete"))
 				await site.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			else
+				site.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+
+			// send notification
+			if (sendNotifications)
+				site.SendNotificationAsync(@event, site.Organization.Notifications, oldStatus, site.Status, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
 
 			// send update messages
-			var json = site.Set().ToJson();
+			var json = @event.IsEquals("Delete")
+				? site.Remove().ToJson()
+				: site.Set().ToJson();
 			var objectName = site.GetTypeName(true);
-			await Task.WhenAll(
-				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			await Task.WhenAll
+			(
+				new UpdateMessage
 				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
 					Data = json,
 					DeviceID = "*"
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				}.SendAsync(),
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{objectName}#{@event}",
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
+				}.SendAsync()
 			).ConfigureAwait(false);
 
 			// return the response
 			return new JObject
 			{
-				{ "Sync", "Success" },
 				{ "ID", site.ID },
 				{ "Type", objectName }
 			};

@@ -253,12 +253,12 @@ namespace net.vieapps.Services.Portals
 				Task.WhenAll
 				(
 					this.SetAsync(false, true),
-					Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+					new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 					{
 						Type = $"{this.GetObjectName()}#Update",
 						Data = this.ToJson(false, false),
 						ExcludedNodeID = Utility.NodeID
-					})
+					}.SendAsync()
 				).Run();
 		}
 

@@ -24,11 +24,6 @@ namespace net.vieapps.Services.Portals
 	public static partial class Utility
 	{
 		/// <summary>
-		/// Gets the real-time updater (RTU) service
-		/// </summary>
-		public static IRTUService RTUService { get; internal set; }
-
-		/// <summary>
 		/// Gets the messaging service
 		/// </summary>
 		public static IMessagingService MessagingService { get; internal set; }
@@ -48,6 +43,8 @@ namespace net.vieapps.Services.Portals
 		internal static bool Preload => "true".IsEquals(UtilityService.GetAppSetting("Portals:Preload", "true"));
 
 		internal static bool RunProcessorInParallelsMode => "Parallels".IsEquals(UtilityService.GetAppSetting("Portals:Processoor", "Parallels"));
+
+		internal static CancellationToken CancellationToken => ServiceBase.ServiceComponent.CancellationToken;
 
 		/// <summary>
 		/// Gets the key for encrypting/decrypting data with AES
@@ -122,12 +119,12 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the path to the directory that contains all data files of portals (css, images, scripts, templates)
 		/// </summary>
-		public static string DataFilesDirectory { get; internal set; }
+		public static string DataFilesDirectory => UtilityService.GetAppSetting("Path:Portals");
 
 		/// <summary>
 		/// Gets the path to the directory that contains all temporary files
 		/// </summary>
-		public static string TempFilesDirectory { get; internal set; }
+		public static string TempFilesDirectory => UtilityService.GetAppSetting("Path:Temp");
 
 		/// <summary>
 		/// Gets the collection of language resources (i18n)
@@ -582,6 +579,30 @@ namespace net.vieapps.Services.Portals
 			=> forDisplaying
 				? html?.Replace("~~~/", rootURL).Replace("~~/", $"{filesHttpURI ?? Utility.FilesHttpURI}/").Replace("~#/", $"{portalsHttpURI ?? Utility.PortalsHttpURI}/").Replace("~/", rootURL)
 				: html?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, rootURL, "~/");
+
+		/// <summary>
+		/// Normalizes all URIs of attachments (files or thumbnails)
+		/// </summary>
+		/// <param name="attachments"></param>
+		/// <param name="filesHttpURI"></param>
+		/// <returns></returns>
+		public static JToken NormalizeURIs(this JToken attachments, string filesHttpURI)
+		{
+			if (attachments != null && !string.IsNullOrWhiteSpace(filesHttpURI))
+				foreach (JObject attachment in attachments)
+					if (attachment != null)
+					{
+						var uris = attachment.Get<JObject>("URIs");
+						uris["Direct"] = uris.Get<string>("Direct")?.Replace(Utility.FilesHttpURI, filesHttpURI);
+						var downloadURI = uris.Get<string>("Download")?.Replace(Utility.FilesHttpURI, filesHttpURI);
+						if (!string.IsNullOrWhiteSpace(downloadURI))
+							uris["Download"] = downloadURI;
+						var uri = attachment.Get<string>("URI")?.Replace(Utility.FilesHttpURI, filesHttpURI);
+						if (!string.IsNullOrWhiteSpace(uri))
+							attachment["URI"] = uri;
+					}
+			return attachments;
+		}
 
 		/// <summary>
 		/// Normalizes all URLs of a HTML content

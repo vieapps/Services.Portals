@@ -220,7 +220,7 @@ namespace net.vieapps.Services.Portals
 				await recipients.Select(recipient => recipient.Get<JArray>("Sessions"))
 					.Where(sessions => sessions != null)
 					.SelectMany(sessions => sessions.Select(session => session.Get<string>("DeviceID")))
-					.ForEachAsync(deviceID => Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage(baseMessage) { DeviceID = deviceID }, cancellationToken)).ConfigureAwait(false);
+					.ForEachAsync(deviceID => new UpdateMessage(baseMessage) { DeviceID = deviceID }.SendAsync()).ConfigureAwait(false);
 				if (Utility.Logger.IsEnabled(LogLevel.Debug))
 					await requestInfo.WriteLogAsync($"Send app notifications successful\r\n{baseMessage.ToJson()}", cancellationToken).ConfigureAwait(false);
 			}
@@ -404,9 +404,9 @@ namespace net.vieapps.Services.Portals
 							$"- Sender: {sender?.Get<string>("Name")} ({sender?.Get<string>("Email")})" + "\r\n" +
 							$"- To: {message.To}" + (!string.IsNullOrWhiteSpace(message.Cc) ? $" / {message.Cc}" : "") + (!string.IsNullOrWhiteSpace(message.Bcc) ? $" / {message.Bcc}" : "") + "\r\n" +
 							$"- Subject: {message.Subject}";
-						await requestInfo.WriteLogAsync(log, cancellationToken).ConfigureAwait(false);
 						if (Utility.Logger.IsEnabled(LogLevel.Debug))
-							Utility.Logger.LogDebug($"Add an email notification into queue successful\r\n{message.ToJson()}");
+							log += $"\r\n- Message: {message.ToJson()}";
+						await requestInfo.WriteLogAsync(log, cancellationToken, "Notifications").ConfigureAwait(false);
 					}
 					catch (Exception exception)
 					{
@@ -467,9 +467,9 @@ namespace net.vieapps.Services.Portals
 							$"- Sender: {sender?.Get<string>("Name")} ({sender?.Get<string>("Email")})" + "\r\n" +
 							$"- To: {message.To}" + (!string.IsNullOrWhiteSpace(message.Cc) ? $" / {message.Cc}" : "") + (!string.IsNullOrWhiteSpace(message.Bcc) ? $" / {message.Bcc}" : "") + "\r\n" +
 							$"- Subject: {message.Subject}";
-						await requestInfo.WriteLogAsync(log, cancellationToken).ConfigureAwait(false);
 						if (Utility.Logger.IsEnabled(LogLevel.Debug))
-							Utility.Logger.LogDebug($"Add an email notification (notify when publish) into queue successful\r\n{message.ToJson()}");
+							log += $"\r\n- Message: {message.ToJson()}";
+						await requestInfo.WriteLogAsync(log, cancellationToken, "Notifications").ConfigureAwait(false);
 					}
 					catch (Exception exception)
 					{
@@ -482,12 +482,14 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					var signAlgorithm = webHooks.SignAlgorithm ?? "SHA256";
-					var signKey = webHooks.SignKey ?? requestInfo.Session.AppID;
+					var signKey = webHooks.SignKey ?? requestInfo.Session.AppID ?? @object.OrganizationID;
 					var query = webHooks.AdditionalQuery?.ToExpandoObject().ToDictionary(kvp => kvp.Key, kvp => kvp.Value as string) ?? new Dictionary<string, string>();
 					var header = webHooks.AdditionalHeader?.ToExpandoObject().ToDictionary(kvp => kvp.Key, kvp => kvp.Value as string) ?? new Dictionary<string, string>();
 					header = new Dictionary<string, string>(header, StringComparer.OrdinalIgnoreCase)
 					{
 						{ "Event", @event },
+						{ "SystemID", organization?.ID },
+						{ "ServiceName", ServiceBase.ServiceComponent.ServiceName },
 						{ "ObjectName", objectName },
 						{ "ObjectType", @object.GetTypeName() },
 						{ "Status", $"{status}" },
@@ -523,7 +525,7 @@ namespace net.vieapps.Services.Portals
 						CorrelationID = requestInfo.CorrelationID
 					}.Normalize(signAlgorithm, signKey, webHooks.SignatureName, webHooks.SignatureAsHex, webHooks.SignatureInQuery);
 
-					await webHooks.EndpointURLs.ForEachAsync(async (endpointURL, _) =>
+					await webHooks.EndpointURLs.ForEachAsync(async endpointURL =>
 					{
 						message.ID = UtilityService.NewUUID;
 						message.EndpointURL = endpointURL;
@@ -534,10 +536,10 @@ namespace net.vieapps.Services.Portals
 							$"- Event: {@event}" + "\r\n" +
 							$"- Status: {status} (previous: {previousStatus})" + "\r\n" +
 							$"- Endpoint URL: {message.EndpointURL}";
-						await requestInfo.WriteLogAsync(log, cancellationToken).ConfigureAwait(false);
 						if (Utility.Logger.IsEnabled(LogLevel.Debug))
-							Utility.Logger.LogDebug($"Add a web-hook notification into queue successful\r\n{message.ToJson(json => { json["Query"] = message.Query.ToJObject(); json["Header"] = message.Header.ToJObject(); })}");
-					}, cancellationToken).ConfigureAwait(false);
+							log += $"\r\n- Message: {message.ToJson()}";
+						await requestInfo.WriteLogAsync(log, cancellationToken, "Notifications").ConfigureAwait(false);
+					}).ConfigureAwait(false);
 				}
 				catch (Exception exception)
 				{

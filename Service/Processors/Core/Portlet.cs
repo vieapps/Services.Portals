@@ -208,7 +208,7 @@ namespace net.vieapps.Services.Portals
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
 					? await Portlet.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
-					: await Portlet.SearchAsync(query, filter, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
+					: await Portlet.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<Portlet>();
 
 			// build result
@@ -343,8 +343,8 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*"
 			});
 			await Task.WhenAll(
-				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
-				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
+				updateMessages.SendAsync(),
+				communicateMessages.SendAsync()
 			).ConfigureAwait(false);
 
 			// response
@@ -374,13 +374,13 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send the update messages and response
-			await Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			await new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{portlet.GetTypeName(true)}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}, cancellationToken).ConfigureAwait(false);
+			}.SendAsync().ConfigureAwait(false);
 			return response;
 		}
 
@@ -634,8 +634,8 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*"
 			});
 			await Task.WhenAll(
-				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
-				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
+				updateMessages.SendAsync(),
+				communicateMessages.SendAsync()
 			).ConfigureAwait(false);
 			return response;
 		}
@@ -753,55 +753,65 @@ namespace net.vieapps.Services.Portals
 
 			// send messages and response
 			await Task.WhenAll(
-				updateMessages.ForEachAsync(message => Utility.RTUService.SendUpdateMessageAsync(message, cancellationToken), true, false),
-				communicateMessages.ForEachAsync(message => Utility.RTUService.SendInterCommunicateMessageAsync(message, cancellationToken))
+				updateMessages.SendAsync(),
+				communicateMessages.SendAsync()
 			).ConfigureAwait(false);
 			return response;
 		}
 
-		internal static async Task<JObject> SyncPortletAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SyncPortletAsync(this RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
+			var @event = requestInfo.GetHeaderParameter("Event");
+			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
+				@event = "Update";
+
 			var data = requestInfo.GetBodyExpando();
 			var portlet = await Portlet.GetAsync<Portlet>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
-			if (portlet == null)
+
+			if (!@event.IsEquals("Delete"))
 			{
-				portlet = Portlet.CreateInstance(data);
-				await Portlet.CreateAsync(portlet, cancellationToken).ConfigureAwait(false);
+				if (portlet == null)
+				{
+					portlet = Portlet.CreateInstance(data);
+					await Portlet.CreateAsync(portlet, cancellationToken).ConfigureAwait(false);
+				}
+				else
+				{
+					portlet.Fill(data);
+					await Portlet.UpdateAsync(portlet, true, cancellationToken).ConfigureAwait(false);
+				}
 			}
-			else
-			{
-				portlet.Fill(data);
-				await Portlet.UpdateAsync(portlet, true, cancellationToken).ConfigureAwait(false);
-			}
+			else if (portlet != null)
+				await Portlet.DeleteAsync<Portlet>(portlet.ID, portlet.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// clear related cache
-			if (requestInfo.GetHeaderParameter("x-converter") != null)
-				portlet.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
-			else
+			if (requestInfo.GetHeaderParameter("x-converter") == null || @event.IsEquals("Delete"))
 				await portlet.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			else
+				portlet.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
 
 			// send update messages
 			var json = portlet.ToJson();
 			var objectName = portlet.GetTypeName(true);
-			await Task.WhenAll(
-				Utility.RTUService.SendUpdateMessageAsync(new UpdateMessage
+			await Task.WhenAll
+			(
+				new UpdateMessage
 				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
 					Data = json,
 					DeviceID = "*"
-				}, cancellationToken),
-				Utility.RTUService.SendInterCommunicateMessageAsync(new CommunicateMessage(requestInfo.ServiceName)
+				}.SendAsync(),
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{objectName}#{@event}",
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
-				}, cancellationToken)
+				}.SendAsync()
 			).ConfigureAwait(false);
 
 			// return the response
 			return new JObject
 			{
-				{ "Sync", "Success" },
 				{ "ID", portlet.ID },
 				{ "Type", objectName }
 			};
