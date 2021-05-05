@@ -80,7 +80,7 @@ namespace net.vieapps.Services.Portals
 				else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancingHealthCheckUrl))
 					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
 
-				// process portals' requests and invoke next middle ware
+				// process portals' requests and invoke next middleware
 				else
 				{
 					await this.ProcessRequestAsync(context).ConfigureAwait(false);
@@ -169,10 +169,8 @@ namespace net.vieapps.Services.Portals
 				session.User = context.GetUser();
 
 			// update session
-			if (string.IsNullOrWhiteSpace(session.User.SessionID))
-				session.SessionID = session.User.SessionID = UtilityService.NewUUID;
-			else
-				session.SessionID = session.User.SessionID;
+			session.User.SessionID = string.IsNullOrWhiteSpace(session.User.SessionID) ? UtilityService.NewUUID : session.User.SessionID;
+			session.SessionID = session.User.SessionID;
 
 			var appName = context.GetParameter("x-app-name");
 			if (!string.IsNullOrWhiteSpace(appName))

@@ -331,15 +331,15 @@ namespace net.vieapps.Services.Portals
 					this.PrepareRedirectAddresses();
 			}
 			else if ((name.IsEquals("Modules") || name.IsEquals("Sites")) && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
-				Task.WhenAll(
-					this.SetAsync(false, true, ServiceBase.ServiceComponent.CancellationToken),
-					new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
-					{
-						Type = $"{this.GetObjectName()}#Update",
-						Data = this.ToJson(false, false),
-						ExcludedNodeID = Utility.NodeID
-					}.SendAsync()
-				).Run();
+			{
+				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				{
+					Type = $"{this.GetObjectName()}#Update",
+					Data = this.ToJson(false, false),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+				this.SetAsync(false, true, Utility.CancellationToken).Run();
+			}
 		}
 
 		List<Tuple<string, string>> _redirectAddresses;

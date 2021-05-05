@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Portals
 			{
 				ExpressionProcessor.Expressions[expression.ID] = expression;
 				if (updateCache)
-					Utility.Cache.SetAsync(expression).Run();
+					Utility.Cache.SetAsync(expression, Utility.CancellationToken).Run();
 			}
 			return expression;
 		}
@@ -91,7 +91,7 @@ namespace net.vieapps.Services.Portals
 			var filter = systemID.GetExpressionsFilter(repositoryID, repositoryEntityID, contentTypeDefinitionID);
 			var sort = Sorts<Expression>.Ascending("Title");
 			var expressions = await Expression.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-			await expressions.ForEachAsync((expression, token) => expression.SetAsync(updateCache, token), cancellationToken).ConfigureAwait(false);
+			await expressions.ForEachAsync(async expression => await expression.SetAsync(updateCache, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 			return expressions;
 		}
 
@@ -165,13 +165,10 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an expression [{expression.Title} - ID: {expression.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask,
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an expression [{expression.Title} - ID: {expression.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{expression.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
-
-		internal static Task ClearRelatedCacheAsync(this Expression expression, string correlationID = null)
-			=> expression.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, correlationID);
 
 		internal static Task ClearCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
 			=> Task.WhenAll(new[]
@@ -184,7 +181,7 @@ namespace net.vieapps.Services.Portals
 					Data = expression.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of an expression [{expression.Title} - ID: {expression.ID}]", ServiceBase.ServiceComponent.CancellationToken, "Caches") : Task.CompletedTask
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of an expression [{expression.Title} - ID: {expression.ID}]", cancellationToken, "Caches") : Task.CompletedTask
 			});
 
 		internal static async Task<JObject> SearchExpressionsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -283,31 +280,29 @@ namespace net.vieapps.Services.Portals
 			});
 
 			await Expression.CreateAsync(expression, cancellationToken).ConfigureAwait(false);
-			expression.Set().ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+			await expression.Set().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// send update messages
-			var json = expression.ToJson();
+			var response = expression.ToJson();
 			var objectName = expression.GetTypeName(true);
-			await Task.WhenAll(
-				new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
-					Data = json,
-					DeviceID = "*"
-				}.SendAsync(),
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Create",
-					Data = json,
-					ExcludedNodeID = Utility.NodeID
-				}.SendAsync()
-			).ConfigureAwait(false);
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
+				Data = response,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Create",
+				Data = response,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
 
 			// send notification
-			expression.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+			await expression.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			// response
-			return expression.ToJson();
+			return response;
 		}
 
 		internal static async Task<JObject> GetExpressionAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -326,13 +321,13 @@ namespace net.vieapps.Services.Portals
 
 			// send the update message to update to all other connected clients
 			var response = expression.ToJson();
-			await new UpdateMessage
+			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{expression.GetTypeName(true)}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}.SendAsync().ConfigureAwait(false);
+			}.Send();
 
 			// response
 			return response;
@@ -362,29 +357,26 @@ namespace net.vieapps.Services.Portals
 			});
 
 			await Expression.UpdateAsync(expression, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			expression.Set().ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+			await expression.Set().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// send update messages
 			var response = expression.ToJson();
 			var objectName = expression.GetTypeName(true);
-			await Task.WhenAll
-			(
-				new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*"
-				}.SendAsync(),
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}.SendAsync()
-			).ConfigureAwait(false);
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = response,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Update",
+				Data = response,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
 
 			// send notification
-			expression.SendNotificationAsync("Update", expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+			await expression.SendNotificationAsync("Update", expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -411,23 +403,21 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var response = expression.ToJson();
 			var objectName = expression.GetTypeName(true);
-			await Task.WhenAll(
-				new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-					Data = response,
-					DeviceID = "*"
-				}.SendAsync(),
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Delete",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}.SendAsync()
-			).ConfigureAwait(false);
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+				Data = response,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Delete",
+				Data = response,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
 
 			// send notification
-			expression.SendNotificationAsync("Delete", expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+			await expression.SendNotificationAsync("Delete", expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -462,32 +452,29 @@ namespace net.vieapps.Services.Portals
 			if (requestInfo.GetHeaderParameter("x-converter") == null || @event.IsEquals("Delete"))
 				await expression.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 			else
-				expression.ClearRelatedCacheAsync(ServiceBase.ServiceComponent.CancellationToken, requestInfo.CorrelationID).Run();
+				await expression.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// send notifications
 			if (sendNotifications)
-				expression.SendNotificationAsync(@event, expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, ServiceBase.ServiceComponent.CancellationToken).Run();
+				await expression.SendNotificationAsync(@event, expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
 			var json = @event.IsEquals("Delete")
 				? expression.Remove().ToJson()
 				: expression.Set().ToJson();
 			var objectName = expression.GetTypeName(true);
-			await Task.WhenAll
-			(
-				new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
-					Data = json,
-					DeviceID = "*"
-				}.SendAsync(),
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#{@event}",
-					Data = json,
-					ExcludedNodeID = Utility.NodeID
-				}.SendAsync()
-			).ConfigureAwait(false);
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#{@event}",
+				Data = json,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
 
 			// return the response
 			return new JObject

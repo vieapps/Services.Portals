@@ -209,15 +209,15 @@ namespace net.vieapps.Services.Portals
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 			else if (name.IsEquals("ContentTypes") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
-				Task.WhenAll(
-					this.SetAsync(true),
-					new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
-					{
-						Type = $"{this.GetObjectName()}#Update",
-						Data = this.ToJson(false, false),
-						ExcludedNodeID = Utility.NodeID
-					}.SendAsync()
-				).Run();
+			{
+				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				{
+					Type = $"{this.GetObjectName()}#Update",
+					Data = this.ToJson(false, false),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+				this.SetAsync(true, Utility.CancellationToken).Run();
+			}
 		}
 	}
 }

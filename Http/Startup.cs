@@ -212,7 +212,7 @@ namespace net.vieapps.Services.Portals
 				Global.Logger.LogInformation($"Request limit: {UtilityService.GetAppSetting("Limits:Body", "10")} MB");
 
 				stopwatch.Stop();
-				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service was started - PID: {Process.GetCurrentProcess().Id} - Execution times: {stopwatch.GetElapsedTimes()}");
+				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service was started - PID: {Environment.ProcessId} - Execution times: {stopwatch.GetElapsedTimes()}");
 				Global.Logger = loggerFactory.CreateLogger<Handler>();
 			});
 

@@ -155,16 +155,15 @@ namespace net.vieapps.Services.Portals
 		public override void ProcessPropertyChanged(string name)
 		{
 			if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
-				Task.WhenAll
-				(
-					this.SetAsync(true),
-					new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
-					{
-						Type = $"{this.GetObjectName()}#Update",
-						Data = this.ToJson(false, false),
-						ExcludedNodeID = Utility.NodeID
-					}.SendAsync()
-				).Run();
+			{
+				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				{
+					Type = $"{this.GetObjectName()}#Update",
+					Data = this.ToJson(false, false),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+				this.SetAsync(true, Utility.CancellationToken).Run();
+			}
 		}
 	}
 }

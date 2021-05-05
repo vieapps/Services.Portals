@@ -193,7 +193,7 @@ namespace net.vieapps.Services.Portals
 			{
 				this._children = categories ?? (this.SystemID ?? "").FindCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
 				this._childrenIDs = this._children?.Where(category => category != null).Select(category => category.ID).ToList() ?? new List<string>();
-				Utility.Cache.AddSetMembersAsync(this.ContentType.ObjectCacheKeys, this._children?.Where(category => category != null).Select(category => category.GetCacheKey()), ServiceBase.ServiceComponent.CancellationToken).Run();
+				Utility.Cache.AddSetMembersAsync(this.ContentType.ObjectCacheKeys, this._children?.Where(category => category != null).Select(category => category.GetCacheKey()), Utility.CancellationToken).Run();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("Childrens");
 			}
@@ -250,16 +250,15 @@ namespace net.vieapps.Services.Portals
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 			else if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
-				Task.WhenAll
-				(
-					this.SetAsync(false, true),
-					new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
-					{
-						Type = $"{this.GetObjectName()}#Update",
-						Data = this.ToJson(false, false),
-						ExcludedNodeID = Utility.NodeID
-					}.SendAsync()
-				).Run();
+			{
+				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				{
+					Type = $"{this.GetObjectName()}#Update",
+					Data = this.ToJson(false, false),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+				this.SetAsync(false, true, Utility.CancellationToken).Run();
+			}
 		}
 
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
