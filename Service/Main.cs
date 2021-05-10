@@ -301,8 +301,8 @@ namespace net.vieapps.Services.Portals
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
-			var stopwatch = Stopwatch.StartNew();
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
+			var stopwatch = Stopwatch.StartNew();
 			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
 				try
 				{

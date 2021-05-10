@@ -743,35 +743,52 @@ namespace net.vieapps.Services.Portals
 				}
 			}, cancellationToken);
 
+		static ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>> Logs { get; } = new ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>>();
+
+		internal static Task WriteLogsAsync(string developerID, string appID, string objectName, List<string> logs, Exception exception = null, string correlationID = null, string additional = null)
+		{
+			// prepare
+			correlationID = correlationID ?? UtilityService.NewUUID;
+			var wampException = exception != null && exception is WampException
+				? (exception as WampException).GetDetails()
+				: null;
+
+			logs = logs ?? new List<string>();
+			if (wampException != null)
+			{
+				logs.Add($"> Message: {wampException.Item2}");
+				logs.Add($"> Type: {wampException.Item3}");
+			}
+			else if (exception != null)
+			{
+				logs.Add($"> Message: {exception.Message}");
+				logs.Add($"> Type: {exception.GetTypeName(true)}");
+			}
+
+			if (!string.IsNullOrWhiteSpace(additional))
+				logs.Add(additional);
+
+			var stack = wampException != null
+				? $"{wampException.Item3}: {wampException.Item2}\r\n{wampException.Item4}"
+				: exception?.GetStack();
+
+			// update queue & write to centerlized logs
+			Utility.Logs.Enqueue(new Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>(new Tuple<DateTime, string, string, string, string, string>(DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.ServiceName, objectName), logs, stack));
+			return Utility.LoggingService.WriteLogsAsync(Utility.Logs, null, Utility.Logger, Utility.CancellationToken);
+		}
+
 		internal static Task WriteErrorAsync(this RequestInfo requestInfo, Exception exception, CancellationToken cancellationToken = default, string message = null, string objectName = null, string additionnal = null)
 		{
 			message = message ?? "Error occurred while sending a notification when an object was changed";
 			Utility.Logger.LogError(message, exception);
-			var logs = new List<string>
-			{
-				message
-			};
-			if (exception is WampException wampException)
-			{
-				var details = wampException.GetDetails();
-				logs.Add($"> Message: {details.Item2}");
-				logs.Add($"> Type: {details.Item3}");
-			}
-			else
-			{
-				logs.Add($"> Message: {exception.Message}");
-				logs.Add($"> Type: {exception.GetType()}");
-			}
-			if (!string.IsNullOrWhiteSpace(additionnal))
-				logs.Add(additionnal);
-			return Utility.LoggingService.WriteLogsAsync(requestInfo.CorrelationID, requestInfo.Session.DeveloperID, requestInfo.Session.AppID, ServiceBase.ServiceComponent.ServiceName, objectName ?? "Notifications", logs, exception.GetStack(), cancellationToken);
+			return Utility.WriteLogsAsync(requestInfo.Session.DeveloperID, requestInfo.Session.AppID, objectName ?? "Notifications", new List<string> { message }, exception, requestInfo.CorrelationID, additionnal);
 		}
 
 		internal static Task WriteLogAsync(this RequestInfo requestInfo, string log, CancellationToken cancellationToken = default, string objectName = null)
-			=> Utility.LoggingService.WriteLogAsync(requestInfo.CorrelationID, requestInfo.Session.DeveloperID, requestInfo.Session.AppID, requestInfo.ServiceName, objectName ?? requestInfo.ObjectName, log, null, cancellationToken);
+			=> Utility.WriteLogsAsync(requestInfo.Session.DeveloperID, requestInfo.Session.AppID, objectName ?? "Notifications", new List<string> { log }, null, requestInfo.CorrelationID);
 
 		internal static Task WriteLogAsync(string correlationID, string log, CancellationToken cancellationToken = default, string objectName = null)
-			=> Utility.LoggingService.WriteLogAsync(correlationID ?? UtilityService.NewUUID, null, null, ServiceBase.ServiceComponent.ServiceName, objectName ?? "Notifications", log, null, cancellationToken);
+			=> Utility.WriteLogsAsync(null, null, objectName ?? "Notifications", new List<string> { log }, null, correlationID);
 
 		internal static string MinifyJs(this string data)
 			=> Minifier.MinifyJs(data);
