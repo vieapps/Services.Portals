@@ -73,12 +73,12 @@ namespace net.vieapps.Services.Portals
 					if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
 						headers["Access-Control-Allow-Headers"] = requestHeaders;
 					context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
-					await context.FlushAsync(Global.CancellationTokenSource.Token).ConfigureAwait(false);
+					await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
 				}
 
 				// load balancing health check
 				else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancingHealthCheckUrl))
-					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
 
 				// process portals' requests and invoke next middleware
 				else
@@ -346,6 +346,8 @@ namespace net.vieapps.Services.Portals
 			// process the request
 			JObject systemIdentityJson = null;
 			if (string.IsNullOrWhiteSpace(specialRequest))
+			{
+				var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID());
 				try
 				{
 					using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
@@ -353,7 +355,7 @@ namespace net.vieapps.Services.Portals
 						// call the Portals service to identify the system
 						if (string.IsNullOrWhiteSpace(systemIdentity) || "~indicators".IsEquals(systemIdentity))
 						{
-							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 							queryString["x-system"] = systemIdentityJson?.Get<string>("Alias");
 						}
 
@@ -361,7 +363,8 @@ namespace net.vieapps.Services.Portals
 						if (string.IsNullOrWhiteSpace(legacyRequest))
 						{
 							// call Portals service to process the request
-							var response = (await context.CallServiceAsync(new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+							requestInfo = new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID());
+							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
 
 							// write headers
 							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
@@ -375,7 +378,7 @@ namespace net.vieapps.Services.Portals
 						// request of legacy system (files and medias)
 						else
 						{
-							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 							var requestSegments = legacyRequest.ToArray("/").ToList();
 
 							if (requestSegments[0].IsEquals("Download.ashx") || requestSegments[0].IsEquals("Download.aspx"))
@@ -424,21 +427,27 @@ namespace net.vieapps.Services.Portals
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
 				{
-					await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					var statusCode = ex.GetHttpStatusCode();
 					var query = context.ParseQuery();
 					if (ex is AccessDeniedException && !context.IsAuthenticated() && Handler.RedirectToPassportOnUnauthorized && !query.ContainsKey("x-app-token") && !query.ContainsKey("x-passport-token"))
+					{
+						await context.WriteLogsAsync("Http.Process.Requests", $"Access denied ({statusCode}) => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 						context.Redirect(context.GetPassportSessionAuthenticatorUrl());
+					}
 					else
 					{
 						if (ex is WampException)
 						{
-							var wampException = (ex as WampException).GetDetails();
-							context.ShowHttpError(statusCode: wampException.Item1, message: wampException.Item2, type: wampException.Item3, correlationID: context.GetCorrelationID(), stack: wampException.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
+							var wampException = (ex as WampException).GetDetails(requestInfo);
+							statusCode = wampException.Item1;
+							context.ShowHttpError(statusCode: statusCode, message: wampException.Item2, type: wampException.Item3, correlationID: context.GetCorrelationID(), stack: wampException.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
 						}
 						else
-							context.ShowHttpError(statusCode: ex.GetHttpStatusCode(), message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
+							context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
+						await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred ({statusCode}) => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 					}
 				}
+			}
 			else
 				switch (specialRequest)
 				{
@@ -451,17 +460,26 @@ namespace net.vieapps.Services.Portals
 						break;
 
 					case "login":
-						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
+						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
 						{
+							var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID());
 							try
 							{
-								systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID()), cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+								systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 								await this.ProcessLogInRequestAsync(context, systemIdentityJson?.Get<string>("ID")).ConfigureAwait(false);
 							}
 							catch (Exception ex)
 							{
+								var statusCode = ex.GetHttpStatusCode();
+								if (ex is WampException)
+								{
+									var wampException = (ex as WampException).GetDetails(requestInfo);
+									statusCode = wampException.Item1;
+									context.ShowHttpError(statusCode: statusCode, message: wampException.Item2, type: wampException.Item3, correlationID: context.GetCorrelationID(), stack: wampException.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
+								}
+								else
+									context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
 								await context.WriteLogsAsync("Http.Authentication", $"Error occurred while logging in => {ex.Message}", ex).ConfigureAwait(false);
-								context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
 							}
 						}
 						break;
@@ -495,7 +513,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static void InitializeWebSocket()
 		{
-			Handler.WebSocket = new Components.WebSockets.WebSocket(Logger.GetLoggerFactory(), Global.CancellationTokenSource.Token)
+			Handler.WebSocket = new Components.WebSockets.WebSocket(Logger.GetLoggerFactory(), Global.CancellationToken)
 			{
 				KeepAliveInterval = TimeSpan.FromSeconds(Int32.TryParse(UtilityService.GetAppSetting("Proxy:KeepAliveInterval", "45"), out var interval) ? interval : 45),
 				OnError = async (websocket, exception) => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).ConfigureAwait(false),
@@ -589,7 +607,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			context.Redirect(redirectUrl);
-			await context.FlushAsync(Global.CancellationTokenSource.Token).ConfigureAwait(false);
+			await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
 		}
 
 		async Task ProcessValidatorRequestAsync(HttpContext context)
@@ -619,13 +637,13 @@ namespace net.vieapps.Services.Portals
 					else
 						scripts = $"{callbackFunction}({JSONWebToken.DecodeAsJson(token, Global.JWTKey).ToString(Formatting.None)})";
 
-					await context.WriteAsync(scripts, "application/javascript", context.GetCorrelationID(), Global.CancellationTokenSource.Token).ConfigureAwait(false);
+					await context.WriteAsync(scripts, "application/javascript", context.GetCorrelationID(), Global.CancellationToken).ConfigureAwait(false);
 				}
 			}
 			catch (Exception ex)
 			{
 				await Task.WhenAll(
-					context.WriteAsync($"console.error('Error occurred while validating => {ex.Message.Replace("'", @"\'")}')", "application/javascript", context.GetCorrelationID(), Global.CancellationTokenSource.Token),
+					context.WriteAsync($"console.error('Error occurred while validating => {ex.Message.Replace("'", @"\'")}')", "application/javascript", context.GetCorrelationID(), Global.CancellationToken),
 					context.WriteLogsAsync("Http.Authentication", $"Error occurred while validating => {ex.Message}", ex)
 				).ConfigureAwait(false);
 			}
@@ -638,7 +656,7 @@ namespace net.vieapps.Services.Portals
 				url = url.Left(url.Length - 1);
 			url += "/home?redirect=" + $"/portals/initializer?x-request={("{\"SystemID\":\"" + systemID + "\"}").Url64Encode()}".Url64Encode();
 			context.Redirect(url);
-			await context.FlushAsync(Global.CancellationTokenSource.Token).ConfigureAwait(false);
+			await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
 		}
 
 		async Task ProcessLogOutRequestAsync(HttpContext context)
@@ -659,7 +677,7 @@ namespace net.vieapps.Services.Portals
 						{ "Signature", $"x-session-temp-token-{correlationID}".GetHMACSHA256(Global.ValidationKey) }
 					},
 					CorrelationID = correlationID
-				}, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+				}, Global.CancellationToken).ConfigureAwait(false);
 
 				await context.SignOutAsync().ConfigureAwait(false);
 				context.User = new UserPrincipal();
@@ -695,7 +713,7 @@ namespace net.vieapps.Services.Portals
 						{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
 					},
 					CorrelationID = correlationID
-				}, Global.CancellationTokenSource.Token).ConfigureAwait(false);
+				}, Global.CancellationToken).ConfigureAwait(false);
 
 				// prepare url for redirecting
 				var token = session.GetAuthenticateToken(payload => payload["dev"] = session.DeviceID);
@@ -704,7 +722,7 @@ namespace net.vieapps.Services.Portals
 					redirectUrl = context.GetReferUrl();
 				redirectUrl += (redirectUrl.IndexOf("?") < 0 ? "?" : "&") + $"x-passport-token={token}";
 				context.Redirect(redirectUrl);
-				await context.FlushAsync(Global.CancellationTokenSource.Token).ConfigureAwait(false);
+				await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
