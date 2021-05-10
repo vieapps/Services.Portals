@@ -773,45 +773,20 @@ namespace net.vieapps.Services.Portals
 		internal static Task WriteLogAsync(string correlationID, string log, CancellationToken cancellationToken = default, string objectName = null)
 			=> Utility.LoggingService.WriteLogAsync(correlationID ?? UtilityService.NewUUID, null, null, ServiceBase.ServiceComponent.ServiceName, objectName ?? "Notifications", log, null, cancellationToken);
 
-		/// <summary>
-		/// Runs this task and forget its
-		/// </summary>
-		/// <param name="task"></param>
-		/// <param name="onSuccess"></param>
-		/// <param name="onFailure"></param>
-		internal static void Run(this Task task, System.Action onSuccess = null, Action<Exception> onFailure = null)
-			=> Task.Run(async () => await task.ConfigureAwait(false), Utility.CancellationToken)
-			.ContinueWith(async result =>			
-			{
-				var ex = result.Exception != null ? result.Exception.InnerException ?? result.Exception : null;
-				if (ex == null)
-					onSuccess?.Invoke();
-				else
-				{
-					onFailure?.Invoke(ex);
-					Utility.Logger.LogError($"Error occurred while running a forgetable task => {ex.Message}", ex);
-					await Utility.LoggingService.WriteLogAsync(null, null, null, ServiceBase.ServiceComponent.ServiceName, "Tasks", $"Error occurred while running a forgetable task => {ex.Message}", ex.GetStack(), ServiceBase.ServiceComponent.CancellationToken).ConfigureAwait(false);
-				}
-			}, Utility.CancellationToken, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default)
-			.ConfigureAwait(false);
-
 		internal static string MinifyJs(this string data)
 			=> Minifier.MinifyJs(data);
 
 		internal static string MinifyCss(this string data)
 			=> Minifier.MinifyCss(data);
 
-		internal static string MinifyHtml(this string data, string correlationID)
+		internal static string MinifyHtml(this string data)
 		{
 			var html = data;
 			try
 			{
 				html = UtilityService.RemoveWhitespaces(data);
 			}
-			catch (Exception ex)
-			{
-				Utility.WriteLogAsync(correlationID, $"Error occurred while removing white-spaces of HTML code => {ex.Message}\r\n{ex.StackTrace}", ServiceBase.ServiceComponent.CancellationToken, "Minifier").Run();
-			}
+			catch { }
 			return html.Replace("\r", "").Replace("\n\t", "").Replace("\t", "").Replace("> <", "><").Replace(" >", ">").Replace(" />", "/>");
 		}
 

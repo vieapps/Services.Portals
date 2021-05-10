@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Portals
 			{
 				ExpressionProcessor.Expressions[expression.ID] = expression;
 				if (updateCache)
-					Utility.Cache.SetAsync(expression, Utility.CancellationToken).Run();
+					Utility.Cache.Set(expression);
 			}
 			return expression;
 		}

@@ -193,7 +193,7 @@ namespace net.vieapps.Services.Portals
 			{
 				this._children = categories ?? (this.SystemID ?? "").FindCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
 				this._childrenIDs = this._children?.Where(category => category != null).Select(category => category.ID).ToList() ?? new List<string>();
-				Utility.Cache.AddSetMembersAsync(this.ContentType.ObjectCacheKeys, this._children?.Where(category => category != null).Select(category => category.GetCacheKey()), Utility.CancellationToken).Run();
+				Utility.Cache.AddSetMembers(this.ContentType.ObjectCacheKeys, this._children?.Where(category => category != null).Select(category => category.GetCacheKey()));
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("Childrens");
 			}
@@ -257,7 +257,7 @@ namespace net.vieapps.Services.Portals
 					Data = this.ToJson(false, false),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
-				this.SetAsync(false, true, Utility.CancellationToken).Run();
+				this.Set(false, true);
 			}
 		}
 

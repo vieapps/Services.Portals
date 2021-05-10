@@ -40,7 +40,7 @@ namespace net.vieapps.Services.Portals
 				CategoryProcessor.CategoriesByAlias[$"{category.RepositoryEntityID}:{category.Alias}"] = category;
 
 				if (updateCache)
-					Utility.Cache.SetAsync(category, Utility.CancellationToken).Run();
+					Utility.Cache.Set(category);
 			}
 			return category;
 		}

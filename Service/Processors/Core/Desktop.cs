@@ -84,7 +84,7 @@ namespace net.vieapps.Services.Portals
 					});
 
 				if (updateCache)
-					Utility.Cache.SetAsync(desktop, Utility.CancellationToken).Run();
+					Utility.Cache.Set(desktop);
 			}
 			return desktop;
 		}

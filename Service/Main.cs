@@ -183,7 +183,7 @@ namespace net.vieapps.Services.Portals
 
 				// refine thumbnail images
 				if (args?.FirstOrDefault(arg => arg.IsEquals("/refine-thumbnails")) != null)
-					this.RefineThumbnailImagesAsync().Run();
+					Task.Run(async () => await this.RefineThumbnailImagesAsync().ConfigureAwait(false)).ConfigureAwait(false);
 
 				// invoke next action
 				next?.Invoke(this);
@@ -303,245 +303,246 @@ namespace net.vieapps.Services.Portals
 		{
 			var stopwatch = Stopwatch.StartNew();
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
-			try
-			{
-				string mode;
-				JToken json = null;
-				Organization organization;
-				switch (requestInfo.ObjectName.ToLower())
+			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
+				try
 				{
+					string mode;
+					JToken json = null;
+					Organization organization;
+					switch (requestInfo.ObjectName.ToLower())
+					{
 
-					#region process the request of Portals objects
-					case "organization":
-					case "core.organization":
-						json = await this.ProcessOrganizationAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						#region process the request of Portals objects
+						case "organization":
+						case "core.organization":
+							json = await this.ProcessOrganizationAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "role":
-					case "core.role":
-						json = await this.ProcessRoleAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "role":
+						case "core.role":
+							json = await this.ProcessRoleAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "site":
-					case "core.site":
-						json = await this.ProcessSiteAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "site":
+						case "core.site":
+							json = await this.ProcessSiteAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "desktop":
-					case "core.desktop":
-						json = await this.ProcessDesktopAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "desktop":
+						case "core.desktop":
+							json = await this.ProcessDesktopAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "portlet":
-					case "core.portlet":
-						json = await this.ProcessPortletAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "portlet":
+						case "core.portlet":
+							json = await this.ProcessPortletAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "module":
-					case "core.module":
-						json = await this.ProcessModuleAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "module":
+						case "core.module":
+							json = await this.ProcessModuleAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "contenttype":
-					case "content.type":
-					case "content-type":
-					case "core.contenttype":
-					case "core.content.type":
-						json = await this.ProcessContentTypeAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "contenttype":
+						case "content.type":
+						case "content-type":
+						case "core.contenttype":
+						case "core.content.type":
+							json = await this.ProcessContentTypeAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "expression":
-					case "core.expression":
-						json = await this.ProcessExpressionAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
-					#endregion
+						case "expression":
+						case "core.expression":
+							json = await this.ProcessExpressionAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
+						#endregion
 
-					#region process the request of CMS objects
-					case "category":
-					case "cms.category":
-						json = await this.ProcessCategoryAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						#region process the request of CMS objects
+						case "category":
+						case "cms.category":
+							json = await this.ProcessCategoryAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "content":
-					case "cms.content":
-						json = await this.ProcessContentAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "content":
+						case "cms.content":
+							json = await this.ProcessContentAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "item":
-					case "cms.item":
-						json = await this.ProcessItemAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "item":
+						case "cms.item":
+							json = await this.ProcessItemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "link":
-					case "cms.link":
-						json = await this.ProcessLinkAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
-					#endregion
+						case "link":
+						case "cms.link":
+							json = await this.ProcessLinkAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
+						#endregion
 
-					#region process request of Portals HTTP service
-					case "identify.system":
-						json = await this.IdentifySystemAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						#region process request of Portals HTTP service
+						case "identify.system":
+							json = await this.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "process.http.request":
-						json = await this.ProcessHttpRequestAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
-					#endregion
+						case "process.http.request":
+							json = await this.ProcessHttpRequestAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
+						#endregion
 
-					#region process the request of definitions, instructions, files, profiles and all known others
-					case "definitions":
-						mode = requestInfo.GetQueryParameter("mode");
-						switch (requestInfo.GetObjectIdentity())
-						{
-							case "moduledefinitions":
-							case "module.definitions":
-							case "module-definitions":
-								json = Utility.ModuleDefinitions.Values.OrderBy(definition => definition.Title).ToJArray();
-								break;
+						#region process the request of definitions, instructions, files, profiles and all known others
+						case "definitions":
+							mode = requestInfo.GetQueryParameter("mode");
+							switch (requestInfo.GetObjectIdentity())
+							{
+								case "moduledefinitions":
+								case "module.definitions":
+								case "module-definitions":
+									json = Utility.ModuleDefinitions.Values.OrderBy(definition => definition.Title).ToJArray();
+									break;
 
-							case "social":
-							case "socials":
-								json = UtilityService.GetAppSetting("Portals:Socials", "Facebook,Twitter").ToArray().ToJArray();
-								break;
+								case "social":
+								case "socials":
+									json = UtilityService.GetAppSetting("Portals:Socials", "Facebook,Twitter").ToArray().ToJArray();
+									break;
 
-							case "tracking":
-							case "trackings":
-								json = UtilityService.GetAppSetting("Portals:Trackings", "GoogleAnalytics,FacebookPixel").ToArray().ToJArray();
-								break;
+								case "tracking":
+								case "trackings":
+									json = UtilityService.GetAppSetting("Portals:Trackings", "GoogleAnalytics,FacebookPixel").ToArray().ToJArray();
+									break;
 
-							case "theme":
-							case "themes":
-								json = await this.GetThemesAsync(cancellationToken).ConfigureAwait(false);
-								break;
+								case "theme":
+								case "themes":
+									json = await this.GetThemesAsync(cts.Token).ConfigureAwait(false);
+									break;
 
-							case "template":
-								json = await this.ProcessTemplateAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-								break;
+								case "template":
+									json = await this.ProcessTemplateAsync(requestInfo, cts.Token).ConfigureAwait(false);
+									break;
 
-							case "organization":
-							case "core.organization":
-								json = this.GenerateFormControls<Organization>();
-								break;
+								case "organization":
+								case "core.organization":
+									json = this.GenerateFormControls<Organization>();
+									break;
 
-							case "site":
-							case "core.site":
-								json = this.GenerateFormControls<Site>();
-								break;
+								case "site":
+								case "core.site":
+									json = this.GenerateFormControls<Site>();
+									break;
 
-							case "role":
-							case "core.role":
-								json = this.GenerateFormControls<Role>();
-								break;
+								case "role":
+								case "core.role":
+									json = this.GenerateFormControls<Role>();
+									break;
 
-							case "desktop":
-							case "core.desktop":
-								json = this.GenerateFormControls<Desktop>();
-								break;
+								case "desktop":
+								case "core.desktop":
+									json = this.GenerateFormControls<Desktop>();
+									break;
 
-							case "portlet":
-							case "core.portlet":
-								json = this.GenerateFormControls<Portlet>();
-								break;
+								case "portlet":
+								case "core.portlet":
+									json = this.GenerateFormControls<Portlet>();
+									break;
 
-							case "module":
-							case "core.module":
-								json = this.GenerateFormControls<Module>();
-								break;
+								case "module":
+								case "core.module":
+									json = this.GenerateFormControls<Module>();
+									break;
 
-							case "contenttype":
-							case "content.type":
-							case "content-type":
-							case "core.contenttype":
-							case "core.content.type":
-								json = this.GenerateFormControls<ContentType>();
-								break;
+								case "contenttype":
+								case "content.type":
+								case "content-type":
+								case "core.contenttype":
+								case "core.content.type":
+									json = this.GenerateFormControls<ContentType>();
+									break;
 
-							case "expression":
-							case "core.expression":
-								json = this.GenerateFormControls<Expression>();
-								break;
+								case "expression":
+								case "core.expression":
+									json = this.GenerateFormControls<Expression>();
+									break;
 
-							case "category":
-							case "cms.category":
-								json = this.GenerateFormControls<Category>(requestInfo.GetParameter("x-content-type-id"));
-								break;
+								case "category":
+								case "cms.category":
+									json = this.GenerateFormControls<Category>(requestInfo.GetParameter("x-content-type-id"));
+									break;
 
-							case "content":
-							case "cms.content":
-								json = this.GenerateFormControls<Content>(requestInfo.GetParameter("x-content-type-id"));
-								break;
+								case "content":
+								case "cms.content":
+									json = this.GenerateFormControls<Content>(requestInfo.GetParameter("x-content-type-id"));
+									break;
 
-							case "item":
-							case "cms.item":
-								json = this.GenerateFormControls<Item>(requestInfo.GetParameter("x-content-type-id"));
-								break;
+								case "item":
+								case "cms.item":
+									json = this.GenerateFormControls<Item>(requestInfo.GetParameter("x-content-type-id"));
+									break;
 
-							case "link":
-							case "cms.link":
-								json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type-id"));
-								break;
+								case "link":
+								case "cms.link":
+									json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type-id"));
+									break;
 
-							case "contact":
-							case "utils.contact":
-								json = this.GenerateFormControls<Contact>(requestInfo.GetParameter("x-content-type-id"));
-								break;
+								case "contact":
+								case "utils.contact":
+									json = this.GenerateFormControls<Contact>(requestInfo.GetParameter("x-content-type-id"));
+									break;
 
-							default:
-								throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-						}
-						break;
+								default:
+									throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+							}
+							break;
 
-					case "instructions":
-						mode = requestInfo.Extra != null && requestInfo.Extra.ContainsKey("mode") ? requestInfo.Extra["mode"].GetCapitalizedFirstLetter() : null;
-						organization = mode != null ? await (requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("active-id") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) : null;
-						json = new JObject
+						case "instructions":
+							mode = requestInfo.Extra != null && requestInfo.Extra.ContainsKey("mode") ? requestInfo.Extra["mode"].GetCapitalizedFirstLetter() : null;
+							organization = mode != null ? await (requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("active-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false) : null;
+							json = new JObject
 						{
 							{ "Message", organization != null && organization.Instructions != null && organization.Instructions.ContainsKey(mode) ? organization.Instructions[mode]?.ToJson() : null },
 							{ "Email", organization?.EmailSettings?.ToJson() },
 						};
-						break;
+							break;
 
-					case "files":
-					case "attachments":
-						json = await this.ProcessAttachmentFileAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "files":
+						case "attachments":
+							json = await this.ProcessAttachmentFileAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "profile":
-						break;
+						case "profile":
+							break;
 
-					case "excel":
-						json = await this.DoExcelActionAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "excel":
+							json = await this.DoExcelActionAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "cache":
-					case "caches":
-						json = await this.ClearCacheAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "cache":
+						case "caches":
+							json = await this.ClearCacheAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "approve":
-					case "approval":
-						json = await this.ApproveAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "approve":
+						case "approval":
+							json = await this.ApproveAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					case "move":
-						json = await this.MoveAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-						break;
+						case "move":
+							json = await this.MoveAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 
-					default:
-						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-						#endregion
+						default:
+							throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+							#endregion
 
+					}
+					stopwatch.Stop();
+					await this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+					if (this.IsDebugResultsEnabled)
+						await this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
+					return json;
 				}
-				stopwatch.Stop();
-				await this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
-				if (this.IsDebugResultsEnabled)
-					await this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
-				return json;
-			}
-			catch (Exception ex)
-			{
-				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
-			}
+				catch (Exception ex)
+				{
+					throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+				}
 		}
 
 		#region Generate form controls
@@ -750,7 +751,7 @@ namespace net.vieapps.Services.Portals
 			return themes;
 		}
 
-		async Task PrepareLanguagesAsync(CancellationToken cancellationToken = default)
+		async Task PrepareLanguagesAsync(CancellationToken cancellationToken)
 		{
 			var correlationID = UtilityService.NewUUID;
 			Utility.Languages.Clear();
@@ -774,7 +775,7 @@ namespace net.vieapps.Services.Portals
 				await this.WriteLogsAsync(correlationID, $"Gathering i18n language resources successful => {Utility.Languages.Select(kvp => kvp.Key).Join(" - ")}", null, this.ServiceName, "CMS.Portals", LogLevel.Debug).ConfigureAwait(false);
 		}
 
-		async Task GetOEmbedProvidersAsync(CancellationToken cancellationToken = default)
+		async Task GetOEmbedProvidersAsync(CancellationToken cancellationToken)
 		{
 			var correlationID = UtilityService.NewUUID;
 			try
@@ -1127,7 +1128,7 @@ namespace net.vieapps.Services.Portals
 				return Task.FromException<JToken>(new MethodNotAllowedException(requestInfo.Verb));
 		}
 
-		async Task<JToken> ProcessTemplateAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		async Task<JToken> ProcessTemplateAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var request = requestInfo.GetRequestExpando();
 			if ("Zones".IsEquals(request.Get<string>("Mode")))
@@ -1152,7 +1153,7 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		async Task<JToken> IdentifySystemAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		async Task<JToken> IdentifySystemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			string host;
 			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
@@ -1175,7 +1176,7 @@ namespace net.vieapps.Services.Portals
 				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(requestInfo.Header.TryGetValue("x-host", out host) && !string.IsNullOrWhiteSpace(host) ? host : "unknown")})");
 		}
 
-		Task<JToken> ProcessHttpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		Task<JToken> ProcessHttpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 			=> requestInfo.Query.ContainsKey("x-indicator")
 				? this.ProcessHttpIndicatorRequestAsync(requestInfo, cancellationToken)
 				: requestInfo.Query.ContainsKey("x-resource")
@@ -1205,7 +1206,7 @@ namespace net.vieapps.Services.Portals
 		string BodyEncoding => UtilityService.GetAppSetting("Portals:Desktops:Body:Encoding", "br");
 #endif
 
-		async Task<JToken> ProcessHttpIndicatorRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		async Task<JToken> ProcessHttpIndicatorRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process HTTP indicator => {requestInfo.GetHeaderParameter("x-url")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
@@ -1231,7 +1232,7 @@ namespace net.vieapps.Services.Portals
 				: throw new InformationNotFoundException();
 		}
 
-		async Task<JToken> ProcessHttpResourceRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		async Task<JToken> ProcessHttpResourceRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process HTTP resource => {requestInfo.GetHeaderParameter("x-url")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
@@ -1286,7 +1287,7 @@ namespace net.vieapps.Services.Portals
 						? "css"
 						: paths[1].IsStartsWith("js") || paths[1].IsStartsWith("javascript") || paths[1].IsStartsWith("script")
 							? "js"
-							:  paths[1].IsStartsWith("img") || paths[1].IsStartsWith("image") ? "images" : paths[1].IsStartsWith("font") ? "fonts" : ""
+							: paths[1].IsStartsWith("img") || paths[1].IsStartsWith("image") ? "images" : paths[1].IsStartsWith("font") ? "fonts" : ""
 					: "";
 				if (type.IsEquals("images") || type.IsEquals("fonts"))
 					filePath = paths?.Join("/");
@@ -1691,7 +1692,7 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Process desktop requests of Portals HTTP service
-		async Task<JToken> ProcessHttpDesktopRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		async Task<JToken> ProcessHttpDesktopRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare required information
 			var organizationIdentity = requestInfo.GetParameter("x-system");
@@ -2161,7 +2162,7 @@ namespace net.vieapps.Services.Portals
 
 				// minify
 				html = html.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/").Trim();
-				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml(requestInfo.CorrelationID) : html;
+				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
 
 				// prepare caching
 				if (processCache && !portletHtmls.Values.Any(data => data.Item2))

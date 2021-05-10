@@ -298,7 +298,7 @@ namespace net.vieapps.Services.Portals
 					Data = this.ToJson(false, false),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
-				this.SetAsync(false, true, Utility.CancellationToken).Run();
+				this.Set(false, true);
 			}
 		}
 

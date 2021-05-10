@@ -145,14 +145,14 @@ namespace net.vieapps.Services.Portals
 					// authenticate (token is expired after 15 minutes)
 					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, 90, null, null, null, Global.Logger, "Http.Authentication", context.GetCorrelationID()).ConfigureAwait(false);
 					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Formatting.Indented)}");
+						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Formatting.Indented)}").ConfigureAwait(false);
 
 					// perform sign-in (to create authenticate ticket cookie) when the authenticate token its came from passport service
 					if (context.GetParameter("x-passport-token") != null)
 					{
 						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
 						if (Global.IsDebugLogEnabled)
-							await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})");
+							await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
 					}
 
 					// just assign user information
@@ -348,7 +348,7 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(specialRequest))
 				try
 				{
-					using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
+					using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
 					{
 						// call the Portals service to identify the system
 						if (string.IsNullOrWhiteSpace(systemIdentity) || "~indicators".IsEquals(systemIdentity))
@@ -471,7 +471,7 @@ namespace net.vieapps.Services.Portals
 						break;
 
 					case "service":
-						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationTokenSource.Token, context.RequestAborted))
+						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
 						{
 							var requestInfo = new RequestInfo(session, queryString["service-name"], queryString["object-name"], httpVerb, queryString, headers, null, extra, context.GetCorrelationID());
 							try
@@ -724,10 +724,10 @@ namespace net.vieapps.Services.Portals
 		{
 			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.Connect(
-				(sender, arguments) =>
+				async (sender, arguments) =>
 				{
 					Global.Logger.LogDebug($"Incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					Task.Run(() => Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)")).ConfigureAwait(false);
+					await Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("messages.services.portals")
@@ -780,24 +780,20 @@ namespace net.vieapps.Services.Portals
 							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
 						);
 				},
-				(sender, arguments) =>
+				async (sender, arguments) =>
 				{
 					Global.Logger.LogDebug($"Outgoing channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					Task.Run(async () =>
+					await Router.OutgoingChannel.UpdateAsync(Router.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
+					try
 					{
-						await Router.OutgoingChannel.UpdateAsync(Router.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
-						try
-						{
-							await Global.InitializeLoggingServiceAsync().ConfigureAwait(false);
-							Global.Logger.LogInformation("The logging service are succesfully initialized");
-						}
-						catch (Exception ex)
-						{
-							Global.Logger.LogError($"Error occurred while initializing the logging service: {ex.Message}", ex);
-						}
-					})
-					.ContinueWith(async task => await Global.RegisterServiceAsync().ConfigureAwait(false), TaskContinuationOptions.OnlyOnRanToCompletion)
-					.ConfigureAwait(false);
+						await Global.InitializeLoggingServiceAsync().ConfigureAwait(false);
+						Global.Logger.LogInformation("The logging service is succesfully initialized");
+					}
+					catch (Exception ex)
+					{
+						Global.Logger.LogError($"Error occurred while initializing the logging service => {ex.Message}", ex);
+					}
+					await Global.RegisterServiceAsync().ConfigureAwait(false);
 				},
 				waitingTimes
 			);

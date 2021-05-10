@@ -63,7 +63,7 @@ namespace net.vieapps.Services.Portals
 					});
 
 				if (updateCache)
-					Utility.Cache.SetAsync(site, Utility.CancellationToken).Run();
+					Utility.Cache.Set(site);
 			}
 			return site;
 		}

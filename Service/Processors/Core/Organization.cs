@@ -52,7 +52,7 @@ namespace net.vieapps.Services.Portals
 				Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
 
 				if (updateCache)
-					Utility.Cache.SetAsync(organization, Utility.CancellationToken).Run();
+					Utility.Cache.Set(organization);
 			}
 			return organization;
 		}

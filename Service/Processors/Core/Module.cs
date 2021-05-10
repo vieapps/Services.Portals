@@ -33,11 +33,9 @@ namespace net.vieapps.Services.Portals
 			if (module != null && !string.IsNullOrWhiteSpace(module.ID) && !string.IsNullOrWhiteSpace(module.Title))
 			{
 				ModuleProcessor.Modules[module.ID] = module;
+				module.RepositoryDefinition?.Register(module);
 				if (updateCache)
-					Utility.Cache.SetAsync(module, Utility.CancellationToken).Run();
-				var definition = module.RepositoryDefinition;
-				if (definition != null)
-					definition.Register(module);
+					Utility.Cache.Set(module);
 			}
 			return module;
 		}
