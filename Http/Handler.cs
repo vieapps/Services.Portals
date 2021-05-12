@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using WampSharp.V2.Client;
 using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
@@ -43,6 +44,8 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		RequestDelegate Next { get; }
+
+		int RequestTimeout { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:RequestTimeout", "13"), out var timeout) && timeout > 0 ? timeout : 13;
 
 		public Handler(RequestDelegate next)
 			=> this.Next = next;
@@ -350,79 +353,79 @@ namespace net.vieapps.Services.Portals
 				var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID());
 				try
 				{
-					using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
+					using var timeoutCTS = new CancellationTokenSource(TimeSpan.FromSeconds(this.RequestTimeout));
+					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, timeoutCTS.Token, context.RequestAborted);
+
+					// call the Portals service to identify the system
+					if (string.IsNullOrWhiteSpace(systemIdentity) || "~indicators".IsEquals(systemIdentity))
 					{
-						// call the Portals service to identify the system
-						if (string.IsNullOrWhiteSpace(systemIdentity) || "~indicators".IsEquals(systemIdentity))
-						{
-							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-							queryString["x-system"] = systemIdentityJson?.Get<string>("Alias");
-						}
+						systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+						queryString["x-system"] = systemIdentityJson?.Get<string>("Alias");
+					}
 
-						// request of portal desktops/resources
-						if (string.IsNullOrWhiteSpace(legacyRequest))
-						{
-							// call Portals service to process the request
-							requestInfo = new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID());
-							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+					// request of portal desktops/resources
+					if (string.IsNullOrWhiteSpace(legacyRequest))
+					{
+						// call Portals service to process the request
+						requestInfo = new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID());
+						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
 
-							// write headers
-							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
+						// write headers
+						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
 
-							// write body
-							var body = response.Get<string>("Body");
-							if (body != null)
-								await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "deflate")), cts.Token).ConfigureAwait(false);
-						}
+						// write body
+						var body = response.Get<string>("Body");
+						if (body != null)
+							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "deflate")), cts.Token).ConfigureAwait(false);
+					}
 
-						// request of legacy system (files and medias)
+					// request of legacy system (files and medias)
+					else
+					{
+						systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+						var requestSegments = legacyRequest.ToArray("/").ToList();
+
+						if (requestSegments[0].IsEquals("Download.ashx") || requestSegments[0].IsEquals("Download.aspx"))
+							requestSegments[0] = "downloads";
 						else
 						{
-							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-							var requestSegments = legacyRequest.ToArray("/").ToList();
-
-							if (requestSegments[0].IsEquals("Download.ashx") || requestSegments[0].IsEquals("Download.aspx"))
-								requestSegments[0] = "downloads";
-							else
-							{
-								requestSegments[0] = requestSegments[0].IsEquals("File.ashx") || requestSegments[0].IsEquals("File.aspx") || requestSegments[0].IsEquals("Image.ashx") || requestSegments[0].IsEquals("Image.aspx")
-									? "files"
-									: requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").ToLower() + "s";
-								if (!requestSegments[1].IsValidUUID())
-									requestSegments.Insert(1, systemIdentityJson?.Get<string>("ID"));
-							}
-
-							if (requestSegments[0].IsEquals("files") && requestSegments[3].Contains("-") && requestSegments[3].Length > 32)
-							{
-								var id = requestSegments[3].Left(32);
-								var filename = requestSegments[3].Right(requestSegments[3].Length - 33);
-								requestSegments[3] = id;
-								requestSegments.Insert(4, filename);
-								requestSegments = requestSegments.Take(5).ToList();
-							}
-
-							else if (requestSegments[0].IsStartsWith("thumbnail") && requestSegments[5].Contains("-") && requestSegments[5].Length > 32)
-							{
-								var id = requestSegments[5].Left(32);
-								var filename = requestSegments[5].Right(requestSegments[5].Length - 33);
-								requestSegments[5] = id;
-								requestSegments.Insert(6, filename);
-								requestSegments = requestSegments.Take(7).ToList();
-							}
-
-							var filesHttpURI = systemIdentityJson?.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
-							while (filesHttpURI.IsEndsWith("/"))
-								filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1).Trim();
-
-							context.SetResponseHeaders((int)HttpStatusCode.MovedPermanently, new Dictionary<string, string>
-							{
-								["Location"] = $"{filesHttpURI}/{requestSegments.Join("/")}"
-							}); ;
+							requestSegments[0] = requestSegments[0].IsEquals("File.ashx") || requestSegments[0].IsEquals("File.aspx") || requestSegments[0].IsEquals("Image.ashx") || requestSegments[0].IsEquals("Image.aspx")
+								? "files"
+								: requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").ToLower() + "s";
+							if (!requestSegments[1].IsValidUUID())
+								requestSegments.Insert(1, systemIdentityJson?.Get<string>("ID"));
 						}
 
-						// flush the response stream as final step
-						await context.FlushAsync(cts.Token).ConfigureAwait(false);
+						if (requestSegments[0].IsEquals("files") && requestSegments[3].Contains("-") && requestSegments[3].Length > 32)
+						{
+							var id = requestSegments[3].Left(32);
+							var filename = requestSegments[3].Right(requestSegments[3].Length - 33);
+							requestSegments[3] = id;
+							requestSegments.Insert(4, filename);
+							requestSegments = requestSegments.Take(5).ToList();
+						}
+
+						else if (requestSegments[0].IsStartsWith("thumbnail") && requestSegments[5].Contains("-") && requestSegments[5].Length > 32)
+						{
+							var id = requestSegments[5].Left(32);
+							var filename = requestSegments[5].Right(requestSegments[5].Length - 33);
+							requestSegments[5] = id;
+							requestSegments.Insert(6, filename);
+							requestSegments = requestSegments.Take(7).ToList();
+						}
+
+						var filesHttpURI = systemIdentityJson?.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
+						while (filesHttpURI.IsEndsWith("/"))
+							filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1).Trim();
+
+						context.SetResponseHeaders((int)HttpStatusCode.MovedPermanently, new Dictionary<string, string>
+						{
+							["Location"] = $"{filesHttpURI}/{requestSegments.Join("/")}"
+						}); ;
 					}
+
+					// flush the response stream as final step
+					await context.FlushAsync(cts.Token).ConfigureAwait(false);
 				}
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
@@ -747,7 +750,7 @@ namespace net.vieapps.Services.Portals
 					Global.Logger.LogDebug($"Incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
 					await Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
+					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel?.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("messages.services.portals")
 						.Subscribe(
 							async message =>
@@ -771,7 +774,7 @@ namespace net.vieapps.Services.Portals
 							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
 						);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services
+					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel?.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("messages.services.apigateway")
 						.Subscribe(
 							async message =>

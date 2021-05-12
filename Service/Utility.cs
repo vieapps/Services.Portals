@@ -38,6 +38,8 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static ILogger Logger { get; internal set; }
 
+		internal static ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>> Logs { get; } = new ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>>();
+
 		internal static bool WriteMessageLogs => Utility.Logger.IsEnabled(LogLevel.Debug) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false"));
 
 		internal static bool Preload => "true".IsEquals(UtilityService.GetAppSetting("Portals:Preload", "true"));
@@ -450,10 +452,13 @@ namespace net.vieapps.Services.Portals
 					if (urlEnd < 0)
 						urlEnd = image.IndexOf("'", urlStart + 1);
 
-					var url = image.Substring(urlStart, urlEnd - urlStart);
-					var webpURL = url.IsContains("image=svg") ? url : url.GetWebpImageURL();
-					if (!url.IsEquals(webpURL))
-						image = $"<picture><source srcset=\"{webpURL}\"/>{image}</picture>";
+					if (urlEnd > 0)
+					{
+						var url = image.Substring(urlStart, urlEnd - urlStart);
+						var webpURL = url.IsContains("image=svg") ? url : url.GetWebpImageURL();
+						if (!url.IsEquals(webpURL))
+							image = $"<picture><source srcset=\"{webpURL}\"/>{image}</picture>";
+					}
 
 					html = html.Substring(0, start) + image + html.Substring(end);
 					offset = image.Length;
@@ -743,8 +748,6 @@ namespace net.vieapps.Services.Portals
 				}
 			}, cancellationToken);
 
-		static ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>> Logs { get; } = new ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>>();
-
 		internal static Task WriteLogsAsync(string developerID, string appID, string objectName, List<string> logs, Exception exception = null, string correlationID = null, string additional = null)
 		{
 			// prepare
@@ -774,7 +777,7 @@ namespace net.vieapps.Services.Portals
 
 			// update queue & write to centerlized logs
 			Utility.Logs.Enqueue(new Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>(new Tuple<DateTime, string, string, string, string, string>(DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.ServiceName, objectName), logs, stack));
-			return Utility.LoggingService.WriteLogsAsync(Utility.Logs, null, Utility.Logger, Utility.CancellationToken);
+			return Utility.LoggingService.WriteLogsAsync(Utility.Logs, null, Utility.CancellationToken);
 		}
 
 		internal static Task WriteErrorAsync(this RequestInfo requestInfo, Exception exception, CancellationToken cancellationToken = default, string message = null, string objectName = null, string additionnal = null)
