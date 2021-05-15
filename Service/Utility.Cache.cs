@@ -82,7 +82,7 @@ namespace net.vieapps.Services.Portals
 			path = path.IsStartsWith($"/~{organization.Alias}") ? path.Right(path.Length - organization.Alias.Length - 2) : path;
 			path = (path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path).ToLower();
 			path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
-			return $"{organization.ID}:" + ("-default".IsEquals(desktopAlias) ? desktopAlias : path).GenerateUUID();
+			return $"{organization.ID}:" + (desktopAlias.IsEquals("-default") || desktopAlias.IsEquals(organization.HomeDesktop?.Alias) ? "-default" : path).GenerateUUID();
 		}
 
 		/// <summary>
@@ -113,7 +113,7 @@ namespace net.vieapps.Services.Portals
 			if (organization.Sites != null && organization.Sites.Count > 0)
 				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey("https://site.vieapps.net/"))).ToList();
 			cacheKeys = cacheKeys.Where(cacheKey => cacheKey != null).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			return cacheKeys.Concat(cacheKeys.Select(cacheKey => new[] { $"{cacheKey}:time", $"{cacheKey}:expiration" }).SelectMany(keys => keys)).ToList();
+			return cacheKeys.Concat(cacheKeys.Select(cacheKey => new[] { $"{cacheKey}:time", $"{cacheKey}:html", $"{cacheKey}:expiration" }).SelectMany(keys => keys)).ToList();
 		}
 
 		/// <summary>

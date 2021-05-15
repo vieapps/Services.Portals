@@ -14,7 +14,6 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using WampSharp.V2.Client;
 using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
@@ -26,8 +25,9 @@ namespace net.vieapps.Services.Portals
 {
 	public class Handler
 	{
+		public Handler(RequestDelegate _) { }
 
-		#region Static properties
+		#region Properties
 		static HashSet<string> Initializers { get; } = "_initializer,initializer.aspx,initializer.ashx".ToHashSet();
 
 		static HashSet<string> Validators { get; } = "_validator,validator.aspx,validator.ashx".ToHashSet();
@@ -41,14 +41,21 @@ namespace net.vieapps.Services.Portals
 		static string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
 		internal static Components.WebSockets.WebSocket WebSocket { get; private set; }
+		internal static string NodeName => Extensions.GetUniqueName(Global.ServiceName + ".http");
+
+		internal static bool RedirectToPassportOnUnauthorized => "true".IsEquals(UtilityService.GetAppSetting("Portals:RedirectToPassportOnUnauthorized", "true"));
+
+		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop").ToList();
+
+		internal static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
+
+		internal static string RefresherRefererURL => "https://portals.vieapps.net/~url.refresher";
+
+		internal static int RequestTimeout { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:RequestTimeout", "13"), out var timeout) && timeout > 0 ? timeout : 13;
+
+		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
+			=> Task.CompletedTask;
 		#endregion
-
-		RequestDelegate Next { get; }
-
-		int RequestTimeout { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:RequestTimeout", "13"), out var timeout) && timeout > 0 ? timeout : 13;
-
-		public Handler(RequestDelegate next)
-			=> this.Next = next;
 
 		public async Task Invoke(HttpContext context)
 		{
@@ -83,20 +90,9 @@ namespace net.vieapps.Services.Portals
 				else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancingHealthCheckUrl))
 					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
 
-				// process portals' requests and invoke next middleware
+				// process portals' requests
 				else
-				{
 					await this.ProcessRequestAsync(context).ConfigureAwait(false);
-					try
-					{
-						await this.Next.Invoke(context).ConfigureAwait(false);
-					}
-					catch (InvalidOperationException) { }
-					catch (Exception ex)
-					{
-						Global.Logger.LogCritical($"Error occurred while invoking the next middleware => {ex.Message}", ex);
-					}
-				}
 			}
 		}
 
@@ -128,6 +124,7 @@ namespace net.vieapps.Services.Portals
 		async Task ProcessPortalRequestAsync(HttpContext context)
 		{
 			// prepare session information
+			var correlationID = context.GetCorrelationID();
 			var header = context.Request.Headers.ToDictionary();
 			var session = context.GetSession();
 
@@ -146,7 +143,7 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					// authenticate (token is expired after 15 minutes)
-					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, 90, null, null, null, Global.Logger, "Http.Authentication", context.GetCorrelationID()).ConfigureAwait(false);
+					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, 90, null, null, null, Global.Logger, "Http.Authentication", correlationID).ConfigureAwait(false);
 					if (Global.IsDebugLogEnabled)
 						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Formatting.Indented)}").ConfigureAwait(false);
 
@@ -193,7 +190,7 @@ namespace net.vieapps.Services.Portals
 			var legacyRequest = string.Empty;
 			var queryString = context.Request.QueryString.ToDictionary(query =>
 			{
-				var pathSegments = context.GetRequestPathSegments().Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx")).ToArray();
+				var pathSegments = context.GetRequestPathSegments().Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx") && !segment.IsEquals("index.aspx") && !segment.IsEquals("index.php")).ToArray();
 				var requestSegments = pathSegments;
 
 				// special parameters (like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity)
@@ -345,16 +342,16 @@ namespace net.vieapps.Services.Portals
 				dictionary["x-environment-is-mobile"] = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
 				dictionary["x-environment-os-info"] = (session.AppAgent ?? "").GetOSInfo();
 			});
+			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
 
 			// process the request
 			JObject systemIdentityJson = null;
 			if (string.IsNullOrWhiteSpace(specialRequest))
 			{
-				var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID());
 				try
 				{
-					using var timeoutCTS = new CancellationTokenSource(TimeSpan.FromSeconds(this.RequestTimeout));
-					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, timeoutCTS.Token, context.RequestAborted);
+					using var ctsrc = new CancellationTokenSource(TimeSpan.FromSeconds(Handler.RequestTimeout));
+					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, ctsrc.Token, context.RequestAborted);
 
 					// call the Portals service to identify the system
 					if (string.IsNullOrWhiteSpace(systemIdentity) || "~indicators".IsEquals(systemIdentity))
@@ -366,14 +363,161 @@ namespace net.vieapps.Services.Portals
 					// request of portal desktops/resources
 					if (string.IsNullOrWhiteSpace(legacyRequest))
 					{
+						// working with cache
+						if (!Handler.RefresherRefererURL.IsEquals(context.GetReferUrl()))
+						{
+							var cacheKey = "";
+							var cacheKeyOfLastModified = "";
+							var eTag = "";
+							var contentType = "text/html";
+							var expires = DateTime.Now.AddMinutes(13);
+
+							if (systemIdentity.IsEquals("~resources"))
+							{
+								string identity = null;
+								var isThemeResource = false;
+								var path = queryString["x-path"];
+								var type = requestInfo.Query["x-resource"];
+
+								if (type.IsStartsWith("theme"))
+								{
+									isThemeResource = true;
+									var paths = path.ToList("/", true, true);
+									type = paths != null && paths.Count > 1
+										? paths[1].IsStartsWith("css")
+											? "css"
+											: paths[1].IsStartsWith("js") || paths[1].IsStartsWith("javascript") || paths[1].IsStartsWith("script")
+												? "js"
+												: paths[1].IsStartsWith("img") || paths[1].IsStartsWith("image") ? "images" : paths[1].IsStartsWith("font") ? "fonts" : ""
+										: "";
+									if (!type.IsEquals("images") && !type.IsEquals("fonts"))
+										identity = paths.Count > 0 ? paths[0] : null;
+								}
+
+								else if (type.IsStartsWith("css") || type.IsStartsWith("js") || type.IsStartsWith("javascript") || type.IsStartsWith("script"))
+								{
+									type = type.IsStartsWith("css") ? "css" : "js";
+									identity = path.Replace(StringComparison.OrdinalIgnoreCase, $".{type}", "").ToLower().Trim();
+								}
+
+								else if (type.IsEquals("assets"))
+									type = type.IsStartsWith("img") || type.IsStartsWith("image")
+										? "images"
+										: type.IsStartsWith("font") ? "fonts" : "";
+
+								cacheKey = requestURI.ToString().ToLower();
+								cacheKey = isThemeResource && (type.IsEquals("css") || type.IsEquals("js")) && !(identity.Length == 34 && identity.Right(32).IsValidUUID())
+									? $"{type}#{identity}"
+									: $"v#{(cacheKey.IndexOf("?") > 0 ? cacheKey.Left(cacheKey.IndexOf("?")) : cacheKey).GenerateUUID()}";
+								cacheKeyOfLastModified = $"{cacheKey}:time";
+								eTag = cacheKey;
+
+								if (type.IsEquals("css"))
+									contentType = "text/css";
+								else if (type.IsEquals("js"))
+									contentType = "application/javascript";
+								else if (type.IsEquals("fonts"))
+									contentType = $"font/{path.ToList(".").Last()}";
+								else if (type.IsEquals("images"))
+								{
+									contentType = path.ToList(".").Last();
+									contentType = $"image/{(contentType.IsEquals("jpg") || contentType.IsEquals("jpeg") ? "jpeg" : contentType)}";
+								}
+								expires = DateTime.Now.AddDays(366);
+							}
+
+							else if (!"~indicators".IsEquals(systemIdentity))
+							{
+								systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+								var organizationID = systemIdentityJson?.Get<string>("ID");
+								var organizationAlias = systemIdentityJson?.Get<string>("Alias");
+								var desktopAlias = queryString["x-desktop"]?.ToLower();
+								var path = requestURI.AbsolutePath;
+								path = path.IsStartsWith($"/~{organizationAlias}") ? path.Right(path.Length - organizationAlias.Length - 2) : path;
+								path = (path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path).ToLower();
+								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
+								cacheKey = $"{organizationID}:" + ("-default".IsEquals(desktopAlias) ? desktopAlias : path).GenerateUUID();
+								cacheKeyOfLastModified = $"{cacheKey}:time";
+								eTag = $"v#{cacheKey}";
+								cacheKey += ":html";
+							}
+
+							if (!string.IsNullOrWhiteSpace(cacheKey))
+							{
+								if (Global.IsDebugLogEnabled)
+									await context.WriteLogsAsync(Global.Logger, "Http", $"Process cache first [{requestURI} => {cacheKey} - {cacheKeyOfLastModified}]").ConfigureAwait(false);
+
+								// last modified
+								var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
+								if (modifiedSince != null)
+								{
+									var noneMatch = context.GetHeaderParameter("If-None-Match");
+									var lastModified = await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false);
+									if (eTag.IsEquals(noneMatch) && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
+									{
+										context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+										{
+											{ "X-Portal-Cache", "http-time" },
+											{ "X-Correlation-ID", correlationID },
+											{ "Content-Type", $"{contentType}; charset=utf-8" },
+											{ "ETag", eTag },
+											{ "Last-Modified", lastModified }
+										});
+
+										if (Global.IsDebugLogEnabled)
+											await context.WriteLogsAsync(Global.Logger, "Http", $"No need to call service because the 304 header was sent").ConfigureAwait(false);
+										return;
+									}
+								}
+
+								// cached data
+								var cached = await Handler.Cache.GetAsync<string>(cacheKey, cts.Token).ConfigureAwait(false);
+								if (!string.IsNullOrWhiteSpace(cached))
+								{
+									var lastModified = await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
+									context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+									{
+										{ "X-Portal-Cache", "http-cache" },
+										{ "X-Correlation-ID", correlationID },
+										{ "Content-Type", $"{contentType}; charset=utf-8" },
+										{ "ETag", eTag },
+										{ "Last-Modified", lastModified },
+										{ "Expires", expires.ToHttpString() },
+										{ "Cache-Control", "public" }
+									});
+
+									if (contentType.IsEquals("text/html"))
+									{
+										var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
+										var osInfo = (session.AppAgent ?? "").GetOSInfo();
+										var osMode = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os";
+										cached = cached.Format(new Dictionary<string, object>
+										{
+											["isMobile"] = isMobile,
+											["is-mobile"] = isMobile,
+											["osInfo"] = osInfo,
+											["os-info"] = osInfo,
+											["osPlatform"] = osInfo.GetANSIUri(),
+											["os-platform"] = osInfo.GetANSIUri(),
+											["osMode"] = osMode,
+											["os-mode"] = osMode,
+											["correlationID"] = correlationID,
+											["correlation-id"] = correlationID
+										});
+									}
+
+									await context.WriteAsync(cached.ToBytes(), cts.Token).ConfigureAwait(false);
+									if (Global.IsDebugLogEnabled)
+										await context.WriteLogsAsync(Global.Logger, "Http", $"No need to call service because cached data was found").ConfigureAwait(false);
+									return;
+								}
+							}
+						}
+
 						// call Portals service to process the request
-						requestInfo = new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, context.GetCorrelationID());
+						requestInfo = new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, correlationID);
 						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-
-						// write headers
 						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
-
-						// write body
 						var body = response.Get<string>("Body");
 						if (body != null)
 							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "deflate")), cts.Token).ConfigureAwait(false);
@@ -384,19 +528,22 @@ namespace net.vieapps.Services.Portals
 					{
 						systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 						var requestSegments = legacyRequest.ToArray("/").ToList();
+						if (!requestSegments.Any())
+							requestSegments.Add("");
+						var legacyHandler = requestSegments.FirstOrDefault() ?? "";
 
-						if (requestSegments[0].IsEquals("Download.ashx") || requestSegments[0].IsEquals("Download.aspx"))
+						if (legacyHandler.IsEquals("Download.ashx") || legacyHandler.IsEquals("Download.aspx"))
 							requestSegments[0] = "downloads";
 						else
 						{
-							requestSegments[0] = requestSegments[0].IsEquals("File.ashx") || requestSegments[0].IsEquals("File.aspx") || requestSegments[0].IsEquals("Image.ashx") || requestSegments[0].IsEquals("Image.aspx")
+							requestSegments[0] = legacyHandler.IsEquals("File.ashx") || legacyHandler.IsEquals("File.aspx") || legacyHandler.IsEquals("Image.ashx") || legacyHandler.IsEquals("Image.aspx")
 								? "files"
-								: requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").ToLower() + "s";
-							if (!requestSegments[1].IsValidUUID())
+								: legacyHandler.Replace(StringComparison.OrdinalIgnoreCase, ".ashx", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").ToLower() + "s";
+							if (requestSegments.Count > 0 && !requestSegments[1].IsValidUUID())
 								requestSegments.Insert(1, systemIdentityJson?.Get<string>("ID"));
 						}
 
-						if (requestSegments[0].IsEquals("files") && requestSegments[3].Contains("-") && requestSegments[3].Length > 32)
+						if (legacyHandler.IsEquals("files") && requestSegments.Count > 3 && requestSegments[3].Contains("-") && requestSegments[3].Length > 32)
 						{
 							var id = requestSegments[3].Left(32);
 							var filename = requestSegments[3].Right(requestSegments[3].Length - 33);
@@ -405,7 +552,7 @@ namespace net.vieapps.Services.Portals
 							requestSegments = requestSegments.Take(5).ToList();
 						}
 
-						else if (requestSegments[0].IsStartsWith("thumbnail") && requestSegments[5].Contains("-") && requestSegments[5].Length > 32)
+						else if (legacyHandler.IsStartsWith("thumbnail") && requestSegments.Count > 5 && requestSegments[5].Contains("-") && requestSegments[5].Length > 32)
 						{
 							var id = requestSegments[5].Left(32);
 							var filename = requestSegments[5].Right(requestSegments[5].Length - 33);
@@ -421,11 +568,8 @@ namespace net.vieapps.Services.Portals
 						context.SetResponseHeaders((int)HttpStatusCode.MovedPermanently, new Dictionary<string, string>
 						{
 							["Location"] = $"{filesHttpURI}/{requestSegments.Join("/")}"
-						}); ;
+						});
 					}
-
-					// flush the response stream as final step
-					await context.FlushAsync(cts.Token).ConfigureAwait(false);
 				}
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
@@ -439,14 +583,14 @@ namespace net.vieapps.Services.Portals
 					}
 					else
 					{
-						if (ex is WampException)
+						if (ex is WampException wampException)
 						{
-							var wampException = (ex as WampException).GetDetails(requestInfo);
-							statusCode = wampException.Item1;
-							context.ShowHttpError(statusCode: statusCode, message: wampException.Item2, type: wampException.Item3, correlationID: context.GetCorrelationID(), stack: wampException.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
+							var wampDetails = wampException.GetDetails(requestInfo);
+							statusCode = wampDetails.Item1;
+							context.ShowHttpError(statusCode: statusCode, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: correlationID, stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
 						}
 						else
-							context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
+							context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: correlationID, ex: ex, showStack: Global.IsDebugLogEnabled);
 						await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred ({statusCode}) => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 					}
 				}
@@ -465,7 +609,7 @@ namespace net.vieapps.Services.Portals
 					case "login":
 						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
 						{
-							var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, context.GetCorrelationID());
+							requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
 							try
 							{
 								systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
@@ -474,14 +618,14 @@ namespace net.vieapps.Services.Portals
 							catch (Exception ex)
 							{
 								var statusCode = ex.GetHttpStatusCode();
-								if (ex is WampException)
+								if (ex is WampException wampException)
 								{
-									var wampException = (ex as WampException).GetDetails(requestInfo);
-									statusCode = wampException.Item1;
-									context.ShowHttpError(statusCode: statusCode, message: wampException.Item2, type: wampException.Item3, correlationID: context.GetCorrelationID(), stack: wampException.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
+									var wampDetails = wampException.GetDetails(requestInfo);
+									statusCode = wampDetails.Item1;
+									context.ShowHttpError(statusCode: statusCode, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: correlationID, stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
 								}
 								else
-									context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: context.GetCorrelationID(), ex: ex, showStack: Global.IsDebugLogEnabled);
+									context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: correlationID, ex: ex, showStack: Global.IsDebugLogEnabled);
 								await context.WriteLogsAsync("Http.Authentication", $"Error occurred while logging in => {ex.Message}", ex).ConfigureAwait(false);
 							}
 						}
@@ -494,7 +638,7 @@ namespace net.vieapps.Services.Portals
 					case "service":
 						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
 						{
-							var requestInfo = new RequestInfo(session, queryString["service-name"], queryString["object-name"], httpVerb, queryString, headers, null, extra, context.GetCorrelationID());
+							requestInfo = new RequestInfo(session, queryString["service-name"], queryString["object-name"], httpVerb, queryString, headers, null, extra, correlationID);
 							try
 							{
 								await context.WriteAsync(await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Services").ConfigureAwait(false), cts.Token).ConfigureAwait(false);
@@ -509,7 +653,7 @@ namespace net.vieapps.Services.Portals
 
 					default:
 						var invalidException = new InvalidRequestException();
-						context.ShowHttpError(invalidException.GetHttpStatusCode(), invalidException.Message, invalidException.GetType().GetTypeName(true), context.GetCorrelationID(), invalidException, Global.IsDebugLogEnabled);
+						context.ShowHttpError(invalidException.GetHttpStatusCode(), invalidException.Message, invalidException.GetType().GetTypeName(true), correlationID, invalidException, Global.IsDebugLogEnabled);
 						break;
 				}
 		}
@@ -734,13 +878,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		#region Static properties and working with API Gateway Router
-		internal static string NodeName => Extensions.GetUniqueName(Global.ServiceName + ".http");
-
-		internal static bool RedirectToPassportOnUnauthorized => "true".IsEquals(UtilityService.GetAppSetting("Portals:RedirectToPassportOnUnauthorized", "true"));
-
-		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop").ToList();
-
+		#region Connect/Disconnect with API Gateway Router
 		internal static void Connect(int waitingTimes = 6789)
 		{
 			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
@@ -827,9 +965,6 @@ namespace net.vieapps.Services.Portals
 			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 			Global.Disconnect();
 		}
-
-		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
-			=> Task.CompletedTask;
 		#endregion
 
 	}

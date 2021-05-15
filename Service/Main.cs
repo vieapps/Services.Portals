@@ -37,7 +37,7 @@ namespace net.vieapps.Services.Portals
 		public ModuleDefinition GetDefinition()
 			=> new ModuleDefinition(RepositoryMediator.GetEntityDefinition<Organization>().RepositoryDefinition);
 
-		void UpdateDefinition(ModuleDefinition moduleDefinition, string correlationID = null)
+		void UpdateDefinition(ModuleDefinition moduleDefinition)
 		{
 			if (moduleDefinition != null && !string.IsNullOrWhiteSpace(moduleDefinition.ID) && !Utility.ModuleDefinitions.ContainsKey(moduleDefinition.ID))
 			{
@@ -1235,7 +1235,8 @@ namespace net.vieapps.Services.Portals
 		async Task<JToken> ProcessHttpResourceRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process HTTP resource => {requestInfo.GetHeaderParameter("x-url")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+			var uri = new Uri(requestInfo.GetParameter("x-url"));
+			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process HTTP resource => {uri}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			// get the type of the resource
 			var type = requestInfo.Query["x-resource"];
@@ -1268,20 +1269,23 @@ namespace net.vieapps.Services.Portals
 					{ "StatusCode", (int)HttpStatusCode.Redirect },
 					{ "Headers", new JObject
 						{
-							{ "Location", url.NormalizeURLs(new Uri(requestInfo.GetParameter("x-url")), organization.Alias, false) }
+							{ "Location", url.NormalizeURLs(uri, organization.Alias, false) }
 						}
 					}
 				};
 			}
 
 			// prepare required info
-			string filePath = null, identity = null;
+			string identity = null;
+			var isThemeResource = false;
+			var filePath = requestInfo.GetQueryParameter("x-path");
 			if (type.IsEquals("assets"))
-				filePath = requestInfo.GetQueryParameter("x-path");
+				filePath = filePath ?? requestInfo.GetQueryParameter("x-path");
 
 			else if (type.IsStartsWith("theme"))
 			{
-				var paths = requestInfo.GetQueryParameter("x-path")?.ToList("/", true, true);
+				isThemeResource = true;
+				var paths = filePath?.ToList("/", true, true);
 				type = paths != null && paths.Count > 1
 					? paths[1].IsStartsWith("css")
 						? "css"
@@ -1298,18 +1302,21 @@ namespace net.vieapps.Services.Portals
 			else if (type.IsStartsWith("css") || type.IsStartsWith("js") || type.IsStartsWith("javascript") || type.IsStartsWith("script"))
 			{
 				type = type.IsStartsWith("css") ? "css" : "js";
-				identity = requestInfo.GetQueryParameter("x-path")?.Replace(StringComparison.OrdinalIgnoreCase, $".{type}", "").ToLower().Trim();
+				identity = filePath?.Replace(StringComparison.OrdinalIgnoreCase, $".{type}", "").ToLower().Trim();
 			}
 
 			else
-			{
-				type = type.IsStartsWith("img") || type.IsStartsWith("image") ? "images" : type.IsStartsWith("font") ? "fonts" : "";
-				filePath = requestInfo.GetQueryParameter("x-path");
-			}
+				type = type.IsStartsWith("img") || type.IsStartsWith("image")
+					? "images"
+					: type.IsStartsWith("font") ? "fonts" : "";
 
 			// special headers
 			var noneMatch = requestInfo.GetHeaderParameter("If-None-Match");
 			var modifiedSince = requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since");
+			var eTag = uri.ToString().ToLower();
+			eTag = isThemeResource && (type.IsEquals("css") || type.IsEquals("js")) && !(identity.Length == 34 && identity.Right(32).IsValidUUID())
+				? $"{type}#{identity}"
+				: $"v#{(eTag.IndexOf("?") > 0 ? eTag.Left(eTag.IndexOf("?")) : eTag).GenerateUUID()}";
 
 			// static files in 'assets' directory or image/font files of a theme
 			if (type.IsEquals("assets") || type.IsEquals("images") || type.IsEquals("fonts"))
@@ -1319,7 +1326,6 @@ namespace net.vieapps.Services.Portals
 					throw new InformationNotFoundException();
 
 				// check special headers to reduce traffict
-				var eTag = $"{type.ToLower()}#{filePath.ToLower().GenerateUUID()}";
 				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
 				if (this.CacheDesktopResources && eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 					return new JObject
@@ -1329,6 +1335,7 @@ namespace net.vieapps.Services.Portals
 							"Headers",
 							new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 							{
+								{ "X-Portal-Cache", "svc-time" },
 								{ "X-Correlation-ID", requestInfo.CorrelationID },
 								{ "ETag", eTag },
 								{ "Last-Modified", lastModified }
@@ -1358,7 +1365,6 @@ namespace net.vieapps.Services.Portals
 					).ConfigureAwait(false);
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
-						{ "X-Portal-Resource-Cache", eTag },
 						{ "ETag", eTag },
 						{ "Last-Modified", lastModified },
 						{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
@@ -1393,9 +1399,7 @@ namespace net.vieapps.Services.Portals
 				// verify
 				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-				var eTag = $"css#{identity.GenerateUUID()}";
-				var cacheKey = $"css#{identity}";
-				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
+				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
 				var headers = new Dictionary<string, string>
 				{
 					{ "Content-Type", "text/css; charset=utf-8" },
@@ -1427,8 +1431,8 @@ namespace net.vieapps.Services.Portals
 
 						await Task.WhenAll
 						(
-							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
-							Utility.Cache.AddSetMemberAsync("Statics", $"{cacheKey}:time", cancellationToken)
+							Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
+							Utility.Cache.AddSetMemberAsync("Statics", $"{eTag}:time", cancellationToken)
 						).ConfigureAwait(false);
 					}
 
@@ -1440,6 +1444,7 @@ namespace net.vieapps.Services.Portals
 								"Headers",
 								new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
+									{ "X-Portal-Cache", "svc-time" },
 									{ "ETag", eTag },
 									{ "Last-Modified", lastModified }
 								}.ToJson()
@@ -1449,7 +1454,7 @@ namespace net.vieapps.Services.Portals
 
 				// get resources
 				var resources = this.CacheDesktopResources && !this.DontCacheThemes.Contains(identity) && !(identity.Length == 34 && identity.Right(32).IsValidUUID())
-					? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false)
+					? await Utility.Cache.GetAsync<string>(eTag, cancellationToken).ConfigureAwait(false)
 					: null;
 
 				if (resources == null)
@@ -1480,6 +1485,8 @@ namespace net.vieapps.Services.Portals
 					else
 						resources = await this.GetThemeResourcesAsync(identity, "css", cancellationToken).ConfigureAwait(false);
 				}
+				else
+					headers["X-Portal-Cache"] = "svc-cache";
 
 				if (this.CacheDesktopResources)
 				{
@@ -1494,9 +1501,9 @@ namespace net.vieapps.Services.Portals
 					if (!(identity.Length == 34 && identity.Right(32).IsValidUUID()) && !this.DontCacheThemes.Contains(identity))
 						await Task.WhenAll
 						(
-							Utility.Cache.SetAsync(cacheKey, resources, cancellationToken),
-							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
-							Utility.Cache.AddSetMembersAsync("Statics", new[] { cacheKey, $"{cacheKey}:time" }, cancellationToken)
+							Utility.Cache.SetAsync(eTag, resources, cancellationToken),
+							Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
+							Utility.Cache.AddSetMembersAsync("Statics", new[] { eTag, $"{eTag}:time" }, cancellationToken)
 						).ConfigureAwait(false);
 				}
 
@@ -1512,15 +1519,13 @@ namespace net.vieapps.Services.Portals
 				};
 			}
 
-			// scripts
-			if (type.IsEquals("js") || type.IsEquals("javascript") || type.IsEquals("script") || type.IsEquals("scripts"))
+			// javascripts
+			if (type.IsEquals("js"))
 			{
 				// prepare
 				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-				var eTag = $"js#{identity.GenerateUUID()}";
-				var cacheKey = $"js#{identity}";
-				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
+				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
 				var headers = new Dictionary<string, string>
 				{
 					{ "Content-Type", "application/javascript; charset=utf-8" },
@@ -1558,8 +1563,8 @@ namespace net.vieapps.Services.Portals
 
 						await Task.WhenAll
 						(
-							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
-							Utility.Cache.AddSetMemberAsync("Statics", $"{cacheKey}:time", cancellationToken)
+							Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
+							Utility.Cache.AddSetMemberAsync("Statics", $"{eTag}:time", cancellationToken)
 						).ConfigureAwait(false);
 					}
 
@@ -1571,6 +1576,7 @@ namespace net.vieapps.Services.Portals
 								"Headers",
 								new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
+									{ "X-Portal-Cache", "svc-time" },
 									{ "ETag", eTag },
 									{ "Last-Modified", lastModified }
 								}.ToJson()
@@ -1580,7 +1586,7 @@ namespace net.vieapps.Services.Portals
 
 				// get resources
 				var resources = this.CacheDesktopResources && !this.DontCacheThemes.Contains(identity) && !(identity.Length == 34 && identity.Right(32).IsValidUUID())
-					? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false)
+					? await Utility.Cache.GetAsync<string>(eTag, cancellationToken).ConfigureAwait(false)
 					: null;
 
 				if (resources == null)
@@ -1620,6 +1626,8 @@ namespace net.vieapps.Services.Portals
 					else
 						resources = await this.GetThemeResourcesAsync(identity, "js", cancellationToken).ConfigureAwait(false);
 				}
+				else
+					headers["X-Portal-Cache"] = "svc-cache";
 
 				if (this.CacheDesktopResources)
 				{
@@ -1634,9 +1642,9 @@ namespace net.vieapps.Services.Portals
 					if (!(identity.Length == 34 && identity.Right(32).IsValidUUID()) && !this.DontCacheThemes.Contains(identity))
 						await Task.WhenAll
 						(
-							Utility.Cache.SetAsync(cacheKey, resources, cancellationToken),
-							Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
-							Utility.Cache.AddSetMembersAsync("Statics", new[] { cacheKey, $"{cacheKey}:time" }, cancellationToken)
+							Utility.Cache.SetAsync(eTag, resources, cancellationToken),
+							Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
+							Utility.Cache.AddSetMembersAsync("Statics", new[] { eTag, $"{eTag}:time" }, cancellationToken)
 						).ConfigureAwait(false);
 				}
 
@@ -1709,9 +1717,9 @@ namespace net.vieapps.Services.Portals
 				var filter = Filters<Site>.And(Filters<Site>.Equals("SystemID", organization.ID));
 				var sort = Sorts<Site>.Ascending("Title");
 				var sites = await Site.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-				sites.ForEach(website => website.Set(false, true));
+				await sites.ForEachAsync(async website => await website.SetAsync(false, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 				organization._siteIDs = sites.Select(website => website.ID).ToList();
-				organization.Set(false, true);
+				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
 			if (DesktopProcessor.Desktops.IsEmpty || !DesktopProcessor.Desktops.Any(kvp => kvp.Value.SystemID == organization.ID))
@@ -1719,7 +1727,7 @@ namespace net.vieapps.Services.Portals
 				var filter = Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", organization.ID), Filters<Desktop>.IsNull("ParentID"));
 				var sort = Sorts<Desktop>.Ascending("Title");
 				var desktops = await Desktop.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-				desktops.ForEach(webdesktop => webdesktop.Set(false, true));
+				await desktops.ForEachAsync(async webdesktop => await webdesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 			}
 
 			// get site by domain
@@ -1823,7 +1831,7 @@ namespace net.vieapps.Services.Portals
 			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
 
 			// check "If-Modified-Since" request to reduce traffict
-			var eTag = $"desktop#{cacheKey}";
+			var eTag = $"v#{cacheKey}";
 			var noneMatch = processCache && !forceCache ? requestInfo.GetHeaderParameter("If-None-Match") : null;
 			var modifiedSince = processCache && !forceCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
 			var headers = new Dictionary<string, string>
@@ -1840,6 +1848,7 @@ namespace net.vieapps.Services.Portals
 				{
 					headers = new Dictionary<string, string>(headers)
 					{
+						{ "X-Portal-Cache", "svc-time" },
 						{ "ETag", eTag },
 						{ "Last-Modified", lastModified },
 						{ "Cache-Control", "public" }
@@ -1868,7 +1877,7 @@ namespace net.vieapps.Services.Portals
 				// got specified expiration time => clear to refresh
 				if (await Utility.Cache.ExistsAsync(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false))
 				{
-					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration, $"{cacheKey}:html" }, cancellationToken).ConfigureAwait(false);
 					html = null;
 				}
 
@@ -1896,7 +1905,7 @@ namespace net.vieapps.Services.Portals
 				}
 				headers = new Dictionary<string, string>(headers)
 				{
-					{ "X-Portal-Desktop-Cache", cacheKey },
+					{ "X-Portal-Cache", "svc-cache" },
 					{ "ETag", eTag },
 					{ "Last-Modified", lastModified },
 					{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
@@ -2165,7 +2174,9 @@ namespace net.vieapps.Services.Portals
 				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
 
 				// prepare caching
-				if (processCache && !portletHtmls.Values.Any(data => data.Item2))
+				var gotError = portletHtmls.Values.Any(data => data.Item2);
+				var cacheExpiration = 0;
+				if (processCache && !gotError)
 				{
 					lastModified = DateTime.Now.ToHttpString();
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
@@ -2175,7 +2186,6 @@ namespace net.vieapps.Services.Portals
 						{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
 						{ "Cache-Control", "public" }
 					};
-					var cacheExpiration = 0;
 					portletHtmls.Values.Where(data => data.Item3 > 0).ForEach(data =>
 					{
 						if (cacheExpiration < data.Item3)
@@ -2186,11 +2196,13 @@ namespace net.vieapps.Services.Portals
 						Utility.Cache.SetAsync(cacheKey, html, cacheExpiration, cancellationToken),
 						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, cacheExpiration, cancellationToken),
 						cacheExpiration > 0 ? Utility.Cache.SetAsync(cacheKeyOfExpiration, cacheExpiration, cacheExpiration, cancellationToken) : Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken),
-						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken)
+						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration, $"{cacheKey}:html" }, cancellationToken)
 					).ConfigureAwait(false);
 				}
 
 				// normalize
+				if (processCache && !gotError)
+					await Utility.Cache.SetAsync($"{cacheKey}:html", this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.CorrelationID, false), cacheExpiration, cancellationToken).ConfigureAwait(false);
 				html = this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.CorrelationID);
 
 				stepwatch.Stop();
@@ -3257,13 +3269,12 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<string, string, string, string, string>(title, metaTags, body, stylesheets, scripts);
 		}
 
-		string NormalizeDesktopHtml(string html, Uri requestURI, bool useShortURLs, Organization organization, Site site, Desktop desktop, string isMobile, string osInfo, string correlationID)
+		string NormalizeDesktopHtml(string html, Uri requestURI, bool useShortURLs, Organization organization, Site site, Desktop desktop, string isMobile, string osInfo, string correlationID, bool updateEnvironmentParams = true)
 		{
 			var homeDesktop = site.HomeDesktop != null ? $"\"{site.HomeDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}\"" : "undefined";
 			var searchDesktop = site.SearchDesktop != null ? $"\"{site.SearchDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}\"" : "undefined";
 			var language = "\"" + (desktop.WorkingLanguage ?? site.Language ?? "vi-VN") + "\"";
-			var osMode = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os";
-			return html.Format(new Dictionary<string, object>
+			html = html.Format(new Dictionary<string, object>
 			{
 				["home"] = homeDesktop,
 				["homedesktop"] = homeDesktop,
@@ -3274,7 +3285,17 @@ namespace net.vieapps.Services.Portals
 				["organization-alias"] = organization.Alias,
 				["desktop-alias"] = desktop.Alias,
 				["language"] = language,
-				["culture"] = language,
+				["culture"] = language
+			});
+			html = updateEnvironmentParams ? this.NormalizeDesktopHtml(html, isMobile, osInfo, correlationID) : html;
+			return html.NormalizeURLs(requestURI, organization.Alias, useShortURLs, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
+		}
+
+		string NormalizeDesktopHtml(string html, string isMobile, string osInfo, string correlationID)
+		{
+			var osMode = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os";
+			return html.Format(new Dictionary<string, object>
+			{
 				["isMobile"] = isMobile,
 				["is-mobile"] = isMobile,
 				["osInfo"] = osInfo,
@@ -3285,7 +3306,7 @@ namespace net.vieapps.Services.Portals
 				["os-mode"] = osMode,
 				["correlationID"] = correlationID,
 				["correlation-id"] = correlationID
-			}).NormalizeURLs(requestURI, organization.Alias, useShortURLs, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
+			});
 		}
 
 		JObject GenerateErrorJson(Exception exception, RequestInfo requestInfo, bool addErrorStack, string errorMessage = null)
@@ -4443,7 +4464,7 @@ namespace net.vieapps.Services.Portals
 					var moduleDefinition = message.Data?.ToExpandoObject()?.Copy<ModuleDefinition>();
 					if (this.IsDebugLogEnabled)
 						await this.WriteLogsAsync(correlationID, $"Got an update of a module definition\r\n{message.Data}", null, this.ServiceName, "CMS.Portals").ConfigureAwait(false);
-					this.UpdateDefinition(message.Data?.ToExpandoObject()?.Copy<ModuleDefinition>(), correlationID);
+					this.UpdateDefinition(message.Data?.ToExpandoObject()?.Copy<ModuleDefinition>());
 				}
 			}
 			catch (Exception ex)

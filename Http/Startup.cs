@@ -4,21 +4,15 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption;
-using Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.CookiePolicy;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using net.vieapps.Components.Utility;
 #endregion
@@ -45,39 +39,17 @@ namespace net.vieapps.Services.Portals
 				.AddLogging(builder => builder.SetMinimumLevel(this.LogLevel))
 				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
 				.AddHttpContextAccessor()
-				.AddSession(options =>
-				{
-					options.IdleTimeout = TimeSpan.FromMinutes(30);
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Session", "VIEApps-Session");
-					options.Cookie.HttpOnly = true;
-					options.Cookie.SameSite = SameSiteMode.Lax;
-				});
+				.AddSession(options => Global.PrepareSessionOptions(options, 30))
+				.Configure<FormOptions>(options => Global.PrepareFormOptions(options))
+				.Configure<CookiePolicyOptions>(options => Global.PrepareCookiePolicyOptions(options, SameSiteMode.Lax));
 
 			// authentication
 			services
-				.AddAuthentication(options =>
-				{
-					options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-					options.RequireAuthenticatedSignIn = false;
-				})
-				.AddCookie(options =>
-				{
-					options.Cookie.Name = UtilityService.GetAppSetting("DataProtection:Name:Authentication", "VIEApps-Auth");
-					options.Cookie.HttpOnly = true;
-					options.Cookie.SameSite = SameSiteMode.Lax;
-					options.SlidingExpiration = true;
-					options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
-				});
-
-			// config cookies
-			services.Configure<CookiePolicyOptions>(options =>
-			{
-				options.MinimumSameSitePolicy = SameSiteMode.Lax;
-				options.HttpOnly = HttpOnlyPolicy.Always;
-			});
+				.AddAuthentication(options => Global.PrepareAuthenticationOptions(options, _ => options.RequireAuthenticatedSignIn = false))
+				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options));
 
 			// config authentication with proxy/load balancer
-			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")))
+			if (Global.UseIISIntegration)
 				services.Configure<IISOptions>(options => options.ForwardClientCertificate = false);
 
 			else
@@ -90,32 +62,11 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// data protection (encrypt/decrypt authenticate ticket cookies & sync across load balancers)
-			var dataProtection = services.AddDataProtection()
-				.SetDefaultKeyLifetime(TimeSpan.FromDays(7))
-				.SetApplicationName(UtilityService.GetAppSetting("DataProtection:Name:Application", "VIEApps-NGX-Portals"))
-				.UseCryptographicAlgorithms(new AuthenticatedEncryptorConfiguration
-				{
-					EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
-					ValidationAlgorithm = ValidationAlgorithm.HMACSHA256
-				})
-				.PersistKeysToDistributedCache(new DistributedXmlRepositoryOptions
-				{
-					Key = UtilityService.GetAppSetting("DataProtection:Key", "DataProtection-Keys"),
-					CacheOptions = new DistributedCacheEntryOptions
-					{
-						AbsoluteExpiration = new DateTimeOffset(DateTime.Now.AddDays(7))
-					}
-				});
-			if ("true".IsEquals(UtilityService.GetAppSetting("DataProtection:DisableAutomaticKeyGeneration")))
-				dataProtection.DisableAutomaticKeyGeneration();
+			services.AddDataProtection().PrepareDataProtection("VIEApps-NGX-Portals");
 
 			// config options of IIS server (for working with InProcess hosting model)
-			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISIntegration")) && "true".IsEquals(UtilityService.GetAppSetting("Proxy:UseIISInProcess")))
-				services.Configure<IISServerOptions>(options =>
-				{
-					options.AllowSynchronousIO = true;
-					options.MaxRequestBodySize = 1024 * 1024 * (Int32.TryParse(UtilityService.GetAppSetting("Limits:Body"), out var limitSize) ? limitSize : 10);
-				});
+			if (Global.UseIISInProcess)
+				services.Configure<IISServerOptions>(options => Global.PrepareIISServerOptions(options, _ => options.MaxRequestBodySize = 1024 * 1024 * Global.MaxRequestBodySize));
 		}
 
 		public void Configure(IApplicationBuilder appBuilder, IHostApplicationLifetime appLifetime, IWebHostEnvironment environment)
@@ -123,9 +74,7 @@ namespace net.vieapps.Services.Portals
 			// settings
 			var stopwatch = Stopwatch.StartNew();
 			Console.OutputEncoding = Encoding.UTF8;
-
 			Global.ServiceName = "Portals";
-			AspNetCoreUtilityService.ServerName = UtilityService.GetAppSetting("ServerName", "VIEApps NGX");
 
 			var loggerFactory = appBuilder.ApplicationServices.GetService<ILoggerFactory>();
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
