@@ -1335,7 +1335,7 @@ namespace net.vieapps.Services.Portals
 							"Headers",
 							new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 							{
-								{ "X-Portal-Cache", "svc-time" },
+								{ "X-Cache", "svc-time" },
 								{ "X-Correlation-ID", requestInfo.CorrelationID },
 								{ "ETag", eTag },
 								{ "Last-Modified", lastModified }
@@ -1379,9 +1379,9 @@ namespace net.vieapps.Services.Portals
 					{
 						"Body",
 						(filePath.IsEndsWith(".css")
-							? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~#/", $"{Utility.PortalsHttpURI}/").MinifyCss().ToBytes()
+							? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", $"{Utility.PortalsHttpURI}/").Replace("~~~/", $"{Utility.PortalsHttpURI}/").Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyCss().ToBytes()
 							: filePath.IsEndsWith(".js")
-								? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~~/", $"{Utility.FilesHttpURI}/").Replace("~#/", $"{Utility.PortalsHttpURI}/").MinifyJs().ToBytes()
+								? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", $"{Utility.PortalsHttpURI}/").Replace("~~~/", $"{Utility.PortalsHttpURI}/").Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyJs().ToBytes()
 								: await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false)
 						).Compress(this.BodyEncoding).ToBase64()
 					},
@@ -1444,7 +1444,7 @@ namespace net.vieapps.Services.Portals
 								"Headers",
 								new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
-									{ "X-Portal-Cache", "svc-time" },
+									{ "X-Cache", "svc-time" },
 									{ "ETag", eTag },
 									{ "Last-Modified", lastModified }
 								}.ToJson()
@@ -1486,7 +1486,7 @@ namespace net.vieapps.Services.Portals
 						resources = await this.GetThemeResourcesAsync(identity, "css", cancellationToken).ConfigureAwait(false);
 				}
 				else
-					headers["X-Portal-Cache"] = "svc-cache";
+					headers["X-Cache"] = "svc-cache";
 
 				if (this.CacheDesktopResources)
 				{
@@ -1514,7 +1514,7 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
 					{ "Headers", headers.ToJson() },
-					{ "Body", resources.Replace("~~/", $"{filesHttpURI}/").Replace("~#/", $"{portalsHttpURI}/").Compress(this.BodyEncoding) },
+					{ "Body", resources.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
 				};
 			}
@@ -1576,7 +1576,7 @@ namespace net.vieapps.Services.Portals
 								"Headers",
 								new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
-									{ "X-Portal-Cache", "svc-time" },
+									{ "X-Cache", "svc-time" },
 									{ "ETag", eTag },
 									{ "Last-Modified", lastModified }
 								}.ToJson()
@@ -1627,7 +1627,7 @@ namespace net.vieapps.Services.Portals
 						resources = await this.GetThemeResourcesAsync(identity, "js", cancellationToken).ConfigureAwait(false);
 				}
 				else
-					headers["X-Portal-Cache"] = "svc-cache";
+					headers["X-Cache"] = "svc-cache";
 
 				if (this.CacheDesktopResources)
 				{
@@ -1655,7 +1655,7 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
 					{ "Headers", headers.ToJson() },
-					{ "Body", resources.Replace("~~/", $"{filesHttpURI}/").Replace("~#/", $"{portalsHttpURI}/").Compress(this.BodyEncoding) },
+					{ "Body", resources.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
 				};
 			}
@@ -1848,7 +1848,7 @@ namespace net.vieapps.Services.Portals
 				{
 					headers = new Dictionary<string, string>(headers)
 					{
-						{ "X-Portal-Cache", "svc-time" },
+						{ "X-Cache", "svc-time" },
 						{ "ETag", eTag },
 						{ "Last-Modified", lastModified },
 						{ "Cache-Control", "public" }
@@ -1877,7 +1877,7 @@ namespace net.vieapps.Services.Portals
 				// got specified expiration time => clear to refresh
 				if (await Utility.Cache.ExistsAsync(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false))
 				{
-					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration, $"{cacheKey}:html" }, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken).ConfigureAwait(false);
 					html = null;
 				}
 
@@ -1905,7 +1905,7 @@ namespace net.vieapps.Services.Portals
 				}
 				headers = new Dictionary<string, string>(headers)
 				{
-					{ "X-Portal-Cache", "svc-cache" },
+					{ "X-Cache", "svc-cache" },
 					{ "ETag", eTag },
 					{ "Last-Modified", lastModified },
 					{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
@@ -2174,9 +2174,8 @@ namespace net.vieapps.Services.Portals
 				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
 
 				// prepare caching
-				var gotError = portletHtmls.Values.Any(data => data.Item2);
 				var cacheExpiration = 0;
-				if (processCache && !gotError)
+				if (processCache && !portletHtmls.Values.Any(data => data.Item2))
 				{
 					lastModified = DateTime.Now.ToHttpString();
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
@@ -2193,16 +2192,14 @@ namespace net.vieapps.Services.Portals
 					});
 					await Task.WhenAll
 					(
-						Utility.Cache.SetAsync(cacheKey, html, cacheExpiration, cancellationToken),
+						Utility.Cache.SetAsync(cacheKey, this.NormalizeDesktopHtml(html, organization, site, desktop), cacheExpiration, cancellationToken),
 						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, cacheExpiration, cancellationToken),
 						cacheExpiration > 0 ? Utility.Cache.SetAsync(cacheKeyOfExpiration, cacheExpiration, cacheExpiration, cancellationToken) : Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken),
-						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration, $"{cacheKey}:html" }, cancellationToken)
+						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken)
 					).ConfigureAwait(false);
 				}
 
 				// normalize
-				if (processCache && !gotError)
-					await Utility.Cache.SetAsync($"{cacheKey}:html", this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.CorrelationID, false), cacheExpiration, cancellationToken).ConfigureAwait(false);
 				html = this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.CorrelationID);
 
 				stepwatch.Stop();
@@ -3269,12 +3266,12 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<string, string, string, string, string>(title, metaTags, body, stylesheets, scripts);
 		}
 
-		string NormalizeDesktopHtml(string html, Uri requestURI, bool useShortURLs, Organization organization, Site site, Desktop desktop, string isMobile, string osInfo, string correlationID, bool updateEnvironmentParams = true)
+		string NormalizeDesktopHtml(string html, Organization organization, Site site, Desktop desktop)
 		{
 			var homeDesktop = site.HomeDesktop != null ? $"\"{site.HomeDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}\"" : "undefined";
 			var searchDesktop = site.SearchDesktop != null ? $"\"{site.SearchDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}\"" : "undefined";
 			var language = "\"" + (desktop.WorkingLanguage ?? site.Language ?? "vi-VN") + "\"";
-			html = html.Format(new Dictionary<string, object>
+			return html.Format(new Dictionary<string, object>
 			{
 				["home"] = homeDesktop,
 				["homedesktop"] = homeDesktop,
@@ -3287,14 +3284,10 @@ namespace net.vieapps.Services.Portals
 				["language"] = language,
 				["culture"] = language
 			});
-			html = updateEnvironmentParams ? this.NormalizeDesktopHtml(html, isMobile, osInfo, correlationID) : html;
-			return html.NormalizeURLs(requestURI, organization.Alias, useShortURLs, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
 		}
 
-		string NormalizeDesktopHtml(string html, string isMobile, string osInfo, string correlationID)
-		{
-			var osMode = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os";
-			return html.Format(new Dictionary<string, object>
+		string NormalizeDesktopHtml(string html, Uri requestURI, bool useShortURLs, Organization organization, Site site, Desktop desktop, string isMobile, string osInfo, string correlationID)
+			=> this.NormalizeDesktopHtml(html, organization, site, desktop).Format(new Dictionary<string, object>
 			{
 				["isMobile"] = isMobile,
 				["is-mobile"] = isMobile,
@@ -3302,12 +3295,11 @@ namespace net.vieapps.Services.Portals
 				["os-info"] = osInfo,
 				["osPlatform"] = osInfo.GetANSIUri(),
 				["os-platform"] = osInfo.GetANSIUri(),
-				["osMode"] = osMode,
-				["os-mode"] = osMode,
+				["osMode"] = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os",
+				["os-mode"] = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os",
 				["correlationID"] = correlationID,
 				["correlation-id"] = correlationID
-			});
-		}
+			}).NormalizeURLs(requestURI, organization.Alias, useShortURLs, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
 
 		JObject GenerateErrorJson(Exception exception, RequestInfo requestInfo, bool addErrorStack, string errorMessage = null)
 		{

@@ -357,7 +357,7 @@ namespace net.vieapps.Services.Portals
 					if (string.IsNullOrWhiteSpace(systemIdentity) || "~indicators".IsEquals(systemIdentity))
 					{
 						systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-						queryString["x-system"] = systemIdentityJson?.Get<string>("Alias");
+						queryString["x-system"] = systemIdentityJson.Get<string>("Alias");
 					}
 
 					// request of portal desktops/resources
@@ -371,6 +371,10 @@ namespace net.vieapps.Services.Portals
 							var eTag = "";
 							var contentType = "text/html";
 							var expires = DateTime.Now.AddMinutes(13);
+							var baseURL = "";
+							var rootURL = "/";
+							var filesHttpURI = UtilityService.GetAppSetting("HttpUri:Files");
+							var portalsHttpURI = UtilityService.GetAppSetting("HttpUri:Portals");
 
 							if (systemIdentity.IsEquals("~resources"))
 							{
@@ -429,23 +433,36 @@ namespace net.vieapps.Services.Portals
 							else if (!"~indicators".IsEquals(systemIdentity))
 							{
 								systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-								var organizationID = systemIdentityJson?.Get<string>("ID");
-								var organizationAlias = systemIdentityJson?.Get<string>("Alias");
-								var desktopAlias = queryString["x-desktop"]?.ToLower();
+								var organizationID = systemIdentityJson.Get<string>("ID");
+								var organizationAlias = systemIdentityJson.Get<string>("Alias");
+
+								filesHttpURI = systemIdentityJson.Get<string>("FilesHttpURI");
+								filesHttpURI += filesHttpURI.EndsWith("/") ? "" : "/";
+								portalsHttpURI = systemIdentityJson.Get<string>("PortalsHttpURI");
+								portalsHttpURI += portalsHttpURI.EndsWith("/") ? "" : "/";
+
 								var path = requestURI.AbsolutePath;
-								path = path.IsStartsWith($"/~{organizationAlias}") ? path.Right(path.Length - organizationAlias.Length - 2) : path;
 								path = (path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path).ToLower();
+
+								if (path.IsStartsWith($"/~{organizationAlias}"))
+								{
+									path = path.Right(path.Length - organizationAlias.Length - 2);
+									baseURL = $"{portalsHttpURI}~{organizationAlias}/";
+									rootURL = "./";
+								}
+
+								var desktopAlias = queryString["x-desktop"]?.ToLower();
 								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
+
 								cacheKey = $"{organizationID}:" + ("-default".IsEquals(desktopAlias) ? desktopAlias : path).GenerateUUID();
 								cacheKeyOfLastModified = $"{cacheKey}:time";
 								eTag = $"v#{cacheKey}";
-								cacheKey += ":html";
 							}
 
 							if (!string.IsNullOrWhiteSpace(cacheKey))
 							{
 								if (Global.IsDebugLogEnabled)
-									await context.WriteLogsAsync(Global.Logger, "Http", $"Process cache first [{requestURI} => {cacheKey} - {cacheKeyOfLastModified}]").ConfigureAwait(false);
+									await context.WriteLogsAsync(Global.Logger, "Http", $"Attempt to process the cache of CMS Portals service [{requestURI} => {cacheKey} - {cacheKeyOfLastModified}]").ConfigureAwait(false);
 
 								// last modified
 								var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
@@ -457,7 +474,7 @@ namespace net.vieapps.Services.Portals
 									{
 										context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 										{
-											{ "X-Portal-Cache", "http-time" },
+											{ "X-Cache", "http-time" },
 											{ "X-Correlation-ID", correlationID },
 											{ "Content-Type", $"{contentType}; charset=utf-8" },
 											{ "ETag", eTag },
@@ -477,7 +494,7 @@ namespace net.vieapps.Services.Portals
 									var lastModified = await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
 									context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 									{
-										{ "X-Portal-Cache", "http-cache" },
+										{ "X-Cache", "http-cache" },
 										{ "X-Correlation-ID", correlationID },
 										{ "Content-Type", $"{contentType}; charset=utf-8" },
 										{ "ETag", eTag },
@@ -490,6 +507,7 @@ namespace net.vieapps.Services.Portals
 									{
 										var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
 										var osInfo = (session.AppAgent ?? "").GetOSInfo();
+										var osPlatform = osInfo.GetANSIUri();
 										var osMode = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os";
 										cached = cached.Format(new Dictionary<string, object>
 										{
@@ -497,13 +515,16 @@ namespace net.vieapps.Services.Portals
 											["is-mobile"] = isMobile,
 											["osInfo"] = osInfo,
 											["os-info"] = osInfo,
-											["osPlatform"] = osInfo.GetANSIUri(),
-											["os-platform"] = osInfo.GetANSIUri(),
+											["osPlatform"] = osPlatform,
+											["os-platform"] = osPlatform,
 											["osMode"] = osMode,
 											["os-mode"] = osMode,
 											["correlationID"] = correlationID,
 											["correlation-id"] = correlationID
 										});
+										cached = cached.Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI).Replace("~/", rootURL);
+										if (!string.IsNullOrWhiteSpace(baseURL))
+											cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
 									}
 
 									await context.WriteAsync(cached.ToBytes(), cts.Token).ConfigureAwait(false);
