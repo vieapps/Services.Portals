@@ -29,11 +29,6 @@ namespace net.vieapps.Services.Portals
 		public static IMessagingService MessagingService { get; internal set; }
 
 		/// <summary>
-		/// Gets the logging service
-		/// </summary>
-		public static ILoggingService LoggingService { get; internal set; }
-
-		/// <summary>
 		/// Gets the local logger
 		/// </summary>
 		public static ILogger Logger { get; internal set; }
@@ -777,7 +772,7 @@ namespace net.vieapps.Services.Portals
 
 			// update queue & write to centerlized logs
 			Utility.Logs.Enqueue(new Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>(new Tuple<DateTime, string, string, string, string, string>(DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.ServiceName, objectName), logs, stack));
-			return Utility.LoggingService.WriteLogsAsync(Utility.Logs, null, Utility.CancellationToken);
+			return Utility.Logs.WriteLogsAsync(Utility.CancellationToken, Utility.Logger);
 		}
 
 		internal static Task WriteErrorAsync(this RequestInfo requestInfo, Exception exception, CancellationToken cancellationToken = default, string message = null, string objectName = null, string additionnal = null)

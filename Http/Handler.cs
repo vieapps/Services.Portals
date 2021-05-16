@@ -367,7 +367,6 @@ namespace net.vieapps.Services.Portals
 						if (!Handler.RefresherRefererURL.IsEquals(context.GetReferUrl()))
 						{
 							var cacheKey = "";
-							var cacheKeyOfLastModified = "";
 							var eTag = "";
 							var contentType = "text/html";
 							var expires = DateTime.Now.AddMinutes(13);
@@ -413,7 +412,6 @@ namespace net.vieapps.Services.Portals
 								cacheKey = isThemeResource && (type.IsEquals("css") || type.IsEquals("js")) && !(identity.Length == 34 && identity.Right(32).IsValidUUID())
 									? $"{type}#{identity}"
 									: $"v#{(cacheKey.IndexOf("?") > 0 ? cacheKey.Left(cacheKey.IndexOf("?")) : cacheKey).GenerateUUID()}";
-								cacheKeyOfLastModified = $"{cacheKey}:time";
 								eTag = cacheKey;
 
 								if (type.IsEquals("css"))
@@ -425,7 +423,7 @@ namespace net.vieapps.Services.Portals
 								else if (type.IsEquals("images"))
 								{
 									contentType = path.ToList(".").Last();
-									contentType = $"image/{(contentType.IsEquals("jpg") || contentType.IsEquals("jpeg") ? "jpeg" : contentType)}";
+									contentType = $"image/{(contentType.IsEquals("svg") ? "svg+xml" : contentType.IsEquals("jpg") || contentType.IsEquals("jpeg") ? "jpeg" : contentType)}";
 								}
 								expires = DateTime.Now.AddDays(366);
 							}
@@ -455,21 +453,20 @@ namespace net.vieapps.Services.Portals
 								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
 
 								cacheKey = $"{organizationID}:" + ("-default".IsEquals(desktopAlias) ? desktopAlias : path).GenerateUUID();
-								cacheKeyOfLastModified = $"{cacheKey}:time";
 								eTag = $"v#{cacheKey}";
 							}
 
 							if (!string.IsNullOrWhiteSpace(cacheKey))
 							{
-								if (Global.IsDebugLogEnabled)
-									await context.WriteLogsAsync(Global.Logger, "Http", $"Attempt to process the cache of CMS Portals service [{requestURI} => {cacheKey} - {cacheKeyOfLastModified}]").ConfigureAwait(false);
+								if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
+									await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Attempt to process the CMS Portals service cache ({requestURI})").ConfigureAwait(false);
 
 								// last modified
 								var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 								if (modifiedSince != null)
 								{
 									var noneMatch = context.GetHeaderParameter("If-None-Match");
-									var lastModified = await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false);
+									var lastModified = await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false);
 									if (eTag.IsEquals(noneMatch) && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 									{
 										context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -481,8 +478,8 @@ namespace net.vieapps.Services.Portals
 											{ "Last-Modified", lastModified }
 										});
 
-										if (Global.IsDebugLogEnabled)
-											await context.WriteLogsAsync(Global.Logger, "Http", $"No need to call service because the 304 header was sent").ConfigureAwait(false);
+										if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
+											await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => the 304 header was sent ({eTag} - {lastModified})").ConfigureAwait(false);
 										return;
 									}
 								}
@@ -491,7 +488,7 @@ namespace net.vieapps.Services.Portals
 								var cached = await Handler.Cache.GetAsync<string>(cacheKey, cts.Token).ConfigureAwait(false);
 								if (!string.IsNullOrWhiteSpace(cached))
 								{
-									var lastModified = await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
+									var lastModified = await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
 									context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 									{
 										{ "X-Cache", "http-cache" },
@@ -528,8 +525,8 @@ namespace net.vieapps.Services.Portals
 									}
 
 									await context.WriteAsync(cached.ToBytes(), cts.Token).ConfigureAwait(false);
-									if (Global.IsDebugLogEnabled)
-										await context.WriteLogsAsync(Global.Logger, "Http", $"No need to call service because cached data was found").ConfigureAwait(false);
+									if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
+										await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => cached was found ({cacheKey})").ConfigureAwait(false);
 									return;
 								}
 							}
@@ -964,15 +961,6 @@ namespace net.vieapps.Services.Portals
 				{
 					Global.Logger.LogDebug($"Outgoing channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
 					await Router.OutgoingChannel.UpdateAsync(Router.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
-					try
-					{
-						await Global.InitializeLoggingServiceAsync().ConfigureAwait(false);
-						Global.Logger.LogInformation("The logging service is succesfully initialized");
-					}
-					catch (Exception ex)
-					{
-						Global.Logger.LogError($"Error occurred while initializing the logging service => {ex.Message}", ex);
-					}
 					await Global.RegisterServiceAsync().ConfigureAwait(false);
 				},
 				waitingTimes

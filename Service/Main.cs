@@ -119,7 +119,6 @@ namespace net.vieapps.Services.Portals
 					Utility.CmsPortalsHttpURI = Utility.CmsPortalsHttpURI.Left(Utility.CmsPortalsHttpURI.Length - 1);
 
 				Utility.MessagingService = this.MessagingService;
-				Utility.LoggingService = this.LoggingService;
 				Utility.Logger = this.Logger;
 
 				Utility.EncryptionKey = this.EncryptionKey;
