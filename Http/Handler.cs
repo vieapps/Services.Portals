@@ -449,7 +449,7 @@ namespace net.vieapps.Services.Portals
 									rootURL = "./";
 								}
 
-								var desktopAlias = queryString["x-desktop"]?.ToLower();
+								var desktopAlias = queryString["x-desktop"].ToLower();
 								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
 
 								cacheKey = $"{organizationID}:" + ("-default".IsEquals(desktopAlias) ? desktopAlias : path).GenerateUUID();

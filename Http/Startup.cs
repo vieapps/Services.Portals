@@ -46,7 +46,7 @@ namespace net.vieapps.Services.Portals
 			// authentication
 			services
 				.AddAuthentication(options => Global.PrepareAuthenticationOptions(options, _ => options.RequireAuthenticatedSignIn = false))
-				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options));
+				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options, 30));
 
 			// config authentication with proxy/load balancer
 			if (Global.UseIISIntegration)
