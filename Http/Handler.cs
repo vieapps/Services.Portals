@@ -466,6 +466,17 @@ namespace net.vieapps.Services.Portals
 
 							if (!string.IsNullOrWhiteSpace(cacheKey))
 							{
+								// redirect
+								if (contentType.IsEquals("text/html") && ((alwaysUseHTTPs && !requestURI.Scheme.IsEquals("https")) || (redirectToNoneWWW && requestURI.Host.IsStartsWith("www."))))
+								{
+									context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+									{
+										{ "Location", (alwaysUseHTTPs ? "https" : requestURI.Scheme) + "://" + (redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host) + $"{requestURI.PathAndQuery}{requestURI.Fragment}" }
+									});
+									return;
+								}
+
+								// process cache
 								if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Attempt to process the CMS Portals service cache ({requestURI})").ConfigureAwait(false);
 
@@ -525,15 +536,8 @@ namespace net.vieapps.Services.Portals
 											["correlationID"] = correlationID,
 											["correlation-id"] = correlationID
 										}).Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI).Replace("~/", rootURL);
-
 										if (!string.IsNullOrWhiteSpace(baseURL))
 											cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
-
-										var redirectURL = (alwaysUseHTTPs && !requestURI.Scheme.IsEquals("https")) || (redirectToNoneWWW && requestURI.Host.IsStartsWith("www."))
-											? (alwaysUseHTTPs ? "https" : requestURI.Scheme) + "://" + (redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host) + $"{requestURI.PathAndQuery}{requestURI.Fragment}"
-											: "";
-										if (!string.IsNullOrWhiteSpace(redirectURL))
-											cached = cached.Insert(cached.PositionOf("</body>"), $"<script>location.href=\"{redirectURL}\"</script>");
 									}
 
 									await context.WriteAsync(cached.ToBytes(), cts.Token).ConfigureAwait(false);
