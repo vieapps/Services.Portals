@@ -471,7 +471,7 @@ namespace net.vieapps.Services.Portals
 								{
 									context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 									{
-										{ "Location", (alwaysUseHTTPs ? "https" : requestURI.Scheme) + "://" + (redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host) + $"{requestURI.PathAndQuery}{requestURI.Fragment}" }
+										{ "Location", $"{(alwaysUseHTTPs ? "https" : requestURI.Scheme)}://{(redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host)}{requestURI.PathAndQuery}{requestURI.Fragment}" }
 									});
 									return;
 								}
