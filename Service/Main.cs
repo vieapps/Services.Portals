@@ -1154,25 +1154,21 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JToken> IdentifySystemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			string host;
-			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-			{
-				var site = requestInfo.Header.TryGetValue("x-host", out host) && !string.IsNullOrWhiteSpace(host)
-					? await host.GetSiteByDomainAsync(Utility.DefaultSite?.ID, cancellationToken).ConfigureAwait(false)
-					: null;
-				organization = (site ?? Utility.DefaultSite)?.Organization;
-			}
-
+			var site = requestInfo.Header.TryGetValue("x-host", out var host) && !string.IsNullOrWhiteSpace(host)
+				? await host.GetSiteByDomainAsync(Utility.DefaultSite?.ID, cancellationToken).ConfigureAwait(false) ?? Utility.DefaultSite
+				: Utility.DefaultSite;
+			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false) ?? site?.Organization;
 			return organization != null
 				? new JObject
 				{
 					{ "ID", organization.ID },
 					{ "Alias", organization.Alias },
 					{ "FilesHttpURI", organization.FakeFilesHttpURI ?? Utility.FilesHttpURI },
-					{ "PortalsHttpURI", organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI }
+					{ "PortalsHttpURI", organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI },
+					{ "AlwaysUseHTTPs", site.AlwaysUseHTTPs },
+					{ "RedirectToNoneWWW", site.RedirectToNoneWWW }
 				}
-				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(requestInfo.Header.TryGetValue("x-host", out host) && !string.IsNullOrWhiteSpace(host) ? host : "unknown")})");
+				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(!string.IsNullOrWhiteSpace(host) ? host : "unknown")})");
 		}
 
 		Task<JToken> ProcessHttpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
@@ -1781,7 +1777,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (string.IsNullOrWhiteSpace(redirectURL))
 				{
-					redirectURL = (site.AlwaysUseHTTPs && !requestURI.Scheme.IsEquals("https") ? "https" : requestURI.Scheme) + "://" + (site.RedirectToNoneWWW ? requestURI.Host.Replace("www.", "") : requestURI.Host) + requestURI.PathAndQuery;
+					redirectURL = (site.AlwaysUseHTTPs ? "https" : requestURI.Scheme) + "://" + (site.RedirectToNoneWWW ? requestURI.Host.Replace("www.", "") : requestURI.Host) + $"{requestURI.PathAndQuery}{requestURI.Fragment}";
 					redirectCode = redirectCode > 0 ? redirectCode : site.AlwaysUseHTTPs && !requestURI.Scheme.IsEquals("https") ? (int)HttpStatusCode.Redirect : (int)HttpStatusCode.MovedPermanently;
 				}
 				else
@@ -4154,13 +4150,13 @@ namespace net.vieapps.Services.Portals
 
 							// clear related cache
 							if (@object is Category category)
-								await category.Set().ClearRelatedCacheAsync(this.CancellationToken, processID).ConfigureAwait(false);
+								category.Set().ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 							else if (@object is Content content)
-								await content.ClearRelatedCacheAsync(this.CancellationToken, processID).ConfigureAwait(false);
+								content.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 							else if (@object is Item item)
-								await item.ClearRelatedCacheAsync(this.CancellationToken, processID).ConfigureAwait(false);
+								item.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 							else if (@object is Link link)
-								await link.ClearRelatedCacheAsync(this.CancellationToken, processID).ConfigureAwait(false);
+								link.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 						}
 						catch (Exception ex)
 						{

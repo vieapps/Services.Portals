@@ -41,6 +41,7 @@ namespace net.vieapps.Services.Portals
 		static string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
 		internal static Components.WebSockets.WebSocket WebSocket { get; private set; }
+
 		internal static string NodeName => Extensions.GetUniqueName(Global.ServiceName + ".http");
 
 		internal static bool RedirectToPassportOnUnauthorized => "true".IsEquals(UtilityService.GetAppSetting("Portals:RedirectToPassportOnUnauthorized", "true"));
@@ -330,6 +331,8 @@ namespace net.vieapps.Services.Portals
 				catch { }
 
 			var requestURI = context.GetRequestUri();
+			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
+			var osInfo = (session.AppAgent ?? "").GetOSInfo();
 			var headers = context.Request.Headers.ToDictionary(dictionary =>
 			{
 				Handler.ExcludedHeaders.ForEach(name => dictionary.Remove(name));
@@ -339,8 +342,8 @@ namespace net.vieapps.Services.Portals
 					? requestURI.AbsoluteUri.Replace(StringComparison.OrdinalIgnoreCase, $"{requestURI.Scheme}://", "https://")
 					: requestURI.AbsoluteUri;
 				dictionary["x-use-short-urls"] = Handler.UseShortURLs.ToString().ToLower();
-				dictionary["x-environment-is-mobile"] = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
-				dictionary["x-environment-os-info"] = (session.AppAgent ?? "").GetOSInfo();
+				dictionary["x-environment-is-mobile"] = isMobile;
+				dictionary["x-environment-os-info"] = osInfo;
 			});
 			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
 
@@ -374,6 +377,8 @@ namespace net.vieapps.Services.Portals
 							var rootURL = "/";
 							var filesHttpURI = UtilityService.GetAppSetting("HttpUri:Files");
 							var portalsHttpURI = UtilityService.GetAppSetting("HttpUri:Portals");
+							var alwaysUseHTTPs = false;
+							var redirectToNoneWWW = false;
 
 							if (systemIdentity.IsEquals("~resources"))
 							{
@@ -439,6 +444,9 @@ namespace net.vieapps.Services.Portals
 								portalsHttpURI = systemIdentityJson.Get<string>("PortalsHttpURI");
 								portalsHttpURI += portalsHttpURI.EndsWith("/") ? "" : "/";
 
+								alwaysUseHTTPs = systemIdentityJson.Get<bool>("AlwaysUseHTTPs");
+								redirectToNoneWWW = systemIdentityJson.Get<bool>("RedirectToNoneWWW");
+
 								var path = requestURI.AbsolutePath;
 								path = (path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path).ToLower();
 
@@ -502,8 +510,6 @@ namespace net.vieapps.Services.Portals
 
 									if (contentType.IsEquals("text/html"))
 									{
-										var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
-										var osInfo = (session.AppAgent ?? "").GetOSInfo();
 										var osPlatform = osInfo.GetANSIUri();
 										var osMode = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os";
 										cached = cached.Format(new Dictionary<string, object>
@@ -518,10 +524,16 @@ namespace net.vieapps.Services.Portals
 											["os-mode"] = osMode,
 											["correlationID"] = correlationID,
 											["correlation-id"] = correlationID
-										});
-										cached = cached.Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI).Replace("~/", rootURL);
+										}).Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI).Replace("~/", rootURL);
+
 										if (!string.IsNullOrWhiteSpace(baseURL))
 											cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
+
+										var redirectURL = (alwaysUseHTTPs && !requestURI.Scheme.IsEquals("https")) || (redirectToNoneWWW && requestURI.Host.IsStartsWith("www."))
+											? (alwaysUseHTTPs ? "https" : requestURI.Scheme) + "://" + (redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host) + $"{requestURI.PathAndQuery}{requestURI.Fragment}"
+											: "";
+										if (!string.IsNullOrWhiteSpace(redirectURL))
+											cached = cached.Insert(cached.PositionOf("</body>"), $"<script>location.href=\"{redirectURL}\"</script>");
 									}
 
 									await context.WriteAsync(cached.ToBytes(), cts.Token).ConfigureAwait(false);

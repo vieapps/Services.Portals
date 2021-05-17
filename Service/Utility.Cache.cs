@@ -18,7 +18,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory());
 
-		internal static bool WriteCacheLogs => Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches", "false"));
+		internal static bool WriteCacheLogs => Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
 
 		/// <summary>
 		/// Gets the key for storing a set of keys that belong to an organization

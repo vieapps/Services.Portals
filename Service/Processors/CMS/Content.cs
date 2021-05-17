@@ -364,7 +364,6 @@ namespace net.vieapps.Services.Portals
 			// create new
 			await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
-			await content.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -386,11 +385,13 @@ namespace net.vieapps.Services.Portals
 				Data = response
 			}.Send();
 
-			// send notification
-			await content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// store object cache key to clear related cached
-			await Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+			// last actions: clear cache, send notification, store object cache key to clear related cached
+			Task.WhenAll
+			(
+				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, Utility.CancellationToken),
+				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken)
+			).Run();
 
 			// response
 			return response;
@@ -473,7 +474,6 @@ namespace net.vieapps.Services.Portals
 			// update
 			await Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
-			await content.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -495,8 +495,12 @@ namespace net.vieapps.Services.Portals
 				Data = response
 			}.Send();
 
-			// send notification
-			await content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			// clear related cache & send notification
+			Task.WhenAll
+			(
+				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken)
+			).Run();
 
 			// response
 			return response;
@@ -600,7 +604,6 @@ namespace net.vieapps.Services.Portals
 
 			// delete content
 			await Content.DeleteAsync<Content>(content.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await content.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// send update message
 			var response = content.ToJson();
@@ -611,11 +614,13 @@ namespace net.vieapps.Services.Portals
 				Data = response
 			}.Send();
 
-			// send notification
-			await content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// store object cache key to clear related cached
-			await Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+			// clear cache and send notification
+			Task.WhenAll
+			(
+				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
+				content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo, Utility.CancellationToken)
+			).Run();
 
 			// response
 			return response;
