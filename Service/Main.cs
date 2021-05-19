@@ -1156,7 +1156,7 @@ namespace net.vieapps.Services.Portals
 		{
 			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 			var site = requestInfo.Header.TryGetValue("x-host", out var host) && !string.IsNullOrWhiteSpace(host)
-				? await host.GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false)
+				? await host.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false)
 				: null;
 			site = site ?? organization?.Sites?.FirstOrDefault() ?? Utility.DefaultSite;
 			organization = organization ?? site?.Organization;

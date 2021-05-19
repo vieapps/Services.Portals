@@ -115,7 +115,7 @@ namespace net.vieapps.Services.Portals
 		public static async Task<Site> GetSiteByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetSiteByID(force, false) ?? (await Site.GetAsync<Site>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
-		static FilterBys<Site> GetFilterByDomain(this string domain)
+		static FilterBys<Site> GetFilterBy(this string domain)
 		{
 			var info = domain.NormalizeDomain().ToArray(".");
 			var primaryDomain = info.Skip(1).Join(".");
@@ -158,8 +158,7 @@ namespace net.vieapps.Services.Portals
 
 			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
-				var sites = Site.Find(domain.GetFilterByDomain(), null, 0, 1, null);
-				site = sites.GetSiteByDomain(domain)?.Set();
+				site = Site.Find(domain.GetFilterBy(), null, 0, 1, null).GetSiteByDomain(domain)?.Set();
 				if (site == null)
 					Utility.NotRecognizedAliases.Add($"Site:{domain}");
 			}
@@ -172,9 +171,7 @@ namespace net.vieapps.Services.Portals
 			var site = (domain ?? "").GetSiteByDomain(defaultSiteIDWhenNotFound, false);
 			if (site == null && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
-				var filter = domain.GetFilterByDomain();
-				var sites = await Site.FindAsync(domain.GetFilterByDomain(), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				site = sites.GetSiteByDomain(domain)?.Set();
+				site = (await Site.FindAsync(domain.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain)?.Set();
 				if (site == null)
 					Utility.NotRecognizedAliases.Add($"Site:{domain}");
 			}
