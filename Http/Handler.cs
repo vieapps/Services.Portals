@@ -126,8 +126,10 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare session information
 			var correlationID = context.GetCorrelationID();
-			var header = context.Request.Headers.ToDictionary();
 			var session = context.GetSession();
+			var requestURI = context.GetRequestUri();
+			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
+			var osInfo = (session.AppAgent ?? "").GetOSInfo();
 
 			// get authenticate token
 			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-passport-token");
@@ -322,17 +324,6 @@ namespace net.vieapps.Services.Portals
 			if (httpVerb.IsEquals("POST") && !specialRequest.IsEquals("service"))
 				throw new MethodNotAllowedException(httpVerb);
 
-			var extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-			if (queryString.Remove("x-request-extra", out var extraInfo) && !string.IsNullOrWhiteSpace(extraInfo))
-				try
-				{
-					extra = extraInfo.Url64Decode().ToExpandoObject().ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString(), StringComparer.OrdinalIgnoreCase);
-				}
-				catch { }
-
-			var requestURI = context.GetRequestUri();
-			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
-			var osInfo = (session.AppAgent ?? "").GetOSInfo();
 			var headers = context.Request.Headers.ToDictionary(dictionary =>
 			{
 				Handler.ExcludedHeaders.ForEach(name => dictionary.Remove(name));
@@ -345,12 +336,19 @@ namespace net.vieapps.Services.Portals
 				dictionary["x-environment-is-mobile"] = isMobile;
 				dictionary["x-environment-os-info"] = osInfo;
 			});
-			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
+
+			var extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			if (queryString.Remove("x-request-extra", out var extraInfo) && !string.IsNullOrWhiteSpace(extraInfo))
+				try
+				{
+					extra = extraInfo.Url64Decode().ToExpandoObject().ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString(), StringComparer.OrdinalIgnoreCase);
+				}
+				catch { }
 
 			// process the request
+			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
 			JObject systemIdentityJson = null;
 			if (string.IsNullOrWhiteSpace(specialRequest))
-			{
 				try
 				{
 					using var ctsrc = new CancellationTokenSource(TimeSpan.FromSeconds(Handler.RequestTimeout));
@@ -360,14 +358,14 @@ namespace net.vieapps.Services.Portals
 					if (string.IsNullOrWhiteSpace(systemIdentity) || "~indicators".IsEquals(systemIdentity))
 					{
 						systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-						queryString["x-system"] = systemIdentityJson.Get<string>("Alias");
+						requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 					}
 
 					// request of portal desktops/resources
 					if (string.IsNullOrWhiteSpace(legacyRequest))
 					{
 						// working with cache
-						if (!Handler.RefresherRefererURL.IsEquals(context.GetReferUrl()))
+						if (!Handler.RefresherRefererURL.IsEquals(context.GetReferUrl()) && requestInfo.GetParameter("noCache") == null && requestInfo.GetParameter("forceCache") == null)
 						{
 							var cacheKey = "";
 							var eTag = "";
@@ -384,8 +382,8 @@ namespace net.vieapps.Services.Portals
 							{
 								string identity = null;
 								var isThemeResource = false;
-								var path = queryString["x-path"];
-								var type = requestInfo.Query["x-resource"];
+								var path = requestInfo.GetParameter("x-path");
+								var type = requestInfo.GetParameter("x-resource");
 
 								if (type.IsStartsWith("theme"))
 								{
@@ -482,10 +480,10 @@ namespace net.vieapps.Services.Portals
 
 								// last modified
 								var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
+								var lastModified = modifiedSince != null ? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) : null;
 								if (modifiedSince != null)
 								{
 									var noneMatch = context.GetHeaderParameter("If-None-Match");
-									var lastModified = await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false);
 									if (eTag.IsEquals(noneMatch) && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 									{
 										context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -498,7 +496,7 @@ namespace net.vieapps.Services.Portals
 										});
 
 										if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
-											await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => the 304 header was sent ({eTag} - {lastModified})").ConfigureAwait(false);
+											await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => not modified ({eTag} - {lastModified})").ConfigureAwait(false);
 										return;
 									}
 								}
@@ -507,7 +505,7 @@ namespace net.vieapps.Services.Portals
 								var cached = await Handler.Cache.GetAsync<string>(cacheKey, cts.Token).ConfigureAwait(false);
 								if (!string.IsNullOrWhiteSpace(cached))
 								{
-									var lastModified = await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
+									lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
 									context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 									{
 										{ "X-Cache", "http-cache" },
@@ -542,14 +540,14 @@ namespace net.vieapps.Services.Portals
 
 									await context.WriteAsync(cached.ToBytes(), cts.Token).ConfigureAwait(false);
 									if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
-										await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => cached was found ({cacheKey})").ConfigureAwait(false);
+										await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => found ({cacheKey})").ConfigureAwait(false);
 									return;
 								}
 							}
 						}
 
 						// call Portals service to process the request
-						requestInfo = new RequestInfo(session, "Portals", "Process.Http.Request", "GET", queryString, headers, null, extra, correlationID);
+						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
 						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
 						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
 						var body = response.Get<string>("Body");
@@ -628,7 +626,7 @@ namespace net.vieapps.Services.Portals
 						await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred ({statusCode}) => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 					}
 				}
-			}
+
 			else
 				switch (specialRequest)
 				{
@@ -643,7 +641,6 @@ namespace net.vieapps.Services.Portals
 					case "login":
 						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
 						{
-							requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
 							try
 							{
 								systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
@@ -672,7 +669,7 @@ namespace net.vieapps.Services.Portals
 					case "service":
 						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
 						{
-							requestInfo = new RequestInfo(session, queryString["service-name"], queryString["object-name"], httpVerb, queryString, headers, null, extra, correlationID);
+							requestInfo = new RequestInfo(requestInfo) { ServiceName = requestInfo.Query["service-name"], ObjectName = requestInfo.Query["object-name"], Verb = httpVerb };
 							try
 							{
 								await context.WriteAsync(await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Services").ConfigureAwait(false), cts.Token).ConfigureAwait(false);
