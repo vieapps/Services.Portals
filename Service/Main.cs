@@ -1154,10 +1154,12 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JToken> IdentifySystemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
+			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 			var site = requestInfo.Header.TryGetValue("x-host", out var host) && !string.IsNullOrWhiteSpace(host)
-				? await host.GetSiteByDomainAsync(Utility.DefaultSite?.ID, cancellationToken).ConfigureAwait(false) ?? Utility.DefaultSite
-				: Utility.DefaultSite;
-			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false) ?? site?.Organization;
+				? await host.GetSiteByDomainAsync(null, cancellationToken).ConfigureAwait(false)
+				: null;
+			site = site ?? organization?.Sites?.FirstOrDefault() ?? Utility.DefaultSite;
+			organization = organization ?? site?.Organization;
 			return organization != null
 				? new JObject
 				{
@@ -1165,8 +1167,8 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", organization.Alias },
 					{ "FilesHttpURI", organization.FakeFilesHttpURI ?? Utility.FilesHttpURI },
 					{ "PortalsHttpURI", organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI },
-					{ "AlwaysUseHTTPs", site.AlwaysUseHTTPs },
-					{ "RedirectToNoneWWW", site.RedirectToNoneWWW }
+					{ "AlwaysUseHTTPs", site != null && site.AlwaysUseHTTPs },
+					{ "RedirectToNoneWWW", site != null && site.RedirectToNoneWWW }
 				}
 				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(!string.IsNullOrWhiteSpace(host) ? host : "unknown")})");
 		}
