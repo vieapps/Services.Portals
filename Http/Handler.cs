@@ -464,7 +464,7 @@ namespace net.vieapps.Services.Portals
 
 							if (!string.IsNullOrWhiteSpace(cacheKey))
 							{
-								// redirect
+								// redirect (always HTTPS or None WWW)
 								if (contentType.IsEquals("text/html") && ((alwaysUseHTTPs && !requestURI.Scheme.IsEquals("https")) || (redirectToNoneWWW && requestURI.Host.IsStartsWith("www."))))
 								{
 									context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -552,7 +552,7 @@ namespace net.vieapps.Services.Portals
 						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
 						var body = response.Get<string>("Body");
 						if (body != null)
-							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "deflate")), cts.Token).ConfigureAwait(false);
+							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "gzip")), cts.Token).ConfigureAwait(false);
 					}
 
 					// request of legacy system (files and medias)
@@ -914,10 +914,8 @@ namespace net.vieapps.Services.Portals
 		{
 			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.Connect(
-				async (sender, arguments) =>
+				(sender, arguments) =>
 				{
-					Global.Logger.LogDebug($"Incoming channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					await Router.IncomingChannel.UpdateAsync(Router.IncomingChannelSessionID, Global.ServiceName, $"Incoming ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel?.RealmProxy.Services
 						.GetSubject<CommunicateMessage>("messages.services.portals")
@@ -970,12 +968,7 @@ namespace net.vieapps.Services.Portals
 							async exception => await Global.WriteLogsAsync(Global.Logger, "RTU", $"{exception.Message}", exception).ConfigureAwait(false)
 						);
 				},
-				async (sender, arguments) =>
-				{
-					Global.Logger.LogDebug($"Outgoing channel to API Gateway Router is established - Session ID: {arguments.SessionId}");
-					await Router.OutgoingChannel.UpdateAsync(Router.OutgoingChannelSessionID, Global.ServiceName, $"Outgoing ({Global.ServiceName} HTTP service)").ConfigureAwait(false);
-					await Global.RegisterServiceAsync().ConfigureAwait(false);
-				},
+				async (sender, arguments) => await Global.RegisterServiceAsync().ConfigureAwait(false),
 				waitingTimes
 			);
 		}

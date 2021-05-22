@@ -59,6 +59,11 @@ namespace net.vieapps.Services.Portals
 		public static string NotificationsKey { get; internal set; }
 
 		/// <summary>
+		/// Gets the name of the service
+		/// </summary>
+		public static string ServiceName => ServiceBase.ServiceComponent.ServiceName;
+
+		/// <summary>
 		/// Gets the identity of the current node
 		/// </summary>
 		public static string NodeID => ServiceBase.ServiceComponent.NodeID;

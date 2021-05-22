@@ -22,7 +22,7 @@ namespace net.vieapps.Services.Portals
 	public class Startup
 	{
 		public static void Main(string[] args)
-			=> WebHost.CreateDefaultBuilder(args).Run<Startup>(args, 8026);
+			=> WebHost.CreateDefaultBuilder(args).Run<Startup>(args);
 
 		public Startup(IConfiguration configuration)
 			=> this.Configuration = configuration;

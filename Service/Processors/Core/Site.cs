@@ -106,8 +106,8 @@ namespace net.vieapps.Services.Portals
 		}
 
 		public static Site GetSiteByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && SiteProcessor.Sites.ContainsKey(id)
-				? SiteProcessor.Sites[id]
+			=> !force && !string.IsNullOrWhiteSpace(id) && SiteProcessor.Sites.TryGetValue(id, out var site)
+				? site
 				: fetchRepository && !string.IsNullOrWhiteSpace(id)
 					? Site.Get<Site>(id)?.Set()
 					: null;
@@ -115,38 +115,26 @@ namespace net.vieapps.Services.Portals
 		public static async Task<Site> GetSiteByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetSiteByID(force, false) ?? (await Site.GetAsync<Site>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
-		static FilterBys<Site> GetFilterBy(this string domain)
+		internal static FilterBys<Site> GetFilterBy(this string domain)
 		{
-			var info = domain.NormalizeDomain().ToArray(".");
-			var primaryDomain = info.Skip(1).Join(".");
-			var subDomain = info.First();
-
-			var filter = Filters<Site>.Or(Filters<Site>.And(Filters<Site>.Equals("SubDomain", subDomain), Filters<Site>.Equals("PrimaryDomain", primaryDomain)));
-			if (!subDomain.Equals("*"))
-			{
+			var host = domain.NormalizeDomain().ToArray(".");
+			var filter = Filters<Site>.Or(Filters<Site>.And(Filters<Site>.Equals("SubDomain", host.First()), Filters<Site>.Equals("PrimaryDomain", host.Skip(1).Join("."))));
+			if (!host.First().Equals("*"))
 				filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domain)));
-				//filter.Add(Filters<Site>.And(Filters<Site>.IsNotNull("OtherDomains"), Filters<Site>.IsNotEmpty("OtherDomains"), Filters<Site>.Contains("OtherDomains", $"{subDomain}.{primaryDomain}")));
-			}
-			//else
-			//	filter.Add(Filters<Site>.And(Filters<Site>.IsNotNull("OtherDomains"), Filters<Site>.IsNotEmpty("OtherDomains"), Filters<Site>.Contains("OtherDomains", domain)));
 			return filter;
 		}
 
-		public static Site GetSiteByDomain(this List<Site> sites, string domain)
-		{
-			domain = domain.StartsWith("*.") ? domain.Right(domain.Length - 2) : domain;
-			return sites.FirstOrDefault(site => domain.IsEquals($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "")) || site.OtherDomains.ToList(";").Any(host => domain.IsEquals(host)));
-		}
+		internal static Site GetSiteByDomain(this List<Site> sites, string domain)
+			=> sites.FirstOrDefault(site => domain.IsEquals($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "")) || site.OtherDomains.ToList(";").Any(host => domain.IsEquals(host)));
 
 		public static Site GetSiteByDomain(this string domain, string defaultSiteIDWhenNotFound = null, bool fetchRepository = true)
 		{
-			if (string.IsNullOrWhiteSpace(domain) || Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
+			if (string.IsNullOrWhiteSpace(domain) || Utility.NotRecognizedAliases.Contains($"Site:{domain.Replace("*.", "")}"))
 				return (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
 
-			domain = domain.StartsWith("*.") ? domain.Right(domain.Length - 2) : domain;
-			if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{domain}", out var site) || site == null)
+			if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{domain.Replace("*.", "")}", out var site) || site == null)
 			{
-				var host = domain;
+				var host = domain.Replace("*.", "");
 				var dotOffset = host.IndexOf(".");
 				while (site == null && dotOffset > 0)
 					if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{host}", out site) || site == null)
@@ -156,11 +144,18 @@ namespace net.vieapps.Services.Portals
 					}
 			}
 
-			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
+			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains($"Site:{domain.Replace("*.", "")}"))
 			{
-				site = Site.Find(domain.GetFilterBy(), null, 0, 1, null).GetSiteByDomain(domain)?.Set();
+				site = Site.Find(domain.GetFilterBy(), null, 0, 1, null).GetSiteByDomain(domain.Replace("*.", ""))?.Set();
 				if (site == null)
-					Utility.NotRecognizedAliases.Add($"Site:{domain}");
+					Utility.NotRecognizedAliases.Add($"Site:{domain.Replace("*.", "")}");
+				else
+					new CommunicateMessage(Utility.ServiceName)
+					{
+						Type = $"{site.GetTypeName(true)}#Update",
+						Data = site.ToJson(),
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
 			}
 
 			return site ?? (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
@@ -169,11 +164,18 @@ namespace net.vieapps.Services.Portals
 		public static async Task<Site> GetSiteByDomainAsync(this string domain, string defaultSiteIDWhenNotFound = null, CancellationToken cancellationToken = default)
 		{
 			var site = (domain ?? "").GetSiteByDomain(defaultSiteIDWhenNotFound, false);
-			if (site == null && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
+			if (site == null && !Utility.NotRecognizedAliases.Contains($"Site:{domain?.Replace("*.", "")}"))
 			{
-				site = (await Site.FindAsync(domain.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain)?.Set();
+				site = (await Site.FindAsync(domain?.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain?.Replace("*.", ""))?.Set();
 				if (site == null)
-					Utility.NotRecognizedAliases.Add($"Site:{domain}");
+					Utility.NotRecognizedAliases.Add($"Site:{domain?.Replace("*.", "")}");
+				else
+					new CommunicateMessage(Utility.ServiceName)
+					{
+						Type = $"{site.GetTypeName(true)}#Update",
+						Data = site.ToJson(),
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
 			}
 			return site ?? (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
 		}
@@ -223,10 +225,11 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var site = message.Data.Get("ID", "").GetSiteByID(false, false);
+				var oldDomains = site != null ? new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }.Concat(site.OtherDomains.ToList(";")).ToList() : new List<string>();
 				site = site == null
 					? message.Data.ToExpandoObject().CreateSiteInstance()
 					: site.UpdateSiteInstance(message.Data.ToExpandoObject());
-				site.Set();
+				site.Set(false, false, oldDomains);
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))

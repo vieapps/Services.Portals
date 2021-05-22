@@ -40,19 +40,21 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(organization);
 			});
 
-		internal static Organization Set(this Organization organization, bool clear = false, bool updateCache = false)
+		internal static Organization Set(this Organization organization, bool clear = false, bool updateCache = false, string oldAlias = null)
 		{
 			if (organization != null && !string.IsNullOrWhiteSpace(organization.ID) && !string.IsNullOrWhiteSpace(organization.Title))
 			{
 				if (clear)
 					organization.Remove();
 
+				if (updateCache)
+					Utility.Cache.Set(organization);
+
 				OrganizationProcessor.Organizations[organization.ID] = organization;
 				OrganizationProcessor.OrganizationsByAlias[organization.Alias] = organization;
 				Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
-
-				if (updateCache)
-					Utility.Cache.Set(organization);
+				if (!string.IsNullOrWhiteSpace(oldAlias) && !oldAlias.IsEquals(organization.Alias) && OrganizationProcessor.OrganizationsByAlias.Remove(oldAlias))
+					Utility.NotRecognizedAliases.Remove($"Organization:{oldAlias}");
 			}
 			return organization;
 		}
@@ -91,15 +93,18 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Organization:{alias}"))
 				return null;
 
-			var organization = OrganizationProcessor.OrganizationsByAlias.ContainsKey(alias)
-				? OrganizationProcessor.OrganizationsByAlias[alias]
-				: null;
-
-			if (organization == null && fetchRepository)
+			if ((!OrganizationProcessor.OrganizationsByAlias.TryGetValue(alias, out var organization) || organization == null) && fetchRepository)
 			{
 				organization = Organization.Get<Organization>(Filters<Organization>.Equals("Alias", alias), null, null)?.Set();
 				if (organization == null)
 					Utility.NotRecognizedAliases.Add($"Organization:{alias}");
+				else
+					new CommunicateMessage(Utility.ServiceName)
+					{
+						Type = $"{organization.GetTypeName(true)}#Update",
+						Data = organization.ToJson(),
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
 			}
 
 			return organization;
@@ -113,6 +118,14 @@ namespace net.vieapps.Services.Portals
 			var organization = alias.GetOrganizationByAlias(false) ?? (await Organization.GetAsync<Organization>(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false))?.Set();
 			if (organization == null)
 				Utility.NotRecognizedAliases.Add($"Organization:{alias}");
+			else
+				new CommunicateMessage(Utility.ServiceName)
+				{
+					Type = $"{organization.GetTypeName(true)}#Update",
+					Data = organization.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+
 			return organization;
 		}
 
@@ -133,6 +146,7 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var organization = message.Data.Get("ID", "").GetOrganizationByID(false, false);
+				var oldAlias = organization?.Alias;
 				organization = organization == null
 					? message.Data.ToExpandoObject().CreateOrganizationInstance()
 					: organization.UpdateOrganizationInstance(message.Data.ToExpandoObject());
@@ -142,7 +156,7 @@ namespace net.vieapps.Services.Portals
 					organization.FindSitesAsync(cancellationToken, false),
 					organization.FindModulesAsync(cancellationToken, false)
 				).ConfigureAwait(false);
-				organization.Set();
+				organization.Set(false, false, oldAlias);
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
