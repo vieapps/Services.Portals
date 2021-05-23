@@ -1332,7 +1332,7 @@ namespace net.vieapps.Services.Portals
 							"Headers",
 							new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 							{
-								{ "X-Cache", "svc-time" },
+								{ "X-Cache", "SVC" },
 								{ "X-Correlation-ID", requestInfo.CorrelationID },
 								{ "ETag", eTag },
 								{ "Last-Modified", lastModified }
@@ -1396,6 +1396,7 @@ namespace net.vieapps.Services.Portals
 				// verify
 				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
 				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
 				var headers = new Dictionary<string, string>
 				{
@@ -1441,7 +1442,7 @@ namespace net.vieapps.Services.Portals
 								"Headers",
 								new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
-									{ "X-Cache", "svc-time" },
+									{ "X-Cache", "SVC" },
 									{ "ETag", eTag },
 									{ "Last-Modified", lastModified }
 								}.ToJson()
@@ -1483,7 +1484,7 @@ namespace net.vieapps.Services.Portals
 						resources = await this.GetThemeResourcesAsync(identity, "css", cancellationToken).ConfigureAwait(false);
 				}
 				else
-					headers["X-Cache"] = "svc-cache";
+					headers["X-Cache"] = "SVC";
 
 				if (this.CacheDesktopResources)
 				{
@@ -1522,6 +1523,7 @@ namespace net.vieapps.Services.Portals
 				// prepare
 				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
 				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
 				var headers = new Dictionary<string, string>
 				{
@@ -1573,7 +1575,7 @@ namespace net.vieapps.Services.Portals
 								"Headers",
 								new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
-									{ "X-Cache", "svc-time" },
+									{ "X-Cache", "SVC" },
 									{ "ETag", eTag },
 									{ "Last-Modified", lastModified }
 								}.ToJson()
@@ -1624,7 +1626,7 @@ namespace net.vieapps.Services.Portals
 						resources = await this.GetThemeResourcesAsync(identity, "js", cancellationToken).ConfigureAwait(false);
 				}
 				else
-					headers["X-Cache"] = "svc-cache";
+					headers["X-Cache"] = "SVC";
 
 				if (this.CacheDesktopResources)
 				{
@@ -1845,7 +1847,7 @@ namespace net.vieapps.Services.Portals
 				{
 					headers = new Dictionary<string, string>(headers)
 					{
-						{ "X-Cache", "svc-time" },
+						{ "X-Cache", "SVC" },
 						{ "ETag", eTag },
 						{ "Last-Modified", lastModified },
 						{ "Cache-Control", "public" }
@@ -1902,7 +1904,7 @@ namespace net.vieapps.Services.Portals
 				}
 				headers = new Dictionary<string, string>(headers)
 				{
-					{ "X-Cache", "svc-cache" },
+					{ "X-Cache", "SVC" },
 					{ "ETag", eTag },
 					{ "Last-Modified", lastModified },
 					{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },

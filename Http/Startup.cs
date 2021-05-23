@@ -35,10 +35,10 @@ namespace net.vieapps.Services.Portals
 		{
 			// mandatory services
 			services
+				.AddHttpContextAccessor()
 				.AddResponseCompression(options => options.EnableForHttps = true)
 				.AddLogging(builder => builder.SetMinimumLevel(this.LogLevel))
 				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
-				.AddHttpContextAccessor()
 				.AddSession(options => Global.PrepareSessionOptions(options, 30))
 				.Configure<FormOptions>(options => Global.PrepareFormOptions(options))
 				.Configure<CookiePolicyOptions>(options => Global.PrepareCookiePolicyOptions(options, SameSiteMode.Lax));

@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFrameworks>net5.0;netstandard2.0</TargetFrameworks>
 		<WarningLevel>3</WarningLevel>
-		<NoWarn>1573,1591,CA1507,CA1068,CA1822,IDE0054,IDE0057,IDE0090</NoWarn>
+		<NoWarn>1573,1591,CA1507,CA1068,CA1822,IDE0054,IDE0057,IDE0083,IDE0090</NoWarn>
 		<RootNamespace>net.vieapps.Services.Portals</RootNamespace>
 		<AssemblyName>VIEApps.Services.Portals</AssemblyName>
 		<AssemblyTitle>VIEApps NGX Portals</AssemblyTitle>

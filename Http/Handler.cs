@@ -84,12 +84,11 @@ namespace net.vieapps.Services.Portals
 					if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
 						headers["Access-Control-Allow-Headers"] = requestHeaders;
 					context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
-					await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
 				}
 
 				// load balancing health check
 				else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancingHealthCheckUrl))
-					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
+					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero).ConfigureAwait(false);
 
 				// process portals' requests
 				else
@@ -488,7 +487,7 @@ namespace net.vieapps.Services.Portals
 									{
 										context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 										{
-											{ "X-Cache", "http-time" },
+											{ "X-Cache", "HTTP" },
 											{ "X-Correlation-ID", correlationID },
 											{ "Content-Type", $"{contentType}; charset=utf-8" },
 											{ "ETag", eTag },
@@ -497,6 +496,7 @@ namespace net.vieapps.Services.Portals
 
 										if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
 											await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => not modified ({eTag} - {lastModified})").ConfigureAwait(false);
+
 										return;
 									}
 								}
@@ -508,7 +508,7 @@ namespace net.vieapps.Services.Portals
 									lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
 									context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 									{
-										{ "X-Cache", "http-cache" },
+										{ "X-Cache", "HTTP" },
 										{ "X-Correlation-ID", correlationID },
 										{ "Content-Type", $"{contentType}; charset=utf-8" },
 										{ "ETag", eTag },
@@ -541,6 +541,7 @@ namespace net.vieapps.Services.Portals
 									await context.WriteAsync(cached.ToBytes(), cts.Token).ConfigureAwait(false);
 									if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
 										await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => found ({cacheKey})").ConfigureAwait(false);
+
 									return;
 								}
 							}
