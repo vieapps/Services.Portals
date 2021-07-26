@@ -28,13 +28,15 @@ namespace net.vieapps.Services.Portals
 		public Handler(RequestDelegate _) { }
 
 		#region Properties
-		static HashSet<string> Initializers { get; } = "_initializer,initializer.aspx,initializer.ashx".ToHashSet();
+		static HashSet<string> Initializers { get; } = "_initializer,initializer.aspx".ToHashSet();
 
-		static HashSet<string> Validators { get; } = "_validator,validator.aspx,validator.ashx".ToHashSet();
+		static HashSet<string> Validators { get; } = "_validator,validator.aspx".ToHashSet();
 
-		static HashSet<string> LogIns { get; } = "_login,_signin,_signup,_register,_admin,_users,_cms,login.aspx,login.ashx,signin.aspx,signin.ashx,signup.aspx,signup.ashx,register.aspx,register.ashx,admin.aspx,admin.ashx,users.aspx,users.ashx,cms.aspx,cms.ashx".ToHashSet();
+		static HashSet<string> LogIns { get; } = "_login,login.aspx,signin.aspx".ToHashSet();
 
-		static HashSet<string> LogOuts { get; } = "_logout,_signout,logout.aspx,logout.ashx,signout.aspx,signout.ashx".ToHashSet();
+		static HashSet<string> LogOuts { get; } = "_logout,logout.aspx,signout.aspx".ToHashSet();
+
+		static HashSet<string> CmsPortals { get; } = "_admin,admin.aspx,admin.html,_cms,cms.aspx,cms.html".ToHashSet();
 
 		static bool UseShortURLs => "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
 
@@ -44,15 +46,13 @@ namespace net.vieapps.Services.Portals
 
 		internal static string NodeName => Extensions.GetUniqueName(Global.ServiceName + ".http");
 
-		internal static bool RedirectToPassportOnUnauthorized => "true".IsEquals(UtilityService.GetAppSetting("Portals:RedirectToPassportOnUnauthorized", "true"));
-
 		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop").ToList();
 
 		internal static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
 
 		internal static string RefresherRefererURL => "https://portals.vieapps.net/~url.refresher";
 
-		internal static int RequestTimeout { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:RequestTimeout", "13"), out var timeout) && timeout > 0 ? timeout : 13;
+		internal static int ExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 0;
 
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 			=> Task.CompletedTask;
@@ -79,7 +79,7 @@ namespace net.vieapps.Services.Portals
 				{
 					var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 					{
-						["Access-Control-Allow-Methods"] = "HEAD,GET,POST"
+						["Access-Control-Allow-Methods"] = "HEAD,GET,POST,PUT,PATCH"
 					};
 					if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
 						headers["Access-Control-Allow-Headers"] = requestHeaders;
@@ -92,15 +92,154 @@ namespace net.vieapps.Services.Portals
 
 				// process portals' requests
 				else
-					await this.ProcessRequestAsync(context).ConfigureAwait(false);
+					await this.ProcessHttpRequestAsync(context).ConfigureAwait(false);
 			}
 		}
 
-		internal async Task ProcessRequestAsync(HttpContext context)
+		internal static void InitializeWebSocket()
+		{
+			Handler.WebSocket = new Components.WebSockets.WebSocket(Logger.GetLoggerFactory(), Global.CancellationToken)
+			{
+				KeepAliveInterval = TimeSpan.FromSeconds(Int32.TryParse(UtilityService.GetAppSetting("Proxy:KeepAliveInterval", "45"), out var interval) ? interval : 45),
+				OnError = async (websocket, exception) => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).ConfigureAwait(false),
+				OnMessageReceived = async (websocket, result, data) => await (websocket == null ? Task.CompletedTask : Handler.ProcessWebSocketRequestAsync(websocket, result, data)).ConfigureAwait(false),
+			};
+		}
+
+		static async Task ProcessWebSocketRequestAsync(ManagedWebSocket websocket, WebSocketReceiveResult result, byte[] data)
+		{
+			// prepare
+			var requestMsg = result.MessageType.Equals(WebSocketMessageType.Text) ? data.GetString() : null;
+			if (string.IsNullOrWhiteSpace(requestMsg))
+				return;
+
+			var correlationID = UtilityService.NewUUID;
+			var stopwatch = Stopwatch.StartNew();
+			var requestObj = requestMsg.ToExpandoObject();
+			var requestID = requestObj.Get<string>("ID");
+
+			var serviceName = requestObj.Get("ServiceName", "");
+			var objectName = requestObj.Get("ObjectName", "");
+			var verb = requestObj.Get("Verb", "GET").ToUpper();
+			var query = new Dictionary<string, string>(requestObj.Get("Query", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
+			var header = new Dictionary<string, string>(requestObj.Get("Header", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
+			var body = requestObj.Get("Body")?.ToExpandoObject();
+			var extra = new Dictionary<string, string>(requestObj.Get("Extra", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
+			query.TryGetValue("object-identity", out var objectIdentity);
+
+			var session = websocket.Get<Session>("Session") ?? Global.GetSession();
+
+			try
+			{
+				// visit logs
+				if (Global.IsVisitLogEnabled)
+					await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
+						$"Request starting {verb} " + $"/{serviceName}{(string.IsNullOrWhiteSpace(objectName) ? "" : $"/{objectName}")}{(string.IsNullOrWhiteSpace(objectIdentity) ? "" : $"/{objectIdentity}")}".ToLower() + (query.TryGetValue("x-request", out var xrequest) ? $"?x-request={xrequest}" : "") + " HTTPWS/1.1" + " \r\n" +
+						$"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
+						$"- WebSocket: {websocket.ID} @ {websocket.RemoteEndPoint}"
+					, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+
+				// register/authenticate a session
+				if (serviceName.IsEquals("Session") && (verb.IsEquals("REG") || verb.IsEquals("AUTH")))
+				{
+					session.AppName = header.TryGetValue("x-app-name", out var appName) && !string.IsNullOrWhiteSpace(appName) ? appName : session.AppName;
+					session.AppPlatform = header.TryGetValue("x-app-platform", out var appPlatform) && !string.IsNullOrWhiteSpace(appPlatform) ? appPlatform : session.AppPlatform;
+
+					if (verb.IsEquals("REG"))
+					{
+						session.DeviceID = header.TryGetValue("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID) ? deviceID : string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@web" : session.DeviceID;
+						websocket.Set("Status", "Registered");
+					}
+
+					else
+					{
+						var appToken = body?.Get<string>("x-app-token") ?? "";
+						await Global.UpdateWithAuthenticateTokenAsync(session, appToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Http.Authentication", correlationID).ConfigureAwait(false);
+						if (!string.IsNullOrWhiteSpace(session.User.ID) && !await session.IsSessionExistAsync(Global.Logger, "Http.Authentication", correlationID).ConfigureAwait(false))
+							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
+
+						var encryptionKey = session.GetEncryptionKey(Global.EncryptionKey);
+						var encryptionIV = session.GetEncryptionIV(Global.EncryptionKey);
+						if (!header.TryGetValue("x-session-id", out var sessionID) || !sessionID.Decrypt(encryptionKey, encryptionIV).Equals(session.GetEncryptedID())
+							|| !header.TryGetValue("x-device-id", out var deviceID) || !deviceID.Decrypt(encryptionKey, encryptionIV).Equals(session.DeviceID))
+							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
+
+						session.AppName = body?.Get<string>("x-app-name") ?? session.AppName;
+						session.AppPlatform = body?.Get<string>("x-app-platform") ?? session.AppPlatform;
+						websocket.Set("Status", "Authenticated");
+						websocket.Set("Token", JSONWebToken.DecodeAsJson(appToken, Global.JWTKey));
+					}
+
+					websocket.Set("Session", session);
+					await websocket.PrepareConnectionInfoAsync(correlationID, session, Global.CancellationToken, Global.Logger).ConfigureAwait(false);
+					if (Global.IsDebugLogEnabled)
+						await Global.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully {(verb.IsEquals("REG") ? "register" : "authenticate")} a WebSocket connection\r\n{websocket.GetConnectionInfo(session)}\r\n- Status: {websocket.Get<string>("Status")}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+				}
+
+				// call a service of APIs
+				else
+				{
+					var requestInfo = new RequestInfo(session, serviceName, objectName, verb, query, header, body?.ToJson().ToString(Formatting.None), extra, correlationID);
+					var response = new JObject
+					{
+						{ "ID", requestID },
+						{ "Type", $"{serviceName.GetCapitalizedFirstLetter()}#{objectName.GetCapitalizedFirstLetter()}#{verb.GetCapitalizedFirstLetter()}" },
+						{ "Data", await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) }
+					};
+					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+				}
+			}
+			catch (Exception ex)
+			{
+				try
+				{
+					var code = ex.GetHttpStatusCode();
+					var message = ex.Message;
+					var type = ex.GetTypeName(true);
+					var stack = ex.StackTrace;
+					if (ex is WampException wampException)
+					{
+						var details = wampException.GetDetails();
+						code = details.Item1;
+						message = details.Item2;
+						type = details.Item3;
+						stack = details.Item4;
+					}
+					var response = new JObject
+					{
+						{ "ID", requestID },
+						{ "Type", "Error" },
+						{ "Error", new JObject
+							{
+								{ "Code", code },
+								{ "Message", message },
+								{ "Type", type },
+								{ "Verb", verb },
+								{ "Stack", stack },
+								{ "CorrelationID", correlationID }
+							}
+						}
+					};
+					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+				}
+				catch (Exception e)
+				{
+					Global.Logger.LogError($"Cannot send an error to client via WebSocket => {e.Message}", e);
+				}
+			}
+			finally
+			{
+				stopwatch.Stop();
+				if (Global.IsVisitLogEnabled)
+					await Global.WriteLogsAsync(Global.Logger, "Http.Visits", $"Request finished in {stopwatch.GetElapsedTimes()}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+			}
+		}
+
+		internal async Task ProcessHttpRequestAsync(HttpContext context)
 		{
 			// prepare
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
-			var requestPath = context.GetRequestUri().GetRequestPathSegments(true).First();
+			var requestPath = context.GetRequestPathSegments(true).First();
 
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
@@ -123,90 +262,137 @@ namespace net.vieapps.Services.Portals
 
 		async Task ProcessPortalRequestAsync(HttpContext context)
 		{
-			// prepare session information
+			// prepare
 			var correlationID = context.GetCorrelationID();
-			var session = context.GetSession();
+
+			var session = context.Session.Get<Session>("Session") ?? context.GetSession();
+
+			var appName = context.GetParameter("x-app-name");
+			if (!string.IsNullOrWhiteSpace(appName))
+				try
+				{
+					session.AppName = appName.Url64Decode();
+				}
+				catch
+				{
+					session.AppName = appName;
+				}
+
+			var appPlatform = context.GetParameter("x-app-platform");
+			if (!string.IsNullOrWhiteSpace(appPlatform))
+				try
+				{
+					session.AppPlatform = appPlatform.Url64Decode();
+				}
+				catch
+				{
+					session.AppPlatform = appPlatform;
+				}
+
+			var deviceID = context.GetParameter("x-device-id");
+			if (!string.IsNullOrWhiteSpace(deviceID))
+				try
+				{
+					session.DeviceID = deviceID.Url64Decode();
+				}
+				catch
+				{
+					session.DeviceID = deviceID;
+				}
+
+			// update user of the session if already signed-in
+			if (context.IsAuthenticated())
+			{
+				if (string.IsNullOrWhiteSpace(session.User.ID) && string.IsNullOrWhiteSpace(session.User.SessionID))
+				{
+					session.User = context.GetUser();
+					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.SessionID)
+						? session.SessionID
+						: UtilityService.NewUUID;
+				}
+				else
+				{
+					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
+						? session.User.SessionID
+						: !string.IsNullOrWhiteSpace(session.SessionID)
+							? session.SessionID
+							: UtilityService.NewUUID;
+					context.User = new UserPrincipal(session.User);
+				}
+
+				if (Global.IsDebugLogEnabled)
+					await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully update an user with authenticate ticket {session.ToJson()}").ConfigureAwait(false);
+			}
+
+			// update with authenticate token
+			else
+			{
+				// prepare token
+				var authenticateToken = context.GetParameter("x-app-token");
+				if (string.IsNullOrWhiteSpace(authenticateToken))
+				{
+					authenticateToken = context.GetHeaderParameter("authorization");
+					authenticateToken = authenticateToken != null && authenticateToken.IsStartsWith("Bearer") ? authenticateToken.ToArray(" ").Last() : null;
+				}
+
+				// authenticate the session
+				if (!string.IsNullOrWhiteSpace(authenticateToken))
+					try
+					{
+						// authenticate
+						await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Http.Authentication", correlationID).ConfigureAwait(false);
+						if (Global.IsDebugLogEnabled)
+							await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with authenticate token {session.ToJson().ToString(Formatting.Indented)}").ConfigureAwait(false);
+
+						// assign user information
+						context.User = new UserPrincipal(session.User);
+					}
+					catch (Exception ex)
+					{
+						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Failure authenticate an user with authenticate token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+					}
+
+				// update identities
+				else
+					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
+						? session.User.SessionID
+						: !string.IsNullOrWhiteSpace(session.SessionID)
+							? session.SessionID
+							: UtilityService.NewUUID;
+			}
+
+			// update session into storages
+			if (context.Session.ContainsKey("Session"))
+				context.Session.Add("Session", session);
+			context.SetSession(session);
+
+			// prepare the requesting information
 			var requestURI = context.GetRequestUri();
 			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
 			var osInfo = (session.AppAgent ?? "").GetOSInfo();
 
-			// get authenticate token
-			var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-passport-token");
-
-			// normalize the Bearer token
-			if (string.IsNullOrWhiteSpace(authenticateToken))
-			{
-				authenticateToken = context.GetHeaderParameter("authorization");
-				authenticateToken = authenticateToken != null && authenticateToken.IsStartsWith("Bearer") ? authenticateToken.ToArray(" ").Last() : null;
-			}
-
-			// got authenticate token => update the session
-			if (!string.IsNullOrWhiteSpace(authenticateToken))
-				try
-				{
-					// authenticate (token is expired after 15 minutes)
-					await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, 90, null, null, null, Global.Logger, "Http.Authentication", correlationID).ConfigureAwait(false);
-					if (Global.IsDebugLogEnabled)
-						await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully authenticate an user with token {session.ToJson().ToString(Formatting.Indented)}").ConfigureAwait(false);
-
-					// perform sign-in (to create authenticate ticket cookie) when the authenticate token its came from passport service
-					if (context.GetParameter("x-passport-token") != null)
-					{
-						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new UserPrincipal(session.User), new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
-						if (Global.IsDebugLogEnabled)
-							await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully create the authenticate ticket cookie for an user ({session.User.ID})").ConfigureAwait(false);
-					}
-
-					// just assign user information
-					else
-						context.User = new UserPrincipal(session.User);
-				}
-				catch (Exception ex)
-				{
-					await context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Failure authenticate a token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-				}
-
-			// no authenticate token => update user of the session if already signed-in
-			else if (context.IsAuthenticated())
-				session.User = context.GetUser();
-
-			// update session
-			session.User.SessionID = string.IsNullOrWhiteSpace(session.User.SessionID) ? UtilityService.NewUUID : session.User.SessionID;
-			session.SessionID = session.User.SessionID;
-
-			var appName = context.GetParameter("x-app-name");
-			if (!string.IsNullOrWhiteSpace(appName))
-				session.AppName = appName;
-
-			var appPlatform = context.GetParameter("x-app-platform");
-			if (!string.IsNullOrWhiteSpace(appPlatform))
-				session.AppPlatform = appPlatform;
-
-			var deviceID = context.GetParameter("x-device-id");
-			if (!string.IsNullOrWhiteSpace(deviceID))
-				session.DeviceID = deviceID;
-
-			// prepare the requesting information
 			var systemIdentity = string.Empty;
 			var specialRequest = string.Empty;
 			var legacyRequest = string.Empty;
+
 			var queryString = context.Request.QueryString.ToDictionary(query =>
 			{
 				var pathSegments = context.GetRequestPathSegments().Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx") && !segment.IsEquals("index.aspx") && !segment.IsEquals("index.php")).ToArray();
 				var requestSegments = pathSegments;
+				var firstPathSegment = pathSegments.Length > 0 ? pathSegments[0].ToLower() : "";
 
 				// special parameters (like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity)
-				if (pathSegments.Length > 0 && !string.IsNullOrWhiteSpace(pathSegments[0]))
+				if (!string.IsNullOrWhiteSpace(firstPathSegment))
 				{
 					// system/oranization identity or service
-					if (pathSegments[0].StartsWith("~"))
+					if (firstPathSegment.StartsWith("~"))
 					{
 						// specifict service
 						if (requestSegments[0].IsEquals("~apis.service") || requestSegments[0].IsEquals("~apis.gateway"))
 							specialRequest = "service";
 						else
 						{
-							systemIdentity = pathSegments[0].Right(pathSegments[0].Length - 1).Replace(StringComparison.OrdinalIgnoreCase, ".html", "").GetANSIUri(true, false);
+							systemIdentity = firstPathSegment.Right(firstPathSegment.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, ".html", "").GetANSIUri(true, false);
 							query["x-system"] = systemIdentity;
 						}
 						requestSegments = pathSegments.Skip(1).ToArray();
@@ -219,26 +405,26 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// special requests (_initializer, _validator, _login, _logout) or special resources (_assets, _css, _fonts, _images, _js)
-					else if (pathSegments[0].StartsWith("_"))
+					else if (firstPathSegment.StartsWith("_"))
 					{
 						// special requests
-						if (Handler.Initializers.Contains(pathSegments[0].ToLower()))
+						if (Handler.Initializers.Contains(firstPathSegment))
 							specialRequest = "initializer";
 
-						else if (Handler.Validators.Contains(pathSegments[0].ToLower()))
+						else if (Handler.Validators.Contains(firstPathSegment))
 							specialRequest = "validator";
 
-						else if (Handler.LogIns.Contains(pathSegments[0].ToLower()))
+						else if (Handler.LogIns.Contains(firstPathSegment))
 							specialRequest = "login";
 
-						else if (Handler.LogOuts.Contains(pathSegments[0].ToLower()))
+						else if (Handler.LogOuts.Contains(firstPathSegment))
 							specialRequest = "logout";
 
 						// special resources
 						else
 						{
 							systemIdentity = "~resources";
-							query["x-resource"] = pathSegments[0].Right(pathSegments[0].Length - 1).GetANSIUri(true, true);
+							query["x-resource"] = firstPathSegment.Right(firstPathSegment.Length - 1).GetANSIUri(true, true);
 							query["x-path"] = pathSegments.Skip(1).Join("/");
 						}
 
@@ -247,10 +433,10 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// HTTP indicator
-					else if (pathSegments[0].IsEndsWith(".txt"))
+					else if (firstPathSegment.IsEndsWith(".txt"))
 					{
 						systemIdentity = "~indicators";
-						query["x-indicator"] = pathSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".txt", "").ToLower();
+						query["x-indicator"] = firstPathSegment.Replace(StringComparison.OrdinalIgnoreCase, ".txt", "").ToLower();
 						requestSegments = Array.Empty<string>();
 					}
 				}
@@ -258,39 +444,47 @@ namespace net.vieapps.Services.Portals
 				// normalize info of requests
 				if (requestSegments.Length > 0 && specialRequest.IsEquals(""))
 				{
+					var firstRequestSegment = requestSegments[0].ToLower();
+
 					// special requests
-					if (Handler.Initializers.Contains(requestSegments[0].ToLower()))
+					if (Handler.Initializers.Contains(firstRequestSegment))
 					{
 						specialRequest = "initializer";
 						requestSegments = Array.Empty<string>();
 					}
 
-					else if (Handler.Validators.Contains(requestSegments[0].ToLower()))
+					else if (Handler.Validators.Contains(firstRequestSegment))
 					{
 						specialRequest = "validator";
 						requestSegments = Array.Empty<string>();
 					}
 
-					else if (Handler.LogIns.Contains(requestSegments[0].ToLower()))
+					else if (Handler.LogIns.Contains(firstRequestSegment))
 					{
 						specialRequest = "login";
 						requestSegments = Array.Empty<string>();
 					}
 
-					else if (Handler.LogOuts.Contains(requestSegments[0].ToLower()))
+					else if (Handler.LogOuts.Contains(firstRequestSegment))
 					{
 						specialRequest = "logout";
 						requestSegments = Array.Empty<string>();
 					}
 
+					else if (Handler.CmsPortals.Contains(firstRequestSegment))
+					{
+						specialRequest = "cms";
+						requestSegments = Array.Empty<string>();
+					}
+
 					// request of legacy systems
-					else if (requestSegments[0].IsEndsWith(".ashx") || requestSegments[0].IsEndsWith(".aspx"))
+					else if (firstRequestSegment.IsEndsWith(".ashx") || firstRequestSegment.IsEndsWith(".aspx"))
 						legacyRequest = requestSegments.Join("/");
 
 					// parameters of desktop and contents
 					else
 					{
-						var value = requestSegments[0].Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
+						var value = firstRequestSegment.Replace(StringComparison.OrdinalIgnoreCase, ".html", "");
 						value = value.Equals("") || value.StartsWith("-") || value.IsEquals("default") || value.IsEquals("index") || value.IsNumeric() ? "default" : value.GetANSIUri();
 						query["x-desktop"] = (value.Equals("default") ? "-" : "") + value;
 
@@ -320,7 +514,7 @@ namespace net.vieapps.Services.Portals
 
 			// validate HTTP Verb
 			var httpVerb = (context.Request.Method ?? "GET").ToUpper();
-			if (httpVerb.IsEquals("POST") && !specialRequest.IsEquals("service"))
+			if (!httpVerb.IsEquals("GET") && !specialRequest.IsEquals("login") && !specialRequest.IsEquals("service"))
 				throw new MethodNotAllowedException(httpVerb);
 
 			var headers = context.Request.Headers.ToDictionary(dictionary =>
@@ -350,8 +544,7 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(specialRequest))
 				try
 				{
-					using var ctsrc = new CancellationTokenSource(TimeSpan.FromSeconds(Handler.RequestTimeout));
-					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, ctsrc.Token, context.RequestAborted);
+					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 
 					// call the Portals service to identify the system
 					if (string.IsNullOrWhiteSpace(systemIdentity) || "~indicators".IsEquals(systemIdentity))
@@ -609,30 +802,24 @@ namespace net.vieapps.Services.Portals
 				{
 					var statusCode = ex.GetHttpStatusCode();
 					var query = context.ParseQuery();
-					if (ex is AccessDeniedException && !context.IsAuthenticated() && Handler.RedirectToPassportOnUnauthorized && !query.ContainsKey("x-app-token") && !query.ContainsKey("x-passport-token"))
+					if (ex is WampException wampException)
 					{
-						await context.WriteLogsAsync("Http.Process.Requests", $"Access denied ({statusCode}) => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-						context.Redirect(context.GetPassportSessionAuthenticatorUrl());
+						var wampDetails = wampException.GetDetails(requestInfo);
+						statusCode = wampDetails.Item1;
+						context.ShowHttpError(statusCode: statusCode, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: correlationID, stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
 					}
 					else
-					{
-						if (ex is WampException wampException)
-						{
-							var wampDetails = wampException.GetDetails(requestInfo);
-							statusCode = wampDetails.Item1;
-							context.ShowHttpError(statusCode: statusCode, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: correlationID, stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
-						}
-						else
-							context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: correlationID, ex: ex, showStack: Global.IsDebugLogEnabled);
-						await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred ({statusCode}) => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					}
+						context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: correlationID, ex: ex, showStack: Global.IsDebugLogEnabled);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred ({statusCode}) => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 				}
 
 			else
 				switch (specialRequest)
 				{
 					case "initializer":
-						await this.ProcessInitializerRequestAsync(context).ConfigureAwait(false);
+						if (context.Request.Path.Value.IsEndsWith(".aspx"))
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Authentication").ConfigureAwait(false) as JObject;
+						await this.ProcessInitializerRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
 						break;
 
 					case "validator":
@@ -640,46 +827,56 @@ namespace net.vieapps.Services.Portals
 						break;
 
 					case "login":
-						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
-						{
-							try
-							{
-								systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-								await this.ProcessLogInRequestAsync(context, systemIdentityJson?.Get<string>("ID")).ConfigureAwait(false);
-							}
-							catch (Exception ex)
-							{
-								var statusCode = ex.GetHttpStatusCode();
-								if (ex is WampException wampException)
-								{
-									var wampDetails = wampException.GetDetails(requestInfo);
-									statusCode = wampDetails.Item1;
-									context.ShowHttpError(statusCode: statusCode, message: wampDetails.Item2, type: wampDetails.Item3, correlationID: correlationID, stack: wampDetails.Item4 + "\r\n\t" + ex.StackTrace, showStack: Global.IsDebugLogEnabled);
-								}
-								else
-									context.ShowHttpError(statusCode: statusCode, message: ex.Message, type: ex.GetTypeName(true), correlationID: correlationID, ex: ex, showStack: Global.IsDebugLogEnabled);
-								await context.WriteLogsAsync("Http.Authentication", $"Error occurred while logging in => {ex.Message}", ex).ConfigureAwait(false);
-							}
-						}
+						if (context.Request.Path.Value.IsEndsWith(".aspx") || !context.Request.Method.IsEquals("GET"))
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Authentication").ConfigureAwait(false) as JObject;
+						await this.ProcessLogInRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
 						break;
 
 					case "logout":
-						await this.ProcessLogOutRequestAsync(context).ConfigureAwait(false);
+						if (context.Request.Path.Value.IsEndsWith(".aspx"))
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Authentication").ConfigureAwait(false) as JObject;
+						await this.ProcessLogOutRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
+						break;
+
+					case "cms":
+						try
+						{
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+							await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID")).ConfigureAwait(false);
+						}
+						catch (Exception ex)
+						{
+							if (ex is WampException wampException)
+							{
+								var wampDetails = wampException.GetDetails(requestInfo);
+								context.ShowHttpError(wampDetails.Item1, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
+							}
+							else
+								context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, Global.IsDebugLogEnabled);
+							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while redirecting to CMS Portals => {ex.Message}", ex).ConfigureAwait(false);
+						}
 						break;
 
 					case "service":
-						using (var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted))
+						requestInfo = new RequestInfo(requestInfo)
 						{
-							requestInfo = new RequestInfo(requestInfo) { ServiceName = requestInfo.Query["service-name"], ObjectName = requestInfo.Query["object-name"], Verb = httpVerb };
-							try
-							{
-								await context.WriteAsync(await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Services").ConfigureAwait(false), cts.Token).ConfigureAwait(false);
-							}
-							catch (Exception ex)
-							{
-								await context.WriteLogsAsync("Http.Services", $"Error occurred while calling a service => {ex.Message}", ex).ConfigureAwait(false);
-								context.WriteError(Global.Logger, ex, requestInfo);
-							}
+							ServiceName = requestInfo.Query["service-name"],
+							ObjectName = requestInfo.Query["object-name"],
+							Verb = httpVerb
+						};
+						try
+						{
+							using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+							var response = await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Services").ConfigureAwait(false);
+							await Task.WhenAll
+							(
+								context.WriteAsync(response, cts.Token),
+								Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Services", $"Successfully process request of a service {response}") : Task.CompletedTask
+							).ConfigureAwait(false);
+						}
+						catch (Exception ex)
+						{
+							context.WriteError(Global.Logger, ex, requestInfo, $"Error occurred while calling a service => {ex.Message}", true, "Http.Services");
 						}
 						break;
 
@@ -690,162 +887,473 @@ namespace net.vieapps.Services.Portals
 				}
 		}
 
-		internal static void InitializeWebSocket()
+		async Task ProcessInitializerRequestAsync(HttpContext context, JObject systemIdentityJson)
 		{
-			Handler.WebSocket = new Components.WebSockets.WebSocket(Logger.GetLoggerFactory(), Global.CancellationToken)
-			{
-				KeepAliveInterval = TimeSpan.FromSeconds(Int32.TryParse(UtilityService.GetAppSetting("Proxy:KeepAliveInterval", "45"), out var interval) ? interval : 45),
-				OnError = async (websocket, exception) => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).ConfigureAwait(false),
-				OnMessageReceived = async (websocket, result, data) => await (websocket == null ? Task.CompletedTask : Handler.ProcessWebSocketRequestAsync(websocket, result, data)).ConfigureAwait(false),
-			};
-		}
+			var correlationID = context.GetCorrelationID();
+			var session = context.GetSession();
 
-		static async Task ProcessWebSocketRequestAsync(ManagedWebSocket websocket, WebSocketReceiveResult result, byte[] data)
-		{
-			// prepare
-			var correlationID = UtilityService.NewUUID;
-			var requestMsg = result.MessageType.Equals(WebSocketMessageType.Text) ? data.GetString() : null;
-			if (string.IsNullOrWhiteSpace(requestMsg))
-				return;
-
-			var requestObj = requestMsg.ToExpandoObject();
-			var requestID = requestObj.Get<string>("ID");
-			var serviceName = requestObj.Get("ServiceName", "");
-			var objectName = requestObj.Get("ObjectName", "");
-			var verb = requestObj.Get("Verb", "GET").ToUpper();
-			var header = new Dictionary<string, string>(requestObj.Get("Header", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
-			var query = new Dictionary<string, string>(requestObj.Get("Query", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
-
-			// register session
-			var session = websocket.Get<Session>("Session") ?? Global.CurrentHttpContext.GetSession();
-			if (serviceName.IsEquals("APIs") && objectName.IsEquals("Session") && verb.IsEquals("REG"))
-			{
-				session.DeviceID = header.ContainsKey("x-device-id") ? header["x-device-id"] : UtilityService.NewUUID + "@web";
-				websocket.Set("Session", session);
-			}
-
-			// call a service of APIs
-			else
+			// activate new password
+			if (context.Request.Path.Value.IsEndsWith(".aspx"))
 				try
 				{
-					var response = new JObject
+					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+					var mode = context.Request.Query["mode"];
+					var error = "undefined";
+					try
 					{
-						{ "ID", requestID },
-						{ "Type", $"{serviceName.GetCapitalizedFirstLetter()}#{objectName.GetCapitalizedFirstLetter()}#{verb.GetCapitalizedFirstLetter()}" },
-						{ "Data", await Global.CallServiceAsync(new RequestInfo(session, serviceName, objectName, verb, query, header, null, null, correlationID), Global.CancellationToken).ConfigureAwait(false) }
-					};
-					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+						await context.CallServiceAsync(new RequestInfo(session, "Users", "Activate")
+						{
+							Query = context.Request.QueryString.ToDictionary(query =>
+							{
+								query.Remove("service-name");
+								query.Remove("object-name");
+								query.Remove("object-identity");
+							}),
+							CorrelationID = correlationID
+						}, cts.Token, Global.Logger, "Http.Authentication").ConfigureAwait(false);
+
+						await Task.WhenAll
+						(
+							Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
+							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully activate {context.Request.QueryString.ToDictionary().ToJson()}") : Task.CompletedTask
+						).ConfigureAwait(false);
+					}
+					catch (Exception ex)
+					{
+						await context.WriteLogsAsync("Http.Authentication", $"Error occurred while activating => {ex.Message}", ex).ConfigureAwait(false);
+						await context.WaitOnAttemptedAsync().ConfigureAwait(false);
+						var code = ex.GetHttpStatusCode();
+						var message = ex.Message;
+						var type = ex.GetTypeName(true);
+						var stack = ex.StackTrace;
+						if (ex is WampException wampException)
+						{
+							var details = wampException.GetDetails();
+							code = details.Item1;
+							message = details.Item2;
+							type = details.Item3;
+							stack = details.Item4;
+						}
+						error = new JObject
+						{
+							{ "Code", code },
+							{ "Message", message },
+							{ "Type", type },
+							{ "Stack", stack },
+							{ "CorrelationID", correlationID }
+						}.ToString(Formatting.None);
+					}
+
+					// response
+					var scripts = @"<script>
+					$(window).on('load', function() {
+						__vieapps.session.events.in = __redirect;
+						__vieapps.session.events.close = __redirect;
+						__vieapps.session.activate(" + $"\"{mode}\", {error}" + @");
+					}); 
+					</script>";
+					await context.WriteAsync(this.GetSpecialHtml(context, systemIdentityJson, "Activate").Replace("[[placeholder]]", scripts.Replace("\t\t\t\t\t", "")), "text/html", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, cts.Token).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
-					try
+					await context.WriteLogsAsync("Http.Authentication", $"Error occurred while activating => {ex.Message}", ex).ConfigureAwait(false);
+					var code = ex.GetHttpStatusCode();
+					var message = ex.Message;
+					var type = ex.GetTypeName(true);
+					if (ex is WampException wampException)
 					{
-						var response = new JObject
-						{
-							{ "ID", requestID },
-							{ "Type", "Error" },
-							{ "Error", new JObject
-								{
-									{ "Type", ex.GetTypeName(true) },
-									{ "Message", ex.Message },
-									{ "Stack", ex.StackTrace }
-								}
-							}
-						};
-						await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+						var details = wampException.GetDetails();
+						code = details.Item1;
+						message = details.Item2;
+						type = details.Item3;
 					}
-					catch (Exception e)
-					{
-						Global.Logger.LogError($"Cannot send an error to client via WebSocket => {e.Message}", e);
-					}
+					context.ShowHttpError(code, message, type, correlationID, ex, Global.IsDebugLogEnabled);
 				}
-		}
 
-		async Task ProcessInitializerRequestAsync(HttpContext context)
-		{
-			var redirectUrl = "";
-			try
+			// redirect with authenticate token
+			else
 			{
-				redirectUrl = context.GetQueryParameter("r").ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last();
-				if (string.IsNullOrWhiteSpace(redirectUrl))
-					redirectUrl = context.GetReferUrl();
-				redirectUrl += (redirectUrl.IndexOf("?") < 0 ? "?" : "&") + "r=";
-
-				var userID = context.GetQueryParameter("u").ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last();
-				var isAuthenticated = context.GetQueryParameter("s").ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last().CastAs<bool>();
-
-				if (context.User.Identity.IsAuthenticated ? !isAuthenticated || !userID.Equals(context.User.Identity.Name) : isAuthenticated)
+				if (session.User.IsAuthenticated && !context.IsAuthenticated())
 				{
-					var session = context.GetSession();
-					redirectUrl += $"&x-passport-token={session.GetAuthenticateToken(payload => payload["dev"] = session.DeviceID)}";
+					var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
+					await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
 				}
+				else if (!session.User.IsAuthenticated && context.IsAuthenticated())
+					await context.SignOutAsync().ConfigureAwait(false);
+				context.Redirect(this.GetURL(context));
 			}
-			catch (Exception ex)
-			{
-				await context.WriteLogsAsync("Http.Authentication", $"Error occurred while initializing => {ex.Message}", ex).ConfigureAwait(false);
-			}
-
-			context.Redirect(redirectUrl);
-			await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
 		}
 
 		async Task ProcessValidatorRequestAsync(HttpContext context)
 		{
+			var correlationID = context.GetCorrelationID();
 			try
 			{
-				var userID = context.GetQueryParameter("u").ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last();
-				var isAuthenticated = context.GetQueryParameter("s").ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last().CastAs<bool>();
-
-				var scripts = "/*still authenticated*/";
-				var needProcess = context.User.Identity.IsAuthenticated
-					? !isAuthenticated || !userID.Equals(context.User.Identity.Name)
-					: isAuthenticated;
-
-				if (needProcess)
-				{
-					var session = context.GetSession();
-					var token = session.GetAuthenticateToken(payload => payload["dev"] = session.DeviceID);
-
-					var callbackFunction = context.GetQueryParameter("c").ToBase64(false, true).Decrypt(Global.EncryptionKey).ToArray('|').Last();
-					if (string.IsNullOrWhiteSpace(callbackFunction))
+				var callbackFunction = context.GetQueryParameter("x-callback");
+				if (string.IsNullOrWhiteSpace(callbackFunction))
+					callbackFunction = null;
+				else
+					try
 					{
-						var redirectUrl = context.GetReferUrl();
-						redirectUrl += (redirectUrl.IndexOf("?") < 0 ? "?" : "&") + $"x-passport-token={token}";
-						scripts = $"location.href=\"{redirectUrl}\"";
+						callbackFunction = callbackFunction.Url64Decode();
 					}
-					else
-						scripts = $"{callbackFunction}({JSONWebToken.DecodeAsJson(token, Global.JWTKey).ToString(Formatting.None)})";
+					catch { }
 
-					await context.WriteAsync(scripts, "application/javascript", context.GetCorrelationID(), Global.CancellationToken).ConfigureAwait(false);
+				var scripts = "/* nothing */";
+				var session = context.GetSession();
+				if (session.User.IsAuthenticated && !context.IsAuthenticated())
+				{
+					var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
+					await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
+					scripts = $"{callbackFunction ?? "console.warn"}({session.GetSessionJson(payload => payload["did"] = session.DeviceID).ToString(Formatting.None)})";
 				}
+				else if (!session.User.IsAuthenticated && context.IsAuthenticated())
+				{
+					await context.SignOutAsync().ConfigureAwait(false);
+					scripts = $"{callbackFunction ?? "console.warn"}({session.GetSessionJson(payload => payload["did"] = session.DeviceID).ToString(Formatting.None)})";
+				}
+
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+				await context.WriteAsync(scripts, "application/javascript", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, cts.Token).ConfigureAwait(false);
 			}
+			catch (OperationCanceledException) { }
 			catch (Exception ex)
 			{
-				await Task.WhenAll(
-					context.WriteAsync($"console.error('Error occurred while validating => {ex.Message.Replace("'", @"\'")}')", "application/javascript", context.GetCorrelationID(), Global.CancellationToken),
+				await Task.WhenAll
+				(
+					context.WriteAsync($"console.error('Error occurred while validating => {ex.Message.Replace("'", @"\'")}')", "application/javascript", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, Global.CancellationToken),
 					context.WriteLogsAsync("Http.Authentication", $"Error occurred while validating => {ex.Message}", ex)
 				).ConfigureAwait(false);
 			}
 		}
 
-		async Task ProcessLogInRequestAsync(HttpContext context, string systemID)
+		async Task ProcessLogInRequestAsync(HttpContext context, JObject systemIdentityJson)
 		{
-			var url = UtilityService.GetAppSetting("HttpUri:CMSPortals", "https://cms.vieapps.net");
-			while (url.EndsWith("/"))
-				url = url.Left(url.Length - 1);
-			url += "/home?redirect=" + $"/portals/initializer?x-request={("{\"SystemID\":\"" + systemID + "\"}").Url64Encode()}".Url64Encode();
-			context.Redirect(url);
-			await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
+			var correlationID = context.GetCorrelationID();
+
+			async Task registerAsync()
+			{
+				try
+				{
+					var session = context.Session.Get<Session>("Session") ?? context.GetSession();
+					session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@web" : session.DeviceID;
+					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
+						? session.User.SessionID
+						: !string.IsNullOrWhiteSpace(session.SessionID)
+							? session.SessionID
+							: UtilityService.NewUUID;
+					context.Session.Add("Session", session);
+					context.SetSession(session);
+					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+					var body = session.GetSessionBody().ToString(Formatting.None);
+					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
+					{
+						Body = body,
+						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						{
+							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+						},
+						CorrelationID = correlationID
+					}, cts.Token, Global.Logger, "Http.Authentication").ConfigureAwait(false);
+					await Task.WhenAll
+					(
+						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully register a new session {response}") : Task.CompletedTask
+					).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					context.WriteError(Global.Logger, ex, null, $"Error occurred while registering a new session => {ex.Message}", true, "Http.Authentication");
+				}
+			}
+
+			async Task showAsync()
+			{
+				var scripts = @"<script>
+				$(window).on('load', function() {
+					__vieapps.session.register(function() {
+						if (__vieapps.session.logged) {
+							__redirect();
+						}
+						else {
+							__vieapps.session.events.in = __redirect;
+							__vieapps.session.events.close = __redirect;
+							__vieapps.session.open();
+						}
+					});
+				}); 
+				</script>";
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+				await context.WriteAsync(this.GetSpecialHtml(context, systemIdentityJson).Replace("[[placeholder]]", scripts.Replace("\t\t\t\t", "")), "text/html", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, cts.Token).ConfigureAwait(false);
+			}
+
+			async Task loginAsync()
+			{
+				try
+				{
+					// prepare
+					var session = context.Session.Get<Session>("Session");
+					if (session == null || !session.GetEncryptedID().IsEquals(context.Request.Query["x-session-id"]) || !session.DeviceID.Url64Encode().IsEquals(context.Request.Query["x-device-id"]))
+						throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
+
+					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
+					var account = Global.RSA.Decrypt(request.Get("Account", "")).Trim().ToLower();
+					var password = Global.RSA.Decrypt(request.Get("Password", ""));
+					if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
+						throw new WrongAccountException();
+
+					// call service to login
+					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+					var body = new JObject
+					{
+						{ "Account", account.Encrypt(Global.EncryptionKey) },
+						{ "Password", password.Encrypt(Global.EncryptionKey) },
+					}.ToString(Formatting.None);
+
+					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "PUT")
+					{
+						Body = body,
+						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						{
+							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+						},
+						CorrelationID = correlationID
+					}, cts.Token, Global.Logger, "Http.Authentication").ConfigureAwait(false);
+
+					// check to see the account is two-factor authenticaion required 
+					var require2FA = response.Get("Require2FA", false);
+
+					if (require2FA)
+						response = new JObject
+						{
+							{ "ID", response.Get<string>("ID") },
+							{ "Require2FA", true },
+							{ "Providers", response["Providers"] as JArray }
+						};
+
+					else
+					{
+						// update session
+						session.User = response.Copy<User>();
+						session.SessionID = session.User.SessionID = UtilityService.NewUUID;
+						session.IP = $"{context.Connection.RemoteIpAddress}";
+
+						body = session.GetSessionBody().ToString(Formatting.None);
+						await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
+						{
+							Body = body,
+							Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+							{
+								{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+							},
+							CorrelationID = correlationID
+						}, cts.Token, Global.Logger, "Http.Authentication").ConfigureAwait(false);
+
+						// update authenticate ticket
+						var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
+						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
+						context.Session.Add("Session", session);
+
+						response = session.GetSessionJson(payload => payload["did"] = session.DeviceID);
+					}
+
+					// response
+					await Task.WhenAll
+					(
+						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
+						context.WriteAsync(response, Formatting.Indented, correlationID, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully log a session in {response}") : Task.CompletedTask
+					).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await context.WaitOnAttemptedAsync().ConfigureAwait(false);
+					context.WriteError(Global.Logger, ex);
+				}
+			}
+
+			async Task loginOtpAsync()
+			{
+				try
+				{
+					// prepare
+					var session = context.Session.Get<Session>("Session");
+					if (session == null || !session.GetEncryptedID().IsEquals(context.Request.Query["x-session-id"]) || !session.DeviceID.Url64Encode().IsEquals(context.Request.Query["x-device-id"]))
+						throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
+
+					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
+					var id = request.Get<string>("ID");
+					var otp = request.Get<string>("OTP");
+					var info = request.Get<string>("Info");
+
+					if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(otp) || string.IsNullOrWhiteSpace(info))
+						throw new InvalidTokenException("OTP is invalid (empty)");
+
+					try
+					{
+						id = Global.RSA.Decrypt(id);
+						otp = Global.RSA.Decrypt(otp);
+						info = Global.RSA.Decrypt(info);
+					}
+					catch (Exception ex)
+					{
+						throw new InvalidTokenException("OTP is invalid (cannot decrypt)", ex);
+					}
+
+					// call service to validate
+					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+					var body = new JObject
+					{
+						{ "ID", id.Encrypt(Global.EncryptionKey) },
+						{ "OTP", otp.Encrypt(Global.EncryptionKey) },
+						{ "Info", info.Encrypt(Global.EncryptionKey) }
+					}.ToString(Formatting.None);
+					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "OTP", "POST")
+					{
+						Body = body,
+						CorrelationID = correlationID
+					}, cts.Token, Global.Logger, "Http.Authentication").ConfigureAwait(false);
+
+					// update session
+					session.User = response.Copy<User>();
+					session.SessionID = session.User.SessionID = UtilityService.NewUUID;
+					session.IP = $"{context.Connection.RemoteIpAddress}";
+					session.Verified = true;
+
+					body = session.GetSessionBody().ToString(Formatting.None);
+					await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
+					{
+						Body = body,
+						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						{
+							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+						},
+						CorrelationID = correlationID
+					}, cts.Token, Global.Logger, "Http.Authentication").ConfigureAwait(false);
+
+					// update authenticate ticket
+					var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
+					await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
+					context.Session.Add("Session", session);
+
+					// response
+					await Task.WhenAll
+					(
+						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
+						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully log a session in with OTP {response}") : Task.CompletedTask
+					).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await context.WaitOnAttemptedAsync().ConfigureAwait(false);
+					context.WriteError(Global.Logger, ex);
+				}
+			}
+
+			async Task resetAsync()
+			{
+				try
+				{
+					// prepare
+					var session = context.GetSession();
+					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
+					var account = Global.RSA.Decrypt(request.Get("Account", "")).Trim().ToLower();
+					var password = Global.RSA.Decrypt(request.Get("Password", ""));
+					if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
+						throw new InformationInvalidException();
+
+					var language = context.GetParameter("language") ?? "vi-VN";
+					var requestURI = context.GetRequestUri();
+					var pathSegment = requestURI.GetRequestPathSegments().First();
+					var renewURI = $"{requestURI.Scheme}://{context.GetParameter("X-SRP-Host") ?? requestURI.Host}/{(pathSegment.StartsWith("~") ? $"{pathSegment}/" : "")}initializer.aspx?" + "code={{code}}&mode={{mode}}" + $"&language={language}";
+
+					// call service to reset password
+					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Account", "PUT")
+					{
+						Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						{
+							{ "object-identity", "Reset" },
+							{ "related-service", "Portals" },
+							{ "language", language },
+							{ "organization", systemIdentityJson.Get<string>("Alias") }
+						},
+						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						{
+							{ "Account", account.Encrypt(Global.EncryptionKey) },
+							{ "Password", password.Encrypt(Global.EncryptionKey) },
+							{ "Uri", renewURI.Encrypt(Global.EncryptionKey) }
+						},
+						CorrelationID = correlationID
+					}, cts.Token, Global.Logger, "Http.Authentication").ConfigureAwait(false);
+
+					// response
+					await Task.WhenAll
+					(
+						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
+						context.WriteAsync(response, Formatting.Indented, correlationID, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully send a renew password request {response}") : Task.CompletedTask
+					).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await context.WaitOnAttemptedAsync().ConfigureAwait(false);
+					context.WriteError(Global.Logger, ex);
+				}
+			}
+
+			switch (context.Request.Method)
+			{
+				// log a session in or others
+				case "POST":
+					switch ((context.GetQueryParameter("x-mode") ?? "login").ToUpper())
+					{
+						// log a session in with OTP
+						case "OTP":
+							await loginOtpAsync().ConfigureAwait(false);
+							break;
+
+						// forgot password
+						case "RESET":
+						case "RENEW":
+						case "FORGOT":
+							await resetAsync().ConfigureAwait(false);
+							break;
+
+						// log a session in
+						default:
+							await loginAsync().ConfigureAwait(false);
+							break;
+					}
+					break;
+
+				// log a session in with OTP
+				case "PUT":
+					await loginOtpAsync().ConfigureAwait(false);
+					break;
+
+				// forgot password
+				case "PATCH":
+					await resetAsync().ConfigureAwait(false);
+					break;
+
+				// register a session in or open login form
+				default:
+					await (context.Request.Path.Value.IsEndsWith(".aspx") ? showAsync() : registerAsync()).ConfigureAwait(false);
+					break;
+			}
 		}
 
-		async Task ProcessLogOutRequestAsync(HttpContext context)
+		async Task ProcessLogOutRequestAsync(HttpContext context, JObject systemIdentityJson)
 		{
+			var correlationID = context.GetCorrelationID();
 			try
 			{
-				// sign-out
-				var correlationID = context.GetCorrelationID();
+				// call service to delete the session
 				var session = context.GetSession();
-				await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "DELETE")
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+				var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "DELETE")
 				{
 					Header = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 					{
@@ -856,58 +1364,80 @@ namespace net.vieapps.Services.Portals
 						{ "Signature", $"x-session-temp-token-{correlationID}".GetHMACSHA256(Global.ValidationKey) }
 					},
 					CorrelationID = correlationID
-				}, Global.CancellationToken).ConfigureAwait(false);
+				}, cts.Token, Global.Logger, "Http.Authentication").ConfigureAwait(false);
 
+				// perform log out
 				await context.SignOutAsync().ConfigureAwait(false);
-				context.User = new UserPrincipal();
-				context.Session.Clear();
 
-				// register new session
-				session.User = new User("", "", new List<string> { SystemRole.All.ToString() }, new List<Privilege>())
+				// response
+				if (context.Request.Path.Value.IsEndsWith(".aspx"))
 				{
-					SessionID = session.SessionID = UtilityService.NewUUID
-				};
-
-				var body = new JObject
+					var scripts = @"<script>
+					$(window).on('load', function() {
+						__vieapps.session.unregister();
+						__redirect();
+					}); 
+					</script>";
+					await Task.WhenAll
+					(
+						context.WriteAsync(this.GetSpecialHtml(context, systemIdentityJson, "Log out").Replace("[[placeholder]]", scripts.Replace("\t\t\t\t\t", "")), "text/html", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully log a session out (direct) {response}") : Task.CompletedTask
+					).ConfigureAwait(false);
+				}
+				else
 				{
-					{ "ID", session.SessionID },
-					{ "IssuedAt", DateTime.Now },
-					{ "RenewedAt", DateTime.Now },
-					{ "ExpiredAt", DateTime.Now.AddDays(90) },
-					{ "UserID", session.User.ID },
-					{ "AccessToken", session.User.GetAccessToken(Global.ECCKey) },
-					{ "IP", session.IP },
-					{ "DeviceID", session.DeviceID },
-					{ "AppInfo", session.AppName + " @ " + session.AppPlatform },
-					{ "OSInfo", $"{session.AppAgent.GetOSInfo()} [{session.AppAgent}]" },
-					{ "Verified", false },
-					{ "Online", true }
-				}.ToString(Formatting.None);
-
-				await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
-				{
-					Body = body,
-					Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+					session.User = new User("", "", new List<string> { SystemRole.All.ToString() }, new List<Privilege>())
 					{
-						{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
-					},
-					CorrelationID = correlationID
-				}, Global.CancellationToken).ConfigureAwait(false);
-
-				// prepare url for redirecting
-				var token = session.GetAuthenticateToken(payload => payload["dev"] = session.DeviceID);
-				var redirectUrl = context.GetQueryParameter("ReturnUrl");
-				if (string.IsNullOrWhiteSpace(redirectUrl))
-					redirectUrl = context.GetReferUrl();
-				redirectUrl += (redirectUrl.IndexOf("?") < 0 ? "?" : "&") + $"x-passport-token={token}";
-				context.Redirect(redirectUrl);
-				await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
+						SessionID = session.SessionID = UtilityService.NewUUID
+					};
+					var body = session.GetSessionBody().ToString(Formatting.None);
+					response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
+					{
+						Body = body,
+						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						{
+							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+						},
+						CorrelationID = correlationID
+					}, cts.Token, Global.Logger, "Http.Authentication").ConfigureAwait(false);
+					context.Session.Add("Session", session);
+					await Task.WhenAll
+					(
+						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentication", $"Successfully log a session out {response}") : Task.CompletedTask
+					).ConfigureAwait(false);
+				}
 			}
 			catch (Exception ex)
 			{
-				await context.WriteLogsAsync("Http.Authentication", $"Error occurred while logging out => {ex.Message}", ex).ConfigureAwait(false);
-				context.ShowHttpError(ex.GetHttpStatusCode(), ex.Message, ex.GetType().GetTypeName(true), context.GetCorrelationID(), ex, Global.IsDebugLogEnabled);
+				if (context.Request.Path.Value.IsEndsWith(".aspx"))
+				{
+					await context.WriteLogsAsync("Http.Authentication", $"Error occurred while logging out => {ex.Message}", ex).ConfigureAwait(false);
+					var code = ex.GetHttpStatusCode();
+					var message = ex.Message;
+					var type = ex.GetTypeName(true);
+					if (ex is WampException wampException)
+					{
+						var details = wampException.GetDetails();
+						code = details.Item1;
+						message = details.Item2;
+						type = details.Item3;
+					}
+					context.ShowHttpError(code, message, type, correlationID, ex, Global.IsDebugLogEnabled);
+				}
+				else
+					context.WriteError(Global.Logger, ex);
 			}
+		}
+
+		async Task ProcessCmsPortalsRequestAsync(HttpContext context, string systemID)
+		{
+			var url = UtilityService.GetAppSetting("HttpUri:CMSPortals", "https://cms.vieapps.net");
+			while (url.EndsWith("/"))
+				url = url.Left(url.Length - 1);
+			url += "/home?redirect=" + $"/portals/initializer?x-request={("{\"SystemID\":\"" + systemID + "\"}").Url64Encode()}".Url64Encode();
+			context.Redirect(url);
+			await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
 		}
 
 		#region Connect/Disconnect with API Gateway Router
@@ -983,5 +1513,66 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
+		string GetURL(HttpContext context, string name = null)
+		{
+			var url = context.GetQueryParameter(name ?? "ReturnURL");
+			if (string.IsNullOrWhiteSpace(url))
+			{
+				var pathSegment = context.GetRequestPathSegments().First();
+				url = pathSegment.StartsWith("~") ? $"/{pathSegment}" : "/";
+			}
+			else
+				try
+				{
+					url = url.Url64Decode();
+				}
+				catch { }
+			return url;
+		}
+
+		string GetSpecialHtml(HttpContext context, JObject systemIdentityJson, string title = "Log in")
+		{
+			var organizationID = systemIdentityJson.Get<string>("ID");
+			var organizationAlias = systemIdentityJson.Get<string>("Alias");
+			var portalsHttpURI = systemIdentityJson.Get<string>("PortalsHttpURI");
+			while (portalsHttpURI.EndsWith("/"))
+				portalsHttpURI = portalsHttpURI.Left(portalsHttpURI.Length - 1);
+
+			var rootURL = context.GetRequestPathSegments().First().StartsWith("~") ? "./" : "/";
+			var language = context.GetQueryParameter("language") ?? "en-US";
+
+			var session = context.GetSession();
+			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
+			var osInfo = (session.AppAgent ?? "").GetOSInfo();
+
+			var version = DateTime.Now.GetTimeQuarter().ToUnixTimestamp().ToString();
+			var scripts = "<script>__vieapps={ids:{" + $"system:\"{organizationID}\"" + "},URLs:{root:" + $"\"{rootURL}\",portals:\"{portalsHttpURI}\"" + "}" + $",language:\"{language}\",isMobile:{isMobile},osInfo:\"{osInfo}\",correlationID:\"{context.GetCorrelationID()}\"" + "};</script>"
+				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js")}\"></script>"
+				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js")}\"></script>"
+				+ $"<script src=\"{portalsHttpURI}/_assets/rsa.js?v={version}\"></script>"
+				+ $"<script src=\"{portalsHttpURI}/_assets/default.js?v={version}\"></script>"
+				+ $"<script src=\"{portalsHttpURI}/_themes/default/js/all.js?v={version}\"></script>"
+				+ $"<script src=\"{portalsHttpURI}/_js/o_{organizationID}.js?v={version}\"></script>"
+				+ @"
+					<script>
+					function __redirect() {
+						location.href = '" + this.GetURL(context) + @"';
+					}
+					</script>";
+
+			return @$"<!DOCTYPE html>
+					<html xmlns=""http://www.w3.org/1999/xhtml"">
+					<head>{(rootURL.Equals("/") ? "" : $"<base href=\"{portalsHttpURI}/~{organizationAlias}/\"/>")}
+					<title>{title} ({organizationAlias})</title>
+					<meta name=""viewport"" content=""width=device-width, initial-scale=1""/>
+					<link rel=""stylesheet"" href=""{portalsHttpURI}/_assets/default.css?v={version}""/>
+					<link rel=""stylesheet"" href=""{portalsHttpURI}/_themes/default/css/all.css?v={version}""/>
+					</head>
+					<body>
+					{scripts}
+					[[placeholder]]
+					</body>
+					</html>".Replace("\t\t\t\t\t", "");
+		}
 	}
 }
