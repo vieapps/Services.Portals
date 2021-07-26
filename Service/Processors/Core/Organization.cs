@@ -29,6 +29,7 @@ namespace net.vieapps.Services.Portals
 			{
 				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
 				organization.Alias = organization.Alias?.ToLower().Trim();
+				organization.Theme = string.IsNullOrWhiteSpace(organization.Theme) ? "default" : organization.Theme;
 				onCompleted?.Invoke(organization);
 			});
 
@@ -37,6 +38,7 @@ namespace net.vieapps.Services.Portals
 			{
 				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
 				organization.Alias = organization.Alias?.ToLower().Trim();
+				organization.Theme = string.IsNullOrWhiteSpace(organization.Theme) ? "default" : organization.Theme;
 				onCompleted?.Invoke(organization);
 			});
 

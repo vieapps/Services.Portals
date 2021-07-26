@@ -128,7 +128,9 @@ namespace net.vieapps.Services.Portals
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = new List<string>();
+			var htmlCacheKeys = clearHtmlCache
+				? portlet.Desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop.Alias}")
+				: new List<string>();
 			if (clearHtmlCache)
 			{
 				var desktopSetCacheKeys = await Utility.GetSetCacheKeysAsync(Filters<Portlet>.Equals("ID", portlet.ID), cancellationToken).ConfigureAwait(false);
@@ -146,7 +148,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a portlet was clean [{portlet.Title} - ID: {portlet.ID}]") : Task.CompletedTask
+				doRefresh ? $"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop.Alias}".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a portlet was clean [{portlet.Title} - ID: {portlet.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -342,11 +344,8 @@ namespace net.vieapps.Services.Portals
 				Data = response,
 				DeviceID = "*"
 			});
-			await Task.WhenAll
-			(
-				updateMessages.SendAsync(),
-				communicateMessages.SendAsync()
-			).ConfigureAwait(false);
+			updateMessages.Send();
+			communicateMessages.Send();
 
 			// response
 			return response;
@@ -375,13 +374,13 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send the update messages and response
-			await new UpdateMessage
+			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{portlet.GetTypeName(true)}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}.SendAsync().ConfigureAwait(false);
+			}.Send();
 			return response;
 		}
 
@@ -634,11 +633,10 @@ namespace net.vieapps.Services.Portals
 				Data = response,
 				DeviceID = "*"
 			});
-			await Task.WhenAll
-			(
-				updateMessages.SendAsync(),
-				communicateMessages.SendAsync()
-			).ConfigureAwait(false);
+
+			updateMessages.Send();
+			communicateMessages.Send();
+
 			return response;
 		}
 
@@ -754,11 +752,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send messages and response
-			await Task.WhenAll
-			(
-				updateMessages.SendAsync(),
-				communicateMessages.SendAsync()
-			).ConfigureAwait(false);
+			updateMessages.Send();
+			communicateMessages.Send();
 
 			return response;
 		}
@@ -797,21 +792,18 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var json = portlet.ToJson();
 			var objectName = portlet.GetTypeName(true);
-			await Task.WhenAll
-			(
-				new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
-					Data = json,
-					DeviceID = "*"
-				}.SendAsync(),
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#{@event}",
-					Data = json,
-					ExcludedNodeID = Utility.NodeID
-				}.SendAsync()
-			).ConfigureAwait(false);
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#{@event}",
+				Data = json,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
 
 			// return the response
 			return new JObject

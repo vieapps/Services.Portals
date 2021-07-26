@@ -55,8 +55,9 @@ namespace net.vieapps.Services.Portals
 				var newDomains = new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }
 					.Concat(site.OtherDomains.ToList(";"))
 					.Where(domain => !string.IsNullOrWhiteSpace(domain))
-					.Select(domain => domain.Replace("*.", "").ToLower())
-					.Distinct(StringComparer.OrdinalIgnoreCase);
+					.Select(domain => domain.NormalizeDomain().Replace("*.", "").ToLower())
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToList();
 
 				newDomains.ForEach(domain =>
 				{
@@ -66,13 +67,14 @@ namespace net.vieapps.Services.Portals
 
 				(oldDomains ?? new List<string>())
 					.Where(domain => !string.IsNullOrWhiteSpace(domain))
-					.Select(domain => domain.Replace("*.", "").ToLower())
+					.Select(domain => domain.NormalizeDomain().Replace("*.", "").ToLower())
 					.Except(newDomains)
 					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToList()
 					.ForEach(domain =>
 					{
-						if (SiteProcessor.SitesByDomain.Remove($"*.{domain}"))
-							Utility.NotRecognizedAliases.Remove($"Site:{domain}");
+						SiteProcessor.SitesByDomain.Remove($"*.{domain}");
+						Utility.NotRecognizedAliases.Remove($"Site:{domain}");
 					});
 			}
 
@@ -97,9 +99,13 @@ namespace net.vieapps.Services.Portals
 				new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }
 					.Concat(site.OtherDomains.ToList(";"))
 					.Where(domain => !string.IsNullOrWhiteSpace(domain))
-					.Select(domain => domain.Replace("*.", "").ToLower())
+					.Select(domain => domain.NormalizeDomain().Replace("*.", "").ToLower())
 					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ForEach(domain => SiteProcessor.SitesByDomain.Remove($"*.{domain}"));
+					.ForEach(domain =>
+					{
+						SiteProcessor.SitesByDomain.Remove($"*.{domain}");
+						Utility.NotRecognizedAliases.Remove($"Site:{domain}");
+					});
 				return site;
 			}
 			return null;
@@ -115,26 +121,35 @@ namespace net.vieapps.Services.Portals
 		public static async Task<Site> GetSiteByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetSiteByID(force, false) ?? (await Site.GetAsync<Site>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
-		internal static FilterBys<Site> GetFilterBy(this string domain)
+		static FilterBys<Site> GetFilterBy(this string domain, bool searchOtherDomains = true)
 		{
 			var host = domain.NormalizeDomain().ToArray(".");
-			var filter = Filters<Site>.Or(Filters<Site>.And(Filters<Site>.Equals("SubDomain", host.First()), Filters<Site>.Equals("PrimaryDomain", host.Skip(1).Join("."))));
-			if (!host.First().Equals("*"))
-				filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", domain)));
+			var subDomain = host.First();
+			var primaryDomain = host.Skip(1).Join(".");
+			var filter = Filters<Site>.Or(Filters<Site>.And(Filters<Site>.Equals("SubDomain", subDomain), Filters<Site>.Equals("PrimaryDomain", primaryDomain)));
+			if (!subDomain.Equals("*"))
+				filter.Add(Filters<Site>.And(Filters<Site>.Equals("SubDomain", "*"), Filters<Site>.Equals("PrimaryDomain", primaryDomain)));
+			if (searchOtherDomains)
+				filter.Add(Filters<Site>.Contains("OtherDomains", subDomain.Equals("*") || subDomain.Equals("www") ? primaryDomain : host.Join(".")));
 			return filter;
 		}
 
-		internal static Site GetSiteByDomain(this List<Site> sites, string domain)
-			=> sites.FirstOrDefault(site => domain.IsEquals($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "")) || site.OtherDomains.ToList(";").Any(host => domain.IsEquals(host)));
+		static Site GetSiteByDomain(this List<Site> sites, string domain)
+		{
+			var hostname = domain.ToArray(".");
+			var subDomain = hostname.First();
+			var primaryDomain = hostname.Skip(1).Join(".");
+			return sites.FirstOrDefault(site => (site.SubDomain.Equals("*") ? primaryDomain.IsEquals(site.PrimaryDomain) : domain.IsEquals($"{site.SubDomain}.{site.PrimaryDomain}")) || site.OtherDomains.ToList(";").Any(host => primaryDomain.IsEquals(host)));
+		}
 
 		public static Site GetSiteByDomain(this string domain, string defaultSiteIDWhenNotFound = null, bool fetchRepository = true)
 		{
-			if (string.IsNullOrWhiteSpace(domain) || Utility.NotRecognizedAliases.Contains($"Site:{domain.Replace("*.", "")}"))
+			if (string.IsNullOrWhiteSpace(domain) || Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 				return (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
 
-			if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{domain.Replace("*.", "")}", out var site) || site == null)
+			if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{domain}", out var site) || site == null)
 			{
-				var host = domain.Replace("*.", "");
+				var host = domain;
 				var dotOffset = host.IndexOf(".");
 				while (site == null && dotOffset > 0)
 					if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{host}", out site) || site == null)
@@ -144,11 +159,11 @@ namespace net.vieapps.Services.Portals
 					}
 			}
 
-			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains($"Site:{domain.Replace("*.", "")}"))
+			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
-				site = Site.Find(domain.GetFilterBy(), null, 0, 1, null).GetSiteByDomain(domain.Replace("*.", ""))?.Set();
+				site = Site.Find(domain.GetFilterBy(), null, 0, 1, null).GetSiteByDomain(domain)?.Set();
 				if (site == null)
-					Utility.NotRecognizedAliases.Add($"Site:{domain.Replace("*.", "")}");
+					Utility.NotRecognizedAliases.Add($"Site:{domain}");
 				else
 					new CommunicateMessage(Utility.ServiceName)
 					{
@@ -164,11 +179,11 @@ namespace net.vieapps.Services.Portals
 		public static async Task<Site> GetSiteByDomainAsync(this string domain, string defaultSiteIDWhenNotFound = null, CancellationToken cancellationToken = default)
 		{
 			var site = (domain ?? "").GetSiteByDomain(defaultSiteIDWhenNotFound, false);
-			if (site == null && !Utility.NotRecognizedAliases.Contains($"Site:{domain?.Replace("*.", "")}"))
+			if (site == null && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
-				site = (await Site.FindAsync(domain?.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain?.Replace("*.", ""))?.Set();
+				site = (await Site.FindAsync(domain?.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain)?.Set();
 				if (site == null)
-					Utility.NotRecognizedAliases.Add($"Site:{domain?.Replace("*.", "")}");
+					Utility.NotRecognizedAliases.Add($"Site:{domain}");
 				else
 					new CommunicateMessage(Utility.ServiceName)
 					{
