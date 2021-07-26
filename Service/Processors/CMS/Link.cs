@@ -51,18 +51,28 @@ namespace net.vieapps.Services.Portals
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Link>();
+
 			var filter = LinkProcessor.GetLinksFilter(systemID, repositoryID, repositoryEntityID, parentID);
 			var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
-			return Link.Find(filter, sort, 0, 1, processCache ? Extensions.GetCacheKey(filter, sort, 0, 1) : null);
+			var cacheKey = processCache ? Extensions.GetCacheKey(filter, sort, 0, 1) : null;
+
+			if (Utility.IsDebugEnabled)
+				Utility.WriteLog(UtilityService.NewUUID, $"Find links\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", "Link");
+			return Link.Find(filter, sort, 0, 1, cacheKey);
 		}
 
-		public static Task<List<Link>> FindLinksAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool processCache = true)
+		public static async Task<List<Link>> FindLinksAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool processCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
-				return Task.FromResult(new List<Link>());
+				return new List<Link>();
+
 			var filter = LinkProcessor.GetLinksFilter(systemID, repositoryID, repositoryEntityID, parentID);
 			var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
-			return Link.FindAsync(filter, sort, 0, 1, processCache ? Extensions.GetCacheKey(filter, sort, 0, 1) : null, cancellationToken);
+			var cacheKey = processCache ? Extensions.GetCacheKey(filter, sort, 0, 1) : null;
+
+			if (Utility.IsDebugEnabled)
+				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Find links\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", cancellationToken, "Link").ConfigureAwait(false);
+			return await Link.FindAsync(filter, sort, 0, 1, cacheKey, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<int> GetLastOrderIndexAsync(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default)
@@ -74,10 +84,20 @@ namespace net.vieapps.Services.Portals
 		internal static async Task ClearRelatedCacheAsync(this Link link, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
 			// data cache keys
-			var dataCacheKeys = clearDataCache
+			var dataCacheKeys = clearDataCache && link != null
 				? Extensions.GetRelatedCacheKeys(link.GetCacheKey())
 				: new List<string>();
-			if (clearDataCache && link.ContentType != null)
+
+			if (clearDataCache)
+			{
+				var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
+				if (!string.IsNullOrWhiteSpace(link?.ID))
+					dataCacheKeys.Add(Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ID), sort, 0, 1));
+				if (!string.IsNullOrWhiteSpace(link?.ParentID))
+					dataCacheKeys.Add(Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID), sort, 0, 1));
+			}
+
+			if (clearDataCache && link?.ContentType != null)
 			{
 				var cacheKeys = await Utility.Cache.GetSetMembersAsync(link.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
 				if (cacheKeys != null && cacheKeys.Count > 0)
@@ -90,10 +110,10 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = new List<string>();
 			if (clearHtmlCache)
 			{
-				desktop = link.ContentType?.Desktop;
-				htmlCacheKeys = link.Organization?.GetDesktopCacheKey() ?? new List<string>();
+				desktop = link?.ContentType?.Desktop;
+				htmlCacheKeys = link?.Organization?.GetDesktopCacheKey() ?? new List<string>();
 				await new[] { desktop?.GetSetCacheKey() }
-					.Concat(link.ContentType != null ? await link.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
+					.Concat(link?.ContentType != null ? await link.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
 					.Where(id => !string.IsNullOrWhiteSpace(id))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
@@ -110,10 +130,10 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS link [{link.Title} - ID: {link.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
-				doRefresh && link.Status.Equals(ApprovalStatus.Published) ? link.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{link.Organization.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS link was clean [{link.Title} - ID: {link.ID}]") : Task.CompletedTask,
-				doRefresh && desktop != null ? $"{Utility.PortalsHttpURI}/~{link.Organization.Alias}/{desktop.Alias ?? "-default"}/{link.ContentType?.Title.GetANSIUri() ?? "-"}".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS link was clean [{link.Title} - ID: {link.ID}]") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{link.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS link was clean [{link.Title} - ID: {link.ID}]") : Task.CompletedTask
+				Utility.WriteCacheLogs && link != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS link [{link.Title} - ID: {link.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				doRefresh && link != null && link.Status.Equals(ApprovalStatus.Published) ? link.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{link.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS link was clean [{link.Title} - ID: {link.ID}]") : Task.CompletedTask,
+				doRefresh && link != null && desktop != null ? $"{Utility.PortalsHttpURI}/~{link.Organization?.Alias}/{desktop.Alias ?? "-default"}/{link.ContentType?.Title.GetANSIUri() ?? "-"}".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS link was clean [{link.Title} - ID: {link.ID}]") : Task.CompletedTask,
+				doRefresh && link != null ? $"{Utility.PortalsHttpURI}/~{link.Organization?.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS link was clean [{link.Title} - ID: {link.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -165,25 +185,9 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
-			var query = request.Get<string>("FilterBy.Query");
 			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Link>() ?? Filters<Link>.And();
-			if (filter != null && filter is FilterBys<Link> filterBy)
-			{
-				if (!string.IsNullOrWhiteSpace(query))
-				{
-					var parentExp = filterBy.GetChild("ParentID");
-					if (parentExp != null)
-						filterBy.Children.Remove(parentExp);
-				}
-				else if (filterBy.GetChild("ParentID") == null)
-					filterBy.Add(Filters<Link>.IsNull("ParentID"));
-			}
-			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Link>() ?? Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title") : null;
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
 
-			// get organization
+			// get organization/module/content-type
 			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (organization == null)
@@ -204,19 +208,57 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// normalize filter
-			filter = filter == null || !(filter is FilterBys<Link>) || (filter as FilterBys<Link>).Children == null || (filter as FilterBys<Link>).Children.Count < 1
+			// normalize
+			var query = request.Get<string>("FilterBy.Query");
+			if (filter is FilterBys<Link> filterBy)
+			{
+				if (!string.IsNullOrWhiteSpace(query))
+				{
+					var parentExp = filterBy.GetChild("ParentID");
+					if (parentExp != null)
+						filterBy.Children.Remove(parentExp);
+				}
+				else
+				{
+					if (filterBy.GetChild("SystemID") == null)
+						filterBy.Add(Filters<Link>.Equals("SystemID", organization.ID));
+					if (filterBy.GetChild("RepositoryID") == null)
+						filterBy.Add(Filters<Link>.Equals("RepositoryID", module.ID));
+					if (filterBy.GetChild("RepositoryEntityID") == null)
+						filterBy.Add(Filters<Link>.Equals("RepositoryEntityID", contentType.ID));
+					if (filterBy.GetChild("ParentID") == null)
+						filterBy.Add(Filters<Link>.IsNull("ParentID"));
+				}
+			}
+			else
+				filterBy = null;
+			filter = filterBy == null || filterBy.Children == null || filterBy.Children.Count < 1
 				? LinkProcessor.GetLinksFilter(organization.ID, module.ID, contentType.ID)
 				: filter.Prepare(requestInfo);
+			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Link>() ?? Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title") : null;
+
+			var pagination = string.IsNullOrWhiteSpace(query)
+				? new Tuple<long, int, int, int>(-1, 0, 0, 1)
+				: request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
+			var pageSize = pagination.Item3;
+			var pageNumber = pagination.Item4;
+
+			if (Utility.IsDebugEnabled)
+				await requestInfo.WriteLogAsync($"Search links (APIs)\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Pagination: {pagination.GetPagination()}", cancellationToken, "Link").ConfigureAwait(false);
 
 			// process cache
-			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));
+			var addChildren = "true".IsEquals(requestInfo.GetParameter("x-children"));
 			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber) : null;
 			if (cacheKeyOfObjectsJson != null && !addChildren)
 			{
 				var json = await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsJson, cancellationToken).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(json))
-					return JObject.Parse(json);
+				{
+					var result = JObject.Parse(json);
+					if (Utility.IsDebugEnabled)
+						await requestInfo.WriteLogAsync($"Search links (APIs) => cached was found\r\n- Key: {cacheKeyOfObjectsJson} => JSON: {result}", cancellationToken, "Link").ConfigureAwait(false);
+					return result;
+				}
 			}
 
 			// search if has no cache
@@ -250,7 +292,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationToken),
-					Utility.Logger.IsEnabled(LogLevel.Debug) ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS.Link\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask
+					Utility.IsDebugEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS.Link\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", cancellationToken, "Link") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
 
@@ -1105,12 +1147,19 @@ namespace net.vieapps.Services.Portals
 				},
 				async json =>
 				{
-					var clink = await Link.GetAsync<Link>(json.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
-					if (clink != null)
+					try
 					{
-						var thumbnails = await requestInfo.GetThumbnailsAsync(clink.ID, clink.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-						json["URL"] = clink.GetURL();
-						json["ThumbnailURL"] = thumbnails?.GetThumbnailURL(clink.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
+						var clink = await Link.GetAsync<Link>(json.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+						if (clink != null)
+						{
+							var thumbnails = await requestInfo.GetThumbnailsAsync(clink.ID, clink.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+							json["URL"] = clink.GetURL();
+							json["ThumbnailURL"] = thumbnails?.GetThumbnailURL(clink.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
+						}
+					}
+					catch (Exception ex)
+					{
+						await requestInfo.WriteErrorAsync(ex, cancellationToken, $"Error occurred while fetching thumbnails of a link => {ex.Message}").ConfigureAwait(false);
 					}
 					json.Remove("Privileges");
 				},

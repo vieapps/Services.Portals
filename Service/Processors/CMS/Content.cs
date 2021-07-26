@@ -64,10 +64,10 @@ namespace net.vieapps.Services.Portals
 		internal static async Task ClearRelatedCacheAsync(this Content content, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
 			// data cache keys
-			var dataCacheKeys = clearDataCache
+			var dataCacheKeys = clearDataCache && content != null
 				? Extensions.GetRelatedCacheKeys(content.GetCacheKey())
 				: new List<string>();
-			if (clearDataCache && content.ContentType != null)
+			if (clearDataCache && content?.ContentType != null)
 			{
 				var cacheKeys = await Utility.Cache.GetSetMembersAsync(content.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
 				if (cacheKeys != null && cacheKeys.Count > 0)
@@ -79,9 +79,9 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = new List<string>();
 			if (clearHtmlCache)
 			{
-				htmlCacheKeys = content.Organization?.GetDesktopCacheKey() ?? new List<string>();
-				await new[] { content.Desktop?.GetSetCacheKey() }
-					.Concat(content.ContentType != null ? await content.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
+				htmlCacheKeys = content?.Organization?.GetDesktopCacheKey() ?? new List<string>();
+				await new[] { content?.Desktop?.GetSetCacheKey() }
+					.Concat(content?.ContentType != null ? await content.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
 					.Where(id => !string.IsNullOrWhiteSpace(id))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
@@ -98,10 +98,10 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
-				doRefresh && content.Status.Equals(ApprovalStatus.Published) ? content.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]") : Task.CompletedTask,
-				doRefresh ? content.Category.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]") : Task.CompletedTask
+				Utility.WriteCacheLogs && content !=null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				doRefresh && content != null && content.Status.Equals(ApprovalStatus.Published) ? content.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]") : Task.CompletedTask,
+				doRefresh && content != null && content.Category != null ? content.Category.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]") : Task.CompletedTask,
+				doRefresh && content != null ? $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -689,12 +689,15 @@ namespace net.vieapps.Services.Portals
 			{
 				// check permission
 				var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-				var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, contentType?.WorkingPrivileges, contentType?.Organization, requestInfo.CorrelationID);
-				if (!gotRights)
+				var organization = category?.Organization ?? contentType?.Organization ?? await organizationJson.Get("ID", "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+				var parentCategory = category?.ParentCategory;
+				var parentPrivileges = parentCategory?.OriginalPrivileges;
+				while (parentCategory != null && parentPrivileges == null)
 				{
-					var organization = contentType?.Organization ?? await organizationJson.Get("ID", "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-					gotRights = requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, null, organization, requestInfo.CorrelationID);
+					parentCategory = parentCategory?.ParentCategory;
+					parentPrivileges = parentCategory?.OriginalPrivileges;
 				}
+				var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, parentPrivileges ?? contentType?.WorkingPrivileges, organization, requestInfo.CorrelationID);
 				if (!gotRights)
 					throw new AccessDeniedException();
 
@@ -893,7 +896,7 @@ namespace net.vieapps.Services.Portals
 					var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 					if (totalPages > 0 && pageNumber > totalPages)
 						pageNumber = totalPages;
-					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true), showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => !kvp.Key.IsStartsWith("x-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
+					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true), showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => !kvp.Key.IsStartsWith("x-") && !kvp.Key.IsEquals("noCache") && !kvp.Key.IsEquals("forceCache")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
 				}
 
 				// prepare SEO
@@ -916,9 +919,16 @@ namespace net.vieapps.Services.Portals
 					throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 				// check permission
+				var parentCategory = @object?.Category?.ParentCategory;
+				var parentPrivileges = parentCategory?.OriginalPrivileges;
+				while (parentCategory != null && parentPrivileges == null)
+				{
+					parentCategory = parentCategory?.ParentCategory;
+					parentPrivileges = parentCategory?.OriginalPrivileges;
+				}
 				var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || @object.Status.Equals(ApprovalStatus.Published)
-					? requestInfo.Session.User.IsViewer(@object.WorkingPrivileges, @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID)
-					: requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID);
+					? requestInfo.Session.User.IsViewer(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID)
+					: requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID);
 				if (!gotRights)
 					throw new AccessDeniedException();
 

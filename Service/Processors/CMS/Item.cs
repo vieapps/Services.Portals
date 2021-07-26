@@ -52,10 +52,10 @@ namespace net.vieapps.Services.Portals
 		internal static async Task ClearRelatedCacheAsync(this Item item, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
 			// data cache keys
-			var dataCacheKeys = clearDataCache
+			var dataCacheKeys = clearDataCache && item != null
 				? Extensions.GetRelatedCacheKeys(item.GetCacheKey())
 				: new List<string>();
-			if (clearDataCache && item.ContentType != null)
+			if (clearDataCache && item?.ContentType != null)
 			{
 				var cacheKeys = await Utility.Cache.GetSetMembersAsync(item.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
 				if (cacheKeys != null && cacheKeys.Count > 0)
@@ -68,10 +68,10 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = new List<string>();
 			if (clearHtmlCache)
 			{
-				desktop = item.ContentType?.Desktop;
-				htmlCacheKeys = item.Organization?.GetDesktopCacheKey() ?? new List<string>();
+				desktop = item?.ContentType?.Desktop;
+				htmlCacheKeys = item?.Organization?.GetDesktopCacheKey() ?? new List<string>();
 				await new[] { desktop?.GetSetCacheKey() }
-					.Concat(item.ContentType != null ? await item.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
+					.Concat(item?.ContentType != null ? await item.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
 					.Where(id => !string.IsNullOrWhiteSpace(id))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
@@ -88,10 +88,10 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS item [{item.Title} - ID: {item.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
-				doRefresh && item.Status.Equals(ApprovalStatus.Published) ? item.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{item.Organization.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask,
-				doRefresh && desktop != null ? $"{Utility.PortalsHttpURI}/~{item.Organization.Alias}/{desktop.Alias ?? "-default"}/{item.ContentType?.Title.GetANSIUri() ?? "-"}".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{item.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask
+				Utility.WriteCacheLogs && item != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS item [{item.Title} - ID: {item.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				doRefresh && item != null && item.Status.Equals(ApprovalStatus.Published) ? item.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{item.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask,
+				doRefresh && item != null && desktop != null ? $"{Utility.PortalsHttpURI}/~{item.Organization?.Alias}/{desktop.Alias ?? "-default"}/{item.ContentType?.Title.GetANSIUri() ?? "-"}".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask,
+				doRefresh && item != null ? $"{Utility.PortalsHttpURI}/~{item.Organization?.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -666,7 +666,7 @@ namespace net.vieapps.Services.Portals
 					var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 					if (totalPages > 0 && pageNumber > totalPages)
 						pageNumber = totalPages;
-					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{parentIdentity ?? contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(organizationJson.Get<bool>("AlwaysUseHtmlSuffix", true) ? ".html" : "")}", showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => !kvp.Key.IsStartsWith("x-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
+					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{parentIdentity ?? contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(organizationJson.Get<bool>("AlwaysUseHtmlSuffix", true) ? ".html" : "")}", showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => !kvp.Key.IsStartsWith("x-") && !kvp.Key.IsEquals("noCache") && !kvp.Key.IsEquals("forceCache")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
 				}
 
 				// prepare SEO info
