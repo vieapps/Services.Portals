@@ -105,15 +105,51 @@ namespace net.vieapps.Services.Portals
 		public static string GetDesktopCacheKey(this Desktop desktop, string requestURL)
 			=> desktop.GetDesktopCacheKey(new Uri(requestURL.IsStartsWith("http://") || requestURL.IsStartsWith("https://") ? requestURL : "https://site.vieapps.net/" + (requestURL.Equals("#") ? "" : requestURL.Replace("~/", ""))));
 
+		/// <summary>
+		/// Gets all the keys for storing HTML code of a desktop that specified by alias and requested URL
+		/// </summary>
+		/// <param name="organization"></param>
+		/// <param name="desktopAlias"></param>
+		/// <param name="requestURI"></param>
+		/// <returns></returns>
+		public static List<string> GetDesktopCacheKeys(this Organization organization, string desktopAlias, Uri requestURI)
+		{
+			var cacheKey = organization.GetDesktopCacheKey(desktopAlias, requestURI);
+			return new[] { cacheKey }.Concat(new[] { $"{cacheKey}:time", $"{cacheKey}:expiration" }).ToList();
+		}
+
+		/// <summary>
+		/// Gets all the keys for storing HTML code of a desktop that specified by alias and requested URL
+		/// </summary>
+		/// <param name="desktop"></param>
+		/// <param name="requestURI"></param>
+		/// <returns></returns>
+		public static List<string> GetDesktopCacheKeys(this Desktop desktop, Uri requestURI)
+			=> desktop.Organization.GetDesktopCacheKeys(desktop.Alias, requestURI);
+
+		/// <summary>
+		/// Gets all the keys for storing HTML code of a desktop that specified by alias and requested URL
+		/// </summary>
+		/// <param name="desktop"></param>
+		/// <param name="requestURL"></param>
+		/// <returns></returns>
+		public static List<string> GetDesktopCacheKeys(this Desktop desktop, string requestURL)
+			=> desktop.GetDesktopCacheKeys(new Uri(requestURL.IsStartsWith("http://") || requestURL.IsStartsWith("https://") ? requestURL : "https://site.vieapps.net/" + (requestURL.Equals("#") ? "" : requestURL.Replace("~/", ""))));
+
+		/// <summary>
+		/// Gets all the keys for storing HTML code of all home desktops
+		/// </summary>
+		/// <param name="organization"></param>
+		/// <returns></returns>
 		internal static List<string> GetDesktopCacheKey(this Organization organization)
 		{
 			var cacheKeys = new List<string>
 			{
-				organization.HomeDesktop?.GetDesktopCacheKey("https://site.vieapps.net/"),
+				organization.HomeDesktop?.GetDesktopCacheKey($"{Utility.PortalsHttpURI}/~{organization.Alias}/{organization.HomeDesktop?.Alias}"),
 				$"{organization.ID}:{organization.HomeDesktop?.Alias.GenerateUUID()}"
 			};
 			if (organization.Sites != null && organization.Sites.Count > 0)
-				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey("https://site.vieapps.net/"))).ToList();
+				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey($"{Utility.PortalsHttpURI}/~{organization.Alias}/{site.HomeDesktop?.Alias}"))).ToList();
 			cacheKeys = cacheKeys.Where(cacheKey => cacheKey != null).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			return cacheKeys.Concat(cacheKeys.Select(cacheKey => new[] { $"{cacheKey}:time", $"{cacheKey}:expiration" }).SelectMany(keys => keys)).ToList();
 		}
@@ -130,15 +166,26 @@ namespace net.vieapps.Services.Portals
 		public static Task SetCacheOfPageSizeAsync<T>(IFilterBy<T> filter, SortBy<T> sort, int pageSize, CancellationToken cancellationToken = default) where T : class
 			=> Utility.Cache.SetAsync($"{Extensions.GetCacheKey(filter, sort)}:size", pageSize, cancellationToken);
 
+		/// <summary>
+		/// Gets the refer URL of the refresher
+		/// </summary>
 		internal static string RefresherRefererURL => "https://portals.vieapps.net/~url.refresher";
 
+		/// <summary>
+		/// Refreshs a web page
+		/// </summary>
+		/// <param name="url"></param>
+		/// <param name="delay"></param>
+		/// <param name="correlationID"></param>
+		/// <param name="message"></param>
+		/// <returns></returns>
 		internal static async Task RefreshWebPageAsync(this string url, int delay = 0, string correlationID = null, string message = null)
 		{
 			try
 			{
 				if (delay > 0)
 					await Task.Delay(delay * 1000).ConfigureAwait(false);
-				await UtilityService.GetWebPageAsync(url, Utility.RefresherRefererURL, null, Utility.CancellationToken).ConfigureAwait(false);
+				await UtilityService.GetWebPageAsync(url, Utility.RefresherRefererURL, $"{UtilityService.DesktopUserAgent} VIEAppsNGXRefresher", Utility.CancellationToken).ConfigureAwait(false);
 				if (Utility.WriteCacheLogs)
 					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"{message ?? "Refresh an url successful"} => {url}", Utility.CancellationToken, "Caches").ConfigureAwait(false);
 			}

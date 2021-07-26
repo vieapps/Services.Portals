@@ -222,7 +222,7 @@ namespace net.vieapps.Services.Portals
 					.SelectMany(sessions => sessions.Select(session => session.Get<string>("DeviceID")))
 					.ForEachAsync(deviceID => new UpdateMessage(baseMessage) { DeviceID = deviceID }.SendAsync()).ConfigureAwait(false);
 				if (Utility.Logger.IsEnabled(LogLevel.Debug))
-					await requestInfo.WriteLogAsync($"Send app notifications successful\r\n{baseMessage.ToJson()}", cancellationToken).ConfigureAwait(false);
+					await requestInfo.WriteLogAsync($"Send app notifications successful\r\n{baseMessage.ToJson()}", cancellationToken, "Notifications").ConfigureAwait(false);
 			}
 			catch (Exception exception)
 			{
@@ -497,15 +497,15 @@ namespace net.vieapps.Services.Portals
 						{ "DeveloperID", requestInfo.Session.DeveloperID },
 						{ "AppID", requestInfo.Session.AppID },
 						{ "SiteID", site?.ID },
-						{ "SiteTitle", site?.Title },
+						{ "SiteTitle", site?.Title?.UrlEncode() },
 						{ "SiteDomain", siteDomain },
 						{ "SiteURL", siteURL },
 						{ "OrganizationID", organization?.ID },
-						{ "OrganizationTitle", organization?.Title },
+						{ "OrganizationTitle", organization?.Title?.UrlEncode() },
 						{ "ModuleID", contentType?.Module?.ID },
-						{ "ModuleTitle", contentType?.Module?.Title },
+						{ "ModuleTitle", contentType?.Module?.Title?.UrlEncode() },
 						{ "ContentTypeID", contentType?.ID },
-						{ "ContentTypeTitle", contentType?.Title }
+						{ "ContentTypeTitle", contentType?.Title?.UrlEncode() }
 					};
 
 					var message = new WebHookMessage

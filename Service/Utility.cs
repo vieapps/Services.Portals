@@ -148,7 +148,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="domain"></param>
 		/// <returns></returns>
 		public static string NormalizeDomain(this string domain)
-			=> domain.ToArray(".", true).Select(name => name.Equals("*") || name.Equals("~") ? name : name.GetANSIUri(true, false, true)).Where(name => !string.IsNullOrWhiteSpace(name)).Join(".");
+			=> domain.ToArray(".", true).Select(name => name.Equals("*") ? name : name.GetANSIUri(true, false, true)).Where(name => !string.IsNullOrWhiteSpace(name)).Join(".");
 
 		/// <summary>
 		/// Gets the parent content-type of this content-type
@@ -598,10 +598,11 @@ namespace net.vieapps.Services.Portals
 					if (attachment != null)
 					{
 						var uris = attachment.Get<JObject>("URIs");
-						uris["Direct"] = uris.Get<string>("Direct")?.Replace(Utility.FilesHttpURI, filesHttpURI);
-						var downloadURI = uris.Get<string>("Download")?.Replace(Utility.FilesHttpURI, filesHttpURI);
-						if (!string.IsNullOrWhiteSpace(downloadURI))
-							uris["Download"] = downloadURI;
+						if (uris != null)
+						{
+							uris["Direct"] = uris.Get<string>("Direct")?.Replace(Utility.FilesHttpURI, filesHttpURI);
+							uris["Download"] = uris.Get<string>("Download")?.Replace(Utility.FilesHttpURI, filesHttpURI);
+						}
 						var uri = attachment.Get<string>("URI")?.Replace(Utility.FilesHttpURI, filesHttpURI);
 						if (!string.IsNullOrWhiteSpace(uri))
 							attachment["URI"] = uri;
@@ -776,7 +777,7 @@ namespace net.vieapps.Services.Portals
 				: exception?.GetStack();
 
 			// update queue & write to centerlized logs
-			Utility.Logs.Enqueue(new Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>(new Tuple<DateTime, string, string, string, string, string>(DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.ServiceName, objectName), logs, stack));
+			Utility.Logs.Enqueue(new Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>(new Tuple<DateTime, string, string, string, string, string>(DateTime.Now, correlationID, developerID, appID, Utility.ServiceName, objectName), logs, stack));
 			return Utility.Logs.WriteLogsAsync(Utility.CancellationToken, Utility.Logger);
 		}
 
@@ -784,14 +785,20 @@ namespace net.vieapps.Services.Portals
 		{
 			message = message ?? "Error occurred while sending a notification when an object was changed";
 			Utility.Logger.LogError(message, exception);
-			return Utility.WriteLogsAsync(requestInfo.Session.DeveloperID, requestInfo.Session.AppID, objectName ?? "Notifications", new List<string> { message }, exception, requestInfo.CorrelationID, additionnal);
+			return Utility.WriteLogsAsync(requestInfo.Session.DeveloperID, requestInfo.Session.AppID, objectName ?? requestInfo.ObjectName ?? "Notifications", new List<string> { message }, exception, requestInfo.CorrelationID, additionnal);
 		}
 
 		internal static Task WriteLogAsync(this RequestInfo requestInfo, string log, CancellationToken cancellationToken = default, string objectName = null)
-			=> Utility.WriteLogsAsync(requestInfo.Session.DeveloperID, requestInfo.Session.AppID, objectName ?? "Notifications", new List<string> { log }, null, requestInfo.CorrelationID);
+			=> Utility.WriteLogsAsync(requestInfo.Session.DeveloperID, requestInfo.Session.AppID, objectName ?? requestInfo.ObjectName ?? "Notifications", new List<string> { log }, null, requestInfo.CorrelationID);
+
+		internal static void WriteLog(this RequestInfo requestInfo, string log, string objectName = null)
+			=> requestInfo.WriteLogAsync(log, Utility.CancellationToken, requestInfo.CorrelationID).Run();
 
 		internal static Task WriteLogAsync(string correlationID, string log, CancellationToken cancellationToken = default, string objectName = null)
-			=> Utility.WriteLogsAsync(null, null, objectName ?? "Notifications", new List<string> { log }, null, correlationID);
+			=> Utility.WriteLogsAsync(null, null, objectName, new List<string> { log }, null, correlationID);
+
+		internal static void WriteLog(string correlationID, string log, string objectName = null)
+			=> Utility.WriteLogAsync(correlationID, log, Utility.CancellationToken, objectName).Run();
 
 		internal static string MinifyJs(this string data)
 			=> Minifier.MinifyJs(data);
@@ -807,7 +814,7 @@ namespace net.vieapps.Services.Portals
 				html = UtilityService.RemoveWhitespaces(data);
 			}
 			catch { }
-			return html.Replace("\r", "").Replace("\n\t", "").Replace("\t", "").Replace("> <", "><").Replace(" >", ">").Replace(" />", "/>");
+			return html;
 		}
 
 		internal static bool IsAdministrator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
