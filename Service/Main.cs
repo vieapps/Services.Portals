@@ -1167,6 +1167,7 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", organization.Alias },
 					{ "FilesHttpURI", organization.FakeFilesHttpURI ?? Utility.FilesHttpURI },
 					{ "PortalsHttpURI", organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI },
+					{ "CmsPortalsHttpURI", Utility.CmsPortalsHttpURI },
 					{ "AlwaysUseHTTPs", site != null && site.AlwaysUseHTTPs },
 					{ "RedirectToNoneWWW", site != null && site.RedirectToNoneWWW }
 				}
@@ -1750,7 +1751,7 @@ namespace net.vieapps.Services.Portals
 				throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(this.IsDebugLogEnabled ? $" because the organization ({ organization.Title }) has no site [{organization.Sites?.Count}]" : "")}");
 
 			// get desktop and prepare the redirecting url
-			var writeDesktopLogs = this.WriteDesktopLogs || requestInfo.GetParameter("x-logs") != null || requestInfo.GetParameter("x-desktop-logs") != null;
+			var writeDesktopLogs = this.WriteDesktopLogs || requestInfo.GetParameter("x-logs") != null;
 			var useShortURLs = "true".IsEquals(requestInfo.GetParameter("x-use-short-urls"));
 			var requestURI = new Uri(requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri"));
 			var requestURL = requestURI.AbsoluteUri;
@@ -1793,7 +1794,8 @@ namespace net.vieapps.Services.Portals
 					}
 					if (site.RedirectToNoneWWW)
 					{
-						redirectURL = redirectURL.Replace("://www.", "://");
+						while (redirectURL.IsContains("://www."))
+							redirectURL = redirectURL.Replace("://www.", "://");
 						redirectCode = redirectCode > 0 ? redirectCode : (int)HttpStatusCode.MovedPermanently;
 					}
 				}
@@ -1823,11 +1825,11 @@ namespace net.vieapps.Services.Portals
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to process {desktopInfo} => {requestURL}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			// prepare the caching
-			var processCache = this.CacheDesktopHtmls && requestInfo.GetParameter("noCache") == null;
-			var forceCache = requestInfo.GetParameter("forceCache") != null;
 			var cacheKey = desktop.GetDesktopCacheKey(requestURI);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
 			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
+			var forceCache = requestInfo.GetParameter("forceCache") != null;
+			var processCache = this.CacheDesktopHtmls && requestInfo.GetParameter("noCache") == null;
 
 			// check "If-Modified-Since" request to reduce traffict
 			var eTag = $"v#{cacheKey}";
@@ -1840,7 +1842,7 @@ namespace net.vieapps.Services.Portals
 			};
 
 			string lastModified = null;
-			if (processCache && modifiedSince != null && eTag.IsEquals(noneMatch))
+			if (processCache && !forceCache && modifiedSince != null && eTag.IsEquals(noneMatch))
 			{
 				lastModified = await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(lastModified) && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
@@ -1868,7 +1870,9 @@ namespace net.vieapps.Services.Portals
 			var osInfo = requestInfo.GetHeaderParameter("x-environment-os-info") ?? "Generic OS";
 
 			// get cache of HTML
-			var html = processCache && !forceCache ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
+			var html = processCache && !forceCache
+				? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false)
+				: null;
 
 			// normalize the cache of HTML when got request from the refresher
 			if (!string.IsNullOrWhiteSpace(html) && Utility.RefresherRefererURL.IsEquals(requestInfo.GetHeaderParameter("Referer")))
@@ -2038,7 +2042,7 @@ namespace net.vieapps.Services.Portals
 				{
 					var desktopData = await this.GenerateDesktopAsync(desktop, organization, site, mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					title = desktopData.Item1;
-					metaTags = desktopData.Item2;
+					metaTags = $"<link rel=\"preconnect\" href=\"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}\"/>" + "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"/><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\"/><link rel=\"preconnect\" href=\"https://cdnjs.cloudflare.com\"/>" + desktopData.Item2;
 					body = desktopData.Item3;
 					stylesheets = desktopData.Item4;
 					scripts = desktopData.Item5;
@@ -2173,7 +2177,13 @@ namespace net.vieapps.Services.Portals
 				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
 
 				// prepare caching
-				var cacheExpiration = 0;
+				if (forceCache)
+					await Task.WhenAll
+					(
+						Utility.Cache.RemoveAsync(cacheKey, cancellationToken),
+						Utility.Cache.RemoveAsync(cacheKeyOfLastModified, cancellationToken)
+					).ConfigureAwait(false);
+
 				if (processCache && !portletHtmls.Values.Any(data => data.Item2))
 				{
 					lastModified = DateTime.Now.ToHttpString();
@@ -2184,6 +2194,7 @@ namespace net.vieapps.Services.Portals
 						{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
 						{ "Cache-Control", "public" }
 					};
+					var cacheExpiration = 0;
 					portletHtmls.Values.Where(data => data.Item3 > 0).ForEach(data =>
 					{
 						if (cacheExpiration < data.Item3)
@@ -2480,7 +2491,8 @@ namespace net.vieapps.Services.Portals
 				var xslTemplate = "";
 
 				var errorMessage = data.Get<string>("Error");
-				var errorStack = "";
+				var errorStack = string.Empty;
+				var errorType = string.Empty;
 
 				var content = "";
 				XDocument xml = null;
@@ -2765,10 +2777,11 @@ namespace net.vieapps.Services.Portals
 				{
 					gotError = true;
 					errorStack = data.Get<string>("Stack");
+					errorType = data.Get<string>("Type");
 				}
 
 				if (!string.IsNullOrWhiteSpace(errorMessage))
-					content = this.GenerateErrorHtml(errorMessage, errorStack, correlationID, portlet.ID);
+					content = this.GenerateErrorHtml(errorMessage, errorStack, correlationID, portlet.ID, null, errorType);
 
 				contentZone.Value = "{{content-holder}}";
 				html = portletContainer.ToString().Replace(StringComparison.OrdinalIgnoreCase, "{{content-holder}}", content);
@@ -2925,6 +2938,7 @@ namespace net.vieapps.Services.Portals
 				if (!string.IsNullOrWhiteSpace(descriptionOfSite))
 					description += (description != "" ? ", " : "") + descriptionOfSite;
 			}
+			description = description.Replace("\t", "").Replace("\r", "").Replace("\n", " ");
 
 			var keywords = "";
 			var keywordsOfPortlet = seoInfo?.Get<string>("Keywords") ?? "";
@@ -2985,6 +2999,7 @@ namespace net.vieapps.Services.Portals
 				if (!string.IsNullOrWhiteSpace(keywordsOfSite))
 					keywords += (keywords != "" ? ", " : "") + keywordsOfSite;
 			}
+			keywords = keywords.Replace("\t", "").Replace("\r", "").Replace("\n", " ");
 
 			// start meta tags with information for SEO and social networks
 			var metaTags = "";
@@ -2995,43 +3010,26 @@ namespace net.vieapps.Services.Portals
 				metaTags += $"<meta name=\"description\" property=\"og:description\" content=\"{description}\"/>";
 			}
 
-			if (!string.IsNullOrWhiteSpace(keywords))
-				metaTags += $"<meta name=\"keywords\" content=\"{keywords.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(keywords) ? "" : $"<meta name=\"keywords\" content=\"{keywords.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(desktop.IconURI) ? "" : $"<link rel=\"icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".ico") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/><link rel=\"shortcut icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".ico") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(site.IconURI) ? "" : $"<link rel=\"icon\" type=\"image/{(site.IconURI.IsEndsWith(".ico") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/><link rel=\"shortcut icon\" type=\"image/{(site.IconURI.IsEndsWith(".ico") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>";
 
+			// social network meta tags
 			metaTags += $"<meta name=\"twitter:title\" property=\"og:title\" content=\"{title}\"/>";
-			if (!string.IsNullOrWhiteSpace(description))
-				metaTags += $"<meta name=\"twitter:description\" content=\"{description}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(description) ? "" : $"<meta name=\"twitter:description\" content=\"{description}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(coverURI) ? "" : $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{coverURI}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(desktop.CoverURI) ? "" : $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{desktop.CoverURI}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(site.CoverURI) ? "" : $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{site.CoverURI}\"/>";
 
-			if (!string.IsNullOrWhiteSpace(coverURI))
-				metaTags += $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{coverURI}\"/>";
-			if (!string.IsNullOrWhiteSpace(desktop.CoverURI))
-				metaTags += $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{desktop.CoverURI}\"/>";
-			if (!string.IsNullOrWhiteSpace(site.CoverURI))
-				metaTags += $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{site.CoverURI}\"/>";
-
-			if (!string.IsNullOrWhiteSpace(desktop.IconURI))
-				metaTags += $"<link rel=\"icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".ico") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>"
-					+ $"<link rel=\"shortcut icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".ico") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>";
-			if (!string.IsNullOrWhiteSpace(site.IconURI))
-				metaTags += $"<link rel=\"icon\" type=\"image/{(site.IconURI.IsEndsWith(".ico") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>"
-					+ $"<link rel=\"shortcut icon\" type=\"image/{(site.IconURI.IsEndsWith(".ico") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>";
-
-			// add addtional meta tags of main portlet
+			// addtional meta tags of main portlet
 			metaInfo?.Select(meta => (meta as JValue)?.Value?.ToString()).Where(meta => !string.IsNullOrWhiteSpace(meta)).ForEach(meta => metaTags += meta);
 
-			// add meta tags of the organization
-			if (!string.IsNullOrWhiteSpace(organization.MetaTags))
-				metaTags += organization.MetaTags;
+			// add meta tags of the organization/site/desktop
+			metaTags += string.IsNullOrWhiteSpace(organization.MetaTags) ? "" : organization.MetaTags;
+			metaTags += string.IsNullOrWhiteSpace(site.MetaTags) ? "" : site.MetaTags;
+			metaTags += string.IsNullOrWhiteSpace(desktop.MetaTags) ? "" : desktop.MetaTags;
 
-			// add meta tags of the site
-			if (!string.IsNullOrWhiteSpace(site.MetaTags))
-				metaTags += site.MetaTags;
-
-			// add meta tags of the desktop
-			if (!string.IsNullOrWhiteSpace(desktop.MetaTags))
-				metaTags += desktop.MetaTags;
-
-			// add the required stylesheet libraries
+			// the required stylesheet libraries
 			var stylesheets = site.UseInlineStylesheets
 				? (await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css"), null, cancellationToken).ConfigureAwait(false)).MinifyCss() + await this.GetThemeResourcesAsync("default", "css", cancellationToken).ConfigureAwait(false)
 				: $"<link rel=\"stylesheet\" href=\"~#/_assets/default.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/><link rel=\"stylesheet\" href=\"~#/_themes/default/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
@@ -3045,14 +3043,14 @@ namespace net.vieapps.Services.Portals
 
 			// add the stylesheet of the site theme
 			var siteTheme = site.Theme ?? "default";
-			if (!"default".IsEquals(siteTheme) && organizationTheme.IsEquals(siteTheme))
+			if (!"default".IsEquals(siteTheme) && !organizationTheme.IsEquals(siteTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(siteTheme, "css", cancellationToken).ConfigureAwait(false)
 					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{siteTheme}/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the desktop theme
 			var desktopTheme = desktop.WorkingTheme ?? "default";
-			if (!"default".IsEquals(desktopTheme) && organizationTheme.IsEquals(desktopTheme) && siteTheme.IsEquals(desktopTheme))
+			if (!"default".IsEquals(desktopTheme) && !organizationTheme.IsEquals(desktopTheme) && !siteTheme.IsEquals(desktopTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(desktopTheme, "css", cancellationToken).ConfigureAwait(false)
 					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{desktopTheme}/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
@@ -3087,7 +3085,7 @@ namespace net.vieapps.Services.Portals
 			// add default scripts
 			var scripts = "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js") + "\"></script>"
 				+ "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js") + "\"></script>"
-				+ (site.UseInlineScripts ? "<script>" + (await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js"), null, cancellationToken).ConfigureAwait(false)).MinifyJs() : $"<script src=\"~#/_assets/default.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>");
+				+ (site.UseInlineScripts ? "<script>" + (await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js"), null, cancellationToken).ConfigureAwait(false) + "\r\n" + await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js"), null, cancellationToken).ConfigureAwait(false)).MinifyJs() : $"<script src=\"~#/_assets/rsa.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script><script src=\"~#/_assets/default.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>");
 
 			// add scripts of the default theme
 			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", "default", "js"));
@@ -3118,7 +3116,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// add scripts of the site theme
-			if (!"default".IsEquals(siteTheme) && organizationTheme.IsEquals(siteTheme))
+			if (!"default".IsEquals(siteTheme) && !organizationTheme.IsEquals(siteTheme))
 			{
 				directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", siteTheme, "js"));
 				if (directory.Exists && this.AllowSrcResourceFiles)
@@ -3133,7 +3131,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// add scripts of the desktop theme
-			if (!"default".IsEquals(desktopTheme) && organizationTheme.IsEquals(desktopTheme) && siteTheme.IsEquals(desktopTheme))
+			if (!"default".IsEquals(desktopTheme) && !organizationTheme.IsEquals(desktopTheme) && !siteTheme.IsEquals(desktopTheme))
 			{
 				directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", desktopTheme, "js"));
 				if (directory.Exists && this.AllowSrcResourceFiles)
@@ -3312,7 +3310,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var details = wampException.GetDetails(requestInfo);
 				json["Code"] = details.Item1;
-				json["Error"] = string.IsNullOrWhiteSpace(errorMessage) ? details.Item2 : $"{errorMessage} => {details.Item2}";
+				json["Error"] = details.Item3.Equals("AccessDeniedException") ? details.Item2 : string.IsNullOrWhiteSpace(errorMessage) ? details.Item2 : $"{errorMessage} => {details.Item2}";
 				json["Type"] = details.Item3;
 				if (addErrorStack)
 					json["Stack"] = details.Item4;
@@ -3323,13 +3321,14 @@ namespace net.vieapps.Services.Portals
 			return json;
 		}
 
-		string GenerateErrorHtml(string errorMessage, string errorStack, string correlationID, string objectID, string objectIDLabel = null)
+		string GenerateErrorHtml(string errorMessage, string errorStack, string correlationID, string objectID, string objectIDLabel = null, string errorType = null)
 			=> "<div>"
 				+ $"<div style=\"color:red\">{errorMessage.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</div>"
 				+ $"<div style=\"font-size:80%\">Correlation ID: {correlationID} - {objectIDLabel ?? "Portlet ID"}: {objectID}</div>"
 				+ (this.IsDebugLogEnabled
 					? $"<div style=\"font-size:80%\">{errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</div>"
 					: $"<!-- {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")} -->")
+				+ ("AccessDeniedException".IsEquals(errorType) ? $"<div style=\"padding:15px 0\">Please <a href=\"javascript:__login()\">click here</a> to login and try again</div>" : "")
 				+ "</div>";
 		#endregion
 
@@ -3390,7 +3389,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException($"The requested menu is invalid (its not nested object) [Content-Type ID: {contentType.ID} - Menu ID: {repositoryObjectID}]");
 
 			// check permission
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.IsViewer(@object.WorkingPrivileges);
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.IsViewer(@object.WorkingPrivileges);
 			if (!gotRights)
 			{
 				var organization = @object is IPortalObject
@@ -4473,7 +4472,7 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Caching (timers for refreshing desktop URLs & clear cache)
-		ConcurrentDictionary<string, IDisposable> RefreshTimers { get; } = new ConcurrentDictionary<string, IDisposable>();
+		ConcurrentDictionary<string, IDisposable> RefreshTimers { get; } = new ConcurrentDictionary<string, IDisposable>(StringComparer.OrdinalIgnoreCase);
 
 		void StartRefreshTimer(Organization organization, bool refreshHomeDesktops = true)
 		{
@@ -4486,13 +4485,13 @@ namespace net.vieapps.Services.Portals
 			{
 				var homeURLs = new[] { $"{Utility.PortalsHttpURI}/~{organization.Alias}" }.ToList();
 				var sites = organization.Sites ?? new List<Site>();
-				if (sites.Count > 1)
+				if (sites.Any())
 					homeURLs = homeURLs.Concat(sites.Select(site =>
 					{
 						var domain = $"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www.");
 						if (site.RedirectToNoneWWW && domain.IsStartsWith("www."))
 							domain = domain.Right(domain.Length - 4);
-						return (site.AlwaysUseHTTPs ? "https:" : "http:") + $"//{domain}";
+						return $"{(site.AlwaysUseHTTPs ? "https" : "http")}://{domain}";
 					}))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList();
@@ -4524,7 +4523,7 @@ namespace net.vieapps.Services.Portals
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 
-				if (refreshUrls.Count > 0)
+				if (refreshUrls.Any())
 				{
 					this.RefreshTimers[organization.ID] = this.StartTimer(async () => await refreshUrls.ForEachAsync(async url => await url.RefreshWebPageAsync().ConfigureAwait(false), true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false), (organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7) * 60);
 					if (this.IsDebugLogEnabled)
@@ -4644,17 +4643,19 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 				site = await Site.GetAsync<Site>(site.ID, cancellationToken).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
-				await Task.WhenAll
-				(
-					desktop.FindChildrenAsync(cancellationToken, false),
-					desktop.FindPortletsAsync(cancellationToken, false)
-				).ConfigureAwait(false);
+				if (desktop != null)
+					await Task.WhenAll
+					(
+						desktop.FindChildrenAsync(cancellationToken, false),
+						desktop.FindPortletsAsync(cancellationToken, false)
+					).ConfigureAwait(false);
 				await Task.WhenAll
 				(
 					site.SetAsync(false, true, cancellationToken),
-					desktop.SetAsync(false, true, cancellationToken)
+					desktop != null ? desktop.SetAsync(false, true, cancellationToken) : Task.CompletedTask
 				).ConfigureAwait(false);
-				await $"{Utility.PortalsHttpURI}/~{site.Organization?.Alias}/{desktop.Alias}".RefreshWebPageAsync(0, requestInfo.CorrelationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]");
+				if (desktop != null)
+					await $"{Utility.PortalsHttpURI}/~{site.Organization?.Alias}/{desktop.Alias}".RefreshWebPageAsync(0, requestInfo.CorrelationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]");
 			}
 
 			else if (desktop != null)
