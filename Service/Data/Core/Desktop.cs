@@ -3,15 +3,12 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-using System.Dynamic;
 using MsgPack.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
@@ -197,7 +194,7 @@ namespace net.vieapps.Services.Portals
 			if (this._childrenIDs == null)
 			{
 				desktops = desktops ?? (this.SystemID ?? "").FindDesktops(this.ID);
-				this._childrenIDs = desktops.Select(desktop => desktop.ID).ToList();
+				this._childrenIDs = desktops.Where(desktop => !string.IsNullOrWhiteSpace(desktop?.ID)).Select(desktop => desktop.ID).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("Childrens");
 				return desktops;

@@ -70,7 +70,7 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 100)]
 		[FormControl(Segment = "basic", ControlType = "Select", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
-		public string Theme { get; set; } = "default";
+		public string Theme { get; set; }
 
 		[Property(MaxLength = 32)]
 		[FormControl(Segment = "basic", ControlType = "Lookup", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
@@ -250,16 +250,16 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Module> Modules => this.FindModules();
 
-		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
-			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
+		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
+			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addModules, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+		public JObject ToJson(bool addModules, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json.Remove("OriginalPrivileges");
 				if (addModules)
 					json["Modules"] = this.Modules.ToJArray(module => module?.ToJson(true, addTypeOfExtendedProperties));
-				onPreCompleted?.Invoke(json);
+				onCompleted?.Invoke(json);
 			});
 
 		internal void NormalizeExtras()
@@ -273,13 +273,13 @@ namespace net.vieapps.Services.Portals
 				instructions.Values.ForEach(instruction => instruction.Normalize());
 				instructions.Keys.ToList().ForEach(ikey => instructions[ikey] = string.IsNullOrWhiteSpace(instructions[ikey].Subject) && string.IsNullOrWhiteSpace(instructions[ikey].Body) ? null : instructions[ikey]);
 				instructions = instructions.Where(kvp => kvp.Value != null).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-				this.Instructions[key] = instructions.Count < 1 ? null : instructions;
+				this.Instructions[key] = instructions.Any() ? instructions : null;
 			});
 			this.Instructions = this.Instructions.Where(kvp => kvp.Value != null).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-			this.Instructions = this.Instructions.Count < 1 ? null : this.Instructions;
-			this.Socials = this.Socials != null && this.Socials.Count < 1 ? null : this.Socials;
+			this.Instructions = this.Instructions.Any() ? this.Instructions : null;
+			this.Socials = this.Socials != null && this.Socials.Any() ? this.Socials : null;
 			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-			this.Trackings = this.Trackings.Count < 1 ? null : this.Trackings;
+			this.Trackings = this.Trackings.Any() ? this.Trackings : null;
 			this.MetaTags = string.IsNullOrWhiteSpace(this.MetaTags) ? null : this.MetaTags.Trim();
 			this.ScriptLibraries = string.IsNullOrWhiteSpace(this.ScriptLibraries) ? null : this.ScriptLibraries.Trim();
 			this.Scripts = string.IsNullOrWhiteSpace(this.Scripts) ? null : this.Scripts.Trim();
@@ -330,7 +330,7 @@ namespace net.vieapps.Services.Portals
 				if (name.IsEquals("RedirectUrls"))
 					this.PrepareRedirectAddresses();
 			}
-			else if ((name.IsEquals("Modules") || name.IsEquals("Sites")) && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
+			else if ((name.IsEquals("Modules") || name.IsEquals("Sites")) && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title) && !string.IsNullOrWhiteSpace(this.Theme))
 			{
 				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 				{

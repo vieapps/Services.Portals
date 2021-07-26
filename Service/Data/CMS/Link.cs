@@ -219,7 +219,9 @@ namespace net.vieapps.Services.Portals
 			var url = this.URL ?? "#";
 			if (url.StartsWith("~/") && url.IsEndsWith("/default.aspx") && this.Organization != null && this.Organization.AlwaysUseHtmlSuffix)
 				url = url.Replace(StringComparison.OrdinalIgnoreCase, "/default.aspx", ".html");
-			return url.Equals("~.html") ? "~/index.html" : url;
+			return url.Equals("~.html")
+				? this.Organization.AlwaysUseHtmlSuffix ? "~/index.html" : "~/"
+				: url;
 		}
 	}
 
