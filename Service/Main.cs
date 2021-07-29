@@ -463,27 +463,27 @@ namespace net.vieapps.Services.Portals
 
 								case "category":
 								case "cms.category":
-									json = this.GenerateFormControls<Category>(requestInfo.GetParameter("x-content-type-id"));
+									json = this.GenerateFormControls<Category>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
 									break;
 
 								case "content":
 								case "cms.content":
-									json = this.GenerateFormControls<Content>(requestInfo.GetParameter("x-content-type-id"));
+									json = this.GenerateFormControls<Content>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
 									break;
 
 								case "item":
 								case "cms.item":
-									json = this.GenerateFormControls<Item>(requestInfo.GetParameter("x-content-type-id"));
+									json = this.GenerateFormControls<Item>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
 									break;
 
 								case "link":
 								case "cms.link":
-									json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type-id"));
+									json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
 									break;
 
 								case "contact":
 								case "utils.contact":
-									json = this.GenerateFormControls<Contact>(requestInfo.GetParameter("x-content-type-id"));
+									json = this.GenerateFormControls<Contact>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
 									break;
 
 								default:
@@ -545,20 +545,38 @@ namespace net.vieapps.Services.Portals
 		}
 
 		#region Generate form controls
-		JToken GenerateFormControls<T>(string contentTypeID) where T : class
+		JToken GenerateFormControls<T>(string contentTypeID, bool isView = false) where T : class
 		{
-			// get content type
-			var contentType = (contentTypeID ?? "").GetContentTypeByID();
-			if (contentType == null || contentType.ExtendedPropertyDefinitions == null || contentType.ExtendedPropertyDefinitions.Count < 1)
-				return this.GenerateFormControls<T>();
-
 			// generate standard controls
 			var controls = (this.GenerateFormControls<T>() as JArray).Select(control => control as JObject).ToList();
 
+			// update standard controls
+			var contentType = (contentTypeID ?? "").GetContentTypeByID();
+			contentType?.StandardControlDefinitions?.Where(definition => !string.IsNullOrWhiteSpace(definition.Name)).ForEach(definition =>
+			{
+				var control = controls.FirstOrDefault(ctrl => definition.Name.IsEquals(ctrl.Get<string>("Name")));
+				if (control != null)
+				{
+					control["Hidden"] = isView
+						? definition.HiddenInView != null && definition.HiddenInView.Value
+						: definition.Hidden;
+					var options = control.Get("Options", new JObject());
+					if (!string.IsNullOrWhiteSpace(definition.Label))
+						options["Label"] = definition.Label;
+					if (!string.IsNullOrWhiteSpace(definition.Description))
+						options["Description"] = definition.Description;
+					if (!string.IsNullOrWhiteSpace(definition.PlaceHolder))
+						options["PlaceHolder"] = definition.PlaceHolder;
+					control["Options"] = options;
+				}
+			});
+
 			// generate extended controls
-			contentType.ExtendedControlDefinitions.ForEach(definition =>
+			contentType?.ExtendedControlDefinitions?.ForEach(definition =>
 			{
 				var control = this.GenerateFormControl(definition, contentType.ExtendedPropertyDefinitions.Find(def => def.Name.IsEquals(definition.Name)).Mode);
+				if (isView && definition.HiddenInView != null && definition.HiddenInView.Value)
+					control["Hidden"] = true;
 				var index = !string.IsNullOrWhiteSpace(definition.PlaceBefore) ? controls.FindIndex(ctrl => definition.PlaceBefore.IsEquals(ctrl.Get<string>("Name"))) : -1;
 				if (index > -1)
 				{
@@ -568,9 +586,6 @@ namespace net.vieapps.Services.Portals
 				else
 					controls.Add(control);
 			});
-
-			// update standard controls
-			// ...
 
 			// update order-index and return the controls
 			controls.ForEach((control, order) => control["Order"] = order);
