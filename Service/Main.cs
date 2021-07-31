@@ -483,7 +483,7 @@ namespace net.vieapps.Services.Portals
 
 								case "contact":
 								case "utils.contact":
-									json = this.GenerateFormControls<Contact>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
+									json = this.GenerateFormControls<Form>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
 									break;
 
 								default:
@@ -545,7 +545,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		#region Generate form controls
-		JToken GenerateFormControls<T>(string contentTypeID, bool isView = false) where T : class
+		JToken GenerateFormControls<T>(string contentTypeID, bool forViewing) where T : class
 		{
 			// generate standard controls
 			var controls = (this.GenerateFormControls<T>() as JArray).Select(control => control as JObject).ToList();
@@ -557,7 +557,7 @@ namespace net.vieapps.Services.Portals
 				var control = controls.FirstOrDefault(ctrl => definition.Name.IsEquals(ctrl.Get<string>("Name")));
 				if (control != null)
 				{
-					control["Hidden"] = isView
+					control["Hidden"] = forViewing
 						? definition.HiddenInView != null && definition.HiddenInView.Value
 						: definition.Hidden;
 					var options = control.Get("Options", new JObject());
@@ -575,7 +575,7 @@ namespace net.vieapps.Services.Portals
 			contentType?.ExtendedControlDefinitions?.ForEach(definition =>
 			{
 				var control = this.GenerateFormControl(definition, contentType.ExtendedPropertyDefinitions.Find(def => def.Name.IsEquals(definition.Name)).Mode);
-				if (isView && definition.HiddenInView != null && definition.HiddenInView.Value)
+				if (forViewing && definition.HiddenInView != null && definition.HiddenInView.Value)
 					control["Hidden"] = true;
 				var index = !string.IsNullOrWhiteSpace(definition.PlaceBefore) ? controls.FindIndex(ctrl => definition.PlaceBefore.IsEquals(ctrl.Get<string>("Name"))) : -1;
 				if (index > -1)
@@ -587,7 +587,7 @@ namespace net.vieapps.Services.Portals
 					controls.Add(control);
 			});
 
-			// update order-index and return the controls
+			// update order index
 			controls.ForEach((control, order) => control["Order"] = order);
 			return controls.ToJArray();
 		}
@@ -1183,6 +1183,7 @@ namespace net.vieapps.Services.Portals
 					{ "FilesHttpURI", organization.FakeFilesHttpURI ?? Utility.FilesHttpURI },
 					{ "PortalsHttpURI", organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI },
 					{ "CmsPortalsHttpURI", Utility.CmsPortalsHttpURI },
+					{ "AlwaysUseHtmlSuffix", organization.AlwaysUseHtmlSuffix },
 					{ "AlwaysUseHTTPs", site != null && site.AlwaysUseHTTPs },
 					{ "RedirectToNoneWWW", site != null && site.RedirectToNoneWWW }
 				}
@@ -3697,14 +3698,14 @@ namespace net.vieapps.Services.Portals
 							this.GetFilter(filterBy, filter =>
 							{
 								if (filter.GetValue("SystemID") == null)
-									filter.Add(Filters<Contact>.Equals("SystemID", organization.ID));
+									filter.Add(Filters<Form>.Equals("SystemID", organization.ID));
 								if (filter.GetValue("RepositoryID") == null && module != null)
-									filter.Add(Filters<Contact>.Equals("RepositoryID", module.ID));
+									filter.Add(Filters<Form>.Equals("RepositoryID", module.ID));
 								if (filter.GetValue("RepositoryEntityID") == null && contentType != null)
-									filter.Add(Filters<Contact>.Equals("RepositoryEntityID", contentType.ID));
+									filter.Add(Filters<Form>.Equals("RepositoryEntityID", contentType.ID));
 							},
-							Filters<Contact>.Equals("SystemID", organization.ID)),
-							sortBy?.ToSortBy<Contact>(), pageSize, pageNumber, maxPages);
+							Filters<Form>.Equals("SystemID", organization.ID)),
+							sortBy?.ToSortBy<Form>(), pageSize, pageNumber, maxPages);
 						break;
 				}
 			}
@@ -3904,7 +3905,7 @@ namespace net.vieapps.Services.Portals
 					case "cms.contact":
 					case "utils.contact":
 					case "utilities.contact":
-						this.Import<Contact>(processID, deviceID, userID, filename, contentType?.ID);
+						this.Import<Form>(processID, deviceID, userID, filename, contentType?.ID);
 						break;
 				}
 			}
