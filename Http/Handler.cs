@@ -196,26 +196,31 @@ namespace net.vieapps.Services.Portals
 					var code = ex.GetHttpStatusCode();
 					var message = ex.Message;
 					var type = ex.GetTypeName(true);
-					var stack = ex.StackTrace;
+					var stacks = ex.GetStacks();
 					if (ex is WampException wampException)
 					{
-						var details = wampException.GetDetails();
-						code = details.Item1;
-						message = details.Item2;
-						type = details.Item3;
-						stack = details.Item4;
+						var wampDetails = wampException.GetDetails();
+						code = wampDetails.Item1;
+						message = wampDetails.Item2;
+						type = wampDetails.Item3;
+						stacks = new JArray { wampDetails.Item4 };
+						var inner = wampDetails.Item6;
+						while (inner != null)
+						{
+							stacks.Add($"{inner.Get<string>("Message")} [{inner.Get<string>("Type")}] {inner.Get<string>("StackTrace")}");
+							inner = inner.Get<JObject>("InnerException");
+						}
 					}
 					var response = new JObject
 					{
 						{ "ID", requestID },
 						{ "Type", "Error" },
-						{ "Error", new JObject
+						{ "Data", new JObject
 							{
 								{ "Code", code },
 								{ "Message", message },
 								{ "Type", type },
-								{ "Verb", verb },
-								{ "Stack", stack },
+								{ "StackTrace", stacks },
 								{ "CorrelationID", correlationID }
 							}
 						}
