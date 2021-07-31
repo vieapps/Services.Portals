@@ -20,36 +20,36 @@ using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.Portals
 {
 	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Name = {Name}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Contacts", TableName = "T_Portals_CMS_Contacts", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000005", Title = "Contact", Description = "Contact information", ObjectNamePrefix = "Utils.", MultipleIntances = true, Extendable = true)]
-	public sealed class Contact : Repository<Contact>, IBusinessObject
+	[Entity(CollectionName = "CMS_Forms", TableName = "T_Portals_CMS_Forms", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000005", Title = "Form", Description = "Form information", ObjectNamePrefix = "CMS.", MultipleIntances = true, Extendable = true)]
+	public sealed class Form : Repository<Form>, IBusinessObject
 	{
-		public Contact() : base() { }
+		public Form() : base() { }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Name")]
 		[Searchable]
-		[FormControl(Label = "{{portals.utilities.contacts.controls.[name].label}}", PlaceHolder = "{{portals.utilities.contacts.controls.[name].placeholder}}", Description = "{{portals.utilities.contacts.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Name { get; set; }
 
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Email")]
 		[Searchable]
-		[FormControl(Label = "{{portals.utilities.contacts.controls.[name].label}}", PlaceHolder = "{{portals.utilities.contacts.controls.[name].placeholder}}", Description = "{{portals.utilities.contacts.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Email { get; set; }
 
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Phone")]
 		[Searchable]
-		[FormControl(Label = "{{portals.utilities.contacts.controls.[name].label}}", PlaceHolder = "{{portals.utilities.contacts.controls.[name].placeholder}}", Description = "{{portals.utilities.contacts.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Phone { get; set; }
 
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Address")]
 		[Searchable]
-		[FormControl(Label = "{{portals.utilities.contacts.controls.[name].label}}", PlaceHolder = "{{portals.utilities.contacts.controls.[name].placeholder}}", Description = "{{portals.utilities.contacts.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Address { get; set; }
 
-		[FormControl(Label = "{{portals.utilities.contacts.controls.[name].label}}", PlaceHolder = "{{portals.utilities.contacts.controls.[name].placeholder}}", Description = "{{portals.utilities.contacts.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Notes { get; set; }
 
 		[Property(MaxLength = 32)]
@@ -60,17 +60,17 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Title")]
 		[Searchable]
-		[FormControl(Label = "{{portals.utilities.contacts.controls.[name].label}}", PlaceHolder = "{{portals.utilities.contacts.controls.[name].placeholder}}", Description = "{{portals.utilities.contacts.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public override string Title { get; set; }
 
 		[Searchable]
 		[Property(IsCLOB = true)]
-		[FormControl(Label = "{{portals.utilities.contacts.controls.[name].label}}", PlaceHolder = "{{portals.utilities.contacts.controls.[name].placeholder}}", Description = "{{portals.utilities.contacts.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Details { get; set; }
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Label = "{{portals.utilities.contacts.controls.[name].label}}", PlaceHolder = "{{portals.utilities.contacts.controls.[name].placeholder}}", Description = "{{portals.utilities.contacts.controls.[name].description}}")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
