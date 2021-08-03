@@ -106,10 +106,6 @@ namespace net.vieapps.Services.Portals
 				while (Utility.FilesHttpURI.EndsWith("/"))
 					Utility.FilesHttpURI = Utility.FilesHttpURI.Left(Utility.FilesHttpURI.Length - 1);
 
-				Utility.PassportsHttpURI = this.GetHttpURI("Passports", "https://id.vieapps.net");
-				while (Utility.PassportsHttpURI.EndsWith("/"))
-					Utility.PassportsHttpURI = Utility.PassportsHttpURI.Left(Utility.PassportsHttpURI.Length - 1);
-
 				Utility.PortalsHttpURI = this.GetHttpURI("Portals", "https://portals.vieapps.net");
 				while (Utility.PortalsHttpURI.EndsWith("/"))
 					Utility.PortalsHttpURI = Utility.PortalsHttpURI.Left(Utility.PortalsHttpURI.Length - 1);
@@ -163,7 +159,7 @@ namespace net.vieapps.Services.Portals
 					if (!string.IsNullOrWhiteSpace(Utility.FilesHttpURI))
 						try
 						{
-							await UtilityService.GetWebPageAsync(Utility.FilesHttpURI).ConfigureAwait(false);
+							await UtilityService.FetchHttpAsync(Utility.FilesHttpURI).ConfigureAwait(false);
 						}
 						catch { }
 				}).ConfigureAwait(false);
@@ -778,7 +774,7 @@ namespace net.vieapps.Services.Portals
 				}
 				try
 				{
-					languages.Merge(JObject.Parse(await UtilityService.FetchWebResourceAsync($"{Utility.APIsHttpURI}/statics/i18n/{module}/{language}.json", cancellationToken).ConfigureAwait(false)).ToExpandoObject());
+					languages.Merge(JObject.Parse(await UtilityService.FetchHttpAsync($"{Utility.APIsHttpURI}/statics/i18n/{module}/{language}.json", cancellationToken).ConfigureAwait(false)).ToExpandoObject());
 				}
 				catch (Exception ex)
 				{
@@ -794,7 +790,7 @@ namespace net.vieapps.Services.Portals
 			var correlationID = UtilityService.NewUUID;
 			try
 			{
-				var providers = JArray.Parse(await UtilityService.FetchWebResourceAsync($"{Utility.APIsHttpURI}/statics/oembed.providers.json", cancellationToken).ConfigureAwait(false));
+				var providers = JArray.Parse(await UtilityService.FetchHttpAsync($"{Utility.APIsHttpURI}/statics/oembed.providers.json", cancellationToken).ConfigureAwait(false));
 				Utility.OEmbedProviders.Clear();
 				providers.Select(provider => provider as JObject).ForEach(provider =>
 				{
@@ -4452,7 +4448,7 @@ namespace net.vieapps.Services.Portals
 
 			stopwatch.Stop();
 			if (Utility.WriteMessageLogs)
-				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", cancellationToken, "Messages").ConfigureAwait(false);
+				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", cancellationToken, "Updates").ConfigureAwait(false);
 		}
 		#endregion
 
@@ -4469,13 +4465,13 @@ namespace net.vieapps.Services.Portals
 				{
 					var moduleDefinition = message.Data?.ToExpandoObject()?.Copy<ModuleDefinition>();
 					if (this.IsDebugLogEnabled)
-						await this.WriteLogsAsync(correlationID, $"Got an update of a module definition\r\n{message.Data}", null, this.ServiceName, "CMS.Portals").ConfigureAwait(false);
+						await this.WriteLogsAsync(correlationID, $"Got an update of a module definition\r\n{message.Data}", null, this.ServiceName, "Updates").ConfigureAwait(false);
 					this.UpdateDefinition(message.Data?.ToExpandoObject()?.Copy<ModuleDefinition>());
 				}
 			}
 			catch (Exception ex)
 			{
-				await this.WriteLogsAsync(correlationID, $"Error occurred while processing an inter-communicate message => {ex.Message}", ex, this.ServiceName, "CMS.Portals").ConfigureAwait(false);
+				await this.WriteLogsAsync(correlationID, $"Error occurred while processing an inter-communicate message => {ex.Message}", ex, this.ServiceName, "Updates").ConfigureAwait(false);
 			}
 		}
 

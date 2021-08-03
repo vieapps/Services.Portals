@@ -99,11 +99,6 @@ namespace net.vieapps.Services.Portals
 		public static string FilesHttpURI { get; internal set; }
 
 		/// <summary>
-		/// Gets the URI of the Passports HTTP service
-		/// </summary>
-		public static string PassportsHttpURI { get; internal set; }
-
-		/// <summary>
 		/// Gets the URI of the Portals HTTP service
 		/// </summary>
 		public static string PortalsHttpURI { get; internal set; }

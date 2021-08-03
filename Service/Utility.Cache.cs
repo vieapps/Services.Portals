@@ -185,7 +185,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (delay > 0)
 					await Task.Delay(delay * 1000).ConfigureAwait(false);
-				await UtilityService.GetWebPageAsync(url, Utility.RefresherRefererURL, $"{UtilityService.DesktopUserAgent} VIEAppsNGXRefresher", Utility.CancellationToken).ConfigureAwait(false);
+				await UtilityService.FetchHttpAsync(url, $"{UtilityService.DesktopUserAgent} VIEAppsNGXRefresher", Utility.RefresherRefererURL, Utility.CancellationToken).ConfigureAwait(false);
 				if (Utility.WriteCacheLogs)
 					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"{message ?? "Refresh an url successful"} => {url}", Utility.CancellationToken, "Caches").ConfigureAwait(false);
 			}

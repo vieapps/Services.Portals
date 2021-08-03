@@ -343,7 +343,7 @@ namespace net.vieapps.Services.Portals
 				if (sendEmailNotifications || (!@event.IsEquals("Delete") && businessObject != null && status.Equals(ApprovalStatus.Published) && !status.Equals(previousStatus) && emailsWhenPublish != null))
 					try
 					{
-						instructions = JObject.Parse(await UtilityService.FetchWebResourceAsync($"{Utility.APIsHttpURI}/statics/instructions/portals/{language}.json", cancellationToken).ConfigureAwait(false))?.Get<JObject>("notifications");
+						instructions = JObject.Parse(await UtilityService.FetchHttpAsync($"{Utility.APIsHttpURI}/statics/instructions/portals/{language}.json", cancellationToken).ConfigureAwait(false))?.Get<JObject>("notifications");
 					}
 					catch (Exception exception)
 					{
@@ -535,9 +535,7 @@ namespace net.vieapps.Services.Portals
 							$"- Object: {@object.Title} [{@object.GetType()}#{@object.ID}]" + "\r\n" +
 							$"- Event: {@event}" + "\r\n" +
 							$"- Status: {status} (previous: {previousStatus})" + "\r\n" +
-							$"- Endpoint URL: {message.EndpointURL}";
-						if (Utility.Logger.IsEnabled(LogLevel.Debug))
-							log += $"\r\n- Message: {message.ToJson()}";
+							$"- Endpoint URL: {message.EndpointURL}" + (Utility.Logger.IsEnabled(LogLevel.Debug) ? $"\r\n- Message: {message.ToJson()}" : "");
 						await requestInfo.WriteLogAsync(log, cancellationToken, "Notifications").ConfigureAwait(false);
 					}).ConfigureAwait(false);
 				}
