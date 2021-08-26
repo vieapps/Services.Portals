@@ -353,5 +353,80 @@ namespace net.vieapps.Services.Portals
 
 		internal string GetRedirectURL(string requestedURL)
 			=> string.IsNullOrWhiteSpace(requestedURL) ? null : this._redirectAddresses?.FirstOrDefault(addresses => requestedURL.IsStartsWith(addresses.Item1))?.Item2;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public bool IsHasJavascriptLibraries => (this.Socials != null && this.Socials.Any()) || (this.Trackings != null && this.Trackings.Any()) || !string.IsNullOrWhiteSpace(this.ScriptLibraries);
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public string JavascriptLibraries
+		{
+			get
+			{
+				var scripts = "";
+				if (this.Socials != null && this.Socials.Any())
+				{
+					if (this.Socials.IndexOf("Facebook") > -1)
+						scripts += "<script src=\"https://connect.facebook.net/en_US/sdk.js\" async defer></script>";
+					if (this.Socials.IndexOf("Twitter") > -1)
+						scripts += "<script src=\"https://platform.twitter.com/widgets.js\" async defer></script>";
+				}
+				if (this.Trackings != null && this.Trackings.Any())
+				{
+					if (this.Trackings.TryGetValue("GoogleAnalytics", out var googleAnalytics) && !string.IsNullOrWhiteSpace(googleAnalytics))
+						googleAnalytics.ToArray(";").ForEach(googleAnalyticsID => scripts += "<script src=\"https://www.googletagmanager.com/gtag/js?id=" + googleAnalyticsID + "\" async></script>");
+					if (this.Trackings.TryGetValue("FacebookPixel", out var facebookPixels) && !string.IsNullOrWhiteSpace(facebookPixels))
+						scripts += "<script src=\"https://connect.facebook.net/en_US/fbevents.js\" async></script>";
+				}
+				return scripts + (string.IsNullOrWhiteSpace(this.ScriptLibraries) ? "" : this.ScriptLibraries);
+			}
+		}
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public bool IsHasJavascripts => (this.Socials != null && this.Socials.Any()) || (this.Trackings != null && this.Trackings.Any()) || !string.IsNullOrWhiteSpace(this.Scripts);
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public string Javascripts
+		{
+			get
+			{
+				var scripts = "";
+				if (this.Trackings != null && this.Trackings.Any())
+				{
+					if (this.Trackings.TryGetValue("GoogleAnalytics", out var googleAnalytics) && !string.IsNullOrWhiteSpace(googleAnalytics))
+					{
+						scripts += @"(function () {
+								window.dataLayer = window.dataLayer || [];
+								window.gtag = function () {
+									dataLayer.push(arguments);
+								};
+								gtag(""js"", new Date());
+							})();";
+						googleAnalytics.ToArray(";", true).ForEach(googleAnalyticsID => scripts += "gtag(\"config\", \"" + googleAnalyticsID + "\");");
+					}
+					if (this.Trackings.TryGetValue("FacebookPixel", out var facebookPixels) && !string.IsNullOrWhiteSpace(facebookPixels))
+					{
+						scripts += @"(function () {
+								var func = window.fbq = function () {
+									if (func.callMethod) {
+										func.callMethod.apply(func, arguments);
+									}
+									else {
+										func.queue.push(arguments);
+									}
+								};
+								window._fbq = func;
+								func.push = func;
+								func.loaded = true;
+								func.version = '2.0';
+								func.queue = [];
+							})();";
+						facebookPixels.ToArray(";", true).ForEach(facebookPixelID => scripts += "fbq(\"init\", \"" + facebookPixelID + "\");fbq(\"track\", \"PageView\");");
+					}
+				}
+				scripts += string.IsNullOrWhiteSpace(this.Scripts) ? "" : this.Scripts;
+				return scripts.MinifyJs();
+			}
+		}
+
 	}
 }

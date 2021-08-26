@@ -1279,7 +1279,7 @@ namespace net.vieapps.Services.Portals
 					{ "StatusCode", (int)HttpStatusCode.Redirect },
 					{ "Headers", new JObject
 						{
-							{ "Location", url.NormalizeURLs(uri, organization.Alias, false) }
+							{ "Location", url.NormalizeURLs(uri, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")) }
 						}
 					}
 				};
@@ -1611,7 +1611,7 @@ namespace net.vieapps.Services.Portals
 							filesHttpURI = organization?.FakeFilesHttpURI;
 							portalsHttpURI = organization?.FakePortalsHttpURI;
 							resources = organization != null
-								? (this.IsDebugLogEnabled ? $"/* scripts of the '{organization.Title}' organization */\r\n" : "") + (string.IsNullOrWhiteSpace(organization.Scripts) ? "" : organization.Scripts.MinifyJs())
+								? (this.IsDebugLogEnabled ? $"/* scripts of the '{organization.Title}' organization */\r\n" : "") + organization.Javascripts
 								: $"/* the requested organization ({identity.Right(32)}) is not found */";
 						}
 						else if (identity.Left(1).IsEquals("s"))
@@ -3158,14 +3158,14 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// add the scripts of the organization
-			if (!string.IsNullOrWhiteSpace(organization.ScriptLibraries))
+			if (organization.IsHasJavascriptLibraries)
 				scripts += site.UseInlineScripts
-					? $"</script>{organization.ScriptLibraries}<script>"
-					: organization.ScriptLibraries;
+					? $"</script>{organization.JavascriptLibraries}<script>"
+					: organization.JavascriptLibraries;
 
-			if (!string.IsNullOrWhiteSpace(organization.Scripts))
+			if (organization.IsHasJavascripts)
 				scripts += site.UseInlineScripts
-					? organization.Scripts.MinifyJs()
+					? organization.Javascripts
 					: $"<script src=\"~#/_js/o_{organization.ID}.js?v={organization.LastModified.ToUnixTimestamp()}\"></script>";
 
 			// add the scripts of the site

@@ -560,11 +560,12 @@ namespace net.vieapps.Services.Portals
 		/// <param name="baseURI"></param>
 		/// <param name="systemIdentity"></param>
 		/// <param name="useShortURLs"></param>
+		/// <param name="baseHost"></param>
 		/// <returns></returns>
-		public static string GetRootURL(this Uri baseURI, string systemIdentity, bool useShortURLs = false)
+		public static string GetRootURL(this Uri baseURI, string systemIdentity, bool useShortURLs = false, string baseHost = null)
 			=> useShortURLs
 				? baseURI.IsPortalsHttpURI() ? "./" : "/"
-				: baseURI.IsPortalsHttpURI() ? $"{Utility.PortalsHttpURI}/~{systemIdentity}/" : $"{baseURI.Scheme}://{baseURI.Host}/";
+				: baseURI.IsPortalsHttpURI() ? $"{Utility.PortalsHttpURI}/~{systemIdentity}/" : $"{baseURI.Scheme}://{baseHost ?? baseURI.Host}/";
 
 		/// <summary>
 		/// Normalizes all URLs of a HTML content
@@ -615,8 +616,9 @@ namespace net.vieapps.Services.Portals
 		/// <param name="forDisplaying"></param>
 		/// <param name="filesHttpURI"></param>
 		/// <param name="portalsHttpURI"></param>
+		/// <param name="baseHost"></param>
 		/// <returns></returns>
-		public static string NormalizeURLs(this string html, Uri requestURI, string systemIdentity, bool useShortURLs = true, bool forDisplaying = true, string filesHttpURI = null, string portalsHttpURI = null)
+		public static string NormalizeURLs(this string html, Uri requestURI, string systemIdentity, bool useShortURLs = true, bool forDisplaying = true, string filesHttpURI = null, string portalsHttpURI = null, string baseHost = null)
 		{
 			if (string.IsNullOrWhiteSpace(html))
 				return html;
@@ -625,7 +627,7 @@ namespace net.vieapps.Services.Portals
 				? html.Replace("~/_", $"{portalsHttpURI ?? Utility.PortalsHttpURI}/_")
 				: html.Replace($"{Utility.PortalsHttpURI}/_", "~/_");
 
-			html = html.NormalizeURLs(forDisplaying ? requestURI.GetRootURL(systemIdentity, useShortURLs) : requestURI.GetRootURL(systemIdentity), forDisplaying, filesHttpURI, portalsHttpURI);
+			html = html.NormalizeURLs(forDisplaying ? requestURI.GetRootURL(systemIdentity, useShortURLs, baseHost) : requestURI.GetRootURL(systemIdentity, useShortURLs, baseHost), forDisplaying, filesHttpURI, portalsHttpURI);
 
 			if (forDisplaying && useShortURLs && requestURI.IsPortalsHttpURI())
 				html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{Utility.PortalsHttpURI}/~{systemIdentity}/\"/>");
