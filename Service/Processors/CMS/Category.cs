@@ -339,14 +339,14 @@ namespace net.vieapps.Services.Portals
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
 			if (addChildren)
-				await objects.Where(category => category._childrenIDs == null).ForEachAsync(category => category.FindChildrenAsync(cancellationToken), true, false).ConfigureAwait(false);
+				await objects.Where(category => category != null && category._childrenIDs == null).ForEachAsync(category => category.FindChildrenAsync(cancellationToken), true, false).ConfigureAwait(false);
 
 			var response = new JObject()
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.Select(category => category.ToJson(addChildren, false)).ToJArray() }
+				{ "Objects", objects.Where(category => category != null).Select(category => category.ToJson(addChildren, false)).ToJArray() }
 			};
 
 			// update cache

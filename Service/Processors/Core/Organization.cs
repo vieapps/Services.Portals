@@ -413,6 +413,24 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			if (!identity.IsValidUUID())
+				return new JObject
+				{
+					{ "ID", organization.ID },
+					{ "Title", organization.Title },
+					{ "Alias", organization.Alias }
+				};
+
+			// refresh (clear cached and reload)
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+			{
+				await Utility.Cache.RemoveAsync(organization, cancellationToken).ConfigureAwait(false);
+				organization = await organization.Remove().ID.GetOrganizationByIDAsync(cancellationToken, true).ConfigureAwait(false);
+				organization._siteIDs = null;
+				organization._moduleIDs = null;
+			}
+
 			// get site & modules
 			if (organization._siteIDs == null || organization._moduleIDs == null)
 			{
@@ -426,17 +444,35 @@ namespace net.vieapps.Services.Portals
 				}
 
 				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{organization.GetObjectName()}#Update",
+					Data = organization.ToJson(false, false),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
 			}
 
-			// response
-			return identity.IsValidUUID()
-				? organization.ToJson(true, false)
-				: new JObject
+			// send update message
+			var objectName = organization.GetObjectName();
+			var response = organization.ToJson(true, false);
+
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = response,
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
+			}.Send();
+			if (isRefresh)
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					{ "ID", organization.ID },
-					{ "Title", organization.Title },
-					{ "Alias", organization.Alias }
-				};
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+
+			// response
+			return response;
 		}
 
 		internal static async Task<JObject> UpdateAsync(this Organization organization, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken, bool clearObjectsCache = false)

@@ -355,7 +355,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetModuleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var module = await (requestInfo.GetObjectIdentity() ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
+			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
+			var module = await identity.GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null)
 				throw new InformationNotFoundException();
 			else if (module.Organization == null)
@@ -366,21 +367,45 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// refresh (clear cached and reload)
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+			{
+				await Utility.Cache.RemoveAsync(module, cancellationToken).ConfigureAwait(false);
+				module = await module.Remove().ID.GetModuleByIDAsync(cancellationToken, true).ConfigureAwait(false);
+				module._contentTypeIDs = null;
+			}
+
 			// get content-types
 			if (module._contentTypeIDs == null)
 			{
 				await module.FindContentTypesAsync(cancellationToken).ConfigureAwait(false);
 				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{module.GetObjectName()}#Update",
+					Data = module.ToJson(false, false),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
 			}
 
 			// send the update message to update to all other connected clients
+			var objectName = module.GetObjectName();
 			var response = module.ToJson(true, false);
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{module.GetTypeName(true)}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
+			if (isRefresh)
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
 
 			// response
 			return response;

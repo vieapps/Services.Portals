@@ -373,7 +373,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
+			var contentType = await identity.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (contentType == null)
 				throw new InformationNotFoundException();
 			else if (contentType.Organization == null)
@@ -384,15 +385,31 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// send the update message to update to all other connected clients and response
+			// refresh (clear cached and reload)
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+			{
+				await Utility.Cache.RemoveAsync(contentType, cancellationToken).ConfigureAwait(false);
+				contentType = await contentType.Remove().ID.GetContentTypeByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			}
+
+			// send the update message to update to all other connected clients
+			var objectName = contentType.GetObjectName();
 			var response = contentType.ToJson();
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{contentType.GetTypeName(true)}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
+			if (isRefresh)
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
 
 			return response;
 		}
