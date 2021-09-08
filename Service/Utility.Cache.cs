@@ -18,7 +18,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory());
 
-		internal static bool IsDebugEnabled => Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug);
+		internal static bool IsDebugEnabled => Utility.Logger != null && Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug);
 
 		internal static bool WriteCacheLogs => Utility.IsDebugEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
 

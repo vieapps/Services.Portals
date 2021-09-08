@@ -1176,6 +1176,7 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "ID", organization.ID },
 					{ "Alias", organization.Alias },
+					{ "HomeDesktopAlias", (organization.HomeDesktop ?? organization.DefaultDesktop)?.Alias ?? "-default" },
 					{ "FilesHttpURI", organization.FakeFilesHttpURI ?? Utility.FilesHttpURI },
 					{ "PortalsHttpURI", organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI },
 					{ "CmsPortalsHttpURI", Utility.CmsPortalsHttpURI },
@@ -1749,7 +1750,7 @@ namespace net.vieapps.Services.Portals
 			// get default site if not found
 			if (site == null)
 			{
-				if (host.Equals(new Uri(Utility.CmsPortalsHttpURI).Host) && (organization._siteIDs == null || organization._siteIDs.Count < 1))
+				if (!string.IsNullOrWhiteSpace(Utility.CmsPortalsHttpURI) && host.Equals(new Uri(Utility.CmsPortalsHttpURI).Host) && (organization._siteIDs == null || organization._siteIDs.Count < 1))
 				{
 					organization._siteIDs = null;
 					site = (await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault();
@@ -1794,7 +1795,8 @@ namespace net.vieapps.Services.Portals
 			{
 				if (string.IsNullOrWhiteSpace(redirectURL))
 				{
-					redirectURL = (site.AlwaysUseHTTPs ? "https" : requestURI.Scheme) + "://" + (site.RedirectToNoneWWW ? requestURI.Host.Replace("www.", "") : requestURI.Host) + $"{requestURI.PathAndQuery}{requestURI.Fragment}";
+					var redirectHost = requestInfo.GetHeaderParameter("x-srp-host") ?? requestURI.Host;
+					redirectURL = (site.AlwaysUseHTTPs ? "https" : requestURI.Scheme) + "://" + (site.RedirectToNoneWWW ? redirectHost.Replace("www.", "") : redirectHost) + $"{requestURI.PathAndQuery}{requestURI.Fragment}";
 					redirectCode = redirectCode > 0 ? redirectCode : site.AlwaysUseHTTPs && !requestURI.Scheme.IsEquals("https") ? (int)HttpStatusCode.Redirect : (int)HttpStatusCode.MovedPermanently;
 				}
 				else
@@ -1822,7 +1824,7 @@ namespace net.vieapps.Services.Portals
 					{ "StatusCode", redirectCode > 0 ? redirectCode : (int)HttpStatusCode.Redirect },
 					{ "Headers", new JObject
 						{
-							{ "Location", redirectURL.NormalizeURLs(requestURI, organization.Alias, false) }
+							{ "Location", redirectURL.NormalizeURLs(requestURI, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")) }
 						}
 					}
 				};
@@ -1840,8 +1842,8 @@ namespace net.vieapps.Services.Portals
 			var cacheKey = desktop.GetDesktopCacheKey(requestURI);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
 			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
-			var forceCache = requestInfo.GetParameter("forceCache") != null;
-			var processCache = this.CacheDesktopHtmls && requestInfo.GetParameter("noCache") == null;
+			var forceCache = requestInfo.GetParameter("x-force-cache") != null;
+			var processCache = this.CacheDesktopHtmls && requestInfo.GetParameter("x-no-cache") == null;
 
 			// check "If-Modified-Since" request to reduce traffict
 			var eTag = $"v#{cacheKey}";
