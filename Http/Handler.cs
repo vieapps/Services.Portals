@@ -106,6 +106,34 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
+		static void NormalizeSession(Session session, string appName = null, string appPlatform = null, string deviceID = null)
+		{
+			try
+			{
+				session.AppName = (appName ?? session.AppName).Url64Decode();
+			}
+			catch
+			{
+				session.AppName = appName ?? session.AppName;
+			}
+			try
+			{
+				session.AppPlatform = (appPlatform ?? session.AppPlatform).Url64Decode();
+			}
+			catch
+			{
+				session.AppPlatform = appPlatform ?? session.AppPlatform;
+			}
+			try
+			{
+				session.DeviceID = (deviceID ?? session.DeviceID).Url64Decode();
+			}
+			catch
+			{
+				session.DeviceID = deviceID ?? session.DeviceID;
+			}
+		}
+
 		static async Task ProcessWebSocketRequestAsync(ManagedWebSocket websocket, WebSocketReceiveResult result, byte[] data)
 		{
 			// prepare
@@ -127,8 +155,11 @@ namespace net.vieapps.Services.Portals
 			var extra = new Dictionary<string, string>(requestObj.Get("Extra", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
 			query.TryGetValue("object-identity", out var objectIdentity);
 
+			// session
 			var session = websocket.Get<Session>("Session") ?? Global.GetSession();
+			Handler.NormalizeSession(session);
 
+			// procsess
 			try
 			{
 				// visit logs
@@ -160,9 +191,20 @@ namespace net.vieapps.Services.Portals
 
 						var encryptionKey = session.GetEncryptionKey(Global.EncryptionKey);
 						var encryptionIV = session.GetEncryptionIV(Global.EncryptionKey);
-						if (!header.TryGetValue("x-session-id", out var sessionID) || !sessionID.Decrypt(encryptionKey, encryptionIV).Equals(session.GetEncryptedID())
-							|| !header.TryGetValue("x-device-id", out var deviceID) || !deviceID.Decrypt(encryptionKey, encryptionIV).Equals(session.DeviceID))
+
+						if (!header.TryGetValue("x-session-id", out var sessionID) || !sessionID.Decrypt(encryptionKey, encryptionIV).Equals(session.GetEncryptedID()))
+						{
+							if (Global.IsDebugLogEnabled)
+								await Global.WriteLogsAsync(Global.Logger, "Http.Authentications", $"The session identity is invalid [{session.GetEncryptedID()} != {(sessionID ?? "").Decrypt(encryptionKey, encryptionIV)}]", null, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
+						}
+
+						if (!header.TryGetValue("x-device-id", out var deviceID) || !deviceID.Decrypt(encryptionKey, encryptionIV).Equals(session.DeviceID))
+						{
+							if (Global.IsDebugLogEnabled)
+								await Global.WriteLogsAsync(Global.Logger, "Http.Authentications", $"The device identity is invalid [{session.DeviceID} != {(deviceID ?? "").Decrypt(encryptionKey, encryptionIV)}]", null, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
+						}
 
 						session.AppName = body?.Get<string>("x-app-name") ?? session.AppName;
 						session.AppPlatform = body?.Get<string>("x-app-platform") ?? session.AppPlatform;
@@ -227,6 +269,8 @@ namespace net.vieapps.Services.Portals
 						}
 					};
 					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+					if (ex is InvalidSessionException)
+						await websocket.CloseAsync(WebSocketCloseStatus.PolicyViolation, ex.Message, Global.CancellationToken).ConfigureAwait(false);
 				}
 				catch (Exception e)
 				{
@@ -241,7 +285,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		internal async Task ProcessHttpRequestAsync(HttpContext context)
+		async Task ProcessHttpRequestAsync(HttpContext context)
 		{
 			// prepare
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
@@ -272,39 +316,7 @@ namespace net.vieapps.Services.Portals
 			var correlationID = context.GetCorrelationID();
 
 			var session = context.Session.Get<Session>("Session") ?? context.GetSession();
-
-			var appName = context.GetParameter("x-app-name");
-			if (!string.IsNullOrWhiteSpace(appName))
-				try
-				{
-					session.AppName = appName.Url64Decode();
-				}
-				catch
-				{
-					session.AppName = appName;
-				}
-
-			var appPlatform = context.GetParameter("x-app-platform");
-			if (!string.IsNullOrWhiteSpace(appPlatform))
-				try
-				{
-					session.AppPlatform = appPlatform.Url64Decode();
-				}
-				catch
-				{
-					session.AppPlatform = appPlatform;
-				}
-
-			var deviceID = context.GetParameter("x-device-id");
-			if (!string.IsNullOrWhiteSpace(deviceID))
-				try
-				{
-					session.DeviceID = deviceID.Url64Decode();
-				}
-				catch
-				{
-					session.DeviceID = deviceID;
-				}
+			Handler.NormalizeSession(session, context.GetParameter("x-app-name"), context.GetParameter("x-app-platform"), context.GetParameter("x-device-id"));
 
 			// update user of the session if already signed-in
 			if (context.IsAuthenticated())
@@ -563,7 +575,7 @@ namespace net.vieapps.Services.Portals
 					if (string.IsNullOrWhiteSpace(legacyRequest))
 					{
 						// working with cache
-						if (!Handler.RefresherRefererURL.IsEquals(context.GetReferUrl()) && requestInfo.GetParameter("noCache") == null && requestInfo.GetParameter("forceCache") == null)
+						if (!Handler.RefresherRefererURL.IsEquals(context.GetReferUrl()) && requestInfo.GetParameter("x-no-cache") == null && requestInfo.GetParameter("x-force-cache") == null)
 						{
 							var cacheKey = "";
 							var eTag = "";
@@ -634,6 +646,7 @@ namespace net.vieapps.Services.Portals
 								systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 								var organizationID = systemIdentityJson.Get<string>("ID");
 								var organizationAlias = systemIdentityJson.Get<string>("Alias");
+								var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
 
 								filesHttpURI = systemIdentityJson.Get<string>("FilesHttpURI");
 								filesHttpURI += filesHttpURI.EndsWith("/") ? "" : "/";
@@ -656,7 +669,7 @@ namespace net.vieapps.Services.Portals
 								var desktopAlias = queryString["x-desktop"].ToLower();
 								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
 
-								cacheKey = $"{organizationID}:" + ("-default".IsEquals(desktopAlias) ? desktopAlias : path).GenerateUUID();
+								cacheKey = $"{organizationID}:" + (desktopAlias.IsEquals("-default") || desktopAlias.IsEquals(homeDesktopAlias) ? "-default" : path).GenerateUUID();
 								eTag = $"v#{cacheKey}";
 							}
 
@@ -952,11 +965,8 @@ namespace net.vieapps.Services.Portals
 
 					// response
 					var scripts = @"<script>
-					$(window).on('load', function() {
-						__vieapps.session.events.in = __redirect;
-						__vieapps.session.events.close = __redirect;
-						__vieapps.session.activate(" + $"\"{mode}\", {error}" + @");
-					}); 
+					window.__activate = window.__activate || function(){};
+					__activate(" + $"\"{mode}\", {error}" + @");
 					</script>";
 					await context.WriteAsync(this.GetSpecialHtml(context, systemIdentityJson, "Activate").Replace("[[placeholder]]", scripts.Replace("\t\t\t\t\t", "")), "text/html", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, cts.Token).ConfigureAwait(false);
 				}
@@ -986,7 +996,20 @@ namespace net.vieapps.Services.Portals
 				}
 				else if (!session.User.IsAuthenticated && context.IsAuthenticated())
 					await context.SignOutAsync().ConfigureAwait(false);
-				context.Redirect(this.GetURL(context));
+
+				var url = context.GetQueryParameter("ReturnURL");
+				if (string.IsNullOrWhiteSpace(url))
+				{
+					var pathSegment = context.GetRequestPathSegments().First();
+					url = pathSegment.StartsWith("~") ? $"/{pathSegment}" : "/";
+				}
+				else
+					try
+					{
+						url = url.Url64Decode();
+					}
+					catch { }
+				context.Redirect(url);
 			}
 		}
 
@@ -1076,18 +1099,8 @@ namespace net.vieapps.Services.Portals
 			async Task showAsync()
 			{
 				var scripts = @"<script>
-				$(window).on('load', function() {
-					__vieapps.session.register(function() {
-						if (__vieapps.session.logged) {
-							__redirect();
-						}
-						else {
-							__vieapps.session.events.in = __redirect;
-							__vieapps.session.events.close = __redirect;
-							__vieapps.session.open();
-						}
-					});
-				}); 
+				window.__prepare = window.__prepare || function(){};
+				__prepare();
 				</script>";
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 				await context.WriteAsync(this.GetSpecialHtml(context, systemIdentityJson).Replace("[[placeholder]]", scripts.Replace("\t\t\t\t", "")), "text/html", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, cts.Token).ConfigureAwait(false);
@@ -1379,10 +1392,8 @@ namespace net.vieapps.Services.Portals
 				if (context.Request.Path.Value.IsEndsWith(".aspx"))
 				{
 					var scripts = @"<script>
-					$(window).on('load', function() {
-						__vieapps.session.unregister();
-						__redirect();
-					}); 
+					window.__logout = window.__logout || function(){};
+					__logout(true);
 					</script>";
 					await Task.WhenAll
 					(
@@ -1519,23 +1530,6 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		string GetURL(HttpContext context, string name = null)
-		{
-			var url = context.GetQueryParameter(name ?? "ReturnURL");
-			if (string.IsNullOrWhiteSpace(url))
-			{
-				var pathSegment = context.GetRequestPathSegments().First();
-				url = pathSegment.StartsWith("~") ? $"/{pathSegment}" : "/";
-			}
-			else
-				try
-				{
-					url = url.Url64Decode();
-				}
-				catch { }
-			return url;
-		}
-
 		string GetSpecialHtml(HttpContext context, JObject systemIdentityJson, string title = "Log in")
 		{
 			var organizationID = systemIdentityJson.Get<string>("ID");
@@ -1558,13 +1552,7 @@ namespace net.vieapps.Services.Portals
 				+ $"<script src=\"{portalsHttpURI}/_assets/rsa.js?v={version}\"></script>"
 				+ $"<script src=\"{portalsHttpURI}/_assets/default.js?v={version}\"></script>"
 				+ $"<script src=\"{portalsHttpURI}/_themes/default/js/all.js?v={version}\"></script>"
-				+ $"<script src=\"{portalsHttpURI}/_js/o_{organizationID}.js?v={version}\"></script>"
-				+ @"
-					<script>
-					function __redirect() {
-						location.href = '" + this.GetURL(context) + @"';
-					}
-					</script>";
+				+ $"<script src=\"{portalsHttpURI}/_js/o_{organizationID}.js?v={version}\"></script>";
 
 			return @$"<!DOCTYPE html>
 					<html xmlns=""http://www.w3.org/1999/xhtml"">
