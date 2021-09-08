@@ -1539,7 +1539,7 @@ namespace net.vieapps.Services.Portals
 				portalsHttpURI = portalsHttpURI.Left(portalsHttpURI.Length - 1);
 
 			var rootURL = context.GetRequestPathSegments().First().StartsWith("~") ? "./" : "/";
-			var language = context.GetQueryParameter("language") ?? "en-US";
+			var language = context.GetQueryParameter("language") ?? systemIdentityJson.Get<string>("Language") ?? "en-US";
 
 			var session = context.GetSession();
 			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";

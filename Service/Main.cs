@@ -1182,7 +1182,8 @@ namespace net.vieapps.Services.Portals
 					{ "CmsPortalsHttpURI", Utility.CmsPortalsHttpURI },
 					{ "AlwaysUseHtmlSuffix", organization.AlwaysUseHtmlSuffix },
 					{ "AlwaysUseHTTPs", site != null && site.AlwaysUseHTTPs },
-					{ "RedirectToNoneWWW", site != null && site.RedirectToNoneWWW }
+					{ "RedirectToNoneWWW", site != null && site.RedirectToNoneWWW },
+					{ "Language", site != null ? site.Language ?? "en-US" : "en-US" }
 				}
 				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(!string.IsNullOrWhiteSpace(host) ? host : "unknown")})");
 		}
