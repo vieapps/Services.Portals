@@ -896,7 +896,7 @@ namespace net.vieapps.Services.Portals
 					var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 					if (totalPages > 0 && pageNumber > totalPages)
 						pageNumber = totalPages;
-					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true), showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => !kvp.Key.IsStartsWith("x-") && !kvp.Key.IsEquals("noCache") && !kvp.Key.IsEquals("forceCache")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
+					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true), showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => !kvp.Key.IsStartsWith("x-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
 				}
 
 				// prepare SEO

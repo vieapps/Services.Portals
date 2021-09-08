@@ -223,13 +223,13 @@ namespace net.vieapps.Services.Portals
 			tasks = tasks.Concat(new[]
 			{
 				Utility.Cache.RemoveAsync(organization.Remove(), cancellationToken),
+				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of an organization [{organization.Title} - ID: {organization.ID}]", cancellationToken, "Caches") : Task.CompletedTask,
 				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 				{
 					Type = $"{organization.GetObjectName()}#Delete",
 					Data = organization.ToJson(),
 					ExcludedNodeID = Utility.NodeID
-				}.SendAsync(),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of an organization [{organization.Title} - ID: {organization.ID}]", cancellationToken, "Caches") : Task.CompletedTask
+				}.SendAsync()
 			}).ToList();
 
 			await Task.WhenAll(tasks).ConfigureAwait(false);
