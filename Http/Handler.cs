@@ -222,12 +222,20 @@ namespace net.vieapps.Services.Portals
 				else
 				{
 					var requestInfo = new RequestInfo(session, serviceName, objectName, verb, query, header, body?.ToJson().ToString(Formatting.None), extra, correlationID);
+					if ("discovery".IsEquals(requestInfo.ServiceName) && "definitions".IsEquals(requestInfo.ObjectName))
+					{
+						requestInfo.ServiceName = requestInfo.Query["service-name"] = requestInfo.Query["x-service-name"];
+						requestInfo.Query["object-identity"] = requestInfo.Query["x-object-name"];
+						requestInfo.Query["mode"] = requestInfo.Query.TryGetValue("x-object-identity", out var mode) ? mode : "";
+						requestInfo.Verb = "GET";
+					}
 					var response = new JObject
 					{
-						{ "ID", requestID },
 						{ "Type", $"{serviceName.GetCapitalizedFirstLetter()}#{objectName.GetCapitalizedFirstLetter()}#{verb.GetCapitalizedFirstLetter()}" },
 						{ "Data", await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) }
 					};
+					if (!string.IsNullOrWhiteSpace(requestID))
+						response["ID"] = requestID;
 					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
 				}
 			}
@@ -406,7 +414,7 @@ namespace net.vieapps.Services.Portals
 					if (firstPathSegment.StartsWith("~"))
 					{
 						// specifict service
-						if (requestSegments[0].IsEquals("~apis.service") || requestSegments[0].IsEquals("~apis.gateway"))
+						if (requestSegments[0].IsStartsWith("~apis"))
 							specialRequest = "service";
 						else
 						{
@@ -883,6 +891,13 @@ namespace net.vieapps.Services.Portals
 							ObjectName = requestInfo.Query["object-name"],
 							Verb = httpVerb
 						};
+						if ("discovery".IsEquals(requestInfo.ServiceName) && "definitions".IsEquals(requestInfo.ObjectName))
+						{
+							requestInfo.ServiceName = requestInfo.Query["service-name"] = requestInfo.Query["x-service-name"];
+							requestInfo.Query["object-identity"] = requestInfo.Query["x-object-name"];
+							requestInfo.Query["mode"] = requestInfo.Query.TryGetValue("x-object-identity", out var mode) ? mode : "";
+							requestInfo.Verb = "GET";
+						}
 						try
 						{
 							using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
@@ -1556,7 +1571,7 @@ namespace net.vieapps.Services.Portals
 
 			return @$"<!DOCTYPE html>
 					<html xmlns=""http://www.w3.org/1999/xhtml"">
-					<head>{(rootURL.Equals("/") ? "" : $"<base href=\"{portalsHttpURI}/~{organizationAlias}/\"/>")}
+					<head>{(rootURL.Equals("/") ? "" : $"\r\n<base href=\"{portalsHttpURI}/~{organizationAlias}/\"/>")}
 					<title>{title} ({organizationAlias})</title>
 					<meta name=""viewport"" content=""width=device-width, initial-scale=1""/>
 					<link rel=""stylesheet"" href=""{portalsHttpURI}/_assets/default.css?v={version}""/>
