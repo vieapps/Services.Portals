@@ -91,7 +91,7 @@ namespace net.vieapps.Services.Portals
 		public string IPAddress { get; set; }
 
 		[AsJson]
-		[FormControl(Hidden = true, ControlType = "Text", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		[FormControl(Excluded = true)]
 		public Dictionary<string, string> Profiles { get; set; }
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
