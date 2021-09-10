@@ -45,12 +45,10 @@ namespace net.vieapps.Services.Portals
 					var isIgnore = false;
 					var thisChar = (int)reader.ReadByte();
 
-					if (thisChar == '\t')
+					if (thisChar == '\t' && !isInLiterialString)
 						thisChar = ' ';
-					else if (thisChar == '\t' || thisChar == '\r')
-						thisChar = '\n';
 
-					if (thisChar == '\n')
+					if (thisChar == '\t' || thisChar == '\n' || thisChar == '\r')
 						isIgnore = true;
 
 					else if (thisChar == ' ' && !isInStringVariable && (!isInLiterialString || isInLiterialExpression))
@@ -198,10 +196,8 @@ namespace net.vieapps.Services.Portals
 
 					if (thisChar == '\t')
 						thisChar = ' ';
-					else if (thisChar == '\t' || thisChar == '\r')
-						thisChar = '\n';
 
-					if (thisChar == '\n')
+					if (thisChar == '\n' || thisChar == '\r')
 						isIgnore = true;
 
 					else if (thisChar == ' ')
