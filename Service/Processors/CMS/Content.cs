@@ -671,7 +671,7 @@ namespace net.vieapps.Services.Portals
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Module");
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Default");
 
-			JArray breadcrumbs = null;
+			JArray breadcrumbs = null, metaTags = null;
 			JObject pagination = null, seoInfo = null, filterBy = null, sortBy = null;
 			string coverURI = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null, ids = null;
 
@@ -1110,6 +1110,7 @@ namespace net.vieapps.Services.Portals
 				thumbnailsTask = thumbnailsTask ?? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 				await thumbnailsTask.ConfigureAwait(false);
 				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+				metaTags = new[] { $"<meta property=\"og:type\" content=\"{options.Get("Og:Type", "article")}\"/>" }.ToJArray();
 				seoTitle = @object.Title;
 				seoDescription = @object.Summary;
 				seoKeywords = @object.Tags;
@@ -1136,6 +1137,7 @@ namespace net.vieapps.Services.Portals
 				{ "SortBy", sortBy },
 				{ "SEOInfo", seoInfo },
 				{ "CoverURI", coverURI },
+				{ "MetaTags", metaTags },
 				{ "CacheExpiration", randomPage ? Utility.Logger.IsEnabled(LogLevel.Debug) ? 3 : 13 : 0 },
 				{ "IDs", ids + $",service:\"{moduleDefinitionJson.Get<string>("ServiceName").ToLower()}\",object:\"{contentTypeDefinitionJson.Get<string>("ObjectNamePrefix")?.ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectName").ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectNameSuffix")?.ToLower()}\"" }
 			};

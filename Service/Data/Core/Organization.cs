@@ -366,7 +366,7 @@ namespace net.vieapps.Services.Portals
 				if (this.Socials != null && this.Socials.Any())
 				{
 					if (this.Socials.IndexOf("Facebook") > -1)
-						scripts += "<script src=\"https://connect.facebook.net/en_US/sdk.js\" async defer></script>";
+						scripts += $"<script src=\"https://connect.facebook.net/en_US/sdk.js\" async defer></script>";
 					if (this.Socials.IndexOf("Twitter") > -1)
 						scripts += "<script src=\"https://platform.twitter.com/widgets.js\" async defer></script>";
 				}
@@ -375,7 +375,7 @@ namespace net.vieapps.Services.Portals
 					if (this.Trackings.TryGetValue("GoogleAnalytics", out var googleAnalytics) && !string.IsNullOrWhiteSpace(googleAnalytics))
 						googleAnalytics.ToArray(";").ForEach(googleAnalyticsID => scripts += "<script src=\"https://www.googletagmanager.com/gtag/js?id=" + googleAnalyticsID + "\" async></script>");
 					if (this.Trackings.TryGetValue("FacebookPixel", out var facebookPixels) && !string.IsNullOrWhiteSpace(facebookPixels))
-						scripts += "<script src=\"https://connect.facebook.net/en_US/fbevents.js\" async></script>";
+						scripts += $"<script src=\"https://connect.facebook.net/en_US/fbevents.js\" async></script>";
 				}
 				return scripts + (string.IsNullOrWhiteSpace(this.ScriptLibraries) ? "" : this.ScriptLibraries);
 			}

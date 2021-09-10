@@ -301,9 +301,7 @@ namespace net.vieapps.Services.Portals
 			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
 				try
 				{
-					string mode;
 					JToken json = null;
-					Organization organization;
 					switch (requestInfo.ObjectName.ToLower())
 					{
 
@@ -372,6 +370,11 @@ namespace net.vieapps.Services.Portals
 						case "cms.link":
 							json = await this.ProcessLinkAsync(requestInfo, cts.Token).ConfigureAwait(false);
 							break;
+
+						case "form":
+						case "cms.form":
+							json = await this.ProcessFormAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 						#endregion
 
 						#region process request of Portals HTTP service
@@ -386,7 +389,6 @@ namespace net.vieapps.Services.Portals
 
 						#region process the request of definitions, instructions, files, profiles and all known others
 						case "definitions":
-							mode = requestInfo.GetQueryParameter("mode");
 							switch (requestInfo.GetObjectIdentity())
 							{
 								case "moduledefinitions":
@@ -477,8 +479,8 @@ namespace net.vieapps.Services.Portals
 									json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
 									break;
 
-								case "contact":
-								case "utils.contact":
+								case "form":
+								case "cms.form":
 									json = this.GenerateFormControls<Form>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
 									break;
 
@@ -488,13 +490,13 @@ namespace net.vieapps.Services.Portals
 							break;
 
 						case "instructions":
-							mode = requestInfo.Extra != null && requestInfo.Extra.ContainsKey("mode") ? requestInfo.Extra["mode"].GetCapitalizedFirstLetter() : null;
-							organization = mode != null ? await (requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("active-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false) : null;
+							var mode = requestInfo.Extra != null && requestInfo.Extra.ContainsKey("mode") ? requestInfo.Extra["mode"].GetCapitalizedFirstLetter() : null;
+							var organization = mode != null ? await (requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("active-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false) : null;
 							json = new JObject
-						{
-							{ "Message", organization != null && organization.Instructions != null && organization.Instructions.ContainsKey(mode) ? organization.Instructions[mode]?.ToJson() : null },
-							{ "Email", organization?.EmailSettings?.ToJson() },
-						};
+							{
+								{ "Message", organization != null && organization.Instructions != null && organization.Instructions.TryGetValue(mode, out var instruction) ? instruction?.ToJson() : null },
+								{ "Email", organization?.EmailSettings?.ToJson() },
+							};
 							break;
 
 						case "files":
@@ -1103,6 +1105,30 @@ namespace net.vieapps.Services.Portals
 
 				case "DELETE":
 					return await requestInfo.DeleteLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
+			}
+		}
+
+		async Task<JObject> ProcessFormAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+			switch (requestInfo.Verb)
+			{
+				case "GET":
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? await requestInfo.SearchFormsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "POST":
+					return await requestInfo.CreateFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "PUT":
+					return await requestInfo.UpdateFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "DELETE":
+					return await requestInfo.DeleteFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);
@@ -2016,7 +2042,7 @@ namespace net.vieapps.Services.Portals
 					return data;
 				}
 
-				var language = desktop.WorkingLanguage ?? site.Language ?? "vi-VN";
+				var language = desktop.WorkingLanguage ?? site.Language ?? "en-US";
 				var portletData = new ConcurrentDictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
 				await desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 				{
@@ -3022,7 +3048,8 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(description))
 			{
 				description = description.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;");
-				metaTags += $"<meta name=\"description\" property=\"og:description\" content=\"{description}\"/>";
+				metaTags += $"<meta name=\"description\" content=\"{description}\"/>";
+				metaTags += $"<meta name=\"twitter:description\" property=\"og:description\" content=\"{description}\"/>";
 			}
 
 			metaTags += string.IsNullOrWhiteSpace(keywords) ? "" : $"<meta name=\"keywords\" content=\"{keywords.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}\"/>";
@@ -3031,7 +3058,7 @@ namespace net.vieapps.Services.Portals
 
 			// social network meta tags
 			metaTags += $"<meta name=\"twitter:title\" property=\"og:title\" content=\"{title}\"/>";
-			metaTags += string.IsNullOrWhiteSpace(description) ? "" : $"<meta name=\"twitter:description\" content=\"{description}\"/>";
+			metaTags += $"<meta property=\"og:locale\" content=\"{(desktop.WorkingLanguage ?? site.Language ?? "en-US").Replace("-", "_")}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(coverURI) ? "" : $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{coverURI}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(desktop.CoverURI) ? "" : $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{desktop.CoverURI}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(site.CoverURI) ? "" : $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{site.CoverURI}\"/>";
@@ -3045,30 +3072,31 @@ namespace net.vieapps.Services.Portals
 			metaTags += string.IsNullOrWhiteSpace(desktop.MetaTags) ? "" : desktop.MetaTags;
 
 			// the required stylesheet libraries
+			var version = DateTime.Now.GetTimeQuarter().ToUnixTimestamp();
 			var stylesheets = site.UseInlineStylesheets
 				? (await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css"), null, cancellationToken).ConfigureAwait(false)).MinifyCss() + await this.GetThemeResourcesAsync("default", "css", cancellationToken).ConfigureAwait(false)
-				: $"<link rel=\"stylesheet\" href=\"~#/_assets/default.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/><link rel=\"stylesheet\" href=\"~#/_themes/default/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
+				: $"<link rel=\"stylesheet\" href=\"~#/_assets/default.css?v={version}\"/><link rel=\"stylesheet\" href=\"~#/_themes/default/css/all.css?v={version}\"/>";
 
 			// add the stylesheet of the organization theme
 			var organizationTheme = organization.Theme ?? "default";
 			if (!"default".IsEquals(organizationTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(organizationTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{organizationTheme}/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{organizationTheme}/css/all.css?v={version}\"/>";
 
 			// add the stylesheet of the site theme
 			var siteTheme = site.Theme ?? "default";
 			if (!"default".IsEquals(siteTheme) && !organizationTheme.IsEquals(siteTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(siteTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{siteTheme}/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{siteTheme}/css/all.css?v={version}\"/>";
 
 			// add the stylesheet of the desktop theme
 			var desktopTheme = desktop.WorkingTheme ?? "default";
 			if (!"default".IsEquals(desktopTheme) && !organizationTheme.IsEquals(desktopTheme) && !siteTheme.IsEquals(desktopTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(desktopTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{desktopTheme}/css/all.css?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{desktopTheme}/css/all.css?v={version}\"/>";
 
 			// add the stylesheet of the site
 			if (!string.IsNullOrWhiteSpace(site.Stylesheets))
@@ -3100,7 +3128,7 @@ namespace net.vieapps.Services.Portals
 			// add default scripts
 			var scripts = "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js") + "\"></script>"
 				+ "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js") + "\"></script>"
-				+ (site.UseInlineScripts ? "<script>" + (await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js"), null, cancellationToken).ConfigureAwait(false) + "\r\n" + await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js"), null, cancellationToken).ConfigureAwait(false)).MinifyJs() : $"<script src=\"~#/_assets/rsa.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script><script src=\"~#/_assets/default.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>");
+				+ (site.UseInlineScripts ? "<script>" + (await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js"), null, cancellationToken).ConfigureAwait(false) + "\r\n" + await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js"), null, cancellationToken).ConfigureAwait(false)).MinifyJs() : $"<script src=\"~#/_assets/rsa.js?v={version}\"></script><script src=\"~#/_assets/default.js?v={version}\"></script>");
 
 			// add scripts of the default theme
 			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", "default", "js"));
@@ -3113,7 +3141,7 @@ namespace net.vieapps.Services.Portals
 
 			scripts += site.UseInlineScripts
 				? await this.GetThemeResourcesAsync("default", "js", cancellationToken).ConfigureAwait(false)
-				: $"<script src=\"~#/_themes/default/js/all.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
+				: $"<script src=\"~#/_themes/default/js/all.js?v={version}\"></script>";
 
 			// add scripts of the organization theme
 			if (!"default".IsEquals(organizationTheme))
@@ -3127,7 +3155,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(organizationTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script src=\"~#/_themes/{organizationTheme}/js/all.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
+					: $"<script src=\"~#/_themes/{organizationTheme}/js/all.js?v={version}\"></script>";
 			}
 
 			// add scripts of the site theme
@@ -3142,7 +3170,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(siteTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script src=\"~#/_themes/{siteTheme}/js/all.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
+					: $"<script src=\"~#/_themes/{siteTheme}/js/all.js?v={version}\"></script>";
 			}
 
 			// add scripts of the desktop theme
@@ -3157,7 +3185,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(desktopTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script src=\"~#/_themes/{desktopTheme}/js/all.js?v={DateTime.Now.GetTimeQuarter().ToUnixTimestamp()}\"></script>";
+					: $"<script src=\"~#/_themes/{desktopTheme}/js/all.js?v={version}\"></script>";
 			}
 
 			// add the scripts of the organization
@@ -3504,10 +3532,8 @@ namespace net.vieapps.Services.Portals
 					case "cms.item":
 					case "link":
 					case "cms.link":
-					case "contact":
-					case "cms.contact":
-					case "utils.contact":
-					case "utilities.contact":
+					case "form":
+					case "cms.form":
 						gotRights = requestInfo.Session.User.IsEditor(contentType?.WorkingPrivileges, contentType?.Module?.WorkingPrivileges, organization, requestInfo.CorrelationID);
 						break;
 				}
@@ -3689,10 +3715,8 @@ namespace net.vieapps.Services.Portals
 							sortBy?.ToSortBy<Link>(), pageSize, pageNumber, maxPages);
 						break;
 
-					case "contact":
-					case "cms.contact":
-					case "utils.contact":
-					case "utilities.contact":
+					case "form":
+					case "cms.form":
 						this.Export(processID, deviceID, contentType?.ID,
 							this.GetFilter(filterBy, filter =>
 							{
@@ -3900,10 +3924,8 @@ namespace net.vieapps.Services.Portals
 						this.Import<Link>(processID, deviceID, userID, filename, contentType?.ID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
 						break;
 
-					case "contact":
-					case "cms.contact":
-					case "utils.contact":
-					case "utilities.contact":
+					case "form":
+					case "cms.form":
 						this.Import<Form>(processID, deviceID, userID, filename, contentType?.ID);
 						break;
 				}
@@ -4387,6 +4409,10 @@ namespace net.vieapps.Services.Portals
 				case "link":
 				case "cms.link":
 					return requestInfo.SyncLinkAsync(cancellationToken, sendNotifications);
+
+				case "form":
+				case "cms.form":
+					return requestInfo.SyncFormAsync(cancellationToken, sendNotifications);
 
 				default:
 					return Task.FromException<JObject>(new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})"));
