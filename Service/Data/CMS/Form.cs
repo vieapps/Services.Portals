@@ -19,47 +19,64 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals
 {
-	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Name = {Name}, Title = {Title}")]
-	[Entity(CollectionName = "CMS_Forms", TableName = "T_Portals_CMS_Forms", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000005", Title = "Form", Description = "Form information", ObjectNamePrefix = "CMS.", MultipleIntances = true, Extendable = true)]
+	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
+	[Entity(CollectionName = "CMS_Forms", TableName = "T_Portals_CMS_Forms", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000005", Title = "Form", Description = "Form of a requesting information", ObjectNamePrefix = "CMS.", MultipleIntances = true, Extendable = true)]
 	public sealed class Form : Repository<Form>, IBusinessObject
 	{
 		public Form() : base() { }
 
+		[Searchable]
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Name")]
-		[Searchable]
 		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Name { get; set; }
 
-		[Property(MaxLength = 250)]
-		[Sortable(IndexName = "Email")]
 		[Searchable]
-		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
-		public string Email { get; set; }
-
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Phone")]
-		[Searchable]
 		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Phone { get; set; }
 
+		[Searchable]
+		[Property(MaxLength = 250)]
+		[Sortable(IndexName = "Email")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public string Email { get; set; }
+
+		[Searchable]
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Address")]
-		[Searchable]
 		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Address { get; set; }
+
+		[Searchable]
+		[Property(MaxLength = 50)]
+		[Sortable(IndexName = "Address")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public string County { get; set; }
+
+		[Searchable]
+		[Property(MaxLength = 50)]
+		[Sortable(IndexName = "Address")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public string Province { get; set; }
+
+		[Property(MaxLength = 50)]
+		[Sortable(IndexName = "Address")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public string Postal { get; set; }
+
+		[Property(MaxLength = 2)]
+		[Sortable(IndexName = "Address")]
+		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public string Country { get; set; }
 
 		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Notes { get; set; }
 
-		[Property(MaxLength = 32)]
-		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true)]
-		public string UserID { get; set; }
-
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
-		[Sortable(IndexName = "Title")]
 		[Searchable]
+		[Sortable(IndexName = "Title")]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public override string Title { get; set; }
 
@@ -67,6 +84,15 @@ namespace net.vieapps.Services.Portals
 		[Property(IsCLOB = true)]
 		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Details { get; set; }
+
+		[Property(MaxLength = 32)]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Hidden = true)]
+		public string IPAddress { get; set; }
+
+		[AsJson]
+		[FormControl(Hidden = true, ControlType = "Text", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public Dictionary<string, string> Profiles { get; set; }
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[Sortable(IndexName = "Management")]
