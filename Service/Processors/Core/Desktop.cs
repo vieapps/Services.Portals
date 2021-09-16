@@ -368,7 +368,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
 				if (DesktopProcessor.ExcludedAliases.Contains(alias.NormalizeAlias()))
-					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another purpose");
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
 				var existing = await organization.ID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
 				if (existing != null)
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
@@ -390,7 +390,7 @@ namespace net.vieapps.Services.Portals
 				{
 					obj.ID = UtilityService.NewUUID;
 					obj.Title = request.Get("Title", $"{source.Title} (Duplicated)");
-					obj.Alias = string.IsNullOrWhiteSpace(alias) ? $"{obj.Title}-{obj.ID}".NormalizeAlias() : alias.NormalizeAlias();
+					obj.Alias = string.IsNullOrWhiteSpace(alias) ? $"{obj.Title}-{UtilityService.GetUUID(obj.ID, null, true)}".NormalizeAlias() : alias.NormalizeAlias();
 					obj.Aliases = null;
 					obj.Created = obj.LastModified = DateTime.Now;
 					obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;

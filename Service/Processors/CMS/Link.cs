@@ -974,7 +974,7 @@ namespace net.vieapps.Services.Portals
 					// generate xml
 					var dataXml = linkJson.Get<JObject>("Children").ToXml("Data", xml =>
 					{
-						var element = xml.Element("ThumbnailURL");
+						var element = xml?.Element("ThumbnailURL");
 						if (element != null)
 							element.Add(new XAttribute("Alternative", element.Value?.GetWebpImageURL(pngThumbnails)));
 					});
@@ -1172,11 +1172,7 @@ namespace net.vieapps.Services.Portals
 				if (link.ChildrenMode.Equals(ChildrenMode.Normal))
 				{
 					var children = linkJson.Get<JArray>("Children");
-					if (children != null && children.Count > 0)
-						linkJson["Children"] = new JObject
-						{
-							{ "Link", children }
-						};
+					linkJson["Children"] = children != null && children.Count > 0 ? new JObject { { "Link", children } } : new JObject();
 				}
 
 				else if (!string.IsNullOrWhiteSpace(link.LookupRepositoryID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
@@ -1219,19 +1215,18 @@ namespace net.vieapps.Services.Portals
 						{
 							var children = await contentType.GetService().GenerateAsync(request, cancellationToken).ConfigureAwait(false);
 							var links = children?.Get<JArray>("Data");
-							if (links != null && links.Count > 0)
-								linkJson["Children"] = new JObject
-								{
-									{ "Link", links }
-								};
+							linkJson["Children"] = links != null && links.Count > 0 ? new JObject { { "Link", links } } : new JObject();
 						}
 						catch (Exception ex)
 						{
 							await request.WriteErrorAsync(ex, cancellationToken, "Error occurred while fetching links from other module/content-type", "Links", $"> Parent: {link.ToJson()}\r\n> Request: {request.ToJson()}").ConfigureAwait(false);
+							linkJson["Children"] = new JObject();
 						}
 					}
 				}
 			}
+			else
+				linkJson["Children"] = new JObject();
 
 			return linkJson;
 		}

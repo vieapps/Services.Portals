@@ -342,6 +342,9 @@ namespace net.vieapps.Services.Portals
 			// check the exising the the alias
 			var request = requestInfo.GetBodyExpando();
 			var alias = request.Get<string>("Alias");
+			if ("apis".IsEquals(alias) || "portals".IsEquals(alias) || "cms".IsEquals(alias))
+				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
+
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
 				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
@@ -353,7 +356,7 @@ namespace net.vieapps.Services.Portals
 			var organization = request.CreateOrganizationInstance("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? obj.Title.NormalizeAlias(false) + obj.ID : obj.Alias.NormalizeAlias(false);
+				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? obj.Title.NormalizeAlias(false) + "-" + UtilityService.GetUUID(obj.ID, null, true).ToLower() : obj.Alias.NormalizeAlias(false);
 				obj.OwnerID = string.IsNullOrWhiteSpace(obj.OwnerID) || !obj.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : obj.OwnerID;
 				obj.Status = isSystemAdministrator
 					? request.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
@@ -532,6 +535,9 @@ namespace net.vieapps.Services.Portals
 			var oldStatus = organization.Status;
 
 			var alias = request.Get<string>("Alias");
+			if ("apis".IsEquals(alias) || "portals".IsEquals(alias) || "cms".IsEquals(alias))
+				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
+
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
 				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);

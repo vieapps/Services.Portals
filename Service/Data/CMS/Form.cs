@@ -32,15 +32,15 @@ namespace net.vieapps.Services.Portals
 		public string Name { get; set; }
 
 		[Searchable]
-		[Property(MaxLength = 250)]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Phone")]
-		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		[FormControl(DataType = "tel", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Phone { get; set; }
 
 		[Searchable]
 		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Email")]
-		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		[FormControl(DataType = "email", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Email { get; set; }
 
 		[Searchable]
@@ -71,7 +71,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Country { get; set; }
 
-		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		[FormControl(ControlType = "TextArea", MaxLength = 4000, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Notes { get; set; }
 
 		[Searchable]
@@ -82,7 +82,7 @@ namespace net.vieapps.Services.Portals
 
 		[Searchable]
 		[Property(IsCLOB = true)]
-		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		[FormControl(ControlType = "TextArea", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Details { get; set; }
 
 		[Property(MaxLength = 32)]
@@ -96,8 +96,8 @@ namespace net.vieapps.Services.Portals
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
-		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
+		[FormControl(Hidden = true)]
+		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public bool AllowComments { get; } = false;
@@ -170,6 +170,6 @@ namespace net.vieapps.Services.Portals
 		IPortalObject IPortalObject.Parent => this.ContentType;
 
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
-			=> $"~/{this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{parentIdentity ?? this.ContentType?.Title?.GetANSIUri() ?? "-"}/{this.ID}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
+			=> null;
 	}
 }

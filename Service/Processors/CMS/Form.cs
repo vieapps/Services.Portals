@@ -33,6 +33,26 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(form);
 			});
 
+		public static Form Normalize(this Form form, RequestInfo requestInfo)
+			=> form.Compute(requestInfo, () =>
+			{
+				form.Validate();
+				if (!string.IsNullOrWhiteSpace(form.Phone))
+				{
+					if (form.Phone.IsValidPhone(out var phone))
+						form.Phone = phone;
+					else
+						throw new InformationInvalidException("Phone is invalid");
+				}
+				if (!string.IsNullOrWhiteSpace(form.Email))
+				{
+					if (form.Email.IsValidEmail(out var email))
+						form.Email = email;
+					else
+						throw new InformationInvalidException("Email is invalid");
+				}
+			});
+
 		public static IFilterBy<Form> GetFormsFilter(string systemID, string repositoryID = null, string repositoryEntityID = null)
 		{
 			var filter = Filters<Form>.And();
@@ -45,9 +65,8 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Form form, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Form form, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true)
 		{
-			// data cache keys
 			var dataCacheKeys = clearDataCache && form != null
 				? Extensions.GetRelatedCacheKeys(form.GetCacheKey())
 				: new List<string>();
@@ -59,34 +78,12 @@ namespace net.vieapps.Services.Portals
 			}
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			// html cache keys (desktop HTMLs)
-			Desktop desktop = null;
-			var htmlCacheKeys = new List<string>();
-			if (clearHtmlCache)
-			{
-				desktop = form?.ContentType?.Desktop;
-				htmlCacheKeys = form?.Organization?.GetDesktopCacheKey() ?? new List<string>();
-				await new[] { desktop?.GetSetCacheKey() }
-					.Concat(form?.ContentType != null ? await form.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
-					.Where(id => !string.IsNullOrWhiteSpace(id))
-					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ToList()
-					.ForEachAsync(async desktopSetCacheKey =>
-					{
-						var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
-						if (cacheKeys != null && cacheKeys.Count > 0)
-							htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
-					}, true, false).ConfigureAwait(false);
-			}
-			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
-			// remove related cache
-			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+			await Utility.Cache.RemoveAsync(dataCacheKeys, cancellationToken).ConfigureAwait(false);
 			if (Utility.WriteCacheLogs && form != null)
-				await Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS form [{form.Title} - ID: {form.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS form [{form.Title} - ID: {form.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}", cancellationToken, "Caches").ConfigureAwait(false);
 		}
 
-		static async Task<Tuple<long, List<Form>, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Form> filter, SortBy<Form> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
+		static async Task<Tuple<long, List<Form>, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Form> filter, SortBy<Form> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -185,16 +182,6 @@ namespace net.vieapps.Services.Portals
 			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
 			var totalRecords = results.Item1;
 			var objects = results.Item2;
-			var thumbnails = results.Item3;
-
-			JToken attachments = null;
-			var showAttachments = requestInfo.GetParameter("ShowAttachments") != null;
-			if (objects.Count > 0 && showAttachments)
-			{
-				attachments = objects.Count == 1
-					? await requestInfo.GetAttachmentsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
-					: await requestInfo.GetAttachmentsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			}
 
 			// build response
 			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
@@ -208,17 +195,7 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{
-					"Objects",
-					objects.Select(@object => @object.ToJson(false, cjson =>
-					{
-						cjson["Thumbnails"] = (thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
-						if (showAttachments)
-							cjson["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
-						if (showURLs)
-							cjson["URL"] = @object.GetURL();
-					})).ToJArray()
-				}
+				{ "Objects", objects.Select(@object => @object.ToJson(false)).ToJArray() }
 			};
 
 			// update cache
@@ -262,6 +239,16 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// check captcha
+			if (!requestInfo.Session.User.IsAuthenticated)
+			{
+				var captcha = request.Get<ExpandoObject>("Captcha");
+				var registered = captcha?.Get<string>("Registered");
+				var code = captcha?.Get<string>("Code");
+				if (!CaptchaService.IsCodeValid(registered, code))
+					throw new InvalidRequestException("Captcha code is invalid");
+			}
+
 			// get data
 			var form = request.CreateFormInstance("Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
@@ -270,8 +257,13 @@ namespace net.vieapps.Services.Portals
 				obj.RepositoryEntityID = contentType.ID;
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
-				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
+				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.IsAuthenticated ? requestInfo.Session.User.ID : null;
+				obj.IPAddress = requestInfo.Session.IP;
+				obj.Profiles = requestInfo.Session.User.IsAuthenticated ? new Dictionary<string, string> { ["vieapps"] = requestInfo.Session.User.ID } : null;
 			});
+
+			// compute & validate
+			form.Normalize(requestInfo);
 
 			// create new
 			await Form.CreateAsync(form, cancellationToken).ConfigureAwait(false);
@@ -279,8 +271,6 @@ namespace net.vieapps.Services.Portals
 
 			// send update message
 			var response = form.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(form.ID, form.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(form.ID, form.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{form.GetObjectName()}#Create",
@@ -320,8 +310,6 @@ namespace net.vieapps.Services.Portals
 
 			// prepare the response
 			var response = form.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(form.ID, form.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(form.ID, form.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 			// send update message
 			var objectName = form.GetObjectName();
@@ -355,8 +343,6 @@ namespace net.vieapps.Services.Portals
 
 			// send update message
 			var response = form.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(form.ID, form.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(form.ID, form.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{form.GetObjectName()}#Update",
@@ -396,6 +382,9 @@ namespace net.vieapps.Services.Portals
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 			});
+
+			// compute & validate
+			form.Normalize(requestInfo);
 
 			// update
 			return await form.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
@@ -451,6 +440,33 @@ namespace net.vieapps.Services.Portals
 
 			// response
 			return response;
+		}
+
+		internal static JObject Generate(RequestInfo requestInfo)
+		{
+			var requestJson = requestInfo.BodyAsJson;
+			var portletID = requestJson.Get<string>("ID");
+			var organizationID = requestJson.Get("Organization", new JObject()).Get<string>("ID");
+			var moduleID = requestJson.Get("Module", new JObject()).Get<string>("ID");
+			var contentTypeID = requestJson.Get("ContentType", new JObject()).Get<string>("ID");
+			var options = requestJson.Get("Options", new JObject());
+
+			var data = "<div id=\"" + (portletID ?? "undefined") + "\"><div class=\"loading\"></div></div>" + @"
+			<script>
+			__vieapps.forms.request = {
+				id: " + (string.IsNullOrWhiteSpace(contentTypeID) ? "undefined" : $"\"{contentTypeID}\"") + @",
+				repository: " + (string.IsNullOrWhiteSpace(moduleID) ? "undefined" : $"\"{moduleID}\"") + @",
+				system: " + (string.IsNullOrWhiteSpace(organizationID) ? "undefined" : $"\"{organizationID}\"") + @",
+				form: " + (string.IsNullOrWhiteSpace(portletID) ? "undefined" : $"\"{portletID}\"") + @",
+				options: " + (options?.ToString(Formatting.None) ?? "undefined") + @"
+			};
+			</script>";
+
+			return new JObject
+			{
+				{ "Data", data },
+				{ "RawHTML", true }
+			};
 		}
 
 		internal static async Task<JObject> SyncFormAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)

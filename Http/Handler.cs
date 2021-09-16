@@ -146,8 +146,8 @@ namespace net.vieapps.Services.Portals
 			var requestObj = requestMsg.ToExpandoObject();
 			var requestID = requestObj.Get<string>("ID");
 
-			var serviceName = requestObj.Get("ServiceName", "");
-			var objectName = requestObj.Get("ObjectName", "");
+			var serviceName = requestObj.Get("ServiceName", "").GetANSIUri(true, true);
+			var objectName = requestObj.Get("ObjectName", "").GetANSIUri(true, true);
 			var verb = requestObj.Get("Verb", "GET").ToUpper();
 			var query = new Dictionary<string, string>(requestObj.Get("Query", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
 			var header = new Dictionary<string, string>(requestObj.Get("Header", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
@@ -165,7 +165,7 @@ namespace net.vieapps.Services.Portals
 				// visit logs
 				if (Global.IsVisitLogEnabled)
 					await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
-						$"Request starting {verb} " + $"/{serviceName}{(string.IsNullOrWhiteSpace(objectName) ? "" : $"/{objectName}")}{(string.IsNullOrWhiteSpace(objectIdentity) ? "" : $"/{objectIdentity}")}".ToLower() + (query.TryGetValue("x-request", out var xrequest) ? $"?x-request={xrequest}" : "") + " HTTPWS/1.1" + " \r\n" +
+						$"Request starting {verb} " + $"/{serviceName.ToLower()}{(string.IsNullOrWhiteSpace(objectName) ? "" : $"/{objectName.ToLower()}")}{(string.IsNullOrWhiteSpace(objectIdentity) ? "" : $"/{objectIdentity}")}".ToLower() + (query.TryGetValue("x-request", out var xrequest) ? $"?x-request={xrequest}" : "") + " HTTPWS/1.1" + " \r\n" +
 						$"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
 						$"- WebSocket: {websocket.ID} @ {websocket.RemoteEndPoint}"
 					, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
@@ -224,14 +224,14 @@ namespace net.vieapps.Services.Portals
 					var requestInfo = new RequestInfo(session, serviceName, objectName, verb, query, header, body?.ToJson().ToString(Formatting.None), extra, correlationID);
 					if ("discovery".IsEquals(requestInfo.ServiceName) && "definitions".IsEquals(requestInfo.ObjectName))
 					{
-						requestInfo.ServiceName = requestInfo.Query["service-name"] = requestInfo.Query["x-service-name"];
+						requestInfo.ServiceName = requestInfo.Query["service-name"] = requestInfo.Query["x-service-name"].GetANSIUri(true, true).GetCapitalizedFirstLetter();
 						requestInfo.Query["object-identity"] = requestInfo.Query["x-object-name"];
 						requestInfo.Query["mode"] = requestInfo.Query.TryGetValue("x-object-identity", out var mode) ? mode : "";
 						requestInfo.Verb = "GET";
 					}
 					var response = new JObject
 					{
-						{ "Type", $"{serviceName.GetCapitalizedFirstLetter()}#{objectName.GetCapitalizedFirstLetter()}#{verb.GetCapitalizedFirstLetter()}" },
+						{ "Type", $"{requestInfo.ServiceName}#{requestInfo.ObjectName}#{verb.GetCapitalizedFirstLetter()}" },
 						{ "Data", await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) }
 					};
 					if (!string.IsNullOrWhiteSpace(requestID))

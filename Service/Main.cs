@@ -461,27 +461,17 @@ namespace net.vieapps.Services.Portals
 
 								case "category":
 								case "cms.category":
-									json = this.GenerateFormControls<Category>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
-									break;
-
 								case "content":
 								case "cms.content":
-									json = this.GenerateFormControls<Content>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
-									break;
-
 								case "item":
 								case "cms.item":
-									json = this.GenerateFormControls<Item>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
-									break;
-
 								case "link":
 								case "cms.link":
-									json = this.GenerateFormControls<Link>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
-									break;
-
 								case "form":
 								case "cms.form":
-									json = this.GenerateFormControls<Form>(requestInfo.GetParameter("x-content-type-id"), requestInfo.GetParameter("x-view-controls") != null);
+								case "url":
+								case "utils.url":
+									json = ObjectExtensions.GenerateFormControls((requestInfo.GetParameter("x-content-type-id") ?? "").GetContentTypeByID(), requestInfo.GetParameter("x-view-controls") != null, id => id.GetContentTypeByID());
 									break;
 
 								default:
@@ -541,194 +531,6 @@ namespace net.vieapps.Services.Portals
 					throw this.GetRuntimeException(requestInfo, ex, stopwatch);
 				}
 		}
-
-		#region Generate form controls
-		JToken GenerateFormControls<T>(string contentTypeID, bool forViewing) where T : class
-		{
-			// generate standard controls
-			var controls = (this.GenerateFormControls<T>() as JArray).Select(control => control as JObject).ToList();
-
-			// update standard controls
-			var contentType = (contentTypeID ?? "").GetContentTypeByID();
-			contentType?.StandardControlDefinitions?.Where(definition => !string.IsNullOrWhiteSpace(definition.Name)).ForEach(definition =>
-			{
-				var control = controls.FirstOrDefault(ctrl => definition.Name.IsEquals(ctrl.Get<string>("Name")));
-				if (control != null)
-				{
-					control["Hidden"] = forViewing
-						? definition.HiddenInView != null && definition.HiddenInView.Value
-						: definition.Hidden;
-					var options = control.Get("Options", new JObject());
-					if (!string.IsNullOrWhiteSpace(definition.Label))
-						options["Label"] = definition.Label;
-					if (!string.IsNullOrWhiteSpace(definition.Description))
-						options["Description"] = definition.Description;
-					if (!string.IsNullOrWhiteSpace(definition.PlaceHolder))
-						options["PlaceHolder"] = definition.PlaceHolder;
-					control["Options"] = options;
-				}
-			});
-
-			// generate extended controls
-			contentType?.ExtendedControlDefinitions?.ForEach(definition =>
-			{
-				var control = this.GenerateFormControl(definition, contentType.ExtendedPropertyDefinitions.Find(def => def.Name.IsEquals(definition.Name)).Mode);
-				if (forViewing && definition.HiddenInView != null && definition.HiddenInView.Value)
-					control["Hidden"] = true;
-				var index = !string.IsNullOrWhiteSpace(definition.PlaceBefore) ? controls.FindIndex(ctrl => definition.PlaceBefore.IsEquals(ctrl.Get<string>("Name"))) : -1;
-				if (index > -1)
-				{
-					control["Segment"] = controls[index].Get<string>("Segment");
-					controls.Insert(index, control);
-				}
-				else
-					controls.Add(control);
-			});
-
-			// update order index
-			controls.ForEach((control, order) => control["Order"] = order);
-			return controls.ToJArray();
-		}
-
-		JObject GenerateFormControl(ExtendedControlDefinition definition, ExtendedPropertyMode mode)
-		{
-			var controlType = mode.Equals(ExtendedPropertyMode.LargeText) || (definition.AsTextEditor != null && definition.AsTextEditor.Value)
-				? mode.Equals(ExtendedPropertyMode.LargeText) && definition.AsTextEditor != null && !definition.AsTextEditor.Value ? "TextArea" : "TextEditor"
-				: mode.Equals(ExtendedPropertyMode.Select)
-					? "Select"
-					: mode.Equals(ExtendedPropertyMode.Lookup)
-						? "Lookup"
-						: mode.Equals(ExtendedPropertyMode.DateTime)
-							? "DatePicker"
-							: mode.Equals(ExtendedPropertyMode.YesNo)
-								? "YesNo"
-								: mode.Equals(ExtendedPropertyMode.MediumText) ? "TextArea" : "TextBox";
-
-			var hidden = definition.Hidden != null && definition.Hidden.Value;
-			var options = new JObject();
-			if (!hidden)
-			{
-				options["Label"] = definition.Label;
-				options["PlaceHolder"] = definition.PlaceHolder;
-				options["Description"] = definition.Description;
-
-				var dataType = !string.IsNullOrWhiteSpace(definition.DataType)
-					? definition.DataType
-					: "Lookup".IsEquals(controlType) && !string.IsNullOrWhiteSpace(definition.LookupType)
-						? definition.LookupType
-						: "DatePicker".IsEquals(controlType)
-							? "date"
-							: mode.Equals(ExtendedPropertyMode.IntegralNumber) || mode.Equals(ExtendedPropertyMode.FloatingPointNumber)
-								? "number"
-								: null;
-
-				if (!string.IsNullOrWhiteSpace(dataType))
-					options["Type"] = dataType;
-
-				if (definition.Disabled != null && definition.Disabled.Value)
-					options["Disabled"] = true;
-
-				if (definition.ReadOnly != null && definition.ReadOnly.Value)
-					options["ReadOnly"] = true;
-
-				if (definition.AutoFocus != null && definition.AutoFocus.Value)
-					options["AutoFocus"] = true;
-
-				if (!string.IsNullOrWhiteSpace(definition.ValidatePattern))
-					options["ValidatePattern"] = definition.ValidatePattern;
-
-				if (!string.IsNullOrWhiteSpace(definition.Width))
-					options["Width"] = definition.Width;
-
-				if (!string.IsNullOrWhiteSpace(definition.Height))
-					options["Height"] = definition.Height;
-
-				if (definition.Rows != null && definition.Rows.Value > 0)
-					options["Rows"] = definition.Rows.Value;
-
-				if (!string.IsNullOrWhiteSpace(definition.MinValue))
-					try
-					{
-						if (mode.Equals(ExtendedPropertyMode.IntegralNumber))
-							options["MinValue"] = definition.MinValue.CastAs<long>();
-						else if (mode.Equals(ExtendedPropertyMode.FloatingPointNumber))
-							options["MinValue"] = definition.MinValue.CastAs<decimal>();
-						else
-							options["MinValue"] = definition.MinValue;
-					}
-					catch { }
-
-				if (!string.IsNullOrWhiteSpace(definition.MaxValue))
-					try
-					{
-						if (mode.Equals(ExtendedPropertyMode.IntegralNumber))
-							options["MaxValue"] = definition.MaxValue.CastAs<long>();
-						else if (mode.Equals(ExtendedPropertyMode.FloatingPointNumber))
-							options["MaxValue"] = definition.MaxValue.CastAs<decimal>();
-						else
-							options["MaxValue"] = definition.MaxValue;
-					}
-					catch { }
-
-				if (definition.MinLength != null && definition.MinLength.Value > 0)
-					options["MinLength"] = definition.MinLength.Value;
-
-				if (definition.MaxLength != null && definition.MaxLength.Value > 0)
-					options["MaxLength"] = definition.MaxLength.Value;
-
-				if ("DatePicker".IsEquals(controlType))
-					options["DatePickerOptions"] = new JObject
-					{
-						{ "AllowTimes", definition.DatePickerWithTimes != null && definition.DatePickerWithTimes.Value }
-					};
-
-				if ("Select".IsEquals(controlType))
-					options["SelectOptions"] = new JObject
-					{
-						{ "Values", definition.SelectValues },
-						{ "Multiple", definition.Multiple != null && definition.Multiple.Value },
-						{ "AsBoxes", definition.SelectAsBoxes != null && definition.SelectAsBoxes.Value },
-						{ "Interface", definition.SelectInterface ?? "alert" }
-					};
-
-				if ("Lookup".IsEquals(controlType))
-				{
-					var contentType = string.IsNullOrWhiteSpace(definition.LookupRepositoryEntityID) ? null : definition.LookupRepositoryEntityID.GetContentTypeByID();
-					options["LookupOptions"] = new JObject
-					{
-						{ "Multiple", definition.Multiple != null && definition.Multiple.Value },
-						{ "AsModal", !"Address".IsEquals(definition.LookupType) },
-						{ "AsCompleter", "Address".IsEquals(definition.LookupType) },
-						{ "ModalOptions", new JObject
-							{
-								{ "Component", null },
-								{ "ComponentProps", new JObject
-									{
-										{ "organizationID", contentType?.OrganizationID },
-										{ "moduleID", contentType?.ModuleID },
-										{ "contentTypeID", contentType?.ID },
-										{ "objectName", contentType?.ContentTypeDefinition.GetObjectName() },
-										{ "nested", contentType?.ContentTypeDefinition.NestedObject },
-										{ "multiple", definition.Multiple != null && definition.Multiple.Value }
-									}
-								}
-							}
-						}
-					};
-				}
-			}
-
-			return new JObject
-			{
-				{ "Name", definition.Name },
-				{ "Type", controlType },
-				{ "Hidden", hidden },
-				{ "Required", definition.Required != null && definition.Required.Value },
-				{ "Extras", new JObject() },
-				{ "Options", options }
-			};
-		}
-		#endregion
 
 		#region Get static data (themes, language resources, providers  of OEmbed media, ...)
 		async Task<JArray> GetThemesAsync(CancellationToken cancellationToken)
@@ -2174,7 +1976,7 @@ namespace net.vieapps.Services.Portals
 				catch { }
 
 				// all scripts
-				scripts = "<script>__vieapps={ids:{" + (mainPortlet?.Get<string>("IDs") ?? $"system:\"{organization.ID}\",service:\"{this.ServiceName.ToLower()}\"") + $",parent:\"{parentIdentity}\",content:\"{contentIdentity}\"" + "},URLs:{root:\"~/\",portals:\"" + (organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}}},language:{{language}},isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>" + scripts;
+				scripts = "<script>__vieapps={ids:{" + (mainPortlet?.Get<string>("IDs") ?? $"system:\"{organization.ID}\",service:\"{this.ServiceName.ToLower()}\"") + $",parent:\"{parentIdentity}\",content:\"{contentIdentity}\"" + "},URLs:{root:\"~/\",portals:\"" + (organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) + "\",files:\"" + (organization.FakeFilesHttpURI?? Utility.FilesHttpURI) + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}}},language:{{language}},isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>" + scripts;
 
 				// prepare HTML of all zones
 				var zoneHtmls = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -2329,8 +2131,8 @@ namespace net.vieapps.Services.Portals
 			// prepare the JSON that contains the requesting information for generating content
 			var requestJson = new JObject
 			{
-				{ "ID", theportlet.ID },
-				{ "Title", theportlet.Title },
+				{ "ID", portlet.ID },
+				{ "Title", portlet.Title },
 				{ "Action", isList ? "List" : "View" },
 				{ "ParentIdentity", parentIdentity },
 				{ "ContentIdentity", contentIdentity },
@@ -2541,247 +2343,255 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(errorMessage))
 					try
 					{
-						// check data of XML
-						if (!(data["Data"] is JValue xmlJson) || xmlJson.Value == null)
-							throw new InformationRequiredException("The response JSON must have the element named 'Data' that contains XML code for transforming via a node that named 'Data'");
-
-						// prepare XSLT
-						var mainDirectory = contentType.ContentTypeDefinition?.ModuleDefinition?.Directory?.ToLower();
-						var subDirectory = contentType.ContentTypeDefinition?.ObjectName?.ToLower();
-						xslTemplate = isList ? portlet.ListSettings.Template : portlet.ViewSettings.Template;
-
-						if (string.IsNullOrWhiteSpace(xslTemplate))
+						// raw HTML
+						if (data["RawHTML"] != null && data.Get<bool>("RawHTML"))
+							content = (data["Data"] as JValue)?.Value?.ToString();
+						
+						// XML to transform
+						else
 						{
-							xslFilename = data.Get<string>("XslFilename");
-							if (string.IsNullOrWhiteSpace(xslFilename))
-								xslFilename = isList ? "list.xsl" : "view.xsl";
-							xslTemplate = await Utility.GetTemplateAsync(xslFilename, portlet.Desktop?.WorkingTheme, mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
+							// check data of XML
+							if (!(data["Data"] is JValue xmlJson) || xmlJson.Value == null)
+								throw new InformationRequiredException("The response JSON must have the element named 'Data' that contains XML code for transforming via a node that named 'Data'");
+
+							// prepare XSLT
+							var mainDirectory = contentType.ContentTypeDefinition?.ModuleDefinition?.Directory?.ToLower();
+							var subDirectory = contentType.ContentTypeDefinition?.ObjectName?.ToLower();
+							xslTemplate = isList ? portlet.ListSettings.Template : portlet.ViewSettings.Template;
 
 							if (string.IsNullOrWhiteSpace(xslTemplate))
-								xslTemplate = await Utility.GetTemplateAsync(xslFilename, "default", mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
-
-							if (string.IsNullOrWhiteSpace(xslTemplate) && !xslFilename.IsEquals("list.xsl"))
 							{
-								xslTemplate = await Utility.GetTemplateAsync("list.xsl", portlet.Desktop?.WorkingTheme, mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
+								xslFilename = data.Get<string>("XslFilename");
+								if (string.IsNullOrWhiteSpace(xslFilename))
+									xslFilename = isList ? "list.xsl" : "view.xsl";
+								xslTemplate = await Utility.GetTemplateAsync(xslFilename, portlet.Desktop?.WorkingTheme, mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
+
 								if (string.IsNullOrWhiteSpace(xslTemplate))
-									xslTemplate = await Utility.GetTemplateAsync("list.xsl", "default", mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
+									xslTemplate = await Utility.GetTemplateAsync(xslFilename, "default", mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
+
+								if (string.IsNullOrWhiteSpace(xslTemplate) && !xslFilename.IsEquals("list.xsl"))
+								{
+									xslTemplate = await Utility.GetTemplateAsync("list.xsl", portlet.Desktop?.WorkingTheme, mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
+									if (string.IsNullOrWhiteSpace(xslTemplate))
+										xslTemplate = await Utility.GetTemplateAsync("list.xsl", "default", mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
+								}
 							}
-						}
 
-						if (string.IsNullOrWhiteSpace(xslTemplate))
-							throw new TemplateIsInvalidException($"XSL template is invalid [/themes/{portlet.Desktop?.WorkingTheme ?? "default"}/templates/{mainDirectory ?? "-"}/{subDirectory ?? "-"}/{xslFilename}]");
+							if (string.IsNullOrWhiteSpace(xslTemplate))
+								throw new TemplateIsInvalidException($"XSL template is invalid [/themes/{portlet.Desktop?.WorkingTheme ?? "default"}/templates/{mainDirectory ?? "-"}/{subDirectory ?? "-"}/{xslFilename}]");
 
-						var showBreadcrumbs = isList ? portlet.ListSettings.ShowBreadcrumbs : portlet.ViewSettings.ShowBreadcrumbs;
-						if (xslTemplate.IsContains("{{breadcrumb-holder}}"))
-						{
+							var showBreadcrumbs = isList ? portlet.ListSettings.ShowBreadcrumbs : portlet.ViewSettings.ShowBreadcrumbs;
+							if (xslTemplate.IsContains("{{breadcrumb-holder}}"))
+							{
+								if (showBreadcrumbs)
+								{
+									var xslBreadcrumb = portlet.BreadcrumbSettings.Template;
+									if (string.IsNullOrWhiteSpace(xslBreadcrumb))
+									{
+										xslBreadcrumb = await Utility.GetTemplateAsync("breadcrumb.xml", portlet.Desktop?.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false);
+										if (string.IsNullOrWhiteSpace(xslBreadcrumb))
+											xslBreadcrumb = await Utility.GetTemplateAsync("breadcrumb.xml", "default", null, null, cancellationToken).ConfigureAwait(false);
+									}
+									xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{breadcrumb-holder}}", xslBreadcrumb ?? "");
+								}
+								else
+									xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{breadcrumb-holder}}", "");
+							}
+
+							var showPagination = isList ? portlet.ListSettings.ShowPagination : portlet.ViewSettings.ShowPagination;
+							if (xslTemplate.IsContains("{{pagination-holder}}"))
+							{
+								if (showPagination)
+								{
+									var xslPagination = portlet.PaginationSettings.Template;
+									if (string.IsNullOrWhiteSpace(xslPagination))
+									{
+										xslPagination = await Utility.GetTemplateAsync("pagination.xml", portlet.Desktop?.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false);
+										if (string.IsNullOrWhiteSpace(xslPagination))
+											xslPagination = await Utility.GetTemplateAsync("pagination.xml", "default", null, null, cancellationToken).ConfigureAwait(false);
+									}
+									xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{pagination-holder}}", xslPagination ?? "");
+								}
+								else
+									xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{pagination-holder}}", "");
+							}
+
+							// prepare XML
+							var dataXml = xmlJson.Value.ToString().ToXml(element => element.Descendants().Attributes().Where(attribute => attribute.IsNamespaceDeclaration).Remove());
+
+							var metaXml = new JObject
+							{
+								{ "Portlet", new JObject
+									{
+										{ "ID", portlet.ID },
+										{ "Title", portlet.Title },
+										{ "Zone", portlet.Zone },
+										{ "OrderIndex", portlet.OrderIndex }
+									}
+								},
+								{ "Desktops", new JObject
+									{
+										{ "ContentType", contentType.Desktop?.Alias },
+										{ "Module", contentType.Module?.Desktop?.Alias },
+										{ "Current", desktopsJson["Current"] },
+										{ "Default", desktopsJson["Default"] },
+										{ "Home", desktopsJson["Home"] },
+										{ "Search", desktopsJson["Search"] }
+									}
+								},
+								{ "Site", siteJson },
+								{ "ContentType", contentType.ToJson(json =>
+									{
+										json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
+										ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
+										json.Remove("Privileges");
+										json.Remove("OriginalPrivileges");
+										json.Remove("ExtendedPropertyDefinitions");
+										json.Remove("ExtendedControlDefinitions");
+										json.Remove("StandardControlDefinitions");
+										if (contentType.ExtendedPropertyDefinitions != null)
+										{
+											json["ExtendedPropertyDefinitions"] = new JObject
+											{
+												{ "ExtendedPropertyDefinition", contentType.ExtendedPropertyDefinitions.Select(definition => definition.ToJson()).ToJArray() }
+											};
+											json["ExtendedControlDefinitions"] = new JObject
+											{
+												{ "ExtendedControlDefinition", contentType.ExtendedControlDefinitions.Select(definition => definition.ToJson()).ToJArray() }
+											};
+										}
+										if (contentType.StandardControlDefinitions != null)
+											json["StandardControlDefinitions"] = new JObject
+											{
+												{ "StandardControlDefinition", contentType.StandardControlDefinitions.Select(definition => definition.ToJson()).ToJArray() }
+											};
+									})
+								}
+							}.ToXml("Meta").CleanInvalidCharacters();
+
+							var optionsJson = isList ? JObject.Parse(portlet.ListSettings.Options ?? "{}") : JObject.Parse(portlet.ViewSettings.Options ?? "{}");
+							optionsJson["ShowBreadcrumbs"] = showBreadcrumbs;
+							optionsJson["ShowPagination"] = showPagination;
+							var optionsXml = optionsJson.ToXml("Options").CleanInvalidCharacters();
+
+							JObject breadcrumbsJson = null;
 							if (showBreadcrumbs)
 							{
-								var xslBreadcrumb = portlet.BreadcrumbSettings.Template;
-								if (string.IsNullOrWhiteSpace(xslBreadcrumb))
-								{
-									xslBreadcrumb = await Utility.GetTemplateAsync("breadcrumb.xml", portlet.Desktop?.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false);
-									if (string.IsNullOrWhiteSpace(xslBreadcrumb))
-										xslBreadcrumb = await Utility.GetTemplateAsync("breadcrumb.xml", "default", null, null, cancellationToken).ConfigureAwait(false);
-								}
-								xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{breadcrumb-holder}}", xslBreadcrumb ?? "");
-							}
-							else
-								xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{breadcrumb-holder}}", "");
-						}
+								var breadcrumbs = (data.Get<JArray>("Breadcrumbs") ?? new JArray()).Select(node => node as JObject).ToList();
+								if (portlet.BreadcrumbSettings.NumberOfNodes > 0 && portlet.BreadcrumbSettings.NumberOfNodes < breadcrumbs.Count)
+									breadcrumbs = breadcrumbs.Skip(breadcrumbs.Count - portlet.BreadcrumbSettings.NumberOfNodes).ToList();
 
-						var showPagination = isList ? portlet.ListSettings.ShowPagination : portlet.ViewSettings.ShowPagination;
-						if (xslTemplate.IsContains("{{pagination-holder}}"))
-						{
-							if (showPagination)
-							{
-								var xslPagination = portlet.PaginationSettings.Template;
-								if (string.IsNullOrWhiteSpace(xslPagination))
+								if (portlet.BreadcrumbSettings.ShowContentTypeLink)
 								{
-									xslPagination = await Utility.GetTemplateAsync("pagination.xml", portlet.Desktop?.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false);
-									if (string.IsNullOrWhiteSpace(xslPagination))
-										xslPagination = await Utility.GetTemplateAsync("pagination.xml", "default", null, null, cancellationToken).ConfigureAwait(false);
-								}
-								xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{pagination-holder}}", xslPagination ?? "");
-							}
-							else
-								xslTemplate = xslTemplate.Replace(StringComparison.OrdinalIgnoreCase, "{{pagination-holder}}", "");
-						}
-
-						// prepare XML
-						var dataXml = xmlJson.Value.ToString().ToXml(element => element.Descendants().Attributes().Where(attribute => attribute.IsNamespaceDeclaration).Remove());
-
-						var metaXml = new JObject
-						{
-							{ "Portlet", new JObject
-								{
-									{ "ID", portlet.ID },
-									{ "Title", portlet.Title },
-									{ "Zone", portlet.Zone },
-									{ "OrderIndex", portlet.OrderIndex }
-								}
-							},
-							{ "Desktops", new JObject
-								{
-									{ "ContentType", contentType.Desktop?.Alias },
-									{ "Module", contentType.Module?.Desktop?.Alias },
-									{ "Current", desktopsJson["Current"] },
-									{ "Default", desktopsJson["Default"] },
-									{ "Home", desktopsJson["Home"] },
-									{ "Search", desktopsJson["Search"] }
-								}
-							},
-							{ "Site", siteJson },
-							{ "ContentType", contentType.ToJson(json =>
-								{
-									json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
-									ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-									json.Remove("Privileges");
-									json.Remove("OriginalPrivileges");
-									json.Remove("ExtendedPropertyDefinitions");
-									json.Remove("ExtendedControlDefinitions");
-									json.Remove("StandardControlDefinitions");
-									if (contentType.ExtendedPropertyDefinitions != null)
-									{
-										json["ExtendedPropertyDefinitions"] = new JObject
+									if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeAdditionalURL))
+										breadcrumbs.Insert(0, new JObject
 										{
-											{ "ExtendedPropertyDefinition", contentType.ExtendedPropertyDefinitions.Select(definition => definition.ToJson()).ToJArray() }
-										};
-										json["ExtendedControlDefinitions"] = new JObject
-										{
-											{ "ExtendedControlDefinition", contentType.ExtendedControlDefinitions.Select(definition => definition.ToJson()).ToJArray() }
-										};
-									}
-									if (contentType.StandardControlDefinitions != null)
-										json["StandardControlDefinitions"] = new JObject
-										{
-											{ "StandardControlDefinition", contentType.StandardControlDefinitions.Select(definition => definition.ToJson()).ToJArray() }
-										};
-								})
-							}
-						}.ToXml("Meta").CleanInvalidCharacters();
-
-						var optionsJson = isList ? JObject.Parse(portlet.ListSettings.Options ?? "{}") : JObject.Parse(portlet.ViewSettings.Options ?? "{}");
-						optionsJson["ShowBreadcrumbs"] = showBreadcrumbs;
-						optionsJson["ShowPagination"] = showPagination;
-						var optionsXml = optionsJson.ToXml("Options").CleanInvalidCharacters();
-
-						JObject breadcrumbsJson = null;
-						if (showBreadcrumbs)
-						{
-							var breadcrumbs = (data.Get<JArray>("Breadcrumbs") ?? new JArray()).Select(node => node as JObject).ToList();
-							if (portlet.BreadcrumbSettings.NumberOfNodes > 0 && portlet.BreadcrumbSettings.NumberOfNodes < breadcrumbs.Count)
-								breadcrumbs = breadcrumbs.Skip(breadcrumbs.Count - portlet.BreadcrumbSettings.NumberOfNodes).ToList();
-
-							if (portlet.BreadcrumbSettings.ShowContentTypeLink)
-							{
-								if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeAdditionalURL))
+											{ "Text", portlet.BreadcrumbSettings.ContentTypeAdditionalLabel },
+											{ "URL", portlet.BreadcrumbSettings.ContentTypeAdditionalURL }
+										});
 									breadcrumbs.Insert(0, new JObject
 									{
-										{ "Text", portlet.BreadcrumbSettings.ContentTypeAdditionalLabel },
-										{ "URL", portlet.BreadcrumbSettings.ContentTypeAdditionalURL }
+										{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeLabel) ? portlet.BreadcrumbSettings.ContentTypeLabel : contentType.Title },
+										{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeURL) ? portlet.BreadcrumbSettings.ContentTypeURL : $"~/{contentType.Desktop?.Alias}" + (contentType.GetParent() != null ? $"{(alwaysUseHtmlSuffix ? ".html" : "")}" : $"/{contentType.Title.GetANSIUri()}{(alwaysUseHtmlSuffix ? ".html" : "")}") }
 									});
-								breadcrumbs.Insert(0, new JObject
-								{
-									{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeLabel) ? portlet.BreadcrumbSettings.ContentTypeLabel : contentType.Title },
-									{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ContentTypeURL) ? portlet.BreadcrumbSettings.ContentTypeURL : $"~/{contentType.Desktop?.Alias}" + (contentType.GetParent() != null ? $"{(alwaysUseHtmlSuffix ? ".html" : "")}" : $"/{contentType.Title.GetANSIUri()}{(alwaysUseHtmlSuffix ? ".html" : "")}") }
-								});
-							}
+								}
 
-							if (portlet.BreadcrumbSettings.ShowModuleLink)
-							{
-								if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleAdditionalURL))
+								if (portlet.BreadcrumbSettings.ShowModuleLink)
+								{
+									if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleAdditionalURL))
+										breadcrumbs.Insert(0, new JObject
+										{
+											{ "Text", portlet.BreadcrumbSettings.ModuleAdditionalLabel },
+											{ "URL", portlet.BreadcrumbSettings.ModuleAdditionalURL }
+										});
 									breadcrumbs.Insert(0, new JObject
 									{
-										{ "Text", portlet.BreadcrumbSettings.ModuleAdditionalLabel },
-										{ "URL", portlet.BreadcrumbSettings.ModuleAdditionalURL }
+										{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleLabel) ? portlet.BreadcrumbSettings.ModuleLabel : contentType.Module?.Title },
+										{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleURL) ? portlet.BreadcrumbSettings.ModuleURL : $"~/{contentType.Module?.Desktop?.Alias}" + (contentType.GetParent() != null ? $"{(alwaysUseHtmlSuffix ? ".html" : "")}" : $"/{contentType.Module?.Title.GetANSIUri()}{(alwaysUseHtmlSuffix ? ".html" : "")}") }
 									});
+								}
+
+								if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeAdditionalURL))
+									breadcrumbs.Insert(0, new JObject
+									{
+										{ "Text", portlet.BreadcrumbSettings.HomeAdditionalLabel },
+										{ "URL", portlet.BreadcrumbSettings.HomeAdditionalURL }
+									});
+
 								breadcrumbs.Insert(0, new JObject
 								{
-									{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleLabel) ? portlet.BreadcrumbSettings.ModuleLabel : contentType.Module?.Title },
-									{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.ModuleURL) ? portlet.BreadcrumbSettings.ModuleURL : $"~/{contentType.Module?.Desktop?.Alias}" + (contentType.GetParent() != null ? $"{(alwaysUseHtmlSuffix ? ".html" : "")}" : $"/{contentType.Module?.Title.GetANSIUri()}{(alwaysUseHtmlSuffix ? ".html" : "")}") }
+									{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeLabel) ? portlet.BreadcrumbSettings.HomeLabel : "Home" },
+									{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeURL) ? portlet.BreadcrumbSettings.HomeURL : $"~/index{(alwaysUseHtmlSuffix ? ".html" : "")}" }
 								});
+
+								breadcrumbsJson = new JObject
+								{
+									{ "SeparatedLabel", string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.SeparatedLabel) ? ">" : portlet.BreadcrumbSettings.SeparatedLabel },
+									{ "Nodes", new JObject
+										{
+											{ "Node", breadcrumbs.ToJArray() }
+										}
+									}
+								};
 							}
 
-							if (!string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeAdditionalLabel) && !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeAdditionalURL))
-								breadcrumbs.Insert(0, new JObject
+							var paginationJson = showPagination ? data.Get<JObject>("Pagination") ?? new JObject() : null;
+
+							xml = new XDocument(new XElement("VIEApps", metaXml, dataXml, optionsXml));
+
+							if (breadcrumbsJson != null)
+								xml.Root.Add(breadcrumbsJson.ToXml("Breadcrumbs").CleanInvalidCharacters());
+
+							if (paginationJson != null && paginationJson.Get<JObject>("Pages") != null)
+								xml.Root.Add(paginationJson.ToXml("Pagination", paginationXml =>
 								{
-									{ "Text", portlet.BreadcrumbSettings.HomeAdditionalLabel },
-									{ "URL", portlet.BreadcrumbSettings.HomeAdditionalURL }
-								});
-
-							breadcrumbs.Insert(0, new JObject
-							{
-								{ "Text", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeLabel) ? portlet.BreadcrumbSettings.HomeLabel : "Home" },
-								{ "URL", !string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.HomeURL) ? portlet.BreadcrumbSettings.HomeURL : $"~/index{(alwaysUseHtmlSuffix ? ".html" : "")}" }
-							});
-
-							breadcrumbsJson = new JObject
-							{
-								{ "SeparatedLabel", string.IsNullOrWhiteSpace(portlet.BreadcrumbSettings.SeparatedLabel) ? ">" : portlet.BreadcrumbSettings.SeparatedLabel },
-								{ "Nodes", new JObject
+									paginationXml.Element("URLPattern").Remove();
+									paginationXml.Element("Pages").Add(new XAttribute("Label", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.CurrentPageLabel) ? portlet.PaginationSettings.CurrentPageLabel : "Current"));
+									paginationXml.Add(new XElement("ShowPageLinks", portlet.PaginationSettings.ShowPageLinks));
+									var totalPages = paginationJson.Get<int>("TotalPages");
+									if (totalPages > 1)
 									{
-										{ "Node", breadcrumbs.ToJArray() }
+										var urlPattern = paginationJson.Get<string>("URLPattern");
+										var currentPage = paginationJson.Get<int>("PageNumber");
+										if (currentPage > 1)
+										{
+											var text = string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel)
+												? "Previous"
+												: portlet.PaginationSettings.PreviousPageLabel;
+											var url = urlPattern.GetPaginationURL(currentPage - 1);
+											paginationXml.Add(new XElement("PreviousPage", new XElement("Text", text), new XElement("URL", url)));
+										}
+										if (currentPage < totalPages)
+										{
+											var text = string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel)
+												? "Next"
+												: portlet.PaginationSettings.NextPageLabel;
+											var url = urlPattern.GetPaginationURL(currentPage + 1);
+											paginationXml.Add(new XElement("NextPage", new XElement("Text", text), new XElement("URL", url)));
+										}
 									}
-								}
-							};
-						}
+								}).CleanInvalidCharacters());
 
-						var paginationJson = showPagination ? data.Get<JObject>("Pagination") ?? new JObject() : null;
+							var filterBy = data.Get<JObject>("FilterBy");
+							if (filterBy != null)
+								xml.Root.Add(filterBy.ToXml("FilterBy").CleanInvalidCharacters());
 
-						xml = new XDocument(new XElement("VIEApps", metaXml, dataXml, optionsXml));
+							var sortBy = data.Get<JObject>("SortBy");
+							if (sortBy != null)
+								xml.Root.Add(sortBy.ToXml("SortBy").CleanInvalidCharacters());
 
-						if (breadcrumbsJson != null)
-							xml.Root.Add(breadcrumbsJson.ToXml("Breadcrumbs").CleanInvalidCharacters());
-
-						if (paginationJson != null && paginationJson.Get<JObject>("Pages") != null)
-							xml.Root.Add(paginationJson.ToXml("Pagination", paginationXml =>
+							// transform
+							content = xml.Transform(xslTemplate, optionsJson.Get<bool>("EnableDocumentFunctionAndInlineScripts", false));
+							if (writeLogs)
 							{
-								paginationXml.Element("URLPattern").Remove();
-								paginationXml.Element("Pages").Add(new XAttribute("Label", !string.IsNullOrWhiteSpace(portlet.PaginationSettings.CurrentPageLabel) ? portlet.PaginationSettings.CurrentPageLabel : "Current"));
-								paginationXml.Add(new XElement("ShowPageLinks", portlet.PaginationSettings.ShowPageLinks));
-								var totalPages = paginationJson.Get<int>("TotalPages");
-								if (totalPages > 1)
-								{
-									var urlPattern = paginationJson.Get<string>("URLPattern");
-									var currentPage = paginationJson.Get<int>("PageNumber");
-									if (currentPage > 1)
-									{
-										var text = string.IsNullOrWhiteSpace(portlet.PaginationSettings.PreviousPageLabel)
-											? "Previous"
-											: portlet.PaginationSettings.PreviousPageLabel;
-										var url = urlPattern.GetPaginationURL(currentPage - 1);
-										paginationXml.Add(new XElement("PreviousPage", new XElement("Text", text), new XElement("URL", url)));
-									}
-									if (currentPage < totalPages)
-									{
-										var text = string.IsNullOrWhiteSpace(portlet.PaginationSettings.NextPageLabel)
-											? "Next"
-											: portlet.PaginationSettings.NextPageLabel;
-										var url = urlPattern.GetPaginationURL(currentPage + 1);
-										paginationXml.Add(new XElement("NextPage", new XElement("Text", text), new XElement("URL", url)));
-									}
-								}
-							}).CleanInvalidCharacters());
-
-						var filterBy = data.Get<JObject>("FilterBy");
-						if (filterBy != null)
-							xml.Root.Add(filterBy.ToXml("FilterBy").CleanInvalidCharacters());
-
-						var sortBy = data.Get<JObject>("SortBy");
-						if (sortBy != null)
-							xml.Root.Add(sortBy.ToXml("SortBy").CleanInvalidCharacters());
-
-						// transform
-						content = xml.Transform(xslTemplate, optionsJson.Get<bool>("EnableDocumentFunctionAndInlineScripts", false));
-						if (writeLogs)
-						{
-							var filename = $"{$"{theportlet.Title}_{theportlet.ID}".GetANSIUri()}{fileSuffixName}";
-							await Task.WhenAll
-							(
-								this.WriteLogsAsync(correlationID, $"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request"),
-								UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xml"), xml.ToString(), false, null, cancellationToken),
-								UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xsl"), xslTemplate, false, null, cancellationToken)
-							).ConfigureAwait(false);
+								var filename = $"{$"{theportlet.Title}_{theportlet.ID}".GetANSIUri()}{fileSuffixName}";
+								await Task.WhenAll
+								(
+									this.WriteLogsAsync(correlationID, $"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request"),
+									UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xml"), xml.ToString(), false, null, cancellationToken),
+									UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xsl"), xslTemplate, false, null, cancellationToken)
+								).ConfigureAwait(false);
+							}
 						}
 					}
 					catch (Exception ex)
@@ -3398,6 +3208,10 @@ namespace net.vieapps.Services.Portals
 					case "link":
 					case "cms.link":
 						return await LinkProcessor.GenerateAsync(requestInfo, isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+					case "form":
+					case "cms.form":
+						return FormProcessor.Generate(requestInfo);
 
 					default:
 						throw new InvalidRequestException();
