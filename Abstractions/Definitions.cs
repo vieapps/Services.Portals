@@ -1,5 +1,4 @@
 ﻿#region Related components
-using System;
 using System.Linq;
 using System.Dynamic;
 using System.Diagnostics;
@@ -416,18 +415,28 @@ namespace net.vieapps.Services.Portals
 		public string Description { get; set; }
 
 		/// <summary>
+		/// Gets or Sets the state that mark this property is required or not
+		/// </summary>
+		public bool? Required { get; set; }
+
+		/// <summary>
 		/// Gets or Sets the hidden state
 		/// </summary>
 		public bool Hidden { get; set; } = false;
 
 		/// <summary>
-		/// Gets or Sets the formula/expression for computing value when the control is hidden
-		/// </summary>
-		public string Formula { get; set; }
-
-		/// <summary>
 		/// Gets or Sets the state that mark this property is hidden in the view or not
 		/// </summary>
 		public bool? HiddenInView { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the default value
+		/// </summary>
+		public string DefaultValue { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the formula/expression for computing value when the control is hidden
+		/// </summary>
+		public string Formula { get; set; }
 	}
 }
