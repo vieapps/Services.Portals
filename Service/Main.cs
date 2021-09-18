@@ -471,7 +471,7 @@ namespace net.vieapps.Services.Portals
 								case "cms.form":
 								case "url":
 								case "utils.url":
-									json = ObjectExtensions.GenerateFormControls((requestInfo.GetParameter("x-content-type-id") ?? "").GetContentTypeByID(), requestInfo.GetParameter("x-view-controls") != null, id => id.GetContentTypeByID());
+									json = ObjectExtensions.GenerateFormControls((requestInfo.GetParameter("x-content-type-id") ?? "").GetContentTypeByID(), requestInfo.GetParameter("x-view-controls") != null, id => (id ?? "").GetContentTypeByID());
 									break;
 
 								default:
@@ -4682,6 +4682,14 @@ namespace net.vieapps.Services.Portals
 				link.LastModified = DateTime.Now;
 				link.LastModifiedID = requestInfo.Session.User.ID;
 				json = await link.UpdateAsync(requestInfo, oldStatus, null, cancellationToken).ConfigureAwait(false);
+			}
+
+			else if (@object is Form form)
+			{
+				form.Status = approvalStatus;
+				form.LastModified = DateTime.Now;
+				form.LastModifiedID = requestInfo.Session.User.ID;
+				json = await form.UpdateAsync(requestInfo, oldStatus,cancellationToken).ConfigureAwait(false);
 			}
 
 			return json;

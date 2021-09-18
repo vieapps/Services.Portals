@@ -34,24 +34,23 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static Form Normalize(this Form form, RequestInfo requestInfo)
-			=> form.Compute(requestInfo, () =>
+			=> form.Compute(requestInfo, () => form.Validate((name, value) =>
 			{
-				form.Validate();
-				if (!string.IsNullOrWhiteSpace(form.Phone))
+				if (name == "Phone")
 				{
 					if (form.Phone.IsValidPhone(out var phone))
 						form.Phone = phone;
 					else
 						throw new InformationInvalidException("Phone is invalid");
 				}
-				if (!string.IsNullOrWhiteSpace(form.Email))
+				else if (name == "Email")
 				{
 					if (form.Email.IsValidEmail(out var email))
 						form.Email = email;
 					else
 						throw new InformationInvalidException("Email is invalid");
 				}
-			});
+			}));
 
 		public static IFilterBy<Form> GetFormsFilter(string systemID, string repositoryID = null, string repositoryEntityID = null)
 		{
@@ -446,10 +445,10 @@ namespace net.vieapps.Services.Portals
 		{
 			var requestJson = requestInfo.BodyAsJson;
 			var portletID = requestJson.Get<string>("ID");
-			var organizationID = requestJson.Get("Organization", new JObject()).Get<string>("ID");
-			var moduleID = requestJson.Get("Module", new JObject()).Get<string>("ID");
-			var contentTypeID = requestJson.Get("ContentType", new JObject()).Get<string>("ID");
-			var options = requestJson.Get("Options", new JObject());
+			var organizationID = requestJson.Get<JObject>("Organization")?.Get<string>("ID");
+			var moduleID = requestJson.Get<JObject>("Module")?.Get<string>("ID");
+			var contentTypeID = requestJson.Get<JObject>("ContentType")?.Get<string>("ID");
+			var options = requestJson.Get<JObject>("Options");
 
 			var data = "<div id=\"" + (portletID ?? "undefined") + "\"><div class=\"loading\"></div></div>" + @"
 			<script>

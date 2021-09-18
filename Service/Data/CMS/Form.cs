@@ -87,16 +87,16 @@ namespace net.vieapps.Services.Portals
 
 		[Property(MaxLength = 32)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string IPAddress { get; set; }
 
 		[AsJson]
-		[FormControl(Excluded = true)]
+		[FormControl(Hidden = true, ControlType = "Select", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public Dictionary<string, string> Profiles { get; set; }
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]

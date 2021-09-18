@@ -69,8 +69,9 @@ namespace net.vieapps.Services.Portals
 		/// <param name="contentType"></param>
 		/// <param name="forViewing"></param>
 		/// <param name="getContentTypeByID"></param>
+		/// <param name="onCompleted"></param>
 		/// <returns></returns>
-		public static JToken GenerateFormControls(this IPortalContentType contentType, bool forViewing, Func<string, IPortalContentType> getContentTypeByID)
+		public static JToken GenerateFormControls(this IPortalContentType contentType, bool forViewing, Func<string, IPortalContentType> getContentTypeByID, Action<JToken> onCompleted = null)
 		{
 			// generate standard controls
 			var controls = (RepositoryMediator.GenerateFormControls(contentType?.ContentTypeDefinition?.EntityDefinition?.Type) as JArray).Select(control => control as JObject).ToList();
@@ -126,7 +127,9 @@ namespace net.vieapps.Services.Portals
 
 			// update order index
 			controls.ForEach((control, order) => control["Order"] = order);
-			return controls.ToJArray();
+			var formControls = controls.ToJArray();
+			onCompleted?.Invoke(formControls);
+			return formControls;
 		}
 
 		static JObject GenerateFormControl(this ExtendedControlDefinition definition, ExtendedPropertyMode mode, string defaultValue, Func<string, IPortalContentType> getContentTypeByID)
