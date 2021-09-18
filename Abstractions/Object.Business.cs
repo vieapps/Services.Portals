@@ -74,15 +74,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// prepare parameters
-			var gotExtendedProperties = @object.ExtendedProperties != null && @object.ExtendedProperties.Any();
-			var objectExpando = (@object as object).ToExpandoObject(expando =>
-			{
-				if (gotExtendedProperties)
-				{
-					expando.Set("ExtendedProperties", @object.ExtendedProperties.ToExpandoObject());
-					@object.ExtendedProperties.ForEach(kvp => expando.Set(kvp.Key, kvp.Value));
-				}
-			});
+			var objectExpando = (@object as object).ToExpandoObject(expando => @object.ExtendedProperties?.ForEach(kvp => expando.Set(kvp.Key, kvp.Value == null || kvp.Value.GetType().IsPrimitiveType() ? kvp.Value : kvp.Value.ToExpandoObject())));
 			var requestExpando = requestInfo?.AsExpandoObject;
 			var @params = new Dictionary<string, ExpandoObject>
 			{
@@ -108,7 +100,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 			// compute extended controls
-			if (gotExtendedProperties)
+			if (@object.ExtendedProperties != null && @object.ExtendedProperties.Any())
 				contentType.ExtendedControlDefinitions?.ForEach(definition =>
 				{
 					if (!@object.ExtendedProperties.TryGetValue(definition.Name, out var value) || value == null)
