@@ -74,17 +74,17 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// prepare parameters
-			var objectExpando = (@object as object).ToExpandoObject(expando => @object.ExtendedProperties?.ForEach(kvp => expando.Set(kvp.Key, kvp.Value == null || kvp.Value.GetType().IsPrimitiveType() ? kvp.Value : kvp.Value.ToExpandoObject())));
+			var objectExpando = (@object as IBusinessEntity).ToExpandoObject();
 			var requestExpando = requestInfo?.AsExpandoObject;
 			var @params = new Dictionary<string, ExpandoObject>
 			{
-				["ContentType"] = @object.ContentType?.ToExpandoObject(),
+				["ContentType"] = contentType.ToExpandoObject(),
 				["Module"] = @object.Module?.ToExpandoObject(),
 				["Organization"] = @object.Organization?.ToExpandoObject()
 			}.ToExpandoObject();
 
 			// compute standard controls
-			var attributes = @object.GetPublicAttributes();
+			var attributes = @object.GetPublicAttributes(attribute => !attribute.IsStatic);
 			contentType.StandardControlDefinitions?.Where(definition => !string.IsNullOrWhiteSpace(definition.DefaultValue) || !string.IsNullOrWhiteSpace(definition.Formula)).ForEach(definition =>
 			{
 				var attribute = attributes.FirstOrDefault(attr => attr.Name == definition.Name);
@@ -141,12 +141,12 @@ namespace net.vieapps.Services.Portals
 				.ToList();
 			requiredAttributes.ForEach(name =>
 				{
-					var value = extendedAttributes.FirstOrDefault(attr => attr.Name == name) != null
+					var value = extendedAttributes.FirstOrDefault(attribute => attribute.Name == name) != null
 						? @object.ExtendedProperties != null && @object.ExtendedProperties.ContainsKey(name) ? @object.ExtendedProperties[name] : null
 						: @object.GetAttributeValue(name);
 					if (value == null)
 						throw new InformationRequiredException($"{name} is required");
-					else if (value is string @string && notEmptyAttributes.FirstOrDefault(attr => attr == name) != null && @string.Trim() == "")
+					else if (value is string @string && string.IsNullOrWhiteSpace(@string) && notEmptyAttributes.IndexOf(name) > -1)
 						throw new InformationRequiredException($"{name} is empty");
 					onValidate?.Invoke(name, value);
 				});
