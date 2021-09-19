@@ -249,7 +249,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// get data
-			var form = request.CreateFormInstance("Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var form = request.CreateFormInstance("Privileges,Created,CreatedID,LastModified,LastModifiedID,Captcha", obj =>
 			{
 				obj.SystemID = organization.ID;
 				obj.RepositoryID = module.ID;
@@ -376,7 +376,7 @@ namespace net.vieapps.Services.Portals
 
 			// prepare data
 			var oldStatus = form.Status;
-			form.UpdateFormInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			form.UpdateFormInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID,Profiles", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
