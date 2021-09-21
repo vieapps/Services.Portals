@@ -250,50 +250,50 @@ namespace net.vieapps.Services.Portals
 						});
 				}
 
-				var @params = new Dictionary<string, ExpandoObject>(StringComparer.OrdinalIgnoreCase)
+				var @params = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
 				{
 					["Organization"] = organization?.ToJson(false, false, json =>
 					{
 						OrganizationProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");
 						json["AlwaysUseHtmlSuffix"] = alwaysUseHtmlSuffix;
-					}).ToExpandoObject(),
+					}),
 					["Site"] = site?.ToJson(json =>
 					{
 						SiteProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");
 						json["Domain"] = siteDomain;
 						json["URL"] = siteURL;
-					}).ToExpandoObject(),
-					["ContentTypeDefinition"] = contentType?.ContentTypeDefinition?.ToJson().ToExpandoObject(),
+					}),
+					["ContentTypeDefinition"] = contentType?.ContentTypeDefinition?.ToJson(),
 					["ModuleDefinition"] = contentType?.ContentTypeDefinition?.ModuleDefinition?.ToJson(json =>
 					{
 						(json as JObject).Remove("ContentTypeDefinitions");
 						(json as JObject).Remove("ObjectDefinitions");
-					}).ToExpandoObject(),
+					}),
 					["Module"] = contentType?.Module?.ToJson(false, false, json =>
 					{
 						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");
-					}).ToExpandoObject(),
+					}),
 					["ContentType"] = contentType?.ToJson(false, json =>
 					{
 						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");
-					}).ToExpandoObject(),
+					}),
 					["ParentContentType"] = contentType?.GetParent()?.ToJson(false, json =>
 					{
 						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
 						json.Remove("Privileges");
-					}).ToExpandoObject(),
+					}),
 					["URLs"] = new JObject
 					{
 						{ "Public", $"{businessObject?.GetURL() ?? $"~/index"}{(alwaysUseHtmlSuffix ? ".html" : "")}".GetWebURL(siteURL) },
 						{ "Portal", $"{businessObject?.GetURL() ?? $"~/index"}{(alwaysUseHtmlSuffix ? ".html" : "")}".GetWebURL($"{Utility.PortalsHttpURI}/~{organization?.Alias}/") },
 						{ "Private", appURL },
 						{ "Review", appURL }
-					}.ToExpandoObject(),
-					["HTMLs"] = normalizedHTMLs.ToExpandoObject(),
+					},
+					["HTMLs"] = normalizedHTMLs,
 					["Sender"] = new JObject
 					{
 						{ "ID", requestInfo.Session.User.ID },
@@ -304,7 +304,7 @@ namespace net.vieapps.Services.Portals
 						{ "IP", requestInfo.Session.IP },
 						{ "AppName", requestInfo.Session.AppName },
 						{ "AppPlatform", requestInfo.Session.AppPlatform }
-					}.ToExpandoObject()
+					}
 				};
 
 				// add information of the CMS Category
@@ -319,13 +319,7 @@ namespace net.vieapps.Services.Portals
 				// normalize parameters for evaluating
 				var language = requestInfo.CultureCode ?? "vi-VN";
 				var languages = Utility.Languages.ContainsKey(language) ? Utility.Languages[language] : null;
-				var requestExpando = requestInfo.ToExpandoObject(requestInfoAsExpandoObject =>
-				{
-					requestInfoAsExpandoObject.Set("Body", requestInfo.BodyAsExpandoObject);
-					requestInfoAsExpandoObject.Get<ExpandoObject>("Header")?.Remove("x-app-token");
-				});
-				var objectExpando = @object.ToExpandoObject();
-				var paramsExpando = new Dictionary<string, object>(@params.ToDictionary(kvp => kvp.Key, kvp => kvp.Value as object), StringComparer.OrdinalIgnoreCase)
+				@params = new Dictionary<string, object>(@params, StringComparer.OrdinalIgnoreCase)
 				{
 					{ "Event", @event },
 					{ "Event-i18n", languages?.Get<string>($"events.{@event}") ?? @event },
@@ -337,7 +331,11 @@ namespace net.vieapps.Services.Portals
 					{ "PreviousStatus-i18n", languages?.Get<string>($"status.approval.{previousStatus}") ?? $"{previousStatus}" },
 					{ "Signature", emailSettings?.Signature?.NormalizeHTMLBreaks() },
 					{ "EmailSignature", emailSettings?.Signature?.NormalizeHTMLBreaks() }
-				}.ToExpandoObject();
+				};
+
+				var objectAsExpandoObject = @object.ToExpandoObject();
+				var requestInfoAsExpandoObject = requestInfo.AsExpandoObject;
+				var paramsAsExpandoObject = @params.ToExpandoObject();
 
 				JObject instructions = null;
 				if (sendEmailNotifications || (!@event.IsEquals("Delete") && businessObject != null && status.Equals(ApprovalStatus.Published) && !status.Equals(previousStatus) && emailsWhenPublish != null))
@@ -357,6 +355,7 @@ namespace net.vieapps.Services.Portals
 						var subject = emailNotifications?.Subject ?? instructions?.Get<JObject>("emailByApprovalStatus")?.Get<JObject>($"{status}")?.Get<string>("subject") ?? instructions?.Get<JObject>("email")?.Get<string>("subject");
 						if (string.IsNullOrWhiteSpace(subject))
 							subject = "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" was {{@toLower(@params(Event))}}d";
+
 						var body = emailNotifications?.Body ?? instructions?.Get<JObject>("emailByApprovalStatus")?.Get<JObject>($"{status}")?.Get<string>("body") ?? instructions?.Get<JObject>("email")?.Get<string>("body");
 						if (string.IsNullOrWhiteSpace(body))
 							body = @"Hi,
@@ -368,18 +367,13 @@ namespace net.vieapps.Services.Portals
 								<li>CMS apps: <a href=""{{@params(URLs.Private)}}"">{{@params(URLs.Private)}}</a></li>
 							</ul>
 							{{@params(EmailSignature)}}";
+
 						var parameters = $"{subject}\r\n{body}"
 							.GetDoubleBracesTokens()
 							.Select(token => token.Item2)
 							.Distinct(StringComparer.OrdinalIgnoreCase)
-							.ToDictionary(token => token, token =>
-							{
-								return token.StartsWith("@[") && token.EndsWith("]")
-									? Extensions.JsEvaluate(token.GetJsExpression(requestExpando, objectExpando, paramsExpando))
-									: token.StartsWith("@")
-										? token.Evaluate(new Tuple<ExpandoObject, ExpandoObject, ExpandoObject>(requestExpando, objectExpando, paramsExpando))
-										: token;
-							});
+							.ToDictionary(token => token, token => token.StartsWith("@[") && token.EndsWith("]") ? Extensions.JsEvaluate(token.GetJsExpression(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject)) : token.StartsWith("@") ? token.Evaluate(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject) : token);
+
 						var message = new EmailMessage
 						{
 							From = emailSettings?.Sender,
@@ -420,6 +414,7 @@ namespace net.vieapps.Services.Portals
 						var subject = emailsWhenPublish?.Subject ?? instructions?.Get<JObject>("emailsWhenPublish")?.Get<string>("subject");
 						if (string.IsNullOrWhiteSpace(subject))
 							subject = "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" was published";
+
 						var body = emailsWhenPublish?.Body ?? instructions?.Get<JObject>("emailsWhenPublish")?.Get<string>("body");
 						if (string.IsNullOrWhiteSpace(body))
 							body = @"Hi,
@@ -431,18 +426,13 @@ namespace net.vieapps.Services.Portals
 								<li>CMS apps: <a href=""{{@params(URLs.Private)}}"">{{@params(URLs.Private)}}</a></li>
 							</ul>
 							{{@params(EmailSignature)}}";
+
 						var parameters = $"{subject}\r\n{body}"
 							.GetDoubleBracesTokens()
 							.Select(token => token.Item2)
 							.Distinct(StringComparer.OrdinalIgnoreCase)
-							.ToDictionary(token => token, token =>
-							{
-								return token.StartsWith("@[") && token.EndsWith("]")
-									? Extensions.JsEvaluate(token.GetJsExpression(requestExpando, objectExpando, paramsExpando))
-									: token.StartsWith("@")
-										? token.Evaluate(new Tuple<ExpandoObject, ExpandoObject, ExpandoObject>(requestExpando, objectExpando, paramsExpando))
-										: token;
-							});
+							.ToDictionary(token => token, token => token.StartsWith("@[") && token.EndsWith("]") ? Extensions.JsEvaluate(token.GetJsExpression(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject)) : token.StartsWith("@") ? token.Evaluate(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject) : token);
+
 						var message = new EmailMessage
 						{
 							From = emailSettings?.Sender,

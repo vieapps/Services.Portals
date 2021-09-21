@@ -30,7 +30,7 @@
 		<PackageReference Include="JavaScriptEngineSwitcher.ChakraCore.Native.linux-x64" Version="3.12.6" Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))' == 'true'" />
 		<PackageReference Include="Microsoft.AspNetCore" Version="2.2.0" />
 		<PackageReference Include="Microsoft.AspNetCore.ResponseCompression" Version="2.2.0" />
-		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.4.2109.4" />
+		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.4.2109.6" />
 	</ItemGroup>
 
 </Project>
