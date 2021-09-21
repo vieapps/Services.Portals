@@ -215,7 +215,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateDesktopInstance().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
 		{
 			// data cache keys
 			var sort = Sorts<Desktop>.Ascending("Title");
@@ -232,7 +232,7 @@ namespace net.vieapps.Services.Portals
 
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = clearHtmlCache
-				? desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}").Concat(await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false)).ToList()
+				? desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}").Concat(await desktop.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList()
 				: new List<string>();
 
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
@@ -243,7 +243,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 		}
 
-		internal static Task ClearCacheAsync(this Desktop desktop, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
+		internal static Task ClearCacheAsync(this Desktop desktop, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = false)
 			=> Task.WhenAll((desktop._portlets ?? new List<Portlet>()).Select(portlet => portlet.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh)).Concat(new[]
 			{
 				desktop.ClearRelatedCacheAsync(null, cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),

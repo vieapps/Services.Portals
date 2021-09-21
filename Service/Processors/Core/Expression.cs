@@ -148,18 +148,7 @@ namespace net.vieapps.Services.Portals
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = new List<string>();
-			if (clearHtmlCache)
-			{
-				var desktopSetCacheKeys = await Utility.GetSetCacheKeysAsync(Filters<Portlet>.And(Filters<Portlet>.Equals("ExpressionID", expression.ID), Filters<Portlet>.IsNull("OriginalPortletID")), cancellationToken).ConfigureAwait(false);
-				await desktopSetCacheKeys.ForEachAsync(async desktopSetCacheKey =>
-				{
-					var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
-					if (cacheKeys != null && cacheKeys.Count > 0)
-						htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
-				}, true, false).ConfigureAwait(false);
-			}
-			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var htmlCacheKeys = clearHtmlCache ? await expression.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>();
 
 			// clear related cache
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);

@@ -48,28 +48,64 @@ namespace net.vieapps.Services.Portals
 		public static string GetSetCacheKey(this Desktop desktop)
 			=> desktop.Organization.GetSetCacheKey($"Desktop:{desktop.ID}");
 
-		internal static async Task<List<string>> GetSetCacheKeysAsync(IFilterBy<Portlet> filter, CancellationToken cancellationToken = default)
-		{
-			var desktopIDs = new List<string>();
-			var portlets = await Portlet.FindAsync(filter, null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-			await portlets.ForEachAsync(async portlet =>
-			{
-				var mappingPortlets = await Portlet.FindAsync(Filters<Portlet>.Equals("OriginalPortletID", portlet.ID), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				desktopIDs = desktopIDs.Concat(new[] { portlet.DesktopID }).Concat(mappingPortlets.Select(mappingPortlet => mappingPortlet.DesktopID)).ToList();
-			}, true, false).ConfigureAwait(false);
+		/// <summary>
+		/// Gets the set of keys that used to store HTML cache of this desktop
+		/// </summary>
+		/// <param name="desktop"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static Task<HashSet<string>> GetSetCacheKeysAsync(this Desktop desktop, CancellationToken cancellationToken = default)
+			=> Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken);
 
-			var desktops = new List<Desktop>();
-			await desktopIDs.Where(desktopID => !string.IsNullOrWhiteSpace(desktopID) && desktopID.IsValidUUID()).Distinct(StringComparer.OrdinalIgnoreCase).ToList().ForEachAsync(async desktopID =>
-			{
-				var desktop = await desktopID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (desktop != null)
-					desktops.Add(desktop);
-			}, true, false).ConfigureAwait(false);
-			return desktops.Select(desktop => desktop.GetSetCacheKey()).ToList();
+		/// <summary>
+		/// Gets the set of keys that used to store HTML cache of this collection of desktops
+		/// </summary>
+		/// <param name="desktops"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static async Task<List<string>> GetSetCacheKeysAsync(this IEnumerable<Desktop> desktops, CancellationToken cancellationToken = default)
+		{
+			var keys = new List<string>();
+			await desktops.ForEachAsync(async desktop => keys = keys.Concat(await desktop.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList(), true, false).ConfigureAwait(false);
+			return keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
 
-		internal static Task<List<string>> GetSetCacheKeysAsync(this ContentType contentType, CancellationToken cancellationToken = default)
-			=> Utility.GetSetCacheKeysAsync(Filters<Portlet>.And(Filters<Portlet>.Equals("RepositoryEntityID", contentType.ID), Filters<Portlet>.IsNull("OriginalPortletID")), cancellationToken);
+		/// <summary>
+		/// Gets the set of keys that used to store HTML cache that related to this expression
+		/// </summary>
+		/// <param name="expression"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static async Task<List<string>> GetSetCacheKeysAsync(this Expression expression, CancellationToken cancellationToken = default)
+		{
+			var keys = new List<string>();
+			var portlets = await Portlet.FindAsync<Portlet>(Filters<Portlet>.And(Filters<Portlet>.Equals("ExpressionID", expression.ID), Filters<Portlet>.IsNull("OriginalPortletID")), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex"), 0, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			await portlets.ForEachAsync(async portlet =>
+			{
+				var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
+				keys = keys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList();
+			}, true, false).ConfigureAwait(false);
+			return keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		}
+
+
+		/// <summary>
+		/// Gets the set of keys that used to store HTML cache that related to this content-type
+		/// </summary>
+		/// <param name="contentType"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		internal static async Task<List<string>> GetSetCacheKeysAsync(this ContentType contentType, CancellationToken cancellationToken = default)
+		{
+			var keys = new List<string>();
+			var portlets = await Portlet.FindAsync<Portlet>(Filters<Portlet>.And(Filters<Portlet>.Equals("RepositoryEntityID", contentType.ID), Filters<Portlet>.IsNull("OriginalPortletID")), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex"), 0, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			await portlets.ForEachAsync(async portlet =>
+			{
+				var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
+				keys = keys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList();
+			}, true, false).ConfigureAwait(false);
+			return keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		}
 
 		/// <summary>
 		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL

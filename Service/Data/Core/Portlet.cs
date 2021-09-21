@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
+using System.Collections.Generic;
 using MsgPack.Serialization;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -140,20 +141,34 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop Desktop => (this.DesktopID ?? "").GetDesktopByID();
 
-		internal Portlet _originalPortlet;
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public Portlet TheOriginalPortlet
-		{
-			get => this._originalPortlet;
-			set => this._originalPortlet = value;
-		}
-
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public Portlet OriginalPortlet => string.IsNullOrWhiteSpace(this.OriginalPortletID) ? this : this._originalPortlet ?? (this._originalPortlet = Portlet.Get<Portlet>(this.OriginalPortletID));
+		public Portlet OriginalPortlet => this.GetOriginalPortlet();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop OriginalDesktop => this.OriginalPortlet?.Desktop;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<Portlet> MappingPortlets => this.GetMappingPortlets();
+
+		internal Portlet _originalPortlet;
+
+		internal List<Portlet> _mappingPortlets;
+
+		internal Portlet GetOriginalPortlet()
+			=> string.IsNullOrWhiteSpace(this.OriginalPortletID)
+				? this
+				: this._originalPortlet ?? (this._originalPortlet = Portlet.Get<Portlet>(this.OriginalPortletID));
+
+		internal async Task<Portlet> GetOriginalPortletAsync(CancellationToken cancellationToken = default)
+			=> string.IsNullOrWhiteSpace(this.OriginalPortletID)
+				? this
+				: this._originalPortlet ?? (this._originalPortlet = await Portlet.GetAsync<Portlet>(this.OriginalPortletID, cancellationToken).ConfigureAwait(false));
+
+		internal List<Portlet> GetMappingPortlets()
+			=> this._mappingPortlets ?? (this._mappingPortlets = Portlet.Find<Portlet>(Filters<Portlet>.Equals("OriginalPortletID", this.OriginalPortlet.ID), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex"), 0, 1, null, false));
+
+		internal async Task<List<Portlet>> GetMappingPortletsAsync(CancellationToken cancellationToken = default)
+			=> this._mappingPortlets ?? (this._mappingPortlets = await Portlet.FindAsync<Portlet>(Filters<Portlet>.Equals("OriginalPortletID", this.OriginalPortlet.ID), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex"), 0, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false));
 
 		internal void Normalize()
 		{
