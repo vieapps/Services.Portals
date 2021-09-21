@@ -671,7 +671,7 @@ namespace net.vieapps.Services.Portals
 								{
 									path = path.Right(path.Length - organizationAlias.Length - 2);
 									baseURL = $"{portalsHttpURI}~{organizationAlias}/";
-									rootURL = "./";
+									rootURL = "";
 								}
 
 								var desktopAlias = queryString["x-desktop"].ToLower();

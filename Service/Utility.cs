@@ -564,7 +564,7 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string GetRootURL(this Uri baseURI, string systemIdentity, bool useShortURLs = false, string baseHost = null)
 			=> useShortURLs
-				? baseURI.IsPortalsHttpURI() ? "./" : "/"
+				? baseURI.IsPortalsHttpURI() ? "" : "/"
 				: baseURI.IsPortalsHttpURI() ? $"{Utility.PortalsHttpURI}/~{systemIdentity}/" : $"{baseURI.Scheme}://{baseHost ?? baseURI.Host}/";
 
 		/// <summary>
