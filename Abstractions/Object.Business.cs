@@ -140,16 +140,16 @@ namespace net.vieapps.Services.Portals
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 			requiredAttributes.ForEach(name =>
-				{
-					var value = extendedAttributes.FirstOrDefault(attribute => attribute.Name == name) != null
-						? @object.ExtendedProperties != null && @object.ExtendedProperties.ContainsKey(name) ? @object.ExtendedProperties[name] : null
-						: @object.GetAttributeValue(name);
-					if (value == null)
-						throw new InformationRequiredException($"{name} is required");
-					else if (value is string @string && string.IsNullOrWhiteSpace(@string) && notEmptyAttributes.IndexOf(name) > -1)
-						throw new InformationRequiredException($"{name} is empty");
-					onValidate?.Invoke(name, value);
-				});
+			{
+				var value = extendedAttributes.FirstOrDefault(attribute => attribute.Name == name) != null
+					? @object.ExtendedProperties != null && @object.ExtendedProperties.ContainsKey(name) ? @object.ExtendedProperties[name] : null
+					: @object.GetAttributeValue(name);
+				if (value == null)
+					throw new InformationRequiredException($"{name} is required");
+				else if (value is string @string && string.IsNullOrWhiteSpace(@string) && notEmptyAttributes.IndexOf(name) > -1)
+					throw new InformationRequiredException($"{name} is empty");
+				onValidate?.Invoke(name, value);
+			});
 			return @object;
 		}
 	}
