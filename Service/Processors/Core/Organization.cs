@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
+using System.Diagnostics;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -21,6 +22,8 @@ namespace net.vieapps.Services.Portals
 		internal static ConcurrentDictionary<string, Organization> Organizations { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
 
 		internal static ConcurrentDictionary<string, Organization> OrganizationsByAlias { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
+
+		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",APIs,Portals,CMS,CRM,Dashboard,Dashboards").ToLower().ToHashSet();
 
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,ScriptLibraries,Scripts,AlwaysUseHtmlSuffix,RefreshUrls,RedirectUrls,EmailSettings,WebHookSettings,HttpIndicators,FakeFilesHttpURI,FakePortalsHttpURI".ToHashSet();
 
@@ -342,7 +345,7 @@ namespace net.vieapps.Services.Portals
 			// check the exising the the alias
 			var request = requestInfo.GetBodyExpando();
 			var alias = request.Get<string>("Alias");
-			if ("apis".IsEquals(alias) || "portals".IsEquals(alias) || "cms".IsEquals(alias))
+			if (!string.IsNullOrWhiteSpace(alias) && OrganizationProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
 				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 
 			if (!string.IsNullOrWhiteSpace(alias))
@@ -535,7 +538,7 @@ namespace net.vieapps.Services.Portals
 			var oldStatus = organization.Status;
 
 			var alias = request.Get<string>("Alias");
-			if ("apis".IsEquals(alias) || "portals".IsEquals(alias) || "cms".IsEquals(alias))
+			if (!string.IsNullOrWhiteSpace(alias) && OrganizationProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
 				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 
 			if (!string.IsNullOrWhiteSpace(alias))
@@ -543,23 +546,23 @@ namespace net.vieapps.Services.Portals
 				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(organization.ID))
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
-				organization.Remove();
 			}
 
 			// update
 			var privileges = organization.OriginalPrivileges?.Copy();
-			organization.UpdateOrganizationInstance(request, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			organization.UpdateOrganizationInstance(request, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				obj.OwnerID = isSystemAdministrator ? request.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
-				obj.Status = isSystemAdministrator ? request.Get("Status", organization.Status.ToString()).ToEnum<ApprovalStatus>() : organization.Status;
-				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? oldAlias : obj.Alias.NormalizeAlias(false);
-				obj.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-			});
-			var clearObjectsCache = !organization.OriginalPrivileges.IsEquals(privileges);
-			var response = await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken, clearObjectsCache).ConfigureAwait(false);
+				organization.OwnerID = isSystemAdministrator ? request.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
+				organization.Status = isSystemAdministrator ? request.Get("Status", organization.Status.ToString()).ToEnum<ApprovalStatus>() : organization.Status;
+				organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias.NormalizeAlias(false);
+				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
+				organization.LastModified = DateTime.Now;
+				organization.LastModifiedID = requestInfo.Session.User.ID;
+				organization.NormalizeExtras();
+			}).Remove();
+
+			var privilegesWereChanged = !organization.OriginalPrivileges.IsEquals(privileges);
+			var response = await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken, privilegesWereChanged).ConfigureAwait(false);
 
 			// broadcast update when the privileges were changed
 			// ...

@@ -272,15 +272,15 @@ namespace net.vieapps.Services.Portals
 			if (name.IsEquals("Extras"))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-				this.UISettings = this._json["UISettings"]?.FromJson<Settings.UI>();
-				this.IconURI = this._json["IconURI"]?.FromJson<string>();
-				this.CoverURI = this._json["CoverURI"]?.FromJson<string>();
-				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
-				this.Stylesheets = this._json["Stylesheets"]?.FromJson<string>();
-				this.ScriptLibraries = this._json["ScriptLibraries"]?.FromJson<string>();
-				this.Scripts = this._json["Scripts"]?.FromJson<string>();
-				this.MainPortletID = this._json["MainPortletID"]?.FromJson<string>();
-				this.SEOSettings = this._json["SEOSettings"]?.FromJson<Settings.SEO>();
+				this.UISettings = this._json["UISettings"]?.As<Settings.UI>();
+				this.IconURI = this._json["IconURI"]?.As<string>();
+				this.CoverURI = this._json["CoverURI"]?.As<string>();
+				this.MetaTags = this._json["MetaTags"]?.As<string>();
+				this.Stylesheets = this._json["Stylesheets"]?.As<string>();
+				this.ScriptLibraries = this._json["ScriptLibraries"]?.As<string>();
+				this.Scripts = this._json["Scripts"]?.As<string>();
+				this.MainPortletID = this._json["MainPortletID"]?.As<string>();
+				this.SEOSettings = this._json["SEOSettings"]?.As<Settings.SEO>();
 			}
 			else if (DesktopProcessor.ExtraProperties.Contains(name))
 			{

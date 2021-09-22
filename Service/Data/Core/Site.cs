@@ -213,18 +213,18 @@ namespace net.vieapps.Services.Portals
 			if (name.IsEquals("Extras"))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-				this.AlwaysUseHTTPs = this._json["AlwaysUseHTTPs"] != null && this._json["AlwaysUseHTTPs"].FromJson<bool>();
-				this.UISettings = this._json["UISettings"]?.FromJson<Settings.UI>();
-				this.IconURI = this._json["IconURI"]?.FromJson<string>();
-				this.CoverURI = this._json["CoverURI"]?.FromJson<string>();
-				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
-				this.Stylesheets = this._json["Stylesheets"]?.FromJson<string>();
-				this.ScriptLibraries = this._json["ScriptLibraries"]?.FromJson<string>();
-				this.Scripts = this._json["Scripts"]?.FromJson<string>();
-				this.RedirectToNoneWWW = this._json["RedirectToNoneWWW"] != null && this._json["RedirectToNoneWWW"].FromJson<bool>();
-				this.UseInlineStylesheets = this._json["UseInlineStylesheets"] != null && this._json["UseInlineStylesheets"].FromJson<bool>();
-				this.UseInlineScripts = this._json["UseInlineScripts"] != null && this._json["UseInlineScripts"].FromJson<bool>();
-				this.SEOInfo = this._json["SEOInfo"]?.FromJson<Settings.SEOInfo>();
+				this.AlwaysUseHTTPs = this._json["AlwaysUseHTTPs"] != null && this._json["AlwaysUseHTTPs"].As<bool>();
+				this.UISettings = this._json["UISettings"]?.As<Settings.UI>();
+				this.IconURI = this._json["IconURI"]?.As<string>();
+				this.CoverURI = this._json["CoverURI"]?.As<string>();
+				this.MetaTags = this._json["MetaTags"]?.As<string>();
+				this.Stylesheets = this._json["Stylesheets"]?.As<string>();
+				this.ScriptLibraries = this._json["ScriptLibraries"]?.As<string>();
+				this.Scripts = this._json["Scripts"]?.As<string>();
+				this.RedirectToNoneWWW = this._json["RedirectToNoneWWW"] != null && this._json["RedirectToNoneWWW"].As<bool>();
+				this.UseInlineStylesheets = this._json["UseInlineStylesheets"] != null && this._json["UseInlineStylesheets"].As<bool>();
+				this.UseInlineScripts = this._json["UseInlineScripts"] != null && this._json["UseInlineScripts"].As<bool>();
+				this.SEOInfo = this._json["SEOInfo"]?.As<Settings.SEOInfo>();
 			}
 			else if (SiteProcessor.ExtraProperties.Contains(name))
 			{

@@ -306,21 +306,21 @@ namespace net.vieapps.Services.Portals
 			if (name.IsEquals("Extras"))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>();
+				this.Notifications = this._json["Notifications"]?.As<Settings.Notifications>();
 				this.Instructions = Settings.Instruction.Parse(this._json["Instructions"]?.ToExpandoObject());
-				this.Socials = this._json["Socials"]?.FromJson<List<string>>();
-				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
-				this.MetaTags = this._json["MetaTags"]?.FromJson<string>();
-				this.ScriptLibraries = this._json["ScriptLibraries"]?.FromJson<string>();
-				this.Scripts = this._json["Scripts"]?.FromJson<string>();
-				this.AlwaysUseHtmlSuffix = this._json["AlwaysUseHtmlSuffix"] != null && this._json["AlwaysUseHtmlSuffix"].FromJson<bool>();
-				this.RefreshUrls = this._json["RefreshUrls"]?.FromJson<Settings.RefreshUrls>();
-				this.RedirectUrls = this._json["RedirectUrls"]?.FromJson<Settings.RedirectUrls>();
-				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
-				this.WebHookSettings = this._json["WebHookSettings"]?.FromJson<Settings.WebHook>();
-				this.HttpIndicators = this._json["HttpIndicators"]?.FromJson<List<Settings.HttpIndicator>>();
-				this.FakeFilesHttpURI = this._json["FakeFilesHttpURI"]?.FromJson<string>();
-				this.FakePortalsHttpURI = this._json["FakePortalsHttpURI"]?.FromJson<string>();
+				this.Socials = this._json["Socials"]?.As<List<string>>();
+				this.Trackings = this._json["Trackings"]?.As<Dictionary<string, string>>();
+				this.MetaTags = this._json["MetaTags"]?.As<string>();
+				this.ScriptLibraries = this._json["ScriptLibraries"]?.As<string>();
+				this.Scripts = this._json["Scripts"]?.As<string>();
+				this.AlwaysUseHtmlSuffix = this._json["AlwaysUseHtmlSuffix"] != null && this._json["AlwaysUseHtmlSuffix"].As<bool>();
+				this.RefreshUrls = this._json["RefreshUrls"]?.As<Settings.RefreshUrls>();
+				this.RedirectUrls = this._json["RedirectUrls"]?.As<Settings.RedirectUrls>();
+				this.EmailSettings = this._json["EmailSettings"]?.As<Settings.Email>();
+				this.WebHookSettings = this._json["WebHookSettings"]?.As<Settings.WebHook>();
+				this.HttpIndicators = this._json["HttpIndicators"]?.As<List<Settings.HttpIndicator>>();
+				this.FakeFilesHttpURI = this._json["FakeFilesHttpURI"]?.As<string>();
+				this.FakePortalsHttpURI = this._json["FakePortalsHttpURI"]?.As<string>();
 				this.PrepareRedirectAddresses();
 			}
 			else if (OrganizationProcessor.ExtraProperties.Contains(name))

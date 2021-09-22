@@ -199,9 +199,9 @@ namespace net.vieapps.Services.Portals
 			if (name.IsEquals("Extras"))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>();
-				this.Trackings = this._json["Trackings"]?.FromJson<Dictionary<string, string>>();
-				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
+				this.Notifications = this._json["Notifications"]?.As<Settings.Notifications>();
+				this.Trackings = this._json["Trackings"]?.As<Dictionary<string, string>>();
+				this.EmailSettings = this._json["EmailSettings"]?.As<Settings.Email>();
 			}
 			else if (ModuleProcessor.ExtraProperties.Contains(name))
 			{

@@ -28,7 +28,7 @@ namespace net.vieapps.Services.Portals
 		public Handler(RequestDelegate _) { }
 
 		#region Properties
-		static HashSet<string> Initializers { get; } = "_initializer,initializer.aspx".ToHashSet();
+		static HashSet<string> Initializers { get; } = "_initializer,initializer.aspx,_activate,activate.aspx".ToHashSet();
 
 		static HashSet<string> Validators { get; } = "_validator,validator.aspx".ToHashSet();
 
@@ -36,7 +36,7 @@ namespace net.vieapps.Services.Portals
 
 		static HashSet<string> LogOuts { get; } = "_logout,logout.aspx,signout.aspx".ToHashSet();
 
-		static HashSet<string> CmsPortals { get; } = "_admin,admin.aspx,admin.html,_cms,cms.aspx,cms.html".ToHashSet();
+		static HashSet<string> CmsPortals { get; } = "_admin,admin.aspx,_cms,cms.aspx".ToHashSet();
 
 		static bool UseShortURLs => "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
 
@@ -1549,11 +1549,16 @@ namespace net.vieapps.Services.Portals
 		{
 			var organizationID = systemIdentityJson.Get<string>("ID");
 			var organizationAlias = systemIdentityJson.Get<string>("Alias");
+
 			var portalsHttpURI = systemIdentityJson.Get<string>("PortalsHttpURI");
 			while (portalsHttpURI.EndsWith("/"))
 				portalsHttpURI = portalsHttpURI.Left(portalsHttpURI.Length - 1);
 
-			var rootURL = context.GetRequestPathSegments().First().StartsWith("~") ? "./" : "/";
+			var filesHttpURI = systemIdentityJson.Get<string>("FilesHttpURI");
+			while (filesHttpURI.EndsWith("/"))
+				filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1);
+
+			var rootURL = context.GetRequestPathSegments().First().StartsWith("~") ? "" : "/";
 			var language = context.GetQueryParameter("language") ?? systemIdentityJson.Get<string>("Language") ?? "en-US";
 
 			var session = context.GetSession();
@@ -1561,7 +1566,7 @@ namespace net.vieapps.Services.Portals
 			var osInfo = (session.AppAgent ?? "").GetOSInfo();
 
 			var version = DateTime.Now.GetTimeQuarter().ToUnixTimestamp().ToString();
-			var scripts = "<script>__vieapps={ids:{" + $"system:\"{organizationID}\"" + "},URLs:{root:" + $"\"{rootURL}\",portals:\"{portalsHttpURI}\"" + "}" + $",language:\"{language}\",isMobile:{isMobile},osInfo:\"{osInfo}\",correlationID:\"{context.GetCorrelationID()}\"" + "};</script>"
+			var scripts = "<script>__vieapps={ids:{" + $"system:\"{organizationID}\"" + "},URLs:{root:" + $"\"{rootURL}\",portals:\"{portalsHttpURI}\",files:\"{filesHttpURI}\"" + "}" + $",language:\"{language}\",isMobile:{isMobile},osInfo:\"{osInfo}\",correlationID:\"{context.GetCorrelationID()}\"" + "};</script>"
 				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js")}\"></script>"
 				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js")}\"></script>"
 				+ $"<script src=\"{portalsHttpURI}/_assets/rsa.js?v={version}\"></script>"
@@ -1572,7 +1577,7 @@ namespace net.vieapps.Services.Portals
 			return @$"<!DOCTYPE html>
 					<html xmlns=""http://www.w3.org/1999/xhtml"">
 					<head>{(rootURL.Equals("/") ? "" : $"\r\n<base href=\"{portalsHttpURI}/~{organizationAlias}/\"/>")}
-					<title>{title} ({organizationAlias})</title>
+					<title>{title} ({organizationAlias.ToUpper()})</title>
 					<meta name=""viewport"" content=""width=device-width, initial-scale=1""/>
 					<link rel=""stylesheet"" href=""{portalsHttpURI}/_assets/default.css?v={version}""/>
 					<link rel=""stylesheet"" href=""{portalsHttpURI}/_themes/default/css/all.css?v={version}""/>
