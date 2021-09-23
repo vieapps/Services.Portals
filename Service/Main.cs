@@ -4461,15 +4461,11 @@ namespace net.vieapps.Services.Portals
 				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear all cache{(organization != null ? " of the whole organization" : "")} [{requestInfo.GetURI()}]", cancellationToken, "Caches").ConfigureAwait(false);
 
 			if (organization != null)
-			{
-				await organization.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true, false).ConfigureAwait(false);
-				var theme = organization.Theme ?? "defaut";
 				await Task.WhenAll
 				(
-					Utility.Cache.RemoveAsync(await Utility.Cache.GetSetMembersAsync("Statics", this.CancellationToken).ConfigureAwait(false), this.CancellationToken),
-					Utility.Cache.RemoveAsync(new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }.Distinct(StringComparer.OrdinalIgnoreCase), this.CancellationToken)
+					organization.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true, false),
+					Utility.Cache.RemoveAsync(await Utility.Cache.GetSetMembersAsync("Statics", cancellationToken).ConfigureAwait(false), cancellationToken)
 				).ConfigureAwait(false);
-			}
 
 			else if (module != null)
 			{
@@ -4489,13 +4485,6 @@ namespace net.vieapps.Services.Portals
 			else if (site != null)
 			{
 				await site.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
-				var siteTheme = site.Theme ?? site.Organization.Theme ?? "defaut";
-				var organizationTheme = site.Organization.Theme ?? "defaut";
-				await Task.WhenAll
-				(
-					Utility.Cache.RemoveAsync(await Utility.Cache.GetSetMembersAsync("Statics", this.CancellationToken).ConfigureAwait(false), this.CancellationToken),
-					Utility.Cache.RemoveAsync(new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{siteTheme}", $"css#{siteTheme}:time", $"js#{siteTheme}", $"js#{siteTheme}:time", $"css#{organizationTheme}", $"css#{organizationTheme}:time", $"js#{organizationTheme}", $"js#{organizationTheme}:time" }.Distinct(StringComparer.OrdinalIgnoreCase), this.CancellationToken)
-				).ConfigureAwait(false);
 				site = await Site.GetAsync<Site>(site.ID, cancellationToken).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
 				if (desktop != null)

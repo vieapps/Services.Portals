@@ -268,7 +268,7 @@ namespace net.vieapps.Services.Portals
 
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = clearHtmlCache
-				? site.Organization.GetDesktopCacheKey().Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time", $"js#o_{site.OrganizationID}", $"js#o_{site.OrganizationID}:time" }).ToList()
+				? site.Organization.GetDesktopCacheKey().Concat(await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList()
 				: new List<string>();
 
 			// clear related cache

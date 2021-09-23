@@ -54,8 +54,11 @@ namespace net.vieapps.Services.Portals
 		/// <param name="desktop"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		public static Task<HashSet<string>> GetSetCacheKeysAsync(this Desktop desktop, CancellationToken cancellationToken = default)
-			=> Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken);
+		public static async Task<List<string>> GetSetCacheKeysAsync(this Desktop desktop, CancellationToken cancellationToken = default, bool staticIncluded = false)
+			=> (staticIncluded ? new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" } : Array.Empty<string>())
+				.Concat(desktop != null ? await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) : new HashSet<string>())
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
 
 		/// <summary>
 		/// Gets the set of keys that used to store HTML cache of this collection of desktops
@@ -63,10 +66,11 @@ namespace net.vieapps.Services.Portals
 		/// <param name="desktops"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		public static async Task<List<string>> GetSetCacheKeysAsync(this IEnumerable<Desktop> desktops, CancellationToken cancellationToken = default)
+		public static async Task<List<string>> GetSetCacheKeysAsync(this IEnumerable<Desktop> desktops, CancellationToken cancellationToken = default, bool staticIncluded = false)
 		{
 			var keys = new List<string>();
-			await desktops.ForEachAsync(async desktop => keys = keys.Concat(await desktop.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList(), true, false).ConfigureAwait(false);
+			if (desktops != null)
+				await desktops.Where(desktop => desktop != null).ForEachAsync(async desktop => keys = keys.Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, staticIncluded).ConfigureAwait(false) ?? new List<string>()).ToList(), true, false).ConfigureAwait(false);
 			return keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
 
@@ -79,15 +83,16 @@ namespace net.vieapps.Services.Portals
 		public static async Task<List<string>> GetSetCacheKeysAsync(this Expression expression, CancellationToken cancellationToken = default)
 		{
 			var keys = new List<string>();
-			var portlets = await Portlet.FindAsync<Portlet>(Filters<Portlet>.And(Filters<Portlet>.Equals("ExpressionID", expression.ID), Filters<Portlet>.IsNull("OriginalPortletID")), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex"), 0, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
-			await portlets.ForEachAsync(async portlet =>
+			var filter = Filters<Portlet>.And(Filters<Portlet>.Equals("ExpressionID", expression.ID), Filters<Portlet>.IsNull("OriginalPortletID"));
+			var sort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
+			var portlets = await Portlet.FindAsync<Portlet>(filter, sort, 0, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			await portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 			{
 				var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
-				keys = keys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList();
+				keys = keys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? new List<string>()).ToList();
 			}, true, false).ConfigureAwait(false);
 			return keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
-
 
 		/// <summary>
 		/// Gets the set of keys that used to store HTML cache that related to this content-type
@@ -95,16 +100,49 @@ namespace net.vieapps.Services.Portals
 		/// <param name="contentType"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		internal static async Task<List<string>> GetSetCacheKeysAsync(this ContentType contentType, CancellationToken cancellationToken = default)
+		public static async Task<List<string>> GetSetCacheKeysAsync(this ContentType contentType, CancellationToken cancellationToken = default)
 		{
 			var keys = new List<string>();
-			var portlets = await Portlet.FindAsync<Portlet>(Filters<Portlet>.And(Filters<Portlet>.Equals("RepositoryEntityID", contentType.ID), Filters<Portlet>.IsNull("OriginalPortletID")), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex"), 0, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
-			await portlets.ForEachAsync(async portlet =>
+			var filter = Filters<Portlet>.And(Filters<Portlet>.Equals("RepositoryEntityID", contentType.ID), Filters<Portlet>.IsNull("OriginalPortletID"));
+			var sort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
+			var portlets = await Portlet.FindAsync<Portlet>(filter, sort, 0, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			await portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 			{
 				var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
-				keys = keys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList();
+				keys = keys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? new List<string>()).ToList();
 			}, true, false).ConfigureAwait(false);
 			return keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		}
+
+		/// <summary>
+		/// Gets the set of keys that used to store HTML cache that related to this site
+		/// </summary>
+		/// <param name="site"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static async Task<List<string>> GetSetCacheKeysAsync(this Site site, CancellationToken cancellationToken = default)
+		{
+			var theme = site.Theme ?? site.Organization?.Theme ?? "defaut";
+			return new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }
+				.Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time" })
+				.Concat(site.Organization != null ? await site.Organization.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+		}
+
+		/// <summary>
+		/// Gets the set of keys that used to store HTML cache that related to this organization
+		/// </summary>
+		/// <param name="organization"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static Task<List<string>> GetSetCacheKeysAsync(this Organization organization, CancellationToken cancellationToken = default)
+		{
+			var theme = organization.Theme ?? "defaut";
+			return Task.FromResult(new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }
+				.Concat(new[] { $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" })
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList());
 		}
 
 		/// <summary>

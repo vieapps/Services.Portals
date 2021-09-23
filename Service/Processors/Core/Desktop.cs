@@ -232,7 +232,7 @@ namespace net.vieapps.Services.Portals
 
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = clearHtmlCache
-				? desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}").Concat(await desktop.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList()
+				? desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}").Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false)).ToList()
 				: new List<string>();
 
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
