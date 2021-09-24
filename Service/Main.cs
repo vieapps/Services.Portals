@@ -3552,11 +3552,12 @@ namespace net.vieapps.Services.Portals
 				requestInfo.Header["x-node"] = requestJson.Get<string>("NodeID") ?? requestJson.Get<string>("x-node");
 				var filename = await requestInfo.DownloadTemporaryFileAsync(cancellationToken).ConfigureAwait(false);
 				var userID = requestInfo.Session.User.ID;
+				var regenerateID = requestInfo.GetParameter("x-regenerate-id") != null;
 				switch (objectName.ToLower())
 				{
 					case "organization":
 					case "core.organization":
-						this.Import<Organization>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object =>
+						this.Import<Organization>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object =>
 						{
 							@object.Set();
 							new UpdateMessage
@@ -3576,7 +3577,7 @@ namespace net.vieapps.Services.Portals
 
 					case "role":
 					case "core.role":
-						this.Import<Role>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object =>
+						this.Import<Role>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object =>
 						{
 							@object.Set();
 							new UpdateMessage
@@ -3596,7 +3597,7 @@ namespace net.vieapps.Services.Portals
 
 					case "site":
 					case "core.site":
-						this.Import<Site>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object =>
+						this.Import<Site>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object =>
 						{
 							@object.Set();
 							new UpdateMessage
@@ -3616,7 +3617,7 @@ namespace net.vieapps.Services.Portals
 
 					case "desktop":
 					case "core.desktop":
-						this.Import<Desktop>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object =>
+						this.Import<Desktop>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object =>
 						{
 							@object.Set();
 							new UpdateMessage
@@ -3641,7 +3642,7 @@ namespace net.vieapps.Services.Portals
 
 					case "module":
 					case "core.module":
-						this.Import<Module>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object =>
+						this.Import<Module>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object =>
 						{
 							@object.Set();
 							new UpdateMessage
@@ -3664,7 +3665,7 @@ namespace net.vieapps.Services.Portals
 					case "content-type":
 					case "core.contenttype":
 					case "core.content.type":
-						this.Import<ContentType>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object =>
+						this.Import<ContentType>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object =>
 						{
 							@object.Set();
 							new UpdateMessage
@@ -3684,7 +3685,7 @@ namespace net.vieapps.Services.Portals
 
 					case "expression":
 					case "core.expression":
-						this.Import<Expression>(processID, deviceID, userID, filename, contentType?.ID, objects => objects.ForEach(@object =>
+						this.Import<Expression>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object =>
 						{
 							@object.Set();
 							new UpdateMessage
@@ -3704,7 +3705,7 @@ namespace net.vieapps.Services.Portals
 
 					case "category":
 					case "cms.category":
-						this.Import<Category>(processID, deviceID, userID, filename, contentType?.ID, async objects => await objects.ForEachAsync(async @object =>
+						this.Import<Category>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, async objects => await objects.ForEachAsync(async @object =>
 						{
 							@object.Set();
 							await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false);
@@ -3725,22 +3726,22 @@ namespace net.vieapps.Services.Portals
 
 					case "content":
 					case "cms.content":
-						this.Import<Content>(processID, deviceID, userID, filename, contentType?.ID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
+						this.Import<Content>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
 						break;
 
 					case "item":
 					case "cms.item":
-						this.Import<Item>(processID, deviceID, userID, filename, contentType?.ID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
+						this.Import<Item>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
 						break;
 
 					case "link":
 					case "cms.link":
-						this.Import<Link>(processID, deviceID, userID, filename, contentType?.ID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
+						this.Import<Link>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
 						break;
 
 					case "form":
 					case "cms.form":
-						this.Import<Form>(processID, deviceID, userID, filename, contentType?.ID);
+						this.Import<Form>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
 						break;
 				}
 			}
@@ -3892,7 +3893,7 @@ namespace net.vieapps.Services.Portals
 				}
 			}, this.CancellationToken).ConfigureAwait(false);
 
-		void Import<T>(string processID, string deviceID, string userID, string filename, string repositoryEntityID, Action<IEnumerable<T>> onCompleted = null) where T : class
+		void Import<T>(string processID, string deviceID, string userID, string filename, string repositoryEntityID, bool regenerateID = false, Action<IEnumerable<T>> onCompleted = null) where T : class
 			=> Task.Run(async () =>
 			{
 				try
@@ -3924,24 +3925,25 @@ namespace net.vieapps.Services.Portals
 
 							if (bizObject != null)
 							{
-								bizObject.ID = string.IsNullOrWhiteSpace(bizObject.ID)
-									? UtilityService.NewUUID
-									: bizObject.ID;
+								bizObject.ID = string.IsNullOrWhiteSpace(bizObject.ID) ? UtilityService.NewUUID : bizObject.ID;
 								bizObject.LastModified = DateTime.Now;
 								bizObject.LastModifiedID = userID;
 
 								if (contentType != null)
 								{
-									bizObject.SystemID = string.IsNullOrWhiteSpace(bizObject.SystemID)
-										? contentType.SystemID
-										: bizObject.SystemID;
-									bizObject.RepositoryID = string.IsNullOrWhiteSpace(bizObject.RepositoryID)
-										? contentType.RepositoryID
-										: bizObject.RepositoryID;
-									bizObject.RepositoryEntityID = string.IsNullOrWhiteSpace(bizObject.RepositoryEntityID)
-										? contentType.ID
-										: bizObject.RepositoryEntityID;
+									bizObject.SystemID = string.IsNullOrWhiteSpace(bizObject.SystemID) ? contentType.SystemID : bizObject.SystemID;
+									bizObject.RepositoryID = string.IsNullOrWhiteSpace(bizObject.RepositoryID) ? contentType.RepositoryID : bizObject.RepositoryID;
+									bizObject.RepositoryEntityID = string.IsNullOrWhiteSpace(bizObject.RepositoryEntityID) ? contentType.ID : bizObject.RepositoryEntityID;
 								}
+							}
+
+							// re-generate the identity
+							if (regenerateID)
+							{
+								if (@object.GetAttributeValue("ID") is string idValue)
+									@object.SetAttributeValue("ID", idValue.GenerateUUID());
+								else if (@object.GetAttributeValue("Id") is string idVal)
+									@object.SetAttributeValue("ID", idVal.GenerateUUID());
 							}
 
 							// update database
@@ -4011,6 +4013,8 @@ namespace net.vieapps.Services.Portals
 								item.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 							else if (@object is Link link)
 								link.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
+							else if (@object is Form form)
+								form.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 						}
 						catch (Exception ex)
 						{
@@ -4426,27 +4430,33 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.GetObjectIdentity().ToLower())
 			{
 				case "organization":
+				case "core.organization":
 					organization = await identity.GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 					gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, organization, requestInfo.CorrelationID);
 					break;
 
 				case "module":
+				case "core.module":
 					module = await identity.GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 					gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(module?.WorkingPrivileges, null, module?.Organization, requestInfo.CorrelationID);
 					break;
 
 				case "contenttype":
 				case "content.type":
+				case "core.contenttype":
+				case "core.content.type":
 					contentType = await identity.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
 					gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(contentType?.WorkingPrivileges, contentType?.Module?.WorkingPrivileges, contentType?.Organization, requestInfo.CorrelationID);
 					break;
 
 				case "site":
+				case "core.site":
 					site = await identity.GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
 					gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, site?.Organization, requestInfo.CorrelationID);
 					break;
 
 				case "desktop":
+				case "core.desktop":
 					desktop = await identity.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 					gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, desktop?.Organization, requestInfo.CorrelationID);
 					break;
