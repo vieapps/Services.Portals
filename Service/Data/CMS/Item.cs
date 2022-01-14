@@ -46,10 +46,11 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", Label = "{{portals.cms.items.controls.[name].label}}", PlaceHolder = "{{portals.cms.items.controls.[name].placeholder}}", Description = "{{portals.cms.items.controls.[name].description}}")]
 		public bool AllowComments { get; set; } = false;
 
+		[FormControl(Segment = "basic", Label = "{{portals.cms.items.controls.[name].label}}", PlaceHolder = "{{portals.cms.items.controls.[name].placeholder}}", Description = "{{portals.cms.items.controls.[name].description}}")]
+		public string InlineScripts { get; set; }
+
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
-		[Alias]
-		[Searchable]
-		[FormControl(Hidden = true)]
+		[Alias, Searchable, FormControl(Hidden = true)]
 		public string Alias { get; set; }
 
 		[Sortable(IndexName = "Audits")]

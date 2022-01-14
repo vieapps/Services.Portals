@@ -6,7 +6,6 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
-using System.Diagnostics;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -23,7 +22,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, Organization> OrganizationsByAlias { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
 
-		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",APIs,Portals,CMS,CRM,Dashboard,Dashboards").ToLower().ToHashSet();
+		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",APIs,Portals,CMS,CRM,Dashboard,Dashboards,Temp,Feed,Feeds,Atom,Rss").ToLower().ToHashSet();
 
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,ScriptLibraries,Scripts,AlwaysUseHtmlSuffix,RefreshUrls,RedirectUrls,EmailSettings,WebHookSettings,HttpIndicators,FakeFilesHttpURI,FakePortalsHttpURI".ToHashSet();
 
@@ -68,6 +67,33 @@ namespace net.vieapps.Services.Portals
 		{
 			organization?.Set(clear);
 			await (updateCache && organization != null && !string.IsNullOrWhiteSpace(organization.ID) && !string.IsNullOrWhiteSpace(organization.Title) ? Utility.Cache.SetAsync(organization, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			return organization;
+		}
+
+		internal static async Task<Organization> RefreshAsync(this Organization organization, CancellationToken cancellationToken)
+		{
+			// reload organization
+			await Utility.Cache.RemoveAsync(organization, cancellationToken).ConfigureAwait(false);
+			organization = await organization.Remove().ID.GetOrganizationByIDAsync(cancellationToken, true).ConfigureAwait(false);
+
+			// reload sites
+			organization._siteIDs = null;
+			await organization.FindSitesAsync(cancellationToken, false).ConfigureAwait(false);
+
+			// reload modules
+			organization._moduleIDs = null;
+			await organization.FindModulesAsync(cancellationToken).ConfigureAwait(false);
+			await organization.Modules.ForEachAsync(async module => await (module._contentTypeIDs == null ? module.FindContentTypesAsync(cancellationToken) : Task.CompletedTask).ConfigureAwait(false), true, false).ConfigureAwait(false);
+
+			// update cache and send update message
+			await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			new CommunicateMessage(Utility.ServiceName)
+			{
+				Type = $"{organization.GetObjectName()}#Update",
+				Data = organization.ToJson(false, false),
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+
 			return organization;
 		}
 
@@ -427,57 +453,21 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", organization.Alias }
 				};
 
-			// refresh (clear cached and reload)
+			// refresh (clear cached and reload) or get site & modules
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
-			if (isRefresh)
-			{
-				await Utility.Cache.RemoveAsync(organization, cancellationToken).ConfigureAwait(false);
-				organization = await organization.Remove().ID.GetOrganizationByIDAsync(cancellationToken, true).ConfigureAwait(false);
-				organization._siteIDs = null;
-				organization._moduleIDs = null;
-			}
+			organization = isRefresh || organization._siteIDs == null || organization._moduleIDs == null
+				? await organization.RefreshAsync(cancellationToken).ConfigureAwait(false)
+				: organization;
 
-			// get site & modules
-			if (organization._siteIDs == null || organization._moduleIDs == null)
-			{
-				if (organization._siteIDs == null)
-					await organization.FindSitesAsync(cancellationToken, false).ConfigureAwait(false);
-
-				if (organization._moduleIDs == null)
-				{
-					await organization.FindModulesAsync(cancellationToken).ConfigureAwait(false);
-					await organization.Modules.ForEachAsync(async module => await (module._contentTypeIDs == null ? module.FindContentTypesAsync(cancellationToken) : Task.CompletedTask).ConfigureAwait(false), true, false).ConfigureAwait(false);
-				}
-
-				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{organization.GetObjectName()}#Update",
-					Data = organization.ToJson(false, false),
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
-			}
-
-			// send update message
-			var objectName = organization.GetObjectName();
+			// response
 			var response = organization.ToJson(true, false);
-
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{organization.GetObjectName()}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
-			if (isRefresh)
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
-
-			// response
 			return response;
 		}
 

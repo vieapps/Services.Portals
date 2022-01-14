@@ -53,13 +53,32 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
-		internal static IFilterBy<Content> GetContentByAliasFilter(this ContentType contentType, Category category, string alias)
+		public static IFilterBy<Content> GetContentByAliasFilter(this ContentType contentType, Category category, string alias)
 			=> Filters<Content>.And
 			(
 				Filters<Content>.Equals("RepositoryEntityID", contentType.ID),
 				Filters<Content>.Equals("CategoryID", category.ID),
 				Filters<Content>.Equals("Alias", alias.NormalizeAlias())
 			);
+
+		static async Task<Content> RefreshAsync(this Content content, CancellationToken cancellationToken = default, string correlationID = null, string message = null, bool fetchRepository = false)
+		{
+			if (fetchRepository)
+			{
+				await Utility.Cache.RemoveAsync(content, cancellationToken).ConfigureAwait(false);
+				content = await Content.GetAsync<Content>(content.ID, cancellationToken).ConfigureAwait(false);
+			}
+
+			message = (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]";
+			await Task.WhenAll
+			(
+				content.Status.Equals(ApprovalStatus.Published) ? $"{content.GetURL()}?x-force-cache=x".Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
+				content.Category != null ? $"{content.Category.GetURL()}?x-force-cache=x".Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
+				(content.OtherCategories ?? new List<string>()).Select(id => id.GetCategoryByID()).ForEachAsync(category => $"{category.GetURL()}?x-force-cache=x".Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, message))
+			).ConfigureAwait(false);
+
+			return content;
+		}
 
 		internal static async Task ClearRelatedCacheAsync(this Content content, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
@@ -94,18 +113,21 @@ namespace net.vieapps.Services.Portals
 			}
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			// remove related cache
-			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+			// remove related cache & refresh
 			await Task.WhenAll
 			(
+				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
 				Utility.WriteCacheLogs && content !=null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
-				doRefresh && content != null && content.Status.Equals(ApprovalStatus.Published) ? content.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]") : Task.CompletedTask,
-				doRefresh && content != null && content.Category != null ? content.Category.GetURL().Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]") : Task.CompletedTask,
-				doRefresh && content != null ? $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]") : Task.CompletedTask
-			).ConfigureAwait(false);
+				doRefresh && content != null
+					? Task.WhenAll
+					(
+						content.RefreshAsync(cancellationToken, correlationID, "Refresh when related cache of a CMS content was clean"),
+						$"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]")
+					) : Task.CompletedTask
+				).ConfigureAwait(false);
 		}
 
-		static async Task<Tuple<List<Content>, long, int, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, bool randomPage = false, int minRandomPage = 0, int maxRandomPage = 0)
+		internal static async Task<Tuple<List<Content>, long, int, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, bool randomPage = false, int minRandomPage = 0, int maxRandomPage = 0)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -209,8 +231,14 @@ namespace net.vieapps.Services.Portals
 			}
 			filter.Prepare(requestInfo);
 
+			// other parameters
+			var showAttachments = requestInfo.GetParameter("x-object-attachments") != null || requestInfo.GetParameter("ShowAttachments") != null;
+			var showURLs = requestInfo.GetParameter("x-object-urls") != null || requestInfo.GetParameter("ShowURLs") != null;
+			var showDetails = !"false".IsEquals(requestInfo.GetParameter("x-object-details")) || requestInfo.GetParameter("NoDetails") == null;
+
 			// process cache
-			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber) : null;
+			var suffix = string.IsNullOrWhiteSpace(query) ? (showAttachments ? ":a" : "") + (showURLs ? ":u" : "") + (showDetails ? "" : ":d") : null;
+			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber, string.IsNullOrWhiteSpace(suffix) ? null : suffix) : null;
 			if (cacheKeyOfObjectsJson != null)
 			{
 				var json = await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsJson, cancellationToken).ConfigureAwait(false);
@@ -225,13 +253,10 @@ namespace net.vieapps.Services.Portals
 			var thumbnails = results.Item4;
 
 			JToken attachments = null;
-			var showAttachments = requestInfo.GetParameter("ShowAttachments") != null;
 			if (objects.Count > 0 && showAttachments)
-			{
 				attachments = objects.Count == 1
 					? await requestInfo.GetAttachmentsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 					: await requestInfo.GetAttachmentsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			}
 
 			// build response
 			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
@@ -239,24 +264,34 @@ namespace net.vieapps.Services.Portals
 				pageNumber = totalPages;
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
-			var showURLs = requestInfo.GetParameter("ShowURLs") != null;
-			var showDetails = requestInfo.GetParameter("NoDetails") == null;
-			var response = new JObject()
+			var siteURL = organization.DefaultSite?.GetURL(requestInfo.GetHeaderParameter("x-srp-host"), requestInfo.GetParameter("x-url")) + "/";
+			var response = new JObject
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
 				{
 					"Objects",
-					objects.Select(@object => @object.ToJson(false, cjson =>
+					objects.Select(@object => @object.ToJson(false, json =>
 					{
-						cjson["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID)?.NormalizeURIs(organization.FakeFilesHttpURI);
+						json["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID)?.NormalizeURIs(organization.FakeFilesHttpURI);
 						if (showAttachments)
-							cjson["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
+							json["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
+
 						if (showURLs)
-							cjson["URL"] = @object.GetURL();
+						{
+							json["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL);
+							json["Summary"] = @object.Summary?.NormalizeHTMLBreaks();
+						}
+
 						if (showDetails)
-							cjson["Details"] = organization.NormalizeURLs(@object.Details);
+							json["Details"] = organization.NormalizeURLs(@object.Details);
+
+						if (showAttachments || showURLs)
+						{
+							json.Remove("Privileges");
+							json.Remove("OriginalPrivileges");
+						}
 					})).ToJArray()
 				}
 			};
@@ -264,10 +299,10 @@ namespace net.vieapps.Services.Portals
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
 			{
-				await Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
 				var cacheKeys = new[] { cacheKeyOfObjectsJson }.Concat(results.Item5).ToList();
 				await Task.WhenAll
 				(
+					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken),
 					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationToken),
 					Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask
 				).ConfigureAwait(false);
@@ -427,7 +462,7 @@ namespace net.vieapps.Services.Portals
 			// refresh (clear cache)
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
 			if (isRefresh)
-				await content.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				await content.RefreshAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -761,8 +796,13 @@ namespace net.vieapps.Services.Portals
 					{ "App", sort.ToClientJson().ToString(Formatting.None) }
 				};
 
-				// get cache
+				// prepare cache
 				var cacheKeyOfTotalObjects = Extensions.GetCacheKeyOfTotalObjects(filter, sort);
+				var cacheKeyOfObjectsXml = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
+				if (requestInfo.GetParameter("x-no-cache") != null || requestInfo.GetParameter("x-force-cache") != null)
+					await Utility.Cache.RemoveAsync(new[] { cacheKeyOfTotalObjects, cacheKeyOfObjectsXml, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) }, cancellationToken).ConfigureAwait(false);
+
+				// get cache
 				long totalRecords = -1;
 				if (randomPage && await Utility.Cache.ExistsAsync(cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false))
 				{
@@ -774,8 +814,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				JToken categoryThumbnails = null;
-				var cacheKey = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
-				data = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
+				data = await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsXml, cancellationToken).ConfigureAwait(false);
 
 				// process if has no cache
 				if (string.IsNullOrWhiteSpace(data))
@@ -852,9 +891,9 @@ namespace net.vieapps.Services.Portals
 					// update cache
 					await Task.WhenAll
 					(
-						Utility.Cache.SetAsync(cacheKey, data, cancellationToken),
-						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item5.Concat(new[] { cacheKey }), cancellationToken) : Task.CompletedTask,
-						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item5.Count + 1}): {results.Item5.Concat(new[] { cacheKey }).Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask
+						Utility.Cache.SetAsync(cacheKeyOfObjectsXml, data, cancellationToken),
+						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item5.Concat(new[] { cacheKeyOfObjectsXml }), cancellationToken) : Task.CompletedTask,
+						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item5.Count + 1}): {results.Item5.Concat(new[] { cacheKeyOfObjectsXml }).Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask
 					).ConfigureAwait(false);
 
 					// preload
@@ -915,7 +954,7 @@ namespace net.vieapps.Services.Portals
 				var @object = await Content.GetContentByAliasAsync(contentTypeID, requestJson.Get<string>("ContentIdentity"), category?.ID, cancellationToken).ConfigureAwait(false);
 				if (@object == null)
 					throw new InformationNotFoundException();
-				else if (@object.Organization == null || @object.Module == null || @object.ContentType == null)
+				if (@object.Organization == null || @object.Module == null || @object.ContentType == null)
 					throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 				// check permission
@@ -1151,7 +1190,7 @@ namespace net.vieapps.Services.Portals
 				var stopwatch = Stopwatch.StartNew();
 				await @object.Relateds.ForEachAsync(async id => relateds.Add(await Content.GetAsync<Content>(id, cancellationToken).ConfigureAwait(false)), true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
 
-				var cacheKeys = relateds.Select(related => related.GetCacheKey()).ToList();
+				var cacheKeys = relateds.Select(related => related?.GetCacheKey()).Where(key => !string.IsNullOrWhiteSpace(key)).ToList();
 				await Utility.Cache.AddSetMembersAsync(@object.ContentType.ObjectCacheKeys, cacheKeys, cancellationToken).ConfigureAwait(false);
 
 				stopwatch.Stop();
@@ -1224,7 +1263,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			others = others.Where(other => other != null && other.ID != null && other.ID != @object.ID && other.Status.Equals(ApprovalStatus.Published) && other.PublishedTime != null && other.PublishedTime.Value <= DateTime.Now).ToList();
-			var objectCacheKeys = others.Select(obj => obj.GetCacheKey()).ToList();
+			var objectCacheKeys = others.Select(obj => obj?.GetCacheKey()).Where(key => !string.IsNullOrWhiteSpace(key)).ToList();
 			await Task.WhenAll
 			(
 				Utility.Cache.SetAsync($"{objectCacheKey}:others", others.Select(other => other.ID).ToList(), cancellationToken),
@@ -1280,11 +1319,23 @@ namespace net.vieapps.Services.Portals
 				if (content == null)
 				{
 					content = Content.CreateInstance(data);
+					content.StartDate = string.IsNullOrWhiteSpace(content.StartDate) && content.PublishedTime != null
+						? content.PublishedTime.Value.ToDTString(false, false)
+						: DateTime.Now.ToDTString(false, false);
+					content.CreatedID = string.IsNullOrWhiteSpace(content.CreatedID)
+						? requestInfo.Session.User.ID
+						: content.CreatedID;
+					content.LastModifiedID = string.IsNullOrWhiteSpace(content.LastModifiedID)
+						? requestInfo.Session.User.ID
+						: content.LastModifiedID;
 					await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
 				}
 				else
 				{
 					content.Fill(data);
+					content.LastModifiedID = string.IsNullOrWhiteSpace(content.LastModifiedID)
+						? requestInfo.Session.User.ID
+						: content.LastModifiedID;
 					await Content.UpdateAsync(content, true, cancellationToken).ConfigureAwait(false);
 				}
 			}

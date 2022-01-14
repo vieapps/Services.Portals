@@ -183,6 +183,12 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop SearchDesktop => (this.SearchDesktopID ?? "").GetDesktopByID() ?? this.Organization?.SearchDesktop;
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public string Host => $"{this.SubDomain}.{this.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www.");
+
+		public string GetURL(string host = null, string requestedURL = null)
+			=> $"http{(this.AlwaysUseHTTPs || (requestedURL ?? "").IsStartsWith("https://") ? "s" : "")}://{host ?? this.Host}";
+
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{

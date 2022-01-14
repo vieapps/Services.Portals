@@ -33,7 +33,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static ILogger Logger { get; internal set; }
 
-		internal static ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>> Logs { get; } = new ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>>();
+		internal static ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string, string>, List<string>, string>> Logs { get; } = new ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string, string>, List<string>, string>>();
 
 		internal static bool WriteMessageLogs => Utility.Logger.IsEnabled(LogLevel.Debug) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false"));
 
@@ -641,13 +641,14 @@ namespace net.vieapps.Services.Portals
 		/// <param name="organization"></param>
 		/// <param name="html"></param>
 		/// <param name="forDisplaying"></param>
+		/// <param name="rootURL"></param>
 		/// <returns></returns>
-		public static string NormalizeURLs(this Organization organization, string html, bool forDisplaying = true)
+		public static string NormalizeURLs(this Organization organization, string html, bool forDisplaying = true, string rootURL = null)
 		{
 			if (string.IsNullOrWhiteSpace(html) || organization == null)
 				return html;
 
-			var rootURL = new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false);
+			rootURL = rootURL ?? new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false);
 			if (forDisplaying)
 				return html.NormalizeURLs(rootURL, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
 
@@ -774,7 +775,7 @@ namespace net.vieapps.Services.Portals
 				: exception?.GetStack();
 
 			// update queue & write to centerlized logs
-			Utility.Logs.Enqueue(new Tuple<Tuple<DateTime, string, string, string, string, string>, List<string>, string>(new Tuple<DateTime, string, string, string, string, string>(DateTime.Now, correlationID, developerID, appID, Utility.ServiceName, objectName), logs, stack));
+			Utility.Logs.Enqueue(new Tuple<Tuple<DateTime, string, string, string, string, string, string>, List<string>, string>(new Tuple<DateTime, string, string, string, string, string, string>(DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.NodeID, Utility.ServiceName, objectName), logs, stack));
 			return Utility.Logs.WriteLogsAsync(Utility.CancellationToken, Utility.Logger);
 		}
 

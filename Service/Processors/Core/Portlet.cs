@@ -122,7 +122,7 @@ namespace net.vieapps.Services.Portals
 			return new[] { originalPortlet.Desktop }.Concat(mappingPortlets.Select(mappingPortlet => mappingPortlet.Desktop)).ToList();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
+		internal static async Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID, bool clearDataCache, bool clearHtmlCache, bool clearAllHtmlCache, bool doRefresh)
 		{
 			// data cache keys
 			var dataCacheKeys = new List<string>();
@@ -135,11 +135,16 @@ namespace net.vieapps.Services.Portals
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = clearHtmlCache ? portlet.Desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop.Alias}") : new List<string>();
+			var htmlCacheKeys = clearHtmlCache && portlet.Desktop != null ? portlet.Desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop.Alias}") : new List<string>();
 			if (clearHtmlCache)
 			{
-				var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
-				htmlCacheKeys = htmlCacheKeys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+				if (clearAllHtmlCache)
+				{
+					var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
+					htmlCacheKeys = htmlCacheKeys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+				}
+				else
+					htmlCacheKeys = htmlCacheKeys.Concat(await portlet.Desktop.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			}
 
 			// clear related cache
@@ -147,9 +152,12 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop.Alias}".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a portlet was clean [{portlet.Title} - ID: {portlet.ID}]") : Task.CompletedTask
+				doRefresh ? $"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop?.Alias}".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a portlet was clean [{portlet.Title} - ID: {portlet.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
+
+		internal static Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
+			=> portlet.ClearRelatedCacheAsync(cancellationToken, correlationID, clearDataCache, clearHtmlCache, false, doRefresh);
 
 		internal static Task ClearCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = false)
 			=> Task.WhenAll(new[]
@@ -463,6 +471,7 @@ namespace net.vieapps.Services.Portals
 							await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 						}
 					}
+					await Utility.Cache.RemoveAsync(await desktop.GetSetCacheKeysAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
 					updateMessages.Add(new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
@@ -504,7 +513,7 @@ namespace net.vieapps.Services.Portals
 				// create portlet
 				mappingPortlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(mappingPortlet.DesktopID, mappingPortlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
 				await Portlet.CreateAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
-				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
 
 				var json = mappingPortlet.ToJson();
 				updateMessages.Add(new UpdateMessage
@@ -538,7 +547,7 @@ namespace net.vieapps.Services.Portals
 			{
 				// delete portlet
 				await Portlet.DeleteAsync<Portlet>(mappingPortlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
 
 				var json = mappingPortlet.ToJson();
 				updateMessages.Add(new UpdateMessage
@@ -587,7 +596,7 @@ namespace net.vieapps.Services.Portals
 					mappingPortlet.LastModified = DateTime.Now;
 					mappingPortlet.LastModifiedID = requestInfo.Session.User.ID;
 					await Portlet.UpdateAsync(mappingPortlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+					await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
 				}
 				else
 					await Utility.Cache.SetAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);

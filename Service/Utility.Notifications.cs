@@ -217,10 +217,10 @@ namespace net.vieapps.Services.Portals
 						}
 					}
 				};
-				await recipients.Select(recipient => recipient.Get<JArray>("Sessions"))
+				recipients.Select(recipient => recipient.Get<JArray>("Sessions"))
 					.Where(sessions => sessions != null)
 					.SelectMany(sessions => sessions.Select(session => session.Get<string>("DeviceID")))
-					.ForEachAsync(deviceID => new UpdateMessage(baseMessage) { DeviceID = deviceID }.SendAsync()).ConfigureAwait(false);
+					.ForEach(deviceID => new UpdateMessage(baseMessage) { DeviceID = deviceID }.Send());
 				if (Utility.Logger.IsEnabled(LogLevel.Debug))
 					await requestInfo.WriteLogAsync($"Send app notifications successful\r\n{baseMessage.ToJson()}", cancellationToken, "Notifications").ConfigureAwait(false);
 			}
@@ -368,12 +368,7 @@ namespace net.vieapps.Services.Portals
 							</ul>
 							{{@params(EmailSignature)}}";
 
-						var parameters = $"{subject}\r\n{body}"
-							.GetDoubleBracesTokens()
-							.Select(token => token.Item2)
-							.Distinct(StringComparer.OrdinalIgnoreCase)
-							.ToDictionary(token => token, token => token.StartsWith("@[") && token.EndsWith("]") ? Extensions.JsEvaluate(token.GetJsExpression(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject)) : token.StartsWith("@") ? token.Evaluate(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject) : token);
-
+						var parameters = $"{subject}\r\n{body}".PrepareDoubleBracesParameters(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject);
 						var message = new EmailMessage
 						{
 							From = emailSettings?.Sender,
@@ -427,12 +422,7 @@ namespace net.vieapps.Services.Portals
 							</ul>
 							{{@params(EmailSignature)}}";
 
-						var parameters = $"{subject}\r\n{body}"
-							.GetDoubleBracesTokens()
-							.Select(token => token.Item2)
-							.Distinct(StringComparer.OrdinalIgnoreCase)
-							.ToDictionary(token => token, token => token.StartsWith("@[") && token.EndsWith("]") ? Extensions.JsEvaluate(token.GetJsExpression(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject)) : token.StartsWith("@") ? token.Evaluate(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject) : token);
-
+						var parameters = $"{subject}\r\n{body}".PrepareDoubleBracesParameters(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject);
 						var message = new EmailMessage
 						{
 							From = emailSettings?.Sender,

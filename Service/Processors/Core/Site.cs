@@ -48,9 +48,10 @@ namespace net.vieapps.Services.Portals
 				if (clear)
 					site.Remove();
 
-				SiteProcessor.Sites[site.ID] = site;
 				if (updateCache)
 					Utility.Cache.Set(site);
+
+				SiteProcessor.Sites[site.ID] = site;
 
 				var newDomains = new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }
 					.Concat(site.OtherDomains.ToList(";"))
@@ -61,7 +62,10 @@ namespace net.vieapps.Services.Portals
 
 				newDomains.ForEach(domain =>
 				{
-					if (SiteProcessor.SitesByDomain.TryAdd($"*.{domain}", site))
+					var success = SiteProcessor.SitesByDomain.TryAdd($"*.{domain}", site);
+					if (!success && SiteProcessor.SitesByDomain.TryGetValue($"*.{domain}", out var old))
+						success = SiteProcessor.SitesByDomain.TryUpdate($"*.{domain}", site, old);
+					if (success)
 						Utility.NotRecognizedAliases.Remove($"Site:{domain}");
 				});
 
@@ -259,9 +263,9 @@ namespace net.vieapps.Services.Portals
 			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
 			var dataCacheKeys = clearDataCache
 				? Extensions.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title"))
-					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")))
 					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), sort))
 					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), sort))
+					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
 				: new List<string>();

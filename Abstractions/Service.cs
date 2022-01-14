@@ -58,7 +58,7 @@ namespace net.vieapps.Services.Portals
 			if (!CmsPortalsServiceExtensions.Services.TryGetValue(name, out var service))
 			{
 				service = Router.OutgoingChannel.RealmProxy.Services.GetCalleeProxy<ICmsPortalsService>(ProxyInterceptor.Create(name));
-				CmsPortalsServiceExtensions.Services.Add(name, service);
+				CmsPortalsServiceExtensions.Services.TryAdd(name, service);
 			}
 
 			return service ?? throw new ServiceNotFoundException($"The service \"{name.ToLower()}\" is not found");

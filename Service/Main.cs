@@ -137,10 +137,18 @@ namespace net.vieapps.Services.Portals
 					await Task.Delay(UtilityService.GetRandomNumber(678, 789), this.CancellationToken).ConfigureAwait(false);
 
 					// get OEmbed providers
-					await this.GetOEmbedProvidersAsync(this.CancellationToken).ConfigureAwait(false);
+					try
+					{
+						await this.GetOEmbedProvidersAsync(this.CancellationToken).ConfigureAwait(false);
+					}
+					catch { }
 
 					// prepare multi-languges
-					await this.PrepareLanguagesAsync(this.CancellationToken).ConfigureAwait(false);
+					try
+					{
+						await this.PrepareLanguagesAsync(this.CancellationToken).ConfigureAwait(false);
+					}
+					catch { }
 
 					// gathering definitions
 					try
@@ -162,6 +170,32 @@ namespace net.vieapps.Services.Portals
 							await UtilityService.FetchHttpAsync(Utility.FilesHttpURI).ConfigureAwait(false);
 						}
 						catch { }
+					/**
+					var wordpressCrawler = new Crawlers.WordPress(new Crawler
+					{
+						Title = "Blogchamsoc.com",
+						Type = Crawlers.Type.WordPress,
+						URL = "https://blogchamsoc.com",
+						Options = "{\"RemoveTags\":{\"div\":{\"Operator\":\"Or\",\"Predicates\":[{\"Attribute\":\"id\",\"Operator\":\"Contains\",\"Value\":\"-alert\"},{\"Attribute\":\"id\",\"Operator\":\"Contains\",\"Value\":\"_container\"},{\"Attribute\":\"class\",\"Operator\":\"Contains\",\"Value\":\"message\"},{\"Attribute\":\"class\",\"Operator\":\"Contains\",\"Value\":\"alert\"}]},\"a\":{\"Operator\":\"Or\",\"Predicates\":[{\"Attribute\":\"class\",\"Operator\":\"Contains\",\"Value\":\"-button\"}]}},\"Updates\":{\"Details\":{\"Operator\":\"Or\",\"Predicates\":[{\"Operator\":\"Contains\",\"Value\":\"Blogchamsoc\"}],\"Actions\":[{\"Operator\":\"Replace\",\"Value\":\"href=\\\"https://blogchamsoc.com/\",\"Replacement\":\"href=\\\"~/\"},{\"Operator\":\"Replace\",\"Value\":\"src=\\\"https://blogchamsoc.com/\",\"Replacement\":\"src=\\\"~/\"},{\"Operator\":\"Replace\",\"Value\":\"Blogchamsoc\",\"Replacement\":\"chúng tôi\"},{\"Operator\":\"Replace\",\"Value\":\"src=\\\"~/\",\"Replacement\":\"src=\\\"https://blogchamsoc.com/\"}]},\"Title\":{\"Operator\":\"Or\",\"Predicates\":[{\"Operator\":\"Contains\",\"Value\":\"kem chống lão hóa\"}],\"Actions\":[{\"Operator\":\"Set\",\"Attribute\":\"CategoryID\",\"Value\":\"123456789\"}]}}}"
+					});
+					wordpressCrawler.CrawlerInfo.Categories = await wordpressCrawler.FetchCategoriesAsync().ConfigureAwait(false);
+					wordpressCrawler.CrawlerInfo.SelectedCategories = new[] { wordpressCrawler.CrawlerInfo.Categories.First().ID }.ToList();
+					var adapter = new Crawlers.NormalizingAdapter(wordpressCrawler.CrawlerInfo);
+					var contents = await wordpressCrawler.FetchContentsAsync(null, adapter.NormalizeAsync).ConfigureAwait(false);
+					contents.ForEach(content => content.Normalize(wordpressCrawler.CrawlerInfo, false));
+					/**
+					var bloggerCrawler = new Crawlers.Blogger(new Crawler
+					{
+						Title = "Tyrion Q. Nguyen",
+						Type = Crawlers.Type.Blogger,
+						URL = "https://www.tyrionguyen.com",
+						Options = "{\"RemoveTagAttributes\":{\"Tags\":{\"iframe\":{\"class\":{\"Operator\":\"Or\",\"Predicates\":[{\"Operator\":\"CastAsBoolean\",\"Value\":\"false\"}],\"Actions\":[{\"Operator\":\"Set\",\"Attribute\":\"class\",\"Value\":\"youtube video\"}]},\"youtube-src-id\":{\"Operator\":\"Or\",\"Predicates\":[{\"Operator\":\"NotEquals\",\"Value\":\"\"}],\"Actions\":[{\"Operator\":\"Set\",\"Attribute\":\"class\",\"Value\":\"youtube video\"}]}}}}}"
+					});
+					bloggerCrawler.CrawlerInfo.Categories = await bloggerCrawler.FetchCategoriesAsync().ConfigureAwait(false);
+					var adapter = new Crawlers.NormalizingAdapter(bloggerCrawler.CrawlerInfo);
+					var contents = await bloggerCrawler.FetchContentsAsync(null, adapter.NormalizeAsync).ConfigureAwait(false);
+					contents.ForEach(content => content.Normalize(bloggerCrawler.CrawlerInfo));
+					/**/
 				}).ConfigureAwait(false);
 
 				// start the refresh timers
@@ -375,11 +409,22 @@ namespace net.vieapps.Services.Portals
 						case "cms.form":
 							json = await this.ProcessFormAsync(requestInfo, cts.Token).ConfigureAwait(false);
 							break;
+
+						case "crawler":
+						case "crawlers":
+						case "cms.crawler":
+						case "cms.crawlers":
+							json = await this.ProcessCrawlerAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
 						#endregion
 
 						#region process request of Portals HTTP service
 						case "identify.system":
 							json = await this.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							break;
+
+						case "generate.feed":
+							json = await this.GenerateFeedAsync(requestInfo, cts.Token).ConfigureAwait(false);
 							break;
 
 						case "process.http.request":
@@ -459,6 +504,11 @@ namespace net.vieapps.Services.Portals
 									json = this.GenerateFormControls<Expression>();
 									break;
 
+								case "crawler":
+								case "cms.crawler":
+									json = this.GenerateFormControls<Crawler>();
+									break;
+
 								case "category":
 								case "cms.category":
 								case "content":
@@ -469,9 +519,7 @@ namespace net.vieapps.Services.Portals
 								case "cms.link":
 								case "form":
 								case "cms.form":
-								case "url":
-								case "utils.url":
-									json = ObjectExtensions.GenerateFormControls((requestInfo.GetParameter("x-content-type-id") ?? "").GetContentTypeByID(), requestInfo.GetParameter("x-view-controls") != null, id => (id ?? "").GetContentTypeByID());
+									json = (requestInfo.GetParameter("x-content-type-id") ?? "").GetContentTypeByID().GenerateFormControls(requestInfo.GetParameter("x-view-controls") != null, id => (id ?? "").GetContentTypeByID()) ?? new JArray();
 									break;
 
 								default:
@@ -521,9 +569,11 @@ namespace net.vieapps.Services.Portals
 
 					}
 					stopwatch.Stop();
-					await this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
-					if (this.IsDebugResultsEnabled)
-						await this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
+					await Task.WhenAll
+					(
+						this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}"),
+						this.IsDebugResultsEnabled ? this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}") : Task.CompletedTask
+					).ConfigureAwait(false);
 					return json;
 				}
 				catch (Exception ex)
@@ -813,7 +863,7 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Process CMS Portals object
-		async Task<JObject> ProcessCategoryAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JToken> ProcessCategoryAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
@@ -839,7 +889,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		async Task<JObject> ProcessContentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JToken> ProcessContentAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
@@ -863,7 +913,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		async Task<JObject> ProcessItemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JToken> ProcessItemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
@@ -887,7 +937,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		async Task<JObject> ProcessLinkAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JToken> ProcessLinkAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
@@ -913,7 +963,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		async Task<JObject> ProcessFormAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JToken> ProcessFormAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			switch (requestInfo.Verb)
@@ -936,8 +986,37 @@ namespace net.vieapps.Services.Portals
 					throw new MethodNotAllowedException(requestInfo.Verb);
 			}
 		}
+
+		async Task<JToken> ProcessCrawlerAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+			switch (requestInfo.Verb)
+			{
+				case "GET":
+					return "search".IsEquals(requestInfo.GetObjectIdentity())
+						? await requestInfo.SearchCrawlersAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.GetCrawlerAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "POST":
+					return "test".IsEquals(requestInfo.GetObjectIdentity())
+						? await requestInfo.TestCrawlerAsync(cancellationToken).ConfigureAwait(false)
+						: "categories".IsEquals(requestInfo.GetObjectIdentity())
+							? await requestInfo.FetchCrawlerCategoriesAsync(cancellationToken).ConfigureAwait(false) as JToken
+							: await requestInfo.CreateCrawlerAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "PUT":
+					return await requestInfo.UpdateCrawlerAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "DELETE":
+					return await requestInfo.DeleteCrawlerAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				default:
+					throw new MethodNotAllowedException(requestInfo.Verb);
+			}
+		}
 		#endregion
 
+		#region Process attachment files and desktops' templates
 		Task<JToken> ProcessAttachmentFileAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var systemID = requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
@@ -990,6 +1069,7 @@ namespace net.vieapps.Services.Portals
 				{ "Template", template }
 			};
 		}
+		#endregion
 
 		async Task<JToken> IdentifySystemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
@@ -997,21 +1077,26 @@ namespace net.vieapps.Services.Portals
 			var site = requestInfo.Header.TryGetValue("x-host", out var host) && !string.IsNullOrWhiteSpace(host)
 				? await host.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false)
 				: null;
-			site = site ?? organization?.Sites?.FirstOrDefault() ?? Utility.DefaultSite;
+
+			site = site ?? organization?.DefaultSite ?? Utility.DefaultSite;
 			organization = organization ?? site?.Organization;
+
+			if (requestInfo.GetParameter("x-force-refresh") != null && organization != null)
+				await organization.RefreshAsync(cancellationToken).ConfigureAwait(false);
+
 			return organization != null
 				? new JObject
 				{
 					{ "ID", organization.ID },
 					{ "Alias", organization.Alias },
-					{ "HomeDesktopAlias", (organization.HomeDesktop ?? organization.DefaultDesktop)?.Alias ?? "-default" },
+					{ "HomeDesktopAlias", (site.HomeDesktop ?? organization.HomeDesktop ?? organization.DefaultDesktop)?.Alias ?? "-default" },
 					{ "FilesHttpURI", organization.FakeFilesHttpURI ?? Utility.FilesHttpURI },
 					{ "PortalsHttpURI", organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI },
 					{ "CmsPortalsHttpURI", Utility.CmsPortalsHttpURI },
 					{ "AlwaysUseHtmlSuffix", organization.AlwaysUseHtmlSuffix },
 					{ "AlwaysUseHTTPs", site != null && site.AlwaysUseHTTPs },
 					{ "RedirectToNoneWWW", site != null && site.RedirectToNoneWWW },
-					{ "Language", site != null ? site.Language ?? "en-US" : "en-US" }
+					{ "Language", requestInfo.GetParameter("Language") ?? site?.Language ?? "en-US" }
 				}
 				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(!string.IsNullOrWhiteSpace(host) ? host : "unknown")})");
 		}
@@ -1150,6 +1235,9 @@ namespace net.vieapps.Services.Portals
 					? "images"
 					: type.IsStartsWith("font") ? "fonts" : "";
 
+			// fake URIs
+			string filesHttpURI = null, portalsHttpURI = null;
+
 			// special headers
 			var noneMatch = requestInfo.GetHeaderParameter("If-None-Match");
 			var modifiedSince = requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since");
@@ -1158,6 +1246,101 @@ namespace net.vieapps.Services.Portals
 				? $"{type}#{identity}"
 				: $"v#{(eTag.IndexOf("?") > 0 ? eTag.Left(eTag.IndexOf("?")) : eTag).GenerateUUID()}";
 
+			// check special headers to reduce traffict
+			var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
+			if (this.CacheDesktopResources && lastModified == null && (type.IsEquals("css") || type.IsEquals("js")))
+			{
+				if (identity.Length == 34 && identity.Right(32).IsValidUUID())
+				{
+					if (identity.Left(1).IsEquals("o"))
+					{
+						var organization = await identity.Right(32).GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+						filesHttpURI = organization?.FakeFilesHttpURI;
+						portalsHttpURI = organization?.FakePortalsHttpURI;
+						lastModified = organization?.LastModified.ToHttpString();
+					}
+					else if (identity.Left(1).IsEquals("s"))
+					{
+						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
+						filesHttpURI = site?.Organization?.FakeFilesHttpURI;
+						portalsHttpURI = site?.Organization?.FakePortalsHttpURI;
+						lastModified = site?.LastModified.ToHttpString();
+					}
+					else if (identity.Left(1).IsEquals("d"))
+					{
+						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+						filesHttpURI = desktop?.Organization?.FakeFilesHttpURI;
+						portalsHttpURI = desktop?.Organization?.FakePortalsHttpURI;
+						lastModified = desktop?.LastModified.ToHttpString();
+					}
+				}
+				else if (isThemeResource)
+					lastModified = this.GetThemeResourcesLastModified(identity, type).ToHttpString();
+
+				if (lastModified != null)
+					await Task.WhenAll
+					(
+						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
+						isThemeResource ? Utility.Cache.AddSetMemberAsync($"statics#{identity}", $"{eTag}:time", cancellationToken) : Utility.Cache.AddSetMemberAsync("statics", $"{eTag}:time", cancellationToken)
+					).ConfigureAwait(false);
+			}
+
+			if (this.CacheDesktopResources && eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
+				return new JObject
+				{
+					{ "StatusCode", (int)HttpStatusCode.NotModified },
+					{
+						"Headers",
+						new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						{
+							{ "X-Cache", "SVC-304" },
+							{ "X-Correlation-ID", requestInfo.CorrelationID },
+							{ "ETag", eTag },
+							{ "Last-Modified", lastModified }
+						}.ToJson()
+					}
+				};
+
+			// get cached resources
+			var resources = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>(eTag, cancellationToken).ConfigureAwait(false) : null;
+			if (resources != null)
+			{
+				var contentType = "application/octet-stream";
+				if (type.IsEquals("css"))
+					contentType = "text/css";
+				else if (type.IsEquals("js"))
+					contentType = "application/javascript";
+				else if (type.IsEquals("fonts"))
+					contentType = $"font/{filePath.ToList(".").Last()}";
+				else if (type.IsEquals("images"))
+				{
+					contentType = filePath.ToList(".").Last();
+					contentType = $"image/{(contentType.IsEquals("svg") ? "svg+xml" : contentType.IsEquals("jpg") || contentType.IsEquals("jpeg") ? "jpeg" : contentType)}";
+				}
+				return new JObject
+				{
+					{ "StatusCode", (int)HttpStatusCode.OK },
+					{ "Headers", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						{
+							{ "X-Cache", "SVC-200" },
+							{ "X-Correlation-ID", requestInfo.CorrelationID },
+							{ "Content-Type", $"{contentType}; charset=utf-8" },
+							{ "ETag", eTag },
+							{ "Last-Modified", lastModified },
+							{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
+							{ "Cache-Control", "public" }
+						}.ToJson()
+					},
+					{ "Body", resources.Compress(this.BodyEncoding) },
+					{ "BodyEncoding", this.BodyEncoding }
+				};
+			}
+
+			// normalize fake URIs
+			var system = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
+			filesHttpURI = filesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+			portalsHttpURI = portalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+
 			// static files in 'assets' directory or image/font files of a theme
 			if (type.IsEquals("assets") || type.IsEquals("images") || type.IsEquals("fonts"))
 			{
@@ -1165,44 +1348,27 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(filePath))
 					throw new InformationNotFoundException();
 
-				// check special headers to reduce traffict
-				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
-				if (this.CacheDesktopResources && eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
-					return new JObject
-					{
-						{ "StatusCode", (int)HttpStatusCode.NotModified },
-						{
-							"Headers",
-							new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-							{
-								{ "X-Cache", "SVC" },
-								{ "X-Correlation-ID", requestInfo.CorrelationID },
-								{ "ETag", eTag },
-								{ "Last-Modified", lastModified }
-							}.ToJson()
-						}
-					};
-
-				// prepare resource file
 				var fileInfo = new FileInfo(Path.Combine(Utility.DataFilesDirectory, type.IsEquals("assets") ? type : "themes", filePath));
 				if (!fileInfo.Exists)
 					throw new InformationNotFoundException(filePath);
+
+				var data = filePath.IsEndsWith(".css")
+					? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI).MinifyCss().ToBytes()
+					: filePath.IsEndsWith(".js")
+						? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI).MinifyJs().ToBytes()
+						: await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false);
 
 				// response
 				lastModified = fileInfo.LastWriteTime.ToHttpString();
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
 					{ "Content-Type", $"{fileInfo.GetMimeType()}; charset=utf-8" },
+					{ "X-Cache", "None" },
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
 
 				if (this.CacheDesktopResources)
 				{
-					await Task.WhenAll
-					(
-						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-						Utility.Cache.AddSetMemberAsync("Statics", $"{eTag}:time", cancellationToken)
-					).ConfigureAwait(false);
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
 						{ "ETag", eTag },
@@ -1210,152 +1376,91 @@ namespace net.vieapps.Services.Portals
 						{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
 						{ "Cache-Control", "public" }
 					};
+					resources = filePath.IsEndsWith(".css") || filePath.IsEndsWith(".js") ? data.GetString() : data.ToBase64();
+					await Task.WhenAll
+					(
+						Utility.Cache.SetAsFragmentsAsync(eTag, resources, cancellationToken),
+						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
+						isThemeResource ? Utility.Cache.AddSetMembersAsync($"statics#{identity}", new[] { eTag, $"{eTag}:time" }, cancellationToken) : Utility.Cache.AddSetMembersAsync("statics", new[] { eTag, $"{eTag}:time" }, cancellationToken)
+					).ConfigureAwait(false);
 				}
 
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
 					{ "Headers", headers.ToJson() },
-					{
-						"Body",
-						(filePath.IsEndsWith(".css")
-							? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", $"{Utility.PortalsHttpURI}/").Replace("~~~/", $"{Utility.PortalsHttpURI}/").Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyCss().ToBytes()
-							: filePath.IsEndsWith(".js")
-								? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", $"{Utility.PortalsHttpURI}/").Replace("~~~/", $"{Utility.PortalsHttpURI}/").Replace("~~/", $"{Utility.FilesHttpURI}/").MinifyJs().ToBytes()
-								: await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false)
-						).Compress(this.BodyEncoding).ToBase64()
-					},
+					{ "Body", data.Compress(this.BodyEncoding).ToBase64() },
 					{ "BodyEncoding", this.BodyEncoding }
 				};
 			}
 
-			// fake URIs
-			var system = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
-			string filesHttpURI = null, portalsHttpURI = null;
-
 			// css stylesheets
 			if (type.IsEquals("css"))
 			{
-				// verify
+				// prepare
 				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
-				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
-				var headers = new Dictionary<string, string>
+				if (identity.Length == 34 && identity.Right(32).IsValidUUID())
 				{
-					{ "Content-Type", "text/css; charset=utf-8" },
-					{ "X-Correlation-ID", requestInfo.CorrelationID }
-				};
-
-				// get last-modified and response as HTTP 304 to reduce traffict
-				if (this.CacheDesktopResources)
-				{
-					if (lastModified == null)
+					if (identity.Left(1).IsEquals("s"))
 					{
-						if (identity.Length == 34 && identity.Right(32).IsValidUUID())
-						{
-							if (identity.Left(1).IsEquals("s"))
-							{
-								var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-								if (site != null)
-									lastModified = site.LastModified.ToHttpString();
-							}
-							else if (identity.Left(1).IsEquals("d"))
-							{
-								var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-								if (desktop != null)
-									lastModified = desktop.LastModified.ToHttpString();
-							}
-						}
-						else
-							lastModified = this.GetThemeResourcesLastModified(identity, "css").ToHttpString();
-
-						await Task.WhenAll
-						(
-							Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-							Utility.Cache.AddSetMemberAsync("Statics", $"{eTag}:time", cancellationToken)
-						).ConfigureAwait(false);
+						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
+						filesHttpURI = filesHttpURI ?? site?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+						portalsHttpURI = portalsHttpURI ?? site?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						resources = site != null
+							? (this.IsDebugLogEnabled ? $"/* css of the '{site.Title}' site */\r\n" : "") + (string.IsNullOrWhiteSpace(site.Stylesheets) ? "" : site.Stylesheets.MinifyCss())
+							: $"/* the requested site ({identity}) is not found */";
 					}
-
-					if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
-						return new JObject
-						{
-							{ "StatusCode", (int)HttpStatusCode.NotModified },
-							{
-								"Headers",
-								new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-								{
-									{ "X-Cache", "SVC" },
-									{ "ETag", eTag },
-									{ "Last-Modified", lastModified }
-								}.ToJson()
-							}
-						};
-				}
-
-				// get resources
-				var resources = this.CacheDesktopResources && !this.DontCacheThemes.Contains(identity) && !(identity.Length == 34 && identity.Right(32).IsValidUUID())
-					? await Utility.Cache.GetAsync<string>(eTag, cancellationToken).ConfigureAwait(false)
-					: null;
-
-				if (resources == null)
-				{
-					if (identity.Length == 34 && identity.Right(32).IsValidUUID())
+					else if (identity.Left(1).IsEquals("d"))
 					{
-						if (identity.Left(1).IsEquals("s"))
-						{
-							var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-							filesHttpURI = site?.Organization?.FakeFilesHttpURI;
-							portalsHttpURI = site?.Organization?.FakePortalsHttpURI;
-							resources = site != null
-								? (this.IsDebugLogEnabled ? $"/* css of the '{site.Title}' site */\r\n" : "") + (string.IsNullOrWhiteSpace(site.Stylesheets) ? "" : site.Stylesheets.MinifyCss())
-								: $"/* the requested site ({identity}) is not found */";
-						}
-						else if (identity.Left(1).IsEquals("d"))
-						{
-							var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-							filesHttpURI = desktop?.Organization?.FakeFilesHttpURI;
-							portalsHttpURI = desktop?.Organization?.FakePortalsHttpURI;
-							resources = desktop != null
-								? (this.IsDebugLogEnabled ? $"/* css of the '{desktop.Title}' desktop */\r\n" : "") + (string.IsNullOrWhiteSpace(desktop.Stylesheets) ? "" : desktop.Stylesheets.MinifyCss())
-								: $"/* the requested desktop ({identity}) is not found */";
-						}
-						else
-							resources = $"/* the requested resource ({identity}) is not found */";
+						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+						filesHttpURI = filesHttpURI ?? desktop?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+						portalsHttpURI = portalsHttpURI ?? desktop?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						resources = desktop != null
+							? (this.IsDebugLogEnabled ? $"/* css of the '{desktop.Title}' desktop */\r\n" : "") + (string.IsNullOrWhiteSpace(desktop.Stylesheets) ? "" : desktop.Stylesheets.MinifyCss())
+							: $"/* the requested desktop ({identity}) is not found */";
 					}
 					else
-						resources = await this.GetThemeResourcesAsync(identity, "css", cancellationToken).ConfigureAwait(false);
+						resources = $"/* the requested resource ({identity}) is not found */";
 				}
 				else
-					headers["X-Cache"] = "SVC";
-
-				if (this.CacheDesktopResources)
 				{
-					if ((identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity))
-						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-						{
-							{ "ETag", eTag },
-							{ "Last-Modified", lastModified },
-							{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
-							{ "Cache-Control", "public" }
-						};
-					if (!(identity.Length == 34 && identity.Right(32).IsValidUUID()) && !this.DontCacheThemes.Contains(identity))
-						await Task.WhenAll
-						(
-							Utility.Cache.SetAsync(eTag, resources, cancellationToken),
-							Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-							Utility.Cache.AddSetMembersAsync("Statics", new[] { eTag, $"{eTag}:time" }, cancellationToken)
-						).ConfigureAwait(false);
+					resources = await this.GetThemeResourcesAsync(identity, "css", cancellationToken).ConfigureAwait(false);
+					lastModified = lastModified ?? this.GetThemeResourcesLastModified(identity, type).ToHttpString();
 				}
 
 				// response
-				filesHttpURI = filesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-				portalsHttpURI = portalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+				resources = resources.Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI);
+				var headers = new Dictionary<string, string>
+				{
+					{ "Content-Type", "text/css; charset=utf-8" },
+					{ "X-Cache", "None" },
+					{ "X-Correlation-ID", requestInfo.CorrelationID }
+				};
+
+				if (this.CacheDesktopResources && ((identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity)))
+				{
+					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+					{
+						{ "ETag", eTag },
+						{ "Last-Modified", lastModified },
+						{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
+						{ "Cache-Control", "public" }
+					};
+					await Task.WhenAll
+					(
+						Utility.Cache.SetAsync(eTag, resources, cancellationToken),
+						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
+						isThemeResource ? Utility.Cache.AddSetMembersAsync($"statics#{identity}", new[] { eTag, $"{eTag}:time" }, cancellationToken) : Utility.Cache.AddSetMembersAsync("statics", new[] { eTag, $"{eTag}:time" }, cancellationToken)
+					).ConfigureAwait(false);
+				}
+
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
 					{ "Headers", headers.ToJson() },
-					{ "Body", resources.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Compress(this.BodyEncoding) },
+					{ "Body", resources.Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
 				};
 			}
@@ -1367,137 +1472,78 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
-				var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
-				var headers = new Dictionary<string, string>
+				if (identity.Length == 34 && identity.Right(32).IsValidUUID())
 				{
-					{ "Content-Type", "application/javascript; charset=utf-8" },
-					{ "X-Correlation-ID", requestInfo.CorrelationID }
-				};
-
-				// get last-modified and response as HTTP 304 to reduce traffict
-				if (this.CacheDesktopResources)
-				{
-					if (lastModified == null)
+					if (identity.Left(1).IsEquals("o"))
 					{
-						if (identity.Length == 34 && identity.Right(32).IsValidUUID())
-						{
-							if (identity.Left(1).IsEquals("o"))
-							{
-								var organization = await identity.Right(32).GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-								if (organization != null)
-									lastModified = organization.LastModified.ToHttpString();
-							}
-							else if (identity.Left(1).IsEquals("s"))
-							{
-								var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-								if (site != null)
-									lastModified = site.LastModified.ToHttpString();
-							}
-							else if (identity.Left(1).IsEquals("d"))
-							{
-								var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-								if (desktop != null)
-									lastModified = desktop.LastModified.ToHttpString();
-							}
-						}
-						else
-							lastModified = this.GetThemeResourcesLastModified(identity, "js").ToHttpString();
-
-						await Task.WhenAll
-						(
-							Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-							Utility.Cache.AddSetMemberAsync("Statics", $"{eTag}:time", cancellationToken)
-						).ConfigureAwait(false);
+						var organization = await identity.Right(32).GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+						filesHttpURI = filesHttpURI ?? organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+						portalsHttpURI = portalsHttpURI ?? organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						lastModified = lastModified ?? organization?.LastModified.ToHttpString();
+						resources = organization != null
+							? (this.IsDebugLogEnabled ? $"/* scripts of the '{organization.Title}' organization */\r\n" : "") + organization.Javascripts
+							: $"/* the requested organization ({identity.Right(32)}) is not found */";
 					}
-
-					if (eTag.IsEquals(noneMatch) && modifiedSince != null && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
-						return new JObject
-						{
-							{ "StatusCode", (int)HttpStatusCode.NotModified },
-							{
-								"Headers",
-								new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-								{
-									{ "X-Cache", "SVC" },
-									{ "ETag", eTag },
-									{ "Last-Modified", lastModified }
-								}.ToJson()
-							}
-						};
-				}
-
-				// get resources
-				var resources = this.CacheDesktopResources && !this.DontCacheThemes.Contains(identity) && !(identity.Length == 34 && identity.Right(32).IsValidUUID())
-					? await Utility.Cache.GetAsync<string>(eTag, cancellationToken).ConfigureAwait(false)
-					: null;
-
-				if (resources == null)
-				{
-					if (identity.Length == 34 && identity.Right(32).IsValidUUID())
+					else if (identity.Left(1).IsEquals("s"))
 					{
-						if (identity.Left(1).IsEquals("o"))
-						{
-							var organization = await identity.Right(32).GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-							filesHttpURI = organization?.FakeFilesHttpURI;
-							portalsHttpURI = organization?.FakePortalsHttpURI;
-							resources = organization != null
-								? (this.IsDebugLogEnabled ? $"/* scripts of the '{organization.Title}' organization */\r\n" : "") + organization.Javascripts
-								: $"/* the requested organization ({identity.Right(32)}) is not found */";
-						}
-						else if (identity.Left(1).IsEquals("s"))
-						{
-							var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-							filesHttpURI = site?.Organization?.FakeFilesHttpURI;
-							portalsHttpURI = site?.Organization?.FakePortalsHttpURI;
-							resources = site != null
-								? (this.IsDebugLogEnabled ? $"/* scripts of the '{site.Title}' site */\r\n" : "") + (string.IsNullOrWhiteSpace(site.Scripts) ? "" : site.Scripts.MinifyJs())
-								: $"/* the requested site ({identity.Right(32)}) is not found */";
-						}
-						else if (identity.Left(1).IsEquals("d"))
-						{
-							var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-							filesHttpURI = desktop?.Organization?.FakeFilesHttpURI;
-							portalsHttpURI = desktop?.Organization?.FakePortalsHttpURI;
-							resources = desktop != null
-								? (this.IsDebugLogEnabled ? $"/* scripts of the '{desktop.Title}' desktop */\r\n" : "") + (string.IsNullOrWhiteSpace(desktop.Scripts) ? "" : desktop.Scripts.MinifyJs())
-								: $"/* the requested desktop ({identity.Right(32)}) is not found */";
-						}
-						else
-							resources = $"/* the requested resource ({identity}) is not found */";
+						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
+						filesHttpURI = filesHttpURI ?? site?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+						portalsHttpURI = portalsHttpURI ?? site?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						lastModified = lastModified ?? site?.LastModified.ToHttpString();
+						resources = site != null
+							? (this.IsDebugLogEnabled ? $"/* scripts of the '{site.Title}' site */\r\n" : "") + (string.IsNullOrWhiteSpace(site.Scripts) ? "" : site.Scripts.MinifyJs())
+							: $"/* the requested site ({identity.Right(32)}) is not found */";
+					}
+					else if (identity.Left(1).IsEquals("d"))
+					{
+						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+						filesHttpURI = filesHttpURI ?? desktop?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+						portalsHttpURI = portalsHttpURI ?? desktop?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						lastModified = lastModified ?? desktop?.LastModified.ToHttpString();
+						resources = desktop != null
+							? (this.IsDebugLogEnabled ? $"/* scripts of the '{desktop.Title}' desktop */\r\n" : "") + (string.IsNullOrWhiteSpace(desktop.Scripts) ? "" : desktop.Scripts.MinifyJs())
+							: $"/* the requested desktop ({identity.Right(32)}) is not found */";
 					}
 					else
-						resources = await this.GetThemeResourcesAsync(identity, "js", cancellationToken).ConfigureAwait(false);
+						resources = $"/* the requested resource ({identity}) is not found */";
 				}
 				else
-					headers["X-Cache"] = "SVC";
-
-				if (this.CacheDesktopResources)
 				{
-					if ((identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity))
-						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-						{
-							{ "ETag", eTag },
-							{ "Last-Modified", lastModified },
-							{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
-							{ "Cache-Control", "public" }
-						};
-					if (!(identity.Length == 34 && identity.Right(32).IsValidUUID()) && !this.DontCacheThemes.Contains(identity))
-						await Task.WhenAll
-						(
-							Utility.Cache.SetAsync(eTag, resources, cancellationToken),
-							Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-							Utility.Cache.AddSetMembersAsync("Statics", new[] { eTag, $"{eTag}:time" }, cancellationToken)
-						).ConfigureAwait(false);
+					resources = await this.GetThemeResourcesAsync(identity, "js", cancellationToken).ConfigureAwait(false);
+					lastModified = lastModified ?? this.GetThemeResourcesLastModified(identity, type).ToHttpString();
 				}
 
 				// response
-				filesHttpURI = filesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-				portalsHttpURI = portalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+				resources = resources.Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI);
+				var headers = new Dictionary<string, string>
+				{
+					{ "Content-Type", "application/javascript; charset=utf-8" },
+					{ "X-Cache", "None" },
+					{ "X-Correlation-ID", requestInfo.CorrelationID }
+				};
+
+				if (this.CacheDesktopResources && ((identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity)))
+				{
+					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+					{
+						{ "ETag", eTag },
+						{ "Last-Modified", lastModified },
+						{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
+						{ "Cache-Control", "public" }
+					};
+					await Task.WhenAll
+					(
+						Utility.Cache.SetAsync(eTag, resources, cancellationToken),
+						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
+						isThemeResource ? Utility.Cache.AddSetMembersAsync($"statics#{identity}", new[] { eTag, $"{eTag}:time" }, cancellationToken) : Utility.Cache.AddSetMembersAsync("statics", new[] { eTag, $"{eTag}:time" }, cancellationToken)
+					).ConfigureAwait(false);
+				}
+
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
 					{ "Headers", headers.ToJson() },
-					{ "Body", resources.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Compress(this.BodyEncoding) },
+					{ "Body", resources.Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
 				};
 			}
@@ -1508,15 +1554,15 @@ namespace net.vieapps.Services.Portals
 
 		async Task<string> GetThemeResourcesAsync(string theme, string type, CancellationToken cancellationToken)
 		{
-			var isJs = type.IsEquals("js");
-			var resources = this.IsDebugLogEnabled ? $"/* {(isJs ? "scripts" : "stylesheets")} of the '{theme}' theme */\r\n" : "";
+			var isJavascript = type.IsEquals("js");
+			var resources = this.IsDebugLogEnabled ? $"/* {(isJavascript ? "scripts" : "stylesheets")} of the '{theme}' theme */\r\n" : "";
 			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", theme, type));
 			if (directory.Exists)
 				await directory.GetFiles($"*.{type}").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo =>
 				{
 					var resource = await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false);
-					resources += (isJs ? ";" : "") + (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n" : "")
-						+ (isJs ? this.DontMinifyJsThemes.Contains(theme) ? resource : resource.MinifyJs() : this.DontMinifyCssThemes.Contains(theme) ? resource : resource.MinifyCss()) + "\r\n";
+					resources += (isJavascript ? ";" : "") + (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n" : "")
+						+ (isJavascript ? this.DontMinifyJsThemes.Contains(theme) ? resource : resource.MinifyJs() : this.DontMinifyCssThemes.Contains(theme) ? resource : resource.MinifyCss()) + "\r\n";
 				}, true, false).ConfigureAwait(false);
 			return resources;
 		}
@@ -1585,7 +1631,7 @@ namespace net.vieapps.Services.Portals
 					site = (await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault();
 				}
 				else
-					site = organization.Sites?.FirstOrDefault();
+					site = organization.DefaultSite;
 			}
 
 			// stop if no site is found
@@ -1692,7 +1738,7 @@ namespace net.vieapps.Services.Portals
 				{
 					headers = new Dictionary<string, string>(headers)
 					{
-						{ "X-Cache", "SVC" },
+						{ "X-Cache", "SVC-304" },
 						{ "ETag", eTag },
 						{ "Last-Modified", lastModified },
 						{ "Cache-Control", "public" }
@@ -1751,7 +1797,7 @@ namespace net.vieapps.Services.Portals
 				}
 				headers = new Dictionary<string, string>(headers)
 				{
-					{ "X-Cache", "SVC" },
+					{ "X-Cache", "SVC-200" },
 					{ "ETag", eTag },
 					{ "Last-Modified", lastModified },
 					{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
@@ -1789,7 +1835,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				stepwatch.Restart();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {desktop.Portlets.Count} portlet(s) of {desktopInfo} => {desktop.Portlets.Select(p => p.Title).Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {desktop.Portlets?.Count} portlet(s) of {desktopInfo} => {desktop.Portlets?.Select(p => p.Title).Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 				var organizationJson = organization.ToJson(false, false, json =>
 				{
@@ -1806,7 +1852,7 @@ namespace net.vieapps.Services.Portals
 					json.Remove("Privileges");
 					json.Remove("OriginalPrivileges");
 					json["Description"] = site.Description?.NormalizeHTMLBreaks();
-					json["Domain"] = $"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www.");
+					json["Domain"] = site.Host;
 					json["Host"] = host;
 				});
 
@@ -1846,9 +1892,9 @@ namespace net.vieapps.Services.Portals
 
 				var language = desktop.WorkingLanguage ?? site.Language ?? "en-US";
 				var portletData = new ConcurrentDictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
-				await desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
+				await (desktop.Portlets ?? new List<Portlet>()).Where(portlet => portlet != null).ForEachAsync(async portlet =>
 				{
-					var data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, language, parentIdentity, contentIdentity, pageNumber, generateAsync, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					var data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, language, parentIdentity, contentIdentity, pageNumber, generateAsync, writeDesktopLogs, cancellationToken).ConfigureAwait(false);
 					if (data != null)
 						portletData[portlet.ID] = data;
 					if (writeDesktopLogs)
@@ -1869,7 +1915,7 @@ namespace net.vieapps.Services.Portals
 					{
 						var action = !string.IsNullOrWhiteSpace(parentIdentity) && !string.IsNullOrWhiteSpace(contentIdentity) ? portlet.OriginalPortlet.AlternativeAction : portlet.OriginalPortlet.Action;
 						var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
-						portletHtmls[portlet.ID] = await this.GeneratePortletAsync(portlet, isList, portletData.TryGetValue(portlet.ID, out var data) ? data : null, siteJson, desktopsJson, organization.AlwaysUseHtmlSuffix, requestInfo.CorrelationID, cancellationToken, writeDesktopLogs, fileSuffixName).ConfigureAwait(false);
+						portletHtmls[portlet.ID] = await this.GeneratePortletAsync(requestInfo, portlet, isList, portletData.TryGetValue(portlet.ID, out var data) ? data : null, siteJson, desktopsJson, organization.AlwaysUseHtmlSuffix, language, cancellationToken, writeDesktopLogs, fileSuffixName).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
@@ -1976,11 +2022,11 @@ namespace net.vieapps.Services.Portals
 				catch { }
 
 				// all scripts
-				scripts = "<script>__vieapps={ids:{" + (mainPortlet?.Get<string>("IDs") ?? $"system:\"{organization.ID}\",service:\"{this.ServiceName.ToLower()}\"") + $",parent:\"{parentIdentity}\",content:\"{contentIdentity}\"" + "},URLs:{root:\"~/\",portals:\"" + (organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) + "\",files:\"" + (organization.FakeFilesHttpURI?? Utility.FilesHttpURI) + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}}},language:{{language}},isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>" + scripts;
+				scripts = "<script>__vieapps={ids:{" + (mainPortlet?.Get<string>("IDs") ?? $"system:\"{organization.ID}\",service:\"{this.ServiceName.ToLower()}\"") + $",parent:\"{parentIdentity}\",content:\"{contentIdentity}\"" + "},URLs:{root:\"~/\",portals:\"" + (organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) + "\",files:\"" + (organization.FakeFilesHttpURI ?? Utility.FilesHttpURI) + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}},current:{" + $"alias:\"{desktop.Alias}\",id:\"{desktop.ID}\"" + "}},language:{{language}},isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>" + scripts;
 
 				// prepare HTML of all zones
 				var zoneHtmls = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-				desktop.Portlets.OrderBy(portlet => portlet.Zone).ThenBy(portlet => portlet.OrderIndex).ForEach(portlet =>
+				(desktop.Portlets ?? new List<Portlet>()).Where(portlet => portlet != null).OrderBy(portlet => portlet.Zone).ThenBy(portlet => portlet.OrderIndex).ForEach(portlet =>
 				{
 					if (!zoneHtmls.TryGetValue(portlet.Zone, out var htmls))
 					{
@@ -2035,6 +2081,7 @@ namespace net.vieapps.Services.Portals
 						{ "ETag", eTag },
 						{ "Last-Modified", lastModified },
 						{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
+						{ "X-Cache", "None" },
 						{ "Cache-Control", "public" }
 					};
 					var cacheExpiration = 0;
@@ -2062,6 +2109,7 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Unexpected error occurred while processing {desktopInfo}", ex, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				html = "<!DOCTYPE html>\r\n"
 					+ "<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n"
 					+ "<head><title>Error: " + ex.Message.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;") + "</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/></head>\r\n"
@@ -2083,7 +2131,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		async Task<JObject> PreparePortletAsync(Portlet theportlet, RequestInfo requestInfo, JObject organizationJson, JObject siteJson, JObject desktopsJson, string language, string parentIdentity, string contentIdentity, string pageNumber, Func<ContentType, JObject, Task<JObject>> generateAsync, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
+		async Task<JObject> PreparePortletAsync(Portlet theportlet, RequestInfo requestInfo, JObject organizationJson, JObject siteJson, JObject desktopsJson, string language, string parentIdentity, string contentIdentity, string pageNumber, Func<ContentType, JObject, Task<JObject>> generateAsync, bool writeLogs, CancellationToken cancellationToken)
 		{
 			// get original portlet
 			var stopwatch = Stopwatch.StartNew();
@@ -2095,7 +2143,7 @@ namespace net.vieapps.Services.Portals
 				? $"the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}]"
 				: null;
 			if (writeLogs)
-				await this.WriteLogsAsync(correlationID, $"Start to prepare data of {portletInfo}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {portletInfo}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			// get content-type
 			var contentType = await (portlet.RepositoryEntityID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -2106,7 +2154,7 @@ namespace net.vieapps.Services.Portals
 			{
 				stopwatch.Stop();
 				if (writeLogs)
-					await this.WriteLogsAsync(correlationID, $"By-pass the preparing process of {portletInfo} => Static content - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the preparing process of {portletInfo} => Static content - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				return null;
 			}
 
@@ -2126,7 +2174,7 @@ namespace net.vieapps.Services.Portals
 			var desktop = await optionsJson.Get("DesktopID", "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 
 			if (writeLogs)
-				await this.WriteLogsAsync(correlationID, $"Determine the action/expression for generating content of {portletInfo} - Action: {(isList ? "List" : "View")} - Expression: {portlet.ExpressionID ?? "N/A"} (Title: {expresion?.Title ?? "None"}{(expresion != null ? $" / Filter: {expresion.Filter != null} / Sort: {expresion.Sort != null}" : "")}) - Specified desktop: {(desktop != null ? $"{desktop.Title} [ID: {desktop.ID}]" : "(None)")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Determine the action/expression for generating content of {portletInfo} - Action: {(isList ? "List" : "View")} - Expression: {portlet.ExpressionID ?? "N/A"} (Title: {expresion?.Title ?? "None"}{(expresion != null ? $" / Filter: {expresion.Filter != null} / Sort: {expresion.Sort != null}" : "")}) - Specified desktop: {(desktop != null ? $"{desktop.Title} [ID: {desktop.ID}]" : "(None)")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			// prepare the JSON that contains the requesting information for generating content
 			var requestJson = new JObject
@@ -2207,7 +2255,7 @@ namespace net.vieapps.Services.Portals
 			try
 			{
 				if (writeLogs)
-					await this.WriteLogsAsync(correlationID, $"Call the service ({serviceURI}) to prepare data of {portletInfo}\r\n- Request:\r\n{requestJson}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Call the service ({serviceURI}) to prepare data of {portletInfo}\r\n- Request:\r\n{requestJson}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				responseJson = await generateAsync(contentType, requestJson).ConfigureAwait(false);
 			}
 			catch (Exception ex)
@@ -2218,14 +2266,14 @@ namespace net.vieapps.Services.Portals
 
 			stopwatch.Stop();
 			if (exception != null)
-				await this.WriteLogsAsync(correlationID, $"Error occurred while preparing data of {portletInfo} - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request:\r\n{requestJson}\r\n- Error:\r\n{responseJson}", exception, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error occurred while preparing data of {portletInfo} - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request:\r\n{requestJson}\r\n- Error:\r\n{responseJson}", exception, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
 			else if (writeLogs)
-				await this.WriteLogsAsync(correlationID, $"Data of {portletInfo} has been prepared - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Response:\r\n{responseJson}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Data of {portletInfo} has been prepared - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Response:\r\n{responseJson}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			return responseJson;
 		}
 
-		async Task<Tuple<string, bool, int>> GeneratePortletAsync(Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix = true, string correlationID = null, CancellationToken cancellationToken = default, bool writeLogs = false, string fileSuffixName = null)
+		async Task<Tuple<string, bool, int>> GeneratePortletAsync(RequestInfo requestInfo, Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix, string language, CancellationToken cancellationToken, bool writeLogs, string fileSuffixName)
 		{
 			// get original first
 			var stopwatch = Stopwatch.StartNew();
@@ -2234,7 +2282,7 @@ namespace net.vieapps.Services.Portals
 				? $"the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}]"
 				: null;
 			if (writeLogs)
-				await this.WriteLogsAsync(correlationID, $"Start to generate HTML code of {portletInfo}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate HTML code of {portletInfo}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			// prepare container and zones
 			var portletContainer = (await portlet.GetTemplateAsync(cancellationToken).ConfigureAwait(false)).GetXDocument();
@@ -2346,7 +2394,7 @@ namespace net.vieapps.Services.Portals
 						// raw HTML
 						if (data["RawHTML"] != null && data.Get<bool>("RawHTML"))
 							content = (data["Data"] as JValue)?.Value?.ToString();
-						
+
 						// XML to transform
 						else
 						{
@@ -2587,7 +2635,7 @@ namespace net.vieapps.Services.Portals
 								var filename = $"{$"{theportlet.Title}_{theportlet.ID}".GetANSIUri()}{fileSuffixName}";
 								await Task.WhenAll
 								(
-									this.WriteLogsAsync(correlationID, $"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request"),
+									this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request"),
 									UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xml"), xml.ToString(), false, null, cancellationToken),
 									UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xsl"), xslTemplate, false, null, cancellationToken)
 								).ConfigureAwait(false);
@@ -2614,14 +2662,14 @@ namespace net.vieapps.Services.Portals
 
 						try
 						{
-							await this.WriteLogsAsync(correlationID,
+							await this.WriteLogsAsync(requestInfo.CorrelationID,
 								$"Error occurred while transforming HTML of {portletInfo} => {ex.Message}" +
 								$"\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}{(string.IsNullOrWhiteSpace(isList ? portlet.ListSettings.Template : portlet.ViewSettings.Template) ? $"\r\n- XSL file: {portlet.Desktop?.WorkingTheme ?? "default"}/templates/{contentType.ContentTypeDefinition?.ModuleDefinition?.Directory?.ToLower() ?? "-"}/{contentType.ContentTypeDefinition?.ObjectName?.ToLower() ?? "-"}/{xslFilename}" : "")}"
 							, ex, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
 						}
 						catch (Exception e)
 						{
-							await this.WriteLogsAsync(correlationID, $"Error occurred while transforming HTML of {portletInfo} => {e.Message}", e, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
+							await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error occurred while transforming HTML of {portletInfo} => {e.Message}", e, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
 						}
 					}
 				else
@@ -2632,13 +2680,19 @@ namespace net.vieapps.Services.Portals
 				}
 
 				if (!string.IsNullOrWhiteSpace(errorMessage))
-					content = this.GenerateErrorHtml(errorMessage, errorStack, correlationID, portlet.ID, null, errorType);
+					content = this.GenerateErrorHtml(errorMessage, errorStack, requestInfo.CorrelationID, portlet.ID, null, errorType);
 
 				contentZone.Value = "{{content-holder}}";
 				html = portletContainer.ToString().Replace(StringComparison.OrdinalIgnoreCase, "{{content-holder}}", content);
 			}
 			else
+			{
 				html = portletContainer.ToString();
+				var tokens = "id,name,title,action,object,object-type,object-name,ansi-title,title-ansi".ToList();
+				tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{" + token + "}}", "[[" + token + "]]"));
+				html = html.Format(html.PrepareDoubleBracesParameters(portlet, requestInfo, new JObject { ["Site"] = siteJson, ["Desktop"] = desktopsJson, ["Language"] = language }.ToExpandoObject()));
+				tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, "[[" + token + "]]", "{{" + token + "}}"));
+			}
 
 			title = portlet.Title.GetANSIUri();
 			html = html.Format(new Dictionary<string, object>
@@ -2656,7 +2710,7 @@ namespace net.vieapps.Services.Portals
 
 			stopwatch.Stop();
 			if (writeLogs)
-				await this.WriteLogsAsync(correlationID, $"HTML code of {portletInfo} has been generated - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {portletInfo} has been generated - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			return new Tuple<string, bool, int>(html, gotError, cacheExpiration);
 		}
@@ -3939,18 +3993,17 @@ namespace net.vieapps.Services.Portals
 
 							// re-generate the identity
 							if (regenerateID)
-							{
-								if (@object.GetAttributeValue("ID") is string idValue)
-									@object.SetAttributeValue("ID", idValue.GenerateUUID());
-								else if (@object.GetAttributeValue("Id") is string idVal)
-									@object.SetAttributeValue("ID", idVal.GenerateUUID());
-							}
+								new[] { "ID", "Id" }.ForEach(name =>
+								{
+									if (@object.GetAttributeValue(name) is string objectID)
+										@object.SetAttributeValue(name, objectID.GenerateUUID());
+								});
 
 							// update database
 							var existed = await RepositoryMediator.GetAsync<T>(null, @object.GetEntityID(), this.CancellationToken).ConfigureAwait(false);
 							if (existed != null)
 							{
-								@object.GetPublicAttributes().Where(attribute => @object.GetAttributeValue(attribute) == null).ForEach(attribute => @object.SetAttributeValue(attribute, existed.GetAttributeValue(attribute)));
+								@object.GetPublicAttributes(attribute => !attribute.IsStatic && attribute.CanRead && attribute.CanWrite && @object.GetAttributeValue(attribute) == null).ForEach(attribute => @object.SetAttributeValue(attribute, existed.GetAttributeValue(attribute)));
 								try
 								{
 									await RepositoryMediator.UpdateAsync(null, @object, false, userID, this.CancellationToken).ConfigureAwait(false);
@@ -4232,6 +4285,12 @@ namespace net.vieapps.Services.Portals
 				case "cms.form":
 					return requestInfo.SyncFormAsync(cancellationToken, sendNotifications);
 
+				case "crawler":
+				case "crawlers":
+				case "cms.crawler":
+				case "cms.crawlers":
+					return requestInfo.SyncCrawlerAsync(cancellationToken, sendNotifications);
+
 				default:
 					return Task.FromException<JObject>(new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})"));
 			}
@@ -4293,6 +4352,10 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsStartsWith("Category#") || message.Type.IsStartsWith("CMS.Category#"))
 				await message.ProcessInterCommunicateMessageOfCategoryAsync(cancellationToken).ConfigureAwait(false);
 
+			// messages of a Crawler
+			else if (message.Type.IsStartsWith("Crawler#") || message.Type.IsStartsWith("CMS.Crawler#"))
+				await message.ProcessInterCommunicateMessageOfCrawlerAsync(cancellationToken).ConfigureAwait(false);
+
 			stopwatch.Stop();
 			if (Utility.WriteMessageLogs)
 				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", cancellationToken, "Updates").ConfigureAwait(false);
@@ -4347,7 +4410,7 @@ namespace net.vieapps.Services.Portals
 				if (sites.Any())
 					homeURLs = homeURLs.Concat(sites.Select(site =>
 					{
-						var domain = $"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www.");
+						var domain = site.Host;
 						if (site.RedirectToNoneWWW && domain.IsStartsWith("www."))
 							domain = domain.Right(domain.Length - 4);
 						return $"{(site.AlwaysUseHTTPs ? "https" : "http")}://{domain}";
@@ -4474,7 +4537,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					organization.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true, false),
-					Utility.Cache.RemoveAsync(await Utility.Cache.GetSetMembersAsync("Statics", cancellationToken).ConfigureAwait(false), cancellationToken)
+					Utility.Cache.RemoveAsync(await Utility.Cache.GetSetMembersAsync("statics", cancellationToken).ConfigureAwait(false), cancellationToken)
 				).ConfigureAwait(false);
 
 			else if (module != null)
@@ -4543,8 +4606,7 @@ namespace net.vieapps.Services.Portals
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
 			var entityInfo = requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity");
-			var @object = await this.GetBusinessObjectAsync(entityInfo, requestInfo.GetObjectIdentity(true), cancellationToken).ConfigureAwait(false) as IPortalObject;
-			if (@object == null)
+			if (!(await this.GetBusinessObjectAsync(entityInfo, requestInfo.GetObjectIdentity(true), cancellationToken).ConfigureAwait(false) is IPortalObject @object))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
 			var organization = @object is Organization
@@ -4688,7 +4750,7 @@ namespace net.vieapps.Services.Portals
 				form.Status = approvalStatus;
 				form.LastModified = DateTime.Now;
 				form.LastModifiedID = requestInfo.Session.User.ID;
-				json = await form.UpdateAsync(requestInfo, oldStatus,cancellationToken).ConfigureAwait(false);
+				json = await form.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
 			}
 
 			return json;
@@ -4855,6 +4917,174 @@ namespace net.vieapps.Services.Portals
 			catch (Exception ex)
 			{
 				await this.WriteLogsAsync(correlationID, $"Error occurred while refining thumbnail images => {ex.Message}", ex, this.ServiceName, "Thumbnails").ConfigureAwait(false);
+			}
+		}
+		#endregion
+
+		#region Generate feeds
+		/// <summary>
+		/// Generate feeds
+		/// </summary>
+		/// <param name="requestInfo"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		async Task<JToken> GenerateFeedAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var asJson = "true".IsEquals(requestInfo.GetParameter("x-feed-json")) || "json".IsEquals(requestInfo.GetQueryParameter("alt"));
+			try
+			{
+				// prepare required information
+				var stopwatch = Stopwatch.StartNew();
+				var organizationIdentity = requestInfo.GetParameter("x-system");
+				if (string.IsNullOrWhiteSpace(organizationIdentity))
+					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+				var organization = await (organizationIdentity.IsValidUUID() ? organizationIdentity.GetOrganizationByIDAsync(cancellationToken) : organizationIdentity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false);
+				if (organization == null)
+					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+				// get site by domain
+				var host = requestInfo.GetParameter("x-host");
+				var site = await (host ?? "").GetSiteByDomainAsync(Utility.DefaultSite?.ID, cancellationToken).ConfigureAwait(false) ?? organization?.DefaultSite;
+				if (site == null)
+					throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(this.IsDebugLogEnabled ? $" because the organization ({ organization.Title }) has no site [{organization.Sites?.Count}]" : "")}");
+
+				if (this.IsDebugResultsEnabled)
+					await this.WriteLogsAsync(requestInfo, $"Start to generate feed: {requestInfo.GetURI()}").ConfigureAwait(false);
+
+				var contentTypes = organization.Modules.Select(module => module.ContentTypes.Where(cntType => cntType.ContentTypeDefinitionID == "B0000000000000000000000000000002")).SelectMany(cntType => cntType).ToList();
+				Category category = null;
+				var categoryAlias = requestInfo.GetParameter("x-feed-category")?.NormalizeAlias();
+				if (!string.IsNullOrWhiteSpace(categoryAlias))
+					for (var index = 0; index < contentTypes.Count; index++)
+					{
+						var categoryContentTypes = organization.Modules.Select(module => module.ContentTypes.Where(cntType => cntType.ContentTypeDefinitionID == "B0000000000000000000000000000001")).SelectMany(cntType => cntType).ToList();
+						var contentType = categoryContentTypes.FirstOrDefault(cntType => cntType.RepositoryID == contentTypes[index].RepositoryID);
+						if (contentType != null)
+						{
+							category = await contentType.ID.GetCategoryByAliasAsync(categoryAlias, cancellationToken).ConfigureAwait(false);
+							if (category != null)
+							{
+								contentTypes = new List<ContentType> { contentTypes[index] };
+								break;
+							}
+						}
+					}
+
+				// search for contents
+				var contents = new List<Content>();
+				var thumbnails = new JObject();
+				await contentTypes.ForEachAsync(async contentType =>
+				{
+					var filter = Filters<Content>.And
+					(
+						Filters<Content>.Equals("SystemID", organization.ID),
+						Filters<Content>.Equals("RepositoryID", contentType.ModuleID),
+						Filters<Content>.Equals("RepositoryEntityID", contentType.ID),
+						Filters<Content>.LessThanOrEquals("StartDate", "@today"),
+						Filters<Content>.Or
+						(
+							Filters<Content>.IsNull("EndDate"),
+							Filters<Content>.GreaterOrEquals("EndDate", "@today")
+						),
+						Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString())
+					);
+					if (category != null)
+						filter.Add(Filters<Content>.Equals("CategoryID", category.ID));
+					var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
+					var results = await requestInfo.SearchAsync(null, filter, sort, 20, 1, contentType.ID, -1, cancellationToken).ConfigureAwait(false);
+					results.Item1.Where(@object => contents.Find(obj => obj.ID == @object.ID) == null).ForEach(@object => contents.Add(@object));
+					(results.Item4 as JObject)?.ForEach(kvp => thumbnails[kvp.Key] = kvp.Value);
+				}, true, false).ConfigureAwait(false);
+
+				// generate feed
+				contents = contents.OrderByDescending(content => content.StartDate).ThenByDescending(content => content.PublishedTime).ToList();
+				var useAlias = (requestInfo.GetParameter("x-url") ?? "").IsContains($"~{organization.Alias}/");
+				if (!useAlias)
+					host = requestInfo.GetHeaderParameter("x-srp-host") ?? site.Host;
+				var href = site.GetURL(host, requestInfo.GetParameter("x-url"));
+				var baseHref = useAlias ? $"/~{organization.Alias}/" : "/";
+
+				var feed = new XElement(
+					"feed",
+					new XElement("id", $"tag:{host},site-{site.ID}{(category != null ? $",category-{category.ID}" : "")}"),
+					new XElement("updated", (contents.Any() ? contents.OrderByDescending(content => content.LastModified).First().LastModified : site.LastModified).ToIsoString()),
+					new XElement("title", (category != null ? $"{category.Title} :: " : "") + site.Title),
+					new XElement("link", new XAttribute("rel", "alternate"), new XAttribute("type", "text/html"), new XAttribute("href", $"{href}{category?.GetURL().Replace("~/", baseHref) ?? "~/"}"))
+				);
+
+				await contents.ForEachAsync(async content =>
+				{
+					var entry = new XElement(
+						"entry",
+						new XElement("id", $"tag:{host},content-{content.ID}"),
+						new XElement("published", content.PublishedTime.Value.ToIsoString()),
+						new XElement("updated", content.LastModified.ToIsoString()),
+						new XElement("title", content.Title),
+						new XElement("summary", $"{content.Summary?.RemoveTags().Replace("\t", "").Replace("\r", "").Replace("\n", " ") ?? ""}", new XAttribute("type", "text")),
+						new XElement("link", new XAttribute("rel", "alternate"), new XAttribute("type", "text/html"), new XAttribute("href", $"{href}{content.GetURL().Replace("~/", baseHref)}"))
+					);
+					feed.Add(entry);
+
+					var media = string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI)
+						? thumbnails.GetThumbnailURL(content.ID)
+						: thumbnails.GetThumbnailURL(content.ID)?.Replace(Utility.FilesHttpURI, organization.FakeFilesHttpURI);
+					if (!string.IsNullOrWhiteSpace(media))
+						entry.Add(new XElement("media", new XAttribute("url", media)));
+
+					if (content.Category != null)
+						entry.Add(new XElement(
+							"category",
+							new XAttribute("label", content.Category.Title),
+							new XAttribute("term", content.Category.ID),
+							new XAttribute("scheme", $"{href}{content.Category.GetURL().Replace("~/", baseHref)}")
+						));
+
+					var categories = new List<Category>();
+					if (content.OtherCategories != null && content.OtherCategories.Any())
+						await content.OtherCategories.ForEachAsync(async id => categories.Add(await id.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false)), true, false).ConfigureAwait(false);
+					categories.Where(cat => cat != null).ForEach(cat => entry.Add(new XElement(
+						"category",
+						new XAttribute("label", cat.Title),
+						new XAttribute("term", cat.ID),
+						new XAttribute("scheme", $"{href}{cat.GetURL().Replace("~/", baseHref)}")
+					)));
+				}, true, false).ConfigureAwait(false);
+
+				var body = asJson
+					? feed.ToJson().Get<JObject>("feed").ToString()
+					: null;
+
+				if (body == null)
+				{
+					body = $"{new XDeclaration("1.0", "utf-8", "yes")}\r\n{feed.CleanInvalidCharacters()}";
+					body = body.Replace("<feed", $"<feed xmlns=\"http://www.w3.org/2005/Atom\" xmlns:media=\"http://search.yahoo.com/mrss/\"");
+					body = body.Replace("<media", "<media:thumbnail").Replace("></media>", "/>").Replace("></link>", "/>").Replace("></category>", "/>").Replace("></summary>", "/>").Replace(" />", "/>");
+				}
+
+				stopwatch.Stop();
+				if (this.IsDebugResultsEnabled)
+					await this.WriteLogsAsync(requestInfo, $"Generate feed successful- Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+
+				// response
+				return new JObject
+				{
+					{ "StatusCode", (int)HttpStatusCode.OK },
+					{ "Headers", new JObject { [ "Content-Type"] = $"application/{(asJson ? "json" : "atom+xml")}; charset=utf-8" } },
+					{ "Body", body.Compress(this.BodyEncoding) },
+					{ "BodyEncoding", this.BodyEncoding }
+				};
+			}
+			catch (Exception ex)
+			{
+				await requestInfo.WriteErrorAsync(ex, cancellationToken, $"Error occurred while generating a feed => {ex.Message}").ConfigureAwait(false);
+				var body = asJson ? new JObject { ["error"] = ex.Message }.ToString() : new XElement("error", ex.Message).ToString();
+				return new JObject
+				{
+					{ "StatusCode", (int)HttpStatusCode.InternalServerError },
+					{ "Headers", new JObject { [ "Content-Type"] = $"application/{(asJson ? "json" : "atom+xml")}; charset=utf-8" } },
+					{ "Body", body.Compress(this.BodyEncoding) },
+					{ "BodyEncoding", this.BodyEncoding }
+				};
 			}
 		}
 		#endregion

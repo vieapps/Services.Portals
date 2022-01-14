@@ -11,6 +11,7 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using net.vieapps.Services.Portals.Exceptions;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -20,6 +21,8 @@ namespace net.vieapps.Services.Portals
 		internal static ConcurrentDictionary<string, Category> Categories { get; } = new ConcurrentDictionary<string, Category>(StringComparer.OrdinalIgnoreCase);
 
 		internal static ConcurrentDictionary<string, Category> CategoriesByAlias { get; } = new ConcurrentDictionary<string, Category>(StringComparer.OrdinalIgnoreCase);
+
+		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",All,Feed,Feeds,Atom,Rss").ToLower().ToHashSet();
 
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,EmailSettings".ToHashSet();
 
@@ -36,11 +39,11 @@ namespace net.vieapps.Services.Portals
 				if (clear)
 					category.Remove();
 
-				CategoryProcessor.Categories[category.ID] = category;
-				CategoryProcessor.CategoriesByAlias[$"{category.RepositoryEntityID}:{category.Alias}"] = category;
-
 				if (updateCache)
 					Utility.Cache.Set(category);
+
+				CategoryProcessor.Categories[category.ID] = category;
+				CategoryProcessor.CategoriesByAlias[$"{category.RepositoryEntityID}:{category.Alias}"] = category;
 			}
 			return category;
 		}
@@ -261,7 +264,7 @@ namespace net.vieapps.Services.Portals
 
 			// page size to clear related cached
 			if (string.IsNullOrWhiteSpace(query))
-				await Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).ConfigureAwait(false );
+				await Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).ConfigureAwait(false);
 
 			// store object identities to clear related cached
 			var contentType = objects.FirstOrDefault()?.ContentType;
@@ -310,15 +313,24 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The module is invalid");
 
 			var contentTypeID = filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id") ?? requestInfo.GetParameter("ContentTypeID");
+			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
+				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(module.WorkingPrivileges, null, organization, requestInfo.CorrelationID);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// process cache
+			// other parameters
+			var showThumbnails = requestInfo.GetParameter("x-object-thumbnails") != null || requestInfo.GetParameter("ShowThumbnails") != null;
+			var showURLs = requestInfo.GetParameter("x-object-urls") != null || requestInfo.GetParameter("ShowURLs") != null;
+			var showChildren = requestInfo.GetParameter("x-object-children") != null || requestInfo.GetParameter("ShowChildren") != null;
 			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));
-			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber) : null;
+
+			// process cache
+			var suffix = string.IsNullOrWhiteSpace(query) ? (showThumbnails ? ":t" : "") + (showURLs ? ":u" : "") + (showChildren ? ":c" : "") : null;
+			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber, string.IsNullOrWhiteSpace(suffix) ? null : suffix) : null;
 			if (cacheKeyOfObjectsJson != null && !addChildren)
 			{
 				var json = await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsJson, cancellationToken).ConfigureAwait(false);
@@ -327,7 +339,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// search if has no cache
-			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentTypeID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
+			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentTypeID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken, showThumbnails).ConfigureAwait(false);
 			var totalRecords = results.Item1;
 			var objects = results.Item2;
 			var thumbnails = results.Item3;
@@ -338,20 +350,70 @@ namespace net.vieapps.Services.Portals
 				pageNumber = totalPages;
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
-			if (addChildren)
+			if (addChildren || showChildren)
 				await objects.Where(category => category != null && category._childrenIDs == null).ForEachAsync(category => category.FindChildrenAsync(cancellationToken), true, false).ConfigureAwait(false);
 
-			var response = new JObject()
+			var objectsJson = objects.Where(category => category != null).Select(category => category.ToJson(addChildren, false)).ToList();
+			var siteURL = organization.DefaultSite?.GetURL(requestInfo.GetHeaderParameter("x-srp-host"), requestInfo.GetParameter("x-url")) + "/";
+
+			if (showThumbnails || showURLs || (showChildren && !addChildren))
+				await objectsJson.ForEachAsync(async json =>
+				{
+					json.Remove("Privileges");
+					json.Remove("OriginalPrivileges");
+					json.Remove("Notifications");
+					json.Remove("EmailSettings");
+
+					var category = await json.Get<string>("ID").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+
+					if (showThumbnails)
+						json["ThumbnailURL"] = organization.NormalizeURLs(thumbnails?.GetThumbnailURL(category.ID));
+
+					if (showURLs)
+						json["URL"] = organization.NormalizeURLs(category.GetURL(), true, siteURL);
+
+					if (showChildren && !addChildren)
+					{
+						var childrenJson = category.Children?.Where(cat => cat != null).OrderBy(cat => cat.OrderIndex).Select(cat => cat.ToJson(false, false)).ToList();
+						await childrenJson.ForEachAsync(async cjson =>
+						{
+							cjson.Remove("Privileges");
+							cjson.Remove("OriginalPrivileges");
+							cjson.Remove("Notifications");
+							cjson.Remove("EmailSettings");
+
+							var cat = await cjson.Get<string>("ID").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+
+							if (showThumbnails)
+								await cjson.GenerateThumbnailURLAsync(cat, requestInfo, cancellationToken).ConfigureAwait(false);
+
+							if (showURLs)
+								cjson["URL"] = organization.NormalizeURLs(cat.GetURL(), true, siteURL);
+						}).ConfigureAwait(false);
+
+						json["Children"] = childrenJson.ToJArray();
+					}
+				}).ConfigureAwait(false);
+
+			var response = new JObject
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.Where(category => category != null).Select(category => category.ToJson(addChildren, false)).ToJArray() }
+				{ "Objects", objectsJson.ToJArray() }
 			};
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query) && !addChildren)
-				await Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
+			{
+				var cacheKeys = new[] { cacheKeyOfObjectsJson }.Concat(results.Item4).ToList();
+				await Task.WhenAll
+				(
+					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken),
+					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationToken),
+					Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS categories\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask
+				).ConfigureAwait(false);
+			}
 
 			// response
 			return response;
@@ -382,6 +444,18 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// check the exising the the alias
+			var alias = request.Get<string>("Alias");
+			if (!string.IsNullOrWhiteSpace(alias) && CategoryProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
+				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another category");
+
+			if (!string.IsNullOrWhiteSpace(alias))
+			{
+				var existing = await contentType.ID.GetCategoryByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+				if (existing != null)
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another category");
+			}
+
 			// gathering information
 			var category = request.CreateCategoryInstance("SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
@@ -396,11 +470,7 @@ namespace net.vieapps.Services.Portals
 				obj._childrenIDs = new List<string>();
 			});
 
-			category.Alias = string.IsNullOrWhiteSpace(category.Alias) ? category.Title.NormalizeAlias() : category.Alias.NormalizeAlias();
-			var existing = await contentType.ID.GetCategoryByAliasAsync(category.Alias, cancellationToken).ConfigureAwait(false);
-			if (existing != null)
-				throw new InformationExistedException($"The alias ({category.Alias}) was used by another category");
-
+			category.Alias = string.IsNullOrWhiteSpace(alias) ? category.Title.NormalizeAlias() : alias.NormalizeAlias();
 			category.OrderIndex = (await CategoryProcessor.GetLastOrderIndexAsync(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
 
 			// create new
@@ -556,23 +626,29 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			var request = requestInfo.GetBodyExpando();
 			var oldParentID = category.ParentID;
 			var oldAlias = category.Alias;
 			var oldStatus = category.Status;
-			category.UpdateCategoryInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+
+			var alias = request.Get<string>("Alias");
+			if (!string.IsNullOrWhiteSpace(alias) && CategoryProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
+				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another category");
+
+			if (!string.IsNullOrWhiteSpace(alias) && !alias.IsEquals(oldAlias))
+			{
+				var existing = await category.RepositoryEntityID.GetCategoryByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+				if (existing != null && !existing.ID.Equals(category.ID))
+					throw new InformationExistedException($"The alias ({category.Alias}) was used by another category");
+			}
+
+			category.UpdateCategoryInstance(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? oldAlias : obj.Alias.NormalizeAlias();
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
 			});
-
-			if (!category.Alias.IsEquals(oldAlias))
-			{
-				var existing = await category.RepositoryEntityID.GetCategoryByAliasAsync(category.Alias, cancellationToken).ConfigureAwait(false);
-				if (existing != null && !existing.ID.Equals(category.ID))
-					throw new InformationExistedException($"The alias ({category.Alias}) was used by another category");
-			}
 
 			if (category.ParentCategory != null && !category.ParentID.IsEquals(oldParentID))
 			{
@@ -1002,6 +1078,10 @@ namespace net.vieapps.Services.Portals
 				{ "App", sort.ToClientJson().ToString(Formatting.None) }
 			};
 
+			// prepare cache
+			if (requestInfo.GetParameter("x-no-cache") != null || requestInfo.GetParameter("x-force-cache") != null)
+				await Utility.Cache.RemoveAsync(new[] { Extensions.GetCacheKeyOfTotalObjects(filter, sort), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) }, cancellationToken).ConfigureAwait(false);
+
 			// search
 			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", false)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
 			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
@@ -1027,33 +1107,22 @@ namespace net.vieapps.Services.Portals
 				false,
 				json =>
 				{
+					json.Remove("Privileges");
+					json.Remove("Notifications");
+					json.Remove("EmailSettings");
 					json["Summary"] = category.Description?.NormalizeHTMLBreaks();
 					json["URL"] = category.GetURL(desktop);
 					json["ThumbnailURL"] = thumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-					json.Remove("Privileges");
-					json.Remove("Notifications");
-					json.Remove("EmailSettings");
 				},
-				async json =>
+				async (json, cat) =>
 				{
-					try
-					{
-						var cat = await json.Get("ID", "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
-						if (cat != null)
-						{
-							var thumbs = await requestInfo.GetThumbnailsAsync(cat.ID, cat.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-							json["Summary"] = cat.Description?.NormalizeHTMLBreaks();
-							json["URL"] = cat.GetURL(desktop);
-							json["ThumbnailURL"] = thumbs?.GetThumbnailURL(cat.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
-						}
-					}
-					catch (Exception ex)
-					{
-						await requestInfo.WriteErrorAsync(ex, cancellationToken, $"Error occurred while fetching thumbnails of a category => {ex.Message}").ConfigureAwait(false);
-					}
 					json.Remove("Privileges");
 					json.Remove("Notifications");
 					json.Remove("EmailSettings");
+					json["Summary"] = cat.Description?.NormalizeHTMLBreaks();
+					json["URL"] = cat.GetURL(desktop);
+					if (showThumbnails)
+						await json.GenerateThumbnailURLAsync(cat, requestInfo, cancellationToken, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight).ConfigureAwait(false);
 				},
 				level,
 				maxLevel
@@ -1066,6 +1135,19 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filterBy },
 				{ "SortBy", sortBy }
 			};
+		}
+
+		static async Task GenerateThumbnailURLAsync(this JObject json, Category category, RequestInfo requestInfo, CancellationToken cancellationToken, bool pngThumbnails = false, bool bigThumbnails = false, int thumbnailsWidth = 0, int thumbnailsHeight = 0)
+		{
+			try
+			{
+				var thumbs = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+				json["ThumbnailURL"] = thumbs?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
+			}
+			catch (Exception ex)
+			{
+				await requestInfo.WriteErrorAsync(ex, cancellationToken, $"Error occurred while fetching thumbnails of a category => {ex.Message}").ConfigureAwait(false);
+			}
 		}
 
 		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Category category, string thumbnailURL, int level, int maxLevel = 0, bool pngThumbnails = false, bool bigThumbnails = false, int thumbnailsWidth = 0, int thumbnailsHeight = 0, CancellationToken cancellationToken = default)

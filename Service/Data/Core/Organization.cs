@@ -220,6 +220,9 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Site> Sites => this.FindSites();
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public Site DefaultSite => this.Sites?.FirstOrDefault(site => "*".Equals(site.SubDomain)) ?? this.Sites?.FirstOrDefault();
+
 		internal List<string> _moduleIDs;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]

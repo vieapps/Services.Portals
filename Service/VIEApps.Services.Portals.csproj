@@ -1,19 +1,19 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>net5.0;netstandard2.0</TargetFrameworks>
+		<TargetFrameworks>net6.0;net5.0;netstandard2.0</TargetFrameworks>
 		<WarningLevel>3</WarningLevel>
-		<NoWarn>1573,1591,CA1507,CA1068,CA1822,IDE0054,IDE0057,IDE0063,IDE0066,IDE0074,IDE0083,IDE0090</NoWarn>
+		<NoWarn>1573,1591,CA1507,CA1068,CA1822,IDE0054,IDE0056,IDE0057,IDE0063,IDE0066,IDE0074,IDE0083,IDE0090</NoWarn>
 		<RootNamespace>net.vieapps.Services.Portals</RootNamespace>
 		<AssemblyName>VIEApps.Services.Portals</AssemblyName>
 		<AssemblyTitle>VIEApps NGX Portals</AssemblyTitle>
 		<Authors>VIEApps.net</Authors>
 		<Company>VIEApps.net</Company>
 		<Product>VIEApps NGX</Product>
-		<Copyright>© 2021 VIEApps.net</Copyright>
-		<AssemblyVersion>10.4$(ReleaseVersion)</AssemblyVersion>
-		<FileVersion>10.4$(ReleaseVersion)</FileVersion>
-		<InformationalVersion>10.4.$([System.DateTime]::Now.Year).$([System.DateTime]::Now.Month).$([System.DateTime]::Now.Day)@$(TargetFramework)#$(ReleaseRevision)</InformationalVersion>
+		<Copyright>© $([System.DateTime]::Now.Year) VIEApps.net</Copyright>
+		<AssemblyVersion>10.5$(ReleaseVersion)</AssemblyVersion>
+		<FileVersion>10.5$(ReleaseVersion)</FileVersion>
+		<InformationalVersion>10.5.$([System.DateTime]::Now.Year).$([System.DateTime]::Now.Month).$([System.DateTime]::Now.Day)@$(TargetFramework)#$(ReleaseRevision)</InformationalVersion>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -22,7 +22,7 @@
 
 	<ItemGroup>
 	  <PackageReference Include="Microsoft.AspNetCore.StaticFiles" Version="2.2.0" />
-	  <PackageReference Include="VIEApps.Components.Utility.Excel" Version="10.4.2109.7" />
+	  <PackageReference Include="VIEApps.Components.Utility.Excel" Version="10.5.2201.1" />
 	</ItemGroup>
 
 	<ItemGroup>

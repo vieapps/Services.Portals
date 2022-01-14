@@ -7,7 +7,6 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -956,8 +955,12 @@ namespace net.vieapps.Services.Portals
 			// as lookup
 			if (parent != null && options.Get("AsLookup", false))
 			{
-				// get cache
+				// prepare cache
 				var cacheKey = $"{parent.ID}:xml:o#{optionsJson.ToString(Formatting.None).GenerateUUID()}:p#{paginationJson.ToString(Formatting.None).GenerateUUID()}";
+				if (requestInfo.GetParameter("x-no-cache") != null || requestInfo.GetParameter("x-force-cache") != null)
+					await Utility.Cache.RemoveAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+
+				// get cache
 				data = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 
 				// process if has no cache
@@ -1015,8 +1018,12 @@ namespace net.vieapps.Services.Portals
 				if (position > 0)
 					requestedURL = requestedURL.Left(position);
 
+				// prepare cache
+				var cacheKey = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
+				if (requestInfo.GetParameter("x-no-cache") != null || requestInfo.GetParameter("x-force-cache") != null)
+					await Utility.Cache.RemoveAsync(new[] { cacheKey, Extensions.GetCacheKeyOfTotalObjects(filter, sort), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) }, cancellationToken).ConfigureAwait(false);
+
 				// get cache
-				var cacheKey = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, optionsJson.ToString(Formatting.None).GenerateUUID());
 				data = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 
 				// process if has no cache
@@ -1279,7 +1286,7 @@ namespace net.vieapps.Services.Portals
 							{ "x-menu-repository-entity-id", link.LookupRepositoryEntityID },
 							{ "x-menu-repository-object-id", link.LookupRepositoryObjectID },
 							{ "x-menu-level", $"{level + 1}" },
-							{ "x-menu-maxlevel", $"{maxLevel}" }
+							{ "x-menu-max-level", $"{maxLevel}" }
 						}
 					}, cancellationToken).ConfigureAwait(false);
 				}

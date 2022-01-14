@@ -218,13 +218,13 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Portlet> Portlets
 		{
-			get => this._portlets ?? (this._portlets = this.FindPortlets());
+			get => this._portlets ?? (this._portlets = this.FindPortlets().Where(portlet => portlet != null).ToList());
 			set => this._portlets = value != null && value.Count < 1 ? null : value;
 		}
 
 		internal List<Portlet> FindPortlets(bool notifyPropertyChanged = true, List<Portlet> portlets = null)
 		{
-			this._portlets = portlets ?? (this.ID ?? "").FindPortlets();
+			this._portlets = (portlets ?? (this.ID ?? "").FindPortlets()).Where(portlet => portlet != null).ToList();
 			if (notifyPropertyChanged)
 				this.NotifyPropertyChanged("ThePortlets");
 			return this._portlets;

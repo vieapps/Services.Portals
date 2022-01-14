@@ -38,6 +38,8 @@ namespace net.vieapps.Services.Portals
 
 		static HashSet<string> CmsPortals { get; } = "_admin,admin.aspx,_cms,cms.aspx".ToHashSet();
 
+		static HashSet<string> Feeds { get; } = "feed,feed.xml,feed.json,atom,atom.xml,atom.json,rss,rss.xml,rss.json".ToHashSet();
+
 		static bool UseShortURLs => "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
 
 		static string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
@@ -413,14 +415,20 @@ namespace net.vieapps.Services.Portals
 					// system/oranization identity or service
 					if (firstPathSegment.StartsWith("~"))
 					{
-						// specifict service
+						// a specified service
 						if (requestSegments[0].IsStartsWith("~apis"))
 							specialRequest = "service";
+
+						else if (Handler.Feeds.Contains(firstPathSegment.Right(firstPathSegment.Length - 1)))
+							specialRequest = "feed";
+
+						// a specified system
 						else
 						{
 							systemIdentity = firstPathSegment.Right(firstPathSegment.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, ".html", "").GetANSIUri(true, false);
 							query["x-system"] = systemIdentity;
 						}
+
 						requestSegments = pathSegments.Skip(1).ToArray();
 						if (requestSegments.Length > 0 && specialRequest.IsEquals("service"))
 						{
@@ -430,7 +438,7 @@ namespace net.vieapps.Services.Portals
 						}
 					}
 
-					// special requests (_initializer, _validator, _login, _logout) or special resources (_assets, _css, _fonts, _images, _js)
+					// special requests (_initializer, _validator, _login, _logout, _feed) or special resources (_assets, _css, _fonts, _images, _js)
 					else if (firstPathSegment.StartsWith("_"))
 					{
 						// special requests
@@ -445,6 +453,9 @@ namespace net.vieapps.Services.Portals
 
 						else if (Handler.LogOuts.Contains(firstPathSegment))
 							specialRequest = "logout";
+
+						else if (Handler.Feeds.Contains(firstPathSegment.Right(firstPathSegment.Length - 1)))
+							specialRequest = "feed";
 
 						// special resources
 						else
@@ -470,7 +481,7 @@ namespace net.vieapps.Services.Portals
 				// normalize info of requests
 				if (requestSegments.Length > 0 && specialRequest.IsEquals(""))
 				{
-					var firstRequestSegment = requestSegments[0].ToLower();
+					var firstRequestSegment = requestSegments.First().ToLower();
 
 					// special requests
 					if (Handler.Initializers.Contains(firstRequestSegment))
@@ -500,6 +511,12 @@ namespace net.vieapps.Services.Portals
 					else if (Handler.CmsPortals.Contains(firstRequestSegment))
 					{
 						specialRequest = "cms";
+						requestSegments = Array.Empty<string>();
+					}
+
+					else if (Handler.Feeds.Contains(firstRequestSegment))
+					{
+						specialRequest = "feed";
 						requestSegments = Array.Empty<string>();
 					}
 
@@ -543,11 +560,12 @@ namespace net.vieapps.Services.Portals
 			if (!httpVerb.IsEquals("GET") && !specialRequest.IsEquals("login") && !specialRequest.IsEquals("service"))
 				throw new MethodNotAllowedException(httpVerb);
 
+			// prepare headers
 			var headers = context.Request.Headers.ToDictionary(dictionary =>
 			{
 				Handler.ExcludedHeaders.ForEach(name => dictionary.Remove(name));
 				dictionary.Keys.Where(name => name.IsStartsWith("cf-") || name.IsStartsWith("sec-")).ToList().ForEach(name => dictionary.Remove(name));
-				dictionary["x-host"] = context.GetParameter("Host");
+				dictionary["x-host"] = context.GetParameter("Host") ?? requestURI.Host;
 				dictionary["x-url"] = "https".IsEquals(context.GetHeaderParameter("x-forwarded-proto") ?? context.GetHeaderParameter("x-original-proto")) && !"https".IsEquals(requestURI.Scheme)
 					? requestURI.AbsoluteUri.Replace(StringComparison.OrdinalIgnoreCase, $"{requestURI.Scheme}://", "https://")
 					: requestURI.AbsoluteUri;
@@ -556,6 +574,18 @@ namespace net.vieapps.Services.Portals
 				dictionary["x-environment-os-info"] = osInfo;
 			});
 
+			if (specialRequest.IsEquals("feed"))
+			{
+				if (requestURI.AbsolutePath.IsEndsWith(".json"))
+					headers["x-feed-json"] = "true";
+				var categoryAlias = context.GetRequestPathSegments().Last();
+				categoryAlias = categoryAlias.Replace(StringComparison.OrdinalIgnoreCase, ".xml", "").Replace(StringComparison.OrdinalIgnoreCase, ".json", "").Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "");
+				categoryAlias = categoryAlias.Replace(StringComparison.OrdinalIgnoreCase, "feed", "").Replace(StringComparison.OrdinalIgnoreCase, "atom", "").Replace(StringComparison.OrdinalIgnoreCase, "rss", "");
+				if (!string.IsNullOrWhiteSpace(categoryAlias))
+					headers["x-feed-category"] = categoryAlias;
+			}
+
+			// prepare extra info
 			var extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			if (queryString.Remove("x-request-extra", out var extraInfo) && !string.IsNullOrWhiteSpace(extraInfo))
 				try
@@ -627,7 +657,9 @@ namespace net.vieapps.Services.Portals
 								else if (type.IsEquals("assets"))
 									type = type.IsStartsWith("img") || type.IsStartsWith("image")
 										? "images"
-										: type.IsStartsWith("font") ? "fonts" : "";
+										: type.IsStartsWith("font")
+											? "fonts"
+											: path.ToList(".").Last();
 
 								cacheKey = requestURI.ToString().ToLower();
 								cacheKey = isThemeResource && (type.IsEquals("css") || type.IsEquals("js")) && !(identity.Length == 34 && identity.Right(32).IsValidUUID())
@@ -694,8 +726,9 @@ namespace net.vieapps.Services.Portals
 								}
 
 								// process cache
+								var watch = Stopwatch.StartNew();
 								if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Attempt to process the CMS Portals service cache ({requestURI})").ConfigureAwait(false);
+									await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Attempt to process the CMS Portals service cache => {requestURI} ({cacheKey})").ConfigureAwait(false);
 
 								// last modified
 								var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
@@ -707,7 +740,7 @@ namespace net.vieapps.Services.Portals
 									{
 										context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 										{
-											{ "X-Cache", "HTTP" },
+											{ "X-Cache", "HTTP-304" },
 											{ "X-Correlation-ID", correlationID },
 											{ "Content-Type", $"{contentType}; charset=utf-8" },
 											{ "ETag", eTag },
@@ -715,20 +748,22 @@ namespace net.vieapps.Services.Portals
 										});
 
 										if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
-											await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => not modified ({eTag} - {lastModified})").ConfigureAwait(false);
+											await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag} - {lastModified}) - Excution times: {watch.GetElapsedTimes()}").ConfigureAwait(false);
 
 										return;
 									}
 								}
 
 								// cached data
+								watch.Restart();
 								var cached = await Handler.Cache.GetAsync<string>(cacheKey, cts.Token).ConfigureAwait(false);
+
 								if (!string.IsNullOrWhiteSpace(cached))
 								{
 									lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
 									context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 									{
-										{ "X-Cache", "HTTP" },
+										{ "X-Cache", "HTTP-200" },
 										{ "X-Correlation-ID", correlationID },
 										{ "Content-Type", $"{contentType}; charset=utf-8" },
 										{ "ETag", eTag },
@@ -758,9 +793,9 @@ namespace net.vieapps.Services.Portals
 											cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
 									}
 
-									await context.WriteAsync(cached.ToBytes(), cts.Token).ConfigureAwait(false);
+									await context.WriteAsync(contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
 									if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
-										await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => found ({cacheKey})").ConfigureAwait(false);
+										await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Excution times: {watch.GetElapsedTimes()}").ConfigureAwait(false);
 
 									return;
 								}
@@ -881,6 +916,32 @@ namespace net.vieapps.Services.Portals
 							else
 								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, Global.IsDebugLogEnabled);
 							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while redirecting to CMS Portals => {ex.Message}", ex).ConfigureAwait(false);
+						}
+						break;
+
+					case "feed":
+						try
+						{
+							using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
+							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
+							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
+							var body = response.Get<string>("Body");
+							if (body != null)
+								await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "gzip")), cts.Token).ConfigureAwait(false);
+						}
+						catch (Exception ex)
+						{
+							if (ex is WampException wampException)
+							{
+								var wampDetails = wampException.GetDetails(requestInfo);
+								context.ShowError(wampDetails.Item1, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
+							}
+							else
+								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, Global.IsDebugLogEnabled);
+							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing feeds => {ex.Message}", ex).ConfigureAwait(false);
 						}
 						break;
 

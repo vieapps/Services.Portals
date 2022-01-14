@@ -20,7 +20,8 @@ namespace net.vieapps.Services.Portals
 	[Entity(CollectionName = "CMS_Contents", TableName = "T_Portals_CMS_Contents", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, ID = "B0000000000000000000000000000002", Title = "Content", Description = "Complex content in CMS module (article/news)", ObjectNamePrefix = "CMS.", MultipleIntances = true, Indexable = true, Extendable = true)]
 	public sealed class Content : Repository<Content>, IBusinessObject, IAliasEntity
 	{
-		public Content() : base() { }
+		public Content() : base()
+			=> this.Created = this.LastModified = DateTime.Now;
 
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[Sortable(IndexName = "Management")]
@@ -39,8 +40,7 @@ namespace net.vieapps.Services.Portals
 		public List<string> OtherCategories { get; set; }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
-		[Alias(Properties = "CategoryID")]
-		[Searchable]
+		[Alias(Properties = "CategoryID"), Searchable]
 		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Alias { get; set; }
 
@@ -59,8 +59,7 @@ namespace net.vieapps.Services.Portals
 		public DateTime? PublishedTime { get; set; }
 
 		[Property(MaxLength = 250)]
-		[Sortable(IndexName = "Tags")]
-		[Searchable]
+		[Sortable(IndexName = "Tags"), Searchable]
 		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Tags { get; set; }
 
@@ -68,33 +67,31 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public bool AllowComments { get; set; } = false;
 
+		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
+		public string InlineScripts { get; set; }
+
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
-		[Sortable(IndexName = "Title")]
-		[Searchable]
+		[Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public override string Title { get; set; }
 
 		[Property(MaxLength = 250)]
-		[Sortable(IndexName = "Title")]
-		[Searchable]
+		[Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string SubTitle { get; set; }
 
 		[Property(MaxLength = 250)]
-		[Sortable(IndexName = "Author")]
-		[Searchable]
+		[Sortable(IndexName = "Author"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Author { get; set; }
 
 		[Property(MaxLength = 250)]
-		[Sortable(IndexName = "Author")]
-		[Searchable]
+		[Sortable(IndexName = "Author"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string AuthorTitle { get; set; }
 
 		[Property(MaxLength = 250)]
-		[Sortable(IndexName = "Source")]
-		[Searchable]
+		[Sortable(IndexName = "Source"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Source { get; set; }
 

@@ -24,7 +24,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,MainPortletID,SEOSettings".ToHashSet();
 
-		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Images,Thumbnails,ThumbnailPngs,ThumbnailBigs,ThumbnailBigPngs,Default,Index").ToLower().ToHashSet();
+		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Images,Thumbnails,ThumbnailPngs,ThumbnailBigs,ThumbnailBigPngs,Default,Index,Feed,Atom,Rss").ToLower().ToHashSet();
 
 		public static Desktop CreateDesktopInstance(this ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
 			=> Desktop.CreateInstance(data, excluded?.ToHashSet(), desktop =>
@@ -389,34 +389,35 @@ namespace net.vieapps.Services.Portals
 				? source.Copy("ID,Title,Alias,Created,CreatedID,LastModified,LastModifiedID,Portlets".ToHashSet(), obj =>
 				{
 					obj.ID = UtilityService.NewUUID;
+					obj.ParentID = request.Get<string>("ParentID");
 					obj.Title = request.Get("Title", $"{source.Title} (Duplicated)");
-					obj.Alias = string.IsNullOrWhiteSpace(alias) ? $"{obj.Title}-{UtilityService.GetUUID(obj.ID, null, true)}".NormalizeAlias() : alias.NormalizeAlias();
 					obj.Aliases = null;
-					obj.Created = obj.LastModified = DateTime.Now;
-					obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 					obj._childrenIDs = new List<string>();
 				})
-				: request.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+				: request.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Alias,Created,CreatedID,LastModified,LastModifiedID", obj =>
 				{
-					obj.SystemID = organization.ID;
-					obj.ParentID = obj.ParentDesktop != null ? obj.ParentID : null;
 					obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-					obj.Created = obj.LastModified = DateTime.Now;
-					obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 					obj.NormalizeExtras();
 					obj._childrenIDs = new List<string>();
 				});
 
+			desktop.SystemID = organization.ID;
+			desktop.ParentID = desktop.ParentDesktop?.ID;
+			desktop.Alias = string.IsNullOrWhiteSpace(alias) ? $"{desktop.Title}-{UtilityService.GetUUID(desktop.ID, null, true)}".NormalizeAlias() : alias.NormalizeAlias();
+			desktop.Created = desktop.LastModified = DateTime.Now;
+			desktop.CreatedID = desktop.LastModifiedID = requestInfo.Session.User.ID;
+
 			await Desktop.CreateAsync(desktop, cancellationToken).ConfigureAwait(false);
-			await desktop.Set().ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			await desktop.Set().ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, false, false).ConfigureAwait(false);
 
 			// copy portlets
 			if (source != null)
 			{
 				desktop._portlets = new List<Portlet>();
-				await source.Portlets.ForEachAsync(async originalPortlet =>
+				var excluded = "ID,DesktopID,Created,CreatedID,LastModified,LastModifiedID".ToHashSet();
+				await (source.Portlets ?? new List<Portlet>()).ForEachAsync(async originalPortlet =>
 				{
-					var copiedPortlet = originalPortlet.Copy("ID,DesktopID,Created,CreatedID,LastModified,LastModifiedID".ToHashSet(), obj =>
+					var copiedPortlet = originalPortlet.Copy(excluded, obj =>
 					{
 						obj.ID = UtilityService.NewUUID;
 						obj.Created = obj.LastModified = DateTime.Now;
@@ -513,10 +514,11 @@ namespace net.vieapps.Services.Portals
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
 			if (isRefresh)
 			{
-				await desktop.ClearRelatedCacheAsync("", cancellationToken).ConfigureAwait(false);
+				await desktop.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, true, false).ConfigureAwait(false);
 				await Utility.Cache.RemoveAsync(desktop, cancellationToken).ConfigureAwait(false);
 				desktop = await desktop.Remove().ID.GetDesktopByIDAsync(cancellationToken, true).ConfigureAwait(false);
 				desktop._childrenIDs = null;
+				desktop._portlets = null;
 			}
 
 			// prepare the response
@@ -751,7 +753,7 @@ namespace net.vieapps.Services.Portals
 			var objectName = desktop.GetTypeName(true);
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
-			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Desktop>();
 			await children.ForEachAsync(async child =>
 			{
 				// update children to root
@@ -831,7 +833,7 @@ namespace net.vieapps.Services.Portals
 			var objectName = desktop.GetTypeName(true);
 
 			// delete childrenn
-			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Desktop>();
 			await children.ForEachAsync(async child =>
 			{
 				var messages = await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
