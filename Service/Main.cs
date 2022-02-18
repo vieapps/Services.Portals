@@ -4991,7 +4991,7 @@ namespace net.vieapps.Services.Portals
 					if (category != null)
 						filter.Add(Filters<Content>.Equals("CategoryID", category.ID));
 					var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
-					var results = await requestInfo.SearchAsync(null, filter, sort, 20, 1, contentType.ID, -1, cancellationToken).ConfigureAwait(false);
+					var results = await requestInfo.SearchAsync(null, filter, sort, 20, 1, contentType.ID, -1, cancellationToken, true, false, 0, 0, 120).ConfigureAwait(false);
 					results.Item1.Where(@object => contents.Find(obj => obj.ID == @object.ID) == null).ForEach(@object => contents.Add(@object));
 					(results.Item4 as JObject)?.ForEach(kvp => thumbnails[kvp.Key] = kvp.Value);
 				}, true, false).ConfigureAwait(false);
@@ -5004,17 +5004,19 @@ namespace net.vieapps.Services.Portals
 				var href = site.GetURL(host, requestInfo.GetParameter("x-url"));
 				var baseHref = useAlias ? $"/~{organization.Alias}/" : "/";
 
-				var feed = new XElement(
+				var feed = new XElement
+				(
 					"feed",
 					new XElement("id", $"tag:{host},site-{site.ID}{(category != null ? $",category-{category.ID}" : "")}"),
 					new XElement("updated", (contents.Any() ? contents.OrderByDescending(content => content.LastModified).First().LastModified : site.LastModified).ToIsoString()),
 					new XElement("title", (category != null ? $"{category.Title} :: " : "") + site.Title),
-					new XElement("link", new XAttribute("rel", "alternate"), new XAttribute("type", "text/html"), new XAttribute("href", $"{href}{category?.GetURL().Replace("~/", baseHref) ?? "~/"}"))
+					new XElement("link", new XAttribute("rel", "alternate"), new XAttribute("type", "text/html"), new XAttribute("href", $"{href}{category?.GetURL().Replace("~/", baseHref) ?? baseHref}"))
 				);
 
 				await contents.ForEachAsync(async content =>
 				{
-					var entry = new XElement(
+					var entry = new XElement
+					(
 						"entry",
 						new XElement("id", $"tag:{host},content-{content.ID}"),
 						new XElement("published", content.PublishedTime.Value.ToIsoString()),

@@ -553,6 +553,9 @@ namespace net.vieapps.Services.Portals
 				}
 				else if (!systemIdentity.IsEquals("~indicators") && !systemIdentity.IsEquals("~resources") && !specialRequest.IsEquals("service"))
 					query["x-desktop"] = "-default";
+
+				// legacy
+				"catName,contId,page,desktop".ToList().ForEach(key => query.Remove(key));
 			});
 
 			// validate HTTP Verb

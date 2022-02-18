@@ -127,7 +127,7 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 		}
 
-		internal static async Task<Tuple<List<Content>, long, int, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, bool randomPage = false, int minRandomPage = 0, int maxRandomPage = 0)
+		internal static async Task<Tuple<List<Content>, long, int, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, bool randomPage = false, int minRandomPage = 0, int maxRandomPage = 0, int cacheTime = 0)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -138,7 +138,7 @@ namespace net.vieapps.Services.Portals
 			totalRecords = totalRecords > -1
 				? totalRecords
 				: string.IsNullOrWhiteSpace(query)
-					? await Content.CountAsync(filter, contentTypeID, true, cacheKeyOfTotalObjects, 0, cancellationToken).ConfigureAwait(false)
+					? await Content.CountAsync(filter, contentTypeID, true, cacheKeyOfTotalObjects, cacheTime, cancellationToken).ConfigureAwait(false)
 					: await Content.CountAsync(query, filter, contentTypeID, cancellationToken).ConfigureAwait(false);
 
 			// page number
@@ -153,7 +153,7 @@ namespace net.vieapps.Services.Portals
 			// search objects
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Content.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false)
+					? await Content.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, true, cacheKeyOfObjects, cacheTime, cancellationToken).ConfigureAwait(false)
 					: await Content.SearchAsync(query, filter, null, pageSize, pageNumber, contentTypeID, cancellationToken).ConfigureAwait(false)
 				: new List<Content>();
 
