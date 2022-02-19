@@ -74,7 +74,7 @@ namespace net.vieapps.Services.Portals
 			(
 				content.Status.Equals(ApprovalStatus.Published) ? $"{content.GetURL()}?x-force-cache=x".Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
 				content.Category != null ? $"{content.Category.GetURL()}?x-force-cache=x".Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
-				(content.OtherCategories ?? new List<string>()).Select(id => id.GetCategoryByID()).ForEachAsync(category => $"{category.GetURL()}?x-force-cache=x".Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, message))
+				(content.OtherCategories ?? new List<string>()).Select(id => id.GetCategoryByID()).Where(category => category != null).ForEachAsync(category => $"{category.GetURL()}?x-force-cache=x".Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, message))
 			).ConfigureAwait(false);
 
 			return content;
@@ -1319,9 +1319,11 @@ namespace net.vieapps.Services.Portals
 				if (content == null)
 				{
 					content = Content.CreateInstance(data);
-					content.StartDate = string.IsNullOrWhiteSpace(content.StartDate) && content.PublishedTime != null
-						? content.PublishedTime.Value.ToDTString(false, false)
-						: DateTime.Now.ToDTString(false, false);
+					content.StartDate = string.IsNullOrWhiteSpace(content.StartDate)
+						? content.PublishedTime != null
+							? content.PublishedTime.Value.ToDTString(false, false)
+							: DateTime.Now.ToDTString(false, false)
+						: content.StartDate;
 					content.CreatedID = string.IsNullOrWhiteSpace(content.CreatedID)
 						? requestInfo.Session.User.ID
 						: content.CreatedID;

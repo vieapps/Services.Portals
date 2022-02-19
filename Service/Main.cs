@@ -127,6 +127,7 @@ namespace net.vieapps.Services.Portals
 				this.StartTimer(() => this.SendDefinitionInfo(), 15 * 60);
 				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationToken).ConfigureAwait(false), 5 * 60);
 				this.StartTimer(async () => await this.PrepareLanguagesAsync(this.CancellationToken).ConfigureAwait(false), 5 * 60);
+				this.StartTimer(async () => await "".ReloadSitesAsync(this.CancellationToken).ConfigureAwait(false), 60 * 60);
 
 				this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
 				this.Logger?.LogDebug($"Portals' data files directory: {Utility.DataFilesDirectory ?? "None"}");
@@ -1596,16 +1597,13 @@ namespace net.vieapps.Services.Portals
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 			var stopwatch = Stopwatch.StartNew();
 			var organization = await (organizationIdentity.IsValidUUID() ? organizationIdentity.GetOrganizationByIDAsync(cancellationToken) : organizationIdentity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false);
-			if (organization == null)
+			if (organization == null || string.IsNullOrWhiteSpace(organization.ID))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
 			// prepare sites and desktops (at the first-time only)
 			if (SiteProcessor.Sites.IsEmpty)
 			{
-				var filter = Filters<Site>.And(Filters<Site>.Equals("SystemID", organization.ID));
-				var sort = Sorts<Site>.Ascending("Title");
-				var sites = await Site.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-				await sites.ForEachAsync(async website => await website.SetAsync(false, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+				var sites = await organization.ID.ReloadSitesAsync(cancellationToken).ConfigureAwait(false);
 				organization._siteIDs = sites.Select(website => website.ID).ToList();
 				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}

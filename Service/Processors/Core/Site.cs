@@ -236,6 +236,18 @@ namespace net.vieapps.Services.Portals
 			return sites;
 		}
 
+		internal static async Task<List<Site>> ReloadSitesAsync(this string systemID, CancellationToken cancellationToken = default)
+        {
+			var sites = string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? null : await systemID.FindSitesAsync(cancellationToken).ConfigureAwait(false);
+			if (sites == null)
+            {
+				var sort = Sorts<Site>.Ascending("Title");
+				sites = await Site.FindAsync(null, sort, 0, 1, null, cancellationToken).ConfigureAwait(false) ?? new List<Site>();
+				await sites.ForEachAsync(async site => await site.SetAsync(false, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+			}
+			return sites;
+		}
+
 		internal static Task ProcessInterCommunicateMessageOfSiteAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
