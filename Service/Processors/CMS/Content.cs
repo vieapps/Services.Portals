@@ -1324,6 +1324,9 @@ namespace net.vieapps.Services.Portals
 							? content.PublishedTime.Value.ToDTString(false, false)
 							: DateTime.Now.ToDTString(false, false)
 						: content.StartDate;
+					content.EndDate = string.IsNullOrWhiteSpace(content.EndDate) || content.EndDate.Equals("-")
+						? null
+						: content.EndDate;
 					content.CreatedID = string.IsNullOrWhiteSpace(content.CreatedID)
 						? requestInfo.Session.User.ID
 						: content.CreatedID;
@@ -1335,6 +1338,9 @@ namespace net.vieapps.Services.Portals
 				else
 				{
 					content.Fill(data);
+					content.EndDate = string.IsNullOrWhiteSpace(content.EndDate) || content.EndDate.Equals("-")
+						? null
+						: content.EndDate;
 					content.LastModifiedID = string.IsNullOrWhiteSpace(content.LastModifiedID)
 						? requestInfo.Session.User.ID
 						: content.LastModifiedID;

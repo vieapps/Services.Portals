@@ -124,13 +124,17 @@ namespace net.vieapps.Services.Portals
 				Utility.DefaultSite = UtilityService.GetAppSetting("Portals:Default:SiteID", "").GetSiteByID();
 				Utility.NotRecognizedAliases.Add($"Site:{new Uri(Utility.PortalsHttpURI).Host}");
 
+				this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
+				this.Logger?.LogDebug($"Portals' data files directory: {Utility.DataFilesDirectory ?? "None"}");
+
 				this.StartTimer(() => this.SendDefinitionInfo(), 15 * 60);
 				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationToken).ConfigureAwait(false), 5 * 60);
 				this.StartTimer(async () => await this.PrepareLanguagesAsync(this.CancellationToken).ConfigureAwait(false), 5 * 60);
-				this.StartTimer(async () => await "".ReloadSitesAsync(this.CancellationToken).ConfigureAwait(false), 60 * 60);
-
-				this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
-				this.Logger?.LogDebug($"Portals' data files directory: {Utility.DataFilesDirectory ?? "None"}");
+				this.StartTimer(async () =>
+				{
+					var sites = await "".ReloadSitesAsync(this.CancellationToken).ConfigureAwait(false);
+					await this.WriteLogsAsync(UtilityService.NewUUID, $"All sites have been reloaded - Total: {sites.Count}", null, this.ServiceName, "Caches");
+				}, 60 * 60);
 
 				Task.Run(async () =>
 				{
