@@ -152,7 +152,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop?.Alias}".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a portlet was clean [{portlet.Title} - ID: {portlet.ID}]") : Task.CompletedTask
+				doRefresh ? $"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop?.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a portlet was clean [{portlet.Title} - ID: {portlet.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 

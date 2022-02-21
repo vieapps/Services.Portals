@@ -526,13 +526,12 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetBodyExpando();
 			var oldAlias = organization.Alias;
 			var oldStatus = organization.Status;
-
 			var alias = request.Get<string>("Alias");
-			if (!string.IsNullOrWhiteSpace(alias) && OrganizationProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
-				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 
-			if (!string.IsNullOrWhiteSpace(alias))
+			if (!string.IsNullOrWhiteSpace(alias) && !oldAlias.IsEquals(alias))
 			{
+				if (OrganizationProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 				if (existing != null && !existing.ID.Equals(organization.ID))
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
@@ -544,7 +543,7 @@ namespace net.vieapps.Services.Portals
 			{
 				organization.OwnerID = isSystemAdministrator ? request.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
 				organization.Status = isSystemAdministrator ? request.Get("Status", organization.Status.ToString()).ToEnum<ApprovalStatus>() : organization.Status;
-				organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias.NormalizeAlias(false);
+				organization.Alias = (string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias).NormalizeAlias(false);
 				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
 				organization.LastModified = DateTime.Now;
 				organization.LastModifiedID = requestInfo.Session.User.ID;

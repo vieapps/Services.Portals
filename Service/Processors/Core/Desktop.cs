@@ -239,7 +239,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]") : Task.CompletedTask
+				doRefresh ? $"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -403,7 +403,7 @@ namespace net.vieapps.Services.Portals
 
 			desktop.SystemID = organization.ID;
 			desktop.ParentID = desktop.ParentDesktop?.ID;
-			desktop.Alias = string.IsNullOrWhiteSpace(alias) ? $"{desktop.Title}-{UtilityService.GetUUID(desktop.ID, null, true)}".NormalizeAlias() : alias.NormalizeAlias();
+			desktop.Alias = (string.IsNullOrWhiteSpace(alias) ? $"{desktop.Title}-{UtilityService.GetUUID(desktop.ID, null, true)}" : alias).NormalizeAlias();
 			desktop.Created = desktop.LastModified = DateTime.Now;
 			desktop.CreatedID = desktop.LastModifiedID = requestInfo.Session.User.ID;
 
@@ -572,7 +572,7 @@ namespace net.vieapps.Services.Portals
 
 			var oldAlias = desktop.Alias;
 			var alias = request.Get("Alias", "");
-			if (!string.IsNullOrWhiteSpace(alias))
+			if (!string.IsNullOrWhiteSpace(alias) && !oldAlias.IsEquals(alias))
 			{
 				if (DesktopProcessor.ExcludedAliases.Contains(alias.NormalizeAlias()))
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another purpose");
@@ -594,7 +594,7 @@ namespace net.vieapps.Services.Portals
 				await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			});
 			await Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await desktop.Set().ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
+			await desktop.Set().ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();

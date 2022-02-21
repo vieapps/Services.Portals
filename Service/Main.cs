@@ -1411,8 +1411,8 @@ namespace net.vieapps.Services.Portals
 					if (identity.Left(1).IsEquals("s"))
 					{
 						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = filesHttpURI ?? site?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-						portalsHttpURI = portalsHttpURI ?? site?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						filesHttpURI = site?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+						portalsHttpURI = site?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
 						resources = site != null
 							? (this.IsDebugLogEnabled ? $"/* css of the '{site.Title}' site */\r\n" : "") + (string.IsNullOrWhiteSpace(site.Stylesheets) ? "" : site.Stylesheets.MinifyCss())
 							: $"/* the requested site ({identity}) is not found */";
@@ -1420,8 +1420,8 @@ namespace net.vieapps.Services.Portals
 					else if (identity.Left(1).IsEquals("d"))
 					{
 						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = filesHttpURI ?? desktop?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-						portalsHttpURI = portalsHttpURI ?? desktop?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						filesHttpURI = desktop?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+						portalsHttpURI = desktop?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
 						resources = desktop != null
 							? (this.IsDebugLogEnabled ? $"/* css of the '{desktop.Title}' desktop */\r\n" : "") + (string.IsNullOrWhiteSpace(desktop.Stylesheets) ? "" : desktop.Stylesheets.MinifyCss())
 							: $"/* the requested desktop ({identity}) is not found */";
@@ -1482,8 +1482,8 @@ namespace net.vieapps.Services.Portals
 					if (identity.Left(1).IsEquals("o"))
 					{
 						var organization = await identity.Right(32).GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = filesHttpURI ?? organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-						portalsHttpURI = portalsHttpURI ?? organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						filesHttpURI = organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+						portalsHttpURI = organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
 						lastModified = lastModified ?? organization?.LastModified.ToHttpString();
 						resources = organization != null
 							? (this.IsDebugLogEnabled ? $"/* scripts of the '{organization.Title}' organization */\r\n" : "") + organization.Javascripts
@@ -1492,8 +1492,8 @@ namespace net.vieapps.Services.Portals
 					else if (identity.Left(1).IsEquals("s"))
 					{
 						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = filesHttpURI ?? site?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-						portalsHttpURI = portalsHttpURI ?? site?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						filesHttpURI = site?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+						portalsHttpURI = site?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
 						lastModified = lastModified ?? site?.LastModified.ToHttpString();
 						resources = site != null
 							? (this.IsDebugLogEnabled ? $"/* scripts of the '{site.Title}' site */\r\n" : "") + (string.IsNullOrWhiteSpace(site.Scripts) ? "" : site.Scripts.MinifyJs())
@@ -1502,8 +1502,8 @@ namespace net.vieapps.Services.Portals
 					else if (identity.Left(1).IsEquals("d"))
 					{
 						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = filesHttpURI ?? desktop?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-						portalsHttpURI = portalsHttpURI ?? desktop?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						filesHttpURI = desktop?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
+						portalsHttpURI = desktop?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
 						lastModified = lastModified ?? desktop?.LastModified.ToHttpString();
 						resources = desktop != null
 							? (this.IsDebugLogEnabled ? $"/* scripts of the '{desktop.Title}' desktop */\r\n" : "") + (string.IsNullOrWhiteSpace(desktop.Scripts) ? "" : desktop.Scripts.MinifyJs())
@@ -1627,7 +1627,7 @@ namespace net.vieapps.Services.Portals
 			// get default site if not found
 			if (site == null)
 			{
-				if (!string.IsNullOrWhiteSpace(Utility.CmsPortalsHttpURI) && host.Equals(new Uri(Utility.CmsPortalsHttpURI).Host) && (organization._siteIDs == null || organization._siteIDs.Count < 1))
+				if (!string.IsNullOrWhiteSpace(Utility.CmsPortalsHttpURI) && host.Equals(new Uri(Utility.CmsPortalsHttpURI).Host) && (organization._siteIDs == null || !organization._siteIDs.Any()))
 				{
 					organization._siteIDs = null;
 					site = (await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault();
@@ -2691,9 +2691,9 @@ namespace net.vieapps.Services.Portals
 			{
 				html = portletContainer.ToString();
 				var tokens = "id,name,title,action,object,object-type,object-name,ansi-title,title-ansi".ToList();
-				tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{" + token + "}}", "[[" + token + "]]"));
+				tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{" + token + "}}", $"[[{token}]]"));
 				html = html.Format(html.PrepareDoubleBracesParameters(portlet, requestInfo, new JObject { ["Site"] = siteJson, ["Desktop"] = desktopsJson, ["Language"] = language }.ToExpandoObject()));
-				tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, "[[" + token + "]]", "{{" + token + "}}"));
+				tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, $"[[{token}]]", "{{" + token + "}}"));
 			}
 
 			title = portlet.Title.GetANSIUri();
@@ -3237,7 +3237,7 @@ namespace net.vieapps.Services.Portals
 				+ (this.IsDebugLogEnabled
 					? $"<div style=\"font-size:80%\">{errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</div>"
 					: $"<!-- {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")} -->")
-				+ ("AccessDeniedException".IsEquals(errorType) ? $"<div style=\"padding:15px 0\">Please <a href=\"javascript:__login()\">click here</a> to login and try again</div>" : "")
+				+ ("AccessDeniedException".IsEquals(errorType) ? $"<div style=\"padding:30px 0\">Please <a href=\"javascript:__login()\">click here</a> to login and try again</div>" : "")
 				+ "</div>";
 		#endregion
 
@@ -4993,7 +4993,7 @@ namespace net.vieapps.Services.Portals
 					if (category != null)
 						filter.Add(Filters<Content>.Equals("CategoryID", category.ID));
 					var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
-					var results = await requestInfo.SearchAsync(null, filter, sort, 20, 1, contentType.ID, -1, cancellationToken, true, false, 0, 0, 120).ConfigureAwait(false);
+					var results = await requestInfo.SearchAsync(null, filter, sort, 20, 1, contentType.ID, -1, cancellationToken, true, false, 0, 0, 60).ConfigureAwait(false);
 					results.Item1.Where(@object => contents.Find(obj => obj.ID == @object.ID) == null).ForEach(@object => contents.Add(@object));
 					(results.Item4 as JObject)?.ForEach(kvp => thumbnails[kvp.Key] = kvp.Value);
 				}, true, false).ConfigureAwait(false);
@@ -5036,7 +5036,8 @@ namespace net.vieapps.Services.Portals
 						entry.Add(new XElement("media", new XAttribute("url", media)));
 
 					if (content.Category != null)
-						entry.Add(new XElement(
+						entry.Add(new XElement
+						(
 							"category",
 							new XAttribute("label", content.Category.Title),
 							new XAttribute("term", content.Category.ID),
@@ -5046,7 +5047,8 @@ namespace net.vieapps.Services.Portals
 					var categories = new List<Category>();
 					if (content.OtherCategories != null && content.OtherCategories.Any())
 						await content.OtherCategories.ForEachAsync(async id => categories.Add(await id.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false)), true, false).ConfigureAwait(false);
-					categories.Where(cat => cat != null).ForEach(cat => entry.Add(new XElement(
+					categories.Where(cat => cat != null).ForEach(cat => entry.Add(new XElement
+					(
 						"category",
 						new XAttribute("label", cat.Title),
 						new XAttribute("term", cat.ID),
