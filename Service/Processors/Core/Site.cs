@@ -292,7 +292,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{site.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]") : Task.CompletedTask
+				doRefresh ? $"{Utility.PortalsHttpURI}/~{site.Organization.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 

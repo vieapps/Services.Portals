@@ -1095,8 +1095,8 @@ namespace net.vieapps.Services.Portals
 					{ "ID", organization.ID },
 					{ "Alias", organization.Alias },
 					{ "HomeDesktopAlias", (site.HomeDesktop ?? organization.HomeDesktop ?? organization.DefaultDesktop)?.Alias ?? "-default" },
-					{ "FilesHttpURI", organization.FakeFilesHttpURI ?? Utility.FilesHttpURI },
-					{ "PortalsHttpURI", organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI },
+					{ "FilesHttpURI", this.GetFilesHttpURI(organization) },
+					{ "PortalsHttpURI", this.GetPortalsHttpURI(organization) },
 					{ "CmsPortalsHttpURI", Utility.CmsPortalsHttpURI },
 					{ "AlwaysUseHtmlSuffix", organization.AlwaysUseHtmlSuffix },
 					{ "AlwaysUseHTTPs", site != null && site.AlwaysUseHTTPs },
@@ -1135,6 +1135,36 @@ namespace net.vieapps.Services.Portals
 #else
 		string BodyEncoding => UtilityService.GetAppSetting("Portals:Desktops:Body:Encoding", "br");
 #endif
+
+		string GetPortalsHttpURI(IPortalObject @object = null)
+		{
+			var httpURI = @object is Organization organization
+				? organization?.FakePortalsHttpURI
+				: (@object?.OrganizationID ?? "").GetOrganizationByID()?.FakePortalsHttpURI;
+			httpURI = string.IsNullOrWhiteSpace(httpURI)
+				? Utility.PortalsHttpURI
+				: httpURI;
+			while (httpURI.EndsWith("/"))
+				httpURI = httpURI.Left(httpURI.Length - 1);
+			return string.IsNullOrWhiteSpace(httpURI)
+				? Utility.PortalsHttpURI
+				: httpURI;
+		}
+
+		string GetFilesHttpURI(IPortalObject @object = null)
+		{
+			var httpURI = @object is Organization organization
+				? organization?.FakeFilesHttpURI
+				: (@object?.OrganizationID ?? "").GetOrganizationByID()?.FakeFilesHttpURI;
+			httpURI = string.IsNullOrWhiteSpace(httpURI)
+				? Utility.FilesHttpURI
+				: httpURI;
+			while (httpURI.EndsWith("/"))
+				httpURI = httpURI.Left(httpURI.Length - 1);
+			return string.IsNullOrWhiteSpace(httpURI)
+				? Utility.FilesHttpURI
+				: httpURI;
+		}
 
 		async Task<JToken> ProcessHttpIndicatorRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
@@ -1247,7 +1277,7 @@ namespace net.vieapps.Services.Portals
 			var noneMatch = requestInfo.GetHeaderParameter("If-None-Match");
 			var modifiedSince = requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since");
 			var eTag = uri.ToString().ToLower();
-			eTag = isThemeResource && (type.IsEquals("css") || type.IsEquals("js")) && !(identity.Length == 34 && identity.Right(32).IsValidUUID())
+			eTag = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
 				? $"{type}#{identity}"
 				: $"v#{(eTag.IndexOf("?") > 0 ? eTag.Left(eTag.IndexOf("?")) : eTag).GenerateUUID()}";
 
@@ -1260,22 +1290,22 @@ namespace net.vieapps.Services.Portals
 					if (identity.Left(1).IsEquals("o"))
 					{
 						var organization = await identity.Right(32).GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = organization?.FakeFilesHttpURI;
-						portalsHttpURI = organization?.FakePortalsHttpURI;
+						filesHttpURI = this.GetFilesHttpURI(organization);
+						portalsHttpURI = this.GetPortalsHttpURI(organization);
 						lastModified = organization?.LastModified.ToHttpString();
 					}
 					else if (identity.Left(1).IsEquals("s"))
 					{
 						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = site?.Organization?.FakeFilesHttpURI;
-						portalsHttpURI = site?.Organization?.FakePortalsHttpURI;
+						filesHttpURI = this.GetFilesHttpURI(site);
+						portalsHttpURI = this.GetPortalsHttpURI(site);
 						lastModified = site?.LastModified.ToHttpString();
 					}
 					else if (identity.Left(1).IsEquals("d"))
 					{
 						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = desktop?.Organization?.FakeFilesHttpURI;
-						portalsHttpURI = desktop?.Organization?.FakePortalsHttpURI;
+						filesHttpURI = this.GetFilesHttpURI(desktop);
+						portalsHttpURI = this.GetPortalsHttpURI(desktop);
 						lastModified = desktop?.LastModified.ToHttpString();
 					}
 				}
@@ -1343,8 +1373,8 @@ namespace net.vieapps.Services.Portals
 
 			// normalize fake URIs
 			var system = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
-			filesHttpURI = filesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-			portalsHttpURI = portalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+			filesHttpURI = filesHttpURI ?? this.GetFilesHttpURI(system);
+			portalsHttpURI = portalsHttpURI ?? this.GetPortalsHttpURI(system);
 
 			// static files in 'assets' directory or image/font files of a theme
 			if (type.IsEquals("assets") || type.IsEquals("images") || type.IsEquals("fonts"))
@@ -1358,9 +1388,9 @@ namespace net.vieapps.Services.Portals
 					throw new InformationNotFoundException(filePath);
 
 				var data = filePath.IsEndsWith(".css")
-					? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI).MinifyCss().ToBytes()
+					? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").MinifyCss().ToBytes()
 					: filePath.IsEndsWith(".js")
-						? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI).MinifyJs().ToBytes()
+						? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").MinifyJs().ToBytes()
 						: await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false);
 
 				// response
@@ -1411,8 +1441,8 @@ namespace net.vieapps.Services.Portals
 					if (identity.Left(1).IsEquals("s"))
 					{
 						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = site?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-						portalsHttpURI = site?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						filesHttpURI = this.GetFilesHttpURI(site) ?? this.GetFilesHttpURI(system);
+						portalsHttpURI = this.GetPortalsHttpURI(site) ?? this.GetPortalsHttpURI(system);
 						resources = site != null
 							? (this.IsDebugLogEnabled ? $"/* css of the '{site.Title}' site */\r\n" : "") + (string.IsNullOrWhiteSpace(site.Stylesheets) ? "" : site.Stylesheets.MinifyCss())
 							: $"/* the requested site ({identity}) is not found */";
@@ -1420,8 +1450,8 @@ namespace net.vieapps.Services.Portals
 					else if (identity.Left(1).IsEquals("d"))
 					{
 						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = desktop?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-						portalsHttpURI = desktop?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						filesHttpURI = this.GetFilesHttpURI(desktop) ?? this.GetFilesHttpURI(system);
+						portalsHttpURI = this.GetPortalsHttpURI(desktop) ?? this.GetPortalsHttpURI(system);
 						resources = desktop != null
 							? (this.IsDebugLogEnabled ? $"/* css of the '{desktop.Title}' desktop */\r\n" : "") + (string.IsNullOrWhiteSpace(desktop.Stylesheets) ? "" : desktop.Stylesheets.MinifyCss())
 							: $"/* the requested desktop ({identity}) is not found */";
@@ -1436,7 +1466,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// response
-				resources = resources.Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI);
+				resources = resources.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/");
 				var headers = new Dictionary<string, string>
 				{
 					{ "Content-Type", "text/css; charset=utf-8" },
@@ -1482,8 +1512,8 @@ namespace net.vieapps.Services.Portals
 					if (identity.Left(1).IsEquals("o"))
 					{
 						var organization = await identity.Right(32).GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-						portalsHttpURI = organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						filesHttpURI = this.GetFilesHttpURI(organization) ?? this.GetFilesHttpURI(system);
+						portalsHttpURI = this.GetPortalsHttpURI(organization) ?? this.GetPortalsHttpURI(system);
 						lastModified = lastModified ?? organization?.LastModified.ToHttpString();
 						resources = organization != null
 							? (this.IsDebugLogEnabled ? $"/* scripts of the '{organization.Title}' organization */\r\n" : "") + organization.Javascripts
@@ -1492,8 +1522,8 @@ namespace net.vieapps.Services.Portals
 					else if (identity.Left(1).IsEquals("s"))
 					{
 						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = site?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-						portalsHttpURI = site?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						filesHttpURI = this.GetFilesHttpURI(site) ?? this.GetFilesHttpURI(system);
+						portalsHttpURI = this.GetPortalsHttpURI(site) ?? this.GetPortalsHttpURI(system);
 						lastModified = lastModified ?? site?.LastModified.ToHttpString();
 						resources = site != null
 							? (this.IsDebugLogEnabled ? $"/* scripts of the '{site.Title}' site */\r\n" : "") + (string.IsNullOrWhiteSpace(site.Scripts) ? "" : site.Scripts.MinifyJs())
@@ -1502,8 +1532,8 @@ namespace net.vieapps.Services.Portals
 					else if (identity.Left(1).IsEquals("d"))
 					{
 						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = desktop?.Organization?.FakeFilesHttpURI ?? system?.FakeFilesHttpURI ?? Utility.FilesHttpURI;
-						portalsHttpURI = desktop?.Organization?.FakePortalsHttpURI ?? system?.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+						filesHttpURI = this.GetFilesHttpURI(desktop) ?? this.GetFilesHttpURI(system);
+						portalsHttpURI = this.GetPortalsHttpURI(desktop) ?? this.GetPortalsHttpURI(system);
 						lastModified = lastModified ?? desktop?.LastModified.ToHttpString();
 						resources = desktop != null
 							? (this.IsDebugLogEnabled ? $"/* scripts of the '{desktop.Title}' desktop */\r\n" : "") + (string.IsNullOrWhiteSpace(desktop.Scripts) ? "" : desktop.Scripts.MinifyJs())
@@ -1519,7 +1549,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// response
-				resources = resources.Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI);
+				resources = resources.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/");
 				var headers = new Dictionary<string, string>
 				{
 					{ "Content-Type", "application/javascript; charset=utf-8" },

@@ -406,7 +406,7 @@ namespace net.vieapps.Services.Portals
 			var queryString = context.Request.QueryString.ToDictionary(query =>
 			{
 				var pathSegments = context.GetRequestPathSegments().Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx") && !segment.IsEquals("index.aspx") && !segment.IsEquals("index.php")).ToArray();
-				var requestSegments = pathSegments;
+				var requestSegments = pathSegments.Select(path => path).ToArray();
 				var firstPathSegment = pathSegments.Length > 0 ? pathSegments[0].ToLower() : "";
 
 				// special parameters (like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity)
@@ -599,6 +599,13 @@ namespace net.vieapps.Services.Portals
 
 			// process the request
 			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
+			if (Global.IsDebugLogEnabled)
+				await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
+					$"Process HTTP request starting {httpVerb} {requestURI}" + " \r\n" +
+					$"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
+					$"- Request Info: {requestInfo.ToString(Formatting.Indented)}"
+				, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+
 			JObject systemIdentityJson = null;
 			if (string.IsNullOrWhiteSpace(specialRequest))
 				try
@@ -624,16 +631,20 @@ namespace net.vieapps.Services.Portals
 							var expires = DateTime.Now.AddMinutes(13);
 							var baseURL = "";
 							var rootURL = "/";
-							var filesHttpURI = UtilityService.GetAppSetting("HttpUri:Files");
-							var portalsHttpURI = UtilityService.GetAppSetting("HttpUri:Portals");
 							var alwaysUseHTTPs = false;
 							var redirectToNoneWWW = false;
+							var filesHttpURI = systemIdentityJson?.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
+							while (filesHttpURI.EndsWith("/"))
+								filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1).Trim();
+							var portalsHttpURI = systemIdentityJson?.Get<string>("PortalsHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
+							while (portalsHttpURI.EndsWith("/"))
+								portalsHttpURI = portalsHttpURI.Left(portalsHttpURI.Length - 1).Trim();
 
 							if (systemIdentity.IsEquals("~resources"))
 							{
 								string identity = null;
 								var isThemeResource = false;
-								var path = requestInfo.GetParameter("x-path");
+								var path = requestInfo.GetParameter("x-path") ?? context.Request.Path;
 								var type = requestInfo.GetParameter("x-resource");
 
 								if (type.IsStartsWith("theme"))
@@ -665,7 +676,7 @@ namespace net.vieapps.Services.Portals
 											: path.ToList(".").Last();
 
 								cacheKey = requestURI.ToString().ToLower();
-								cacheKey = isThemeResource && (type.IsEquals("css") || type.IsEquals("js")) && !(identity.Length == 34 && identity.Right(32).IsValidUUID())
+								cacheKey = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
 									? $"{type}#{identity}"
 									: $"v#{(cacheKey.IndexOf("?") > 0 ? cacheKey.Left(cacheKey.IndexOf("?")) : cacheKey).GenerateUUID()}";
 								eTag = cacheKey;
@@ -691,21 +702,16 @@ namespace net.vieapps.Services.Portals
 								var organizationAlias = systemIdentityJson.Get<string>("Alias");
 								var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
 
-								filesHttpURI = systemIdentityJson.Get<string>("FilesHttpURI");
-								filesHttpURI += filesHttpURI.EndsWith("/") ? "" : "/";
-								portalsHttpURI = systemIdentityJson.Get<string>("PortalsHttpURI");
-								portalsHttpURI += portalsHttpURI.EndsWith("/") ? "" : "/";
-
 								alwaysUseHTTPs = systemIdentityJson.Get<bool>("AlwaysUseHTTPs");
 								redirectToNoneWWW = systemIdentityJson.Get<bool>("RedirectToNoneWWW");
 
 								var path = requestURI.AbsolutePath;
-								path = (path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path).ToLower();
+								path = (path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path).ToLower();
 
 								if (path.IsStartsWith($"/~{organizationAlias}"))
 								{
 									path = path.Right(path.Length - organizationAlias.Length - 2);
-									baseURL = $"{portalsHttpURI}~{organizationAlias}/";
+									baseURL = $"{portalsHttpURI}/~{organizationAlias}/";
 									rootURL = "";
 								}
 
@@ -791,12 +797,12 @@ namespace net.vieapps.Services.Portals
 											["os-mode"] = osMode,
 											["correlationID"] = correlationID,
 											["correlation-id"] = correlationID
-										}).Replace("~#/", portalsHttpURI).Replace("~~~/", portalsHttpURI).Replace("~~/", filesHttpURI).Replace("~/", rootURL);
+										});
 										if (!string.IsNullOrWhiteSpace(baseURL))
 											cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
 									}
 
-									await context.WriteAsync(contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
+									await context.WriteAsync(contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") ? cached.Base64ToBytes() : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL).ToBytes(), cts.Token).ConfigureAwait(false);
 									if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
 										await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Excution times: {watch.GetElapsedTimes()}").ConfigureAwait(false);
 
@@ -853,7 +859,7 @@ namespace net.vieapps.Services.Portals
 						}
 
 						var filesHttpURI = systemIdentityJson?.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
-						while (filesHttpURI.IsEndsWith("/"))
+						while (filesHttpURI.EndsWith("/"))
 							filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1).Trim();
 
 						context.SetResponseHeaders((int)HttpStatusCode.MovedPermanently, new Dictionary<string, string>
