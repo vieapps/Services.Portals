@@ -32,11 +32,11 @@ namespace net.vieapps.Services.Portals
 
 		static HashSet<string> Validators { get; } = "_validator,validator.aspx".ToHashSet();
 
-		static HashSet<string> LogIns { get; } = "_login,login.aspx,signin.aspx".ToHashSet();
+		static HashSet<string> LogIns { get; } = "_login,login.aspx,signin.aspx,login.html,signin.html,login.php,signin.php".ToHashSet();
 
-		static HashSet<string> LogOuts { get; } = "_logout,logout.aspx,signout.aspx".ToHashSet();
+		static HashSet<string> LogOuts { get; } = "_logout,logout.aspx,signout.aspx,logout.html,signout.html,logout.php,signout.php".ToHashSet();
 
-		static HashSet<string> CmsPortals { get; } = "_admin,admin.aspx,_cms,cms.aspx".ToHashSet();
+		static HashSet<string> CmsPortals { get; } = "_admin,_cms,admin.aspx,cms.aspx,admin.html,cms.html,admin.php,cms.php".ToHashSet();
 
 		static HashSet<string> Feeds { get; } = "feed,feed.xml,feed.json,atom,atom.xml,atom.json,rss,rss.xml,rss.json".ToHashSet();
 
@@ -52,7 +52,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
 
-		internal static string RefresherRefererURL => "https://portals.vieapps.net/~url.refresher";
+		static bool ProcessCaches { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:ProcessCaches", "true"));
+
+		internal static string RefresherRefererURL { get; } = UtilityService.GetAppSetting("Portals:RefresherRefererURL", "https://portals.vieapps.net/~url.refresher");
 
 		internal static int ExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 0;
 
@@ -555,7 +557,7 @@ namespace net.vieapps.Services.Portals
 					query["x-desktop"] = "-default";
 
 				// legacy
-				"catName,contId,page,desktop".ToList().ForEach(key => query.Remove(key));
+				"desktop,catName,contId,page".ToList().ForEach(key => query.Remove(key));
 			});
 
 			// validate HTTP Verb
@@ -582,7 +584,7 @@ namespace net.vieapps.Services.Portals
 				if (requestURI.AbsolutePath.IsEndsWith(".json"))
 					headers["x-feed-json"] = "true";
 				var categoryAlias = context.GetRequestPathSegments().Last();
-				categoryAlias = categoryAlias.Replace(StringComparison.OrdinalIgnoreCase, ".xml", "").Replace(StringComparison.OrdinalIgnoreCase, ".json", "").Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "");
+				categoryAlias = categoryAlias.Replace(StringComparison.OrdinalIgnoreCase, ".xml", "").Replace(StringComparison.OrdinalIgnoreCase, ".json", "").Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "");
 				categoryAlias = categoryAlias.Replace(StringComparison.OrdinalIgnoreCase, "feed", "").Replace(StringComparison.OrdinalIgnoreCase, "atom", "").Replace(StringComparison.OrdinalIgnoreCase, "rss", "");
 				if (!string.IsNullOrWhiteSpace(categoryAlias))
 					headers["x-feed-category"] = categoryAlias;
@@ -601,7 +603,7 @@ namespace net.vieapps.Services.Portals
 			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
 			if (Global.IsDebugLogEnabled)
 				await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
-					$"Process HTTP request starting {httpVerb} {requestURI}" + " \r\n" +
+					$"Process HTTP request {httpVerb} {requestURI}" + " \r\n" +
 					$"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
 					$"- Request Info: {requestInfo.ToString(Formatting.Indented)}"
 				, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
@@ -616,14 +618,14 @@ namespace net.vieapps.Services.Portals
 					if (string.IsNullOrWhiteSpace(systemIdentity) || "~indicators".IsEquals(systemIdentity))
 					{
 						systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-						requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
+						requestInfo.Query["x-system"] = systemIdentityJson?.Get<string>("Alias");
 					}
 
 					// request of portal desktops/resources
 					if (string.IsNullOrWhiteSpace(legacyRequest))
 					{
 						// working with cache
-						if (!Handler.RefresherRefererURL.IsEquals(context.GetReferUrl()) && requestInfo.GetParameter("x-no-cache") == null && requestInfo.GetParameter("x-force-cache") == null)
+						if (Handler.ProcessCaches && !Handler.RefresherRefererURL.IsEquals(context.GetReferUrl()) && requestInfo.GetParameter("x-no-cache") == null && requestInfo.GetParameter("x-force-cache") == null)
 						{
 							var cacheKey = "";
 							var eTag = "";
@@ -640,11 +642,11 @@ namespace net.vieapps.Services.Portals
 							while (portalsHttpURI.EndsWith("/"))
 								portalsHttpURI = portalsHttpURI.Left(portalsHttpURI.Length - 1).Trim();
 
-							if (systemIdentity.IsEquals("~resources"))
+							if ("~resources".IsEquals(systemIdentity))
 							{
 								string identity = null;
 								var isThemeResource = false;
-								var path = requestInfo.GetParameter("x-path") ?? context.Request.Path;
+								var path = requestInfo.GetParameter("x-path");
 								var type = requestInfo.GetParameter("x-resource");
 
 								if (type.IsStartsWith("theme"))
@@ -675,12 +677,6 @@ namespace net.vieapps.Services.Portals
 											? "fonts"
 											: path.ToList(".").Last();
 
-								cacheKey = requestURI.ToString().ToLower();
-								cacheKey = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
-									? $"{type}#{identity}"
-									: $"v#{(cacheKey.IndexOf("?") > 0 ? cacheKey.Left(cacheKey.IndexOf("?")) : cacheKey).GenerateUUID()}";
-								eTag = cacheKey;
-
 								if (type.IsEquals("css"))
 									contentType = "text/css";
 								else if (type.IsEquals("js"))
@@ -692,6 +688,13 @@ namespace net.vieapps.Services.Portals
 									contentType = path.ToList(".").Last();
 									contentType = $"image/{(contentType.IsEquals("svg") ? "svg+xml" : contentType.IsEquals("jpg") || contentType.IsEquals("jpeg") ? "jpeg" : contentType)}";
 								}
+
+								cacheKey = requestURI.ToString().ToLower();
+								cacheKey = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
+									? $"{type}#{identity}"
+									: $"v#{(cacheKey.IndexOf("?") > 0 ? cacheKey.Left(cacheKey.IndexOf("?")) : cacheKey).GenerateUUID()}";
+
+								eTag = cacheKey;
 								expires = DateTime.Now.AddDays(366);
 							}
 
@@ -718,7 +721,7 @@ namespace net.vieapps.Services.Portals
 								var desktopAlias = queryString["x-desktop"].ToLower();
 								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
 
-								cacheKey = $"{organizationID}:" + (desktopAlias.IsEquals("-default") || desktopAlias.IsEquals(homeDesktopAlias) ? "-default" : path).GenerateUUID();
+								cacheKey = $"{organizationID}:{(desktopAlias.IsEquals("-default") || desktopAlias.IsEquals(homeDesktopAlias) ? "-default" : path).GenerateUUID()}";
 								eTag = $"v#{cacheKey}";
 							}
 
@@ -1444,7 +1447,7 @@ namespace net.vieapps.Services.Portals
 
 				// register a session in or open login form
 				default:
-					await (context.Request.Path.Value.IsEndsWith(".aspx") ? showAsync() : registerAsync()).ConfigureAwait(false);
+					await (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php") ? showAsync() : registerAsync()).ConfigureAwait(false);
 					break;
 			}
 		}
@@ -1474,7 +1477,7 @@ namespace net.vieapps.Services.Portals
 				await context.SignOutAsync().ConfigureAwait(false);
 
 				// response
-				if (context.Request.Path.Value.IsEndsWith(".aspx"))
+				if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
 				{
 					var scripts = @"<script>
 					window.__logout = window.__logout || function(){};
@@ -1512,7 +1515,7 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
-				if (context.Request.Path.Value.IsEndsWith(".aspx"))
+				if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
 				{
 					await context.WriteLogsAsync("Http.Authentications", $"Error occurred while logging out => {ex.Message}", ex).ConfigureAwait(false);
 					var code = ex.GetHttpStatusCode();

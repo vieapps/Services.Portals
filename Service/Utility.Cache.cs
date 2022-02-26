@@ -18,9 +18,9 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory());
 
-		internal static bool IsDebugEnabled => Utility.Logger != null && Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug);
+		internal static bool IsDebugEnabled { get; } = Utility.Logger != null && Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug);
 
-		internal static bool WriteCacheLogs => Utility.IsDebugEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
+		internal static bool WriteCacheLogs { get; } = Utility.IsDebugEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
 
 		/// <summary>
 		/// Gets the key for storing a set of keys that belong to an organization
@@ -53,6 +53,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="desktop"></param>
 		/// <param name="cancellationToken"></param>
+		/// <param name="staticIncluded"></param>
 		/// <returns></returns>
 		public static async Task<List<string>> GetSetCacheKeysAsync(this Desktop desktop, CancellationToken cancellationToken = default, bool staticIncluded = false)
 			=> (staticIncluded ? new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" } : Array.Empty<string>())
@@ -65,6 +66,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="desktops"></param>
 		/// <param name="cancellationToken"></param>
+		/// <param name="staticIncluded"></param>
 		/// <returns></returns>
 		public static async Task<List<string>> GetSetCacheKeysAsync(this IEnumerable<Desktop> desktops, CancellationToken cancellationToken = default, bool staticIncluded = false)
 		{
@@ -159,7 +161,7 @@ namespace net.vieapps.Services.Portals
 		{
 			var path = requestURI.AbsolutePath;
 			path = path.IsStartsWith($"/~{organization.Alias}") ? path.Right(path.Length - organization.Alias.Length - 2) : path;
-			path = (path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path).ToLower();
+			path = (path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path).ToLower();
 			path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
 			return $"{organization.ID}:" + (desktopAlias.IsEquals("-default") || desktopAlias.IsEquals(organization.HomeDesktop?.Alias) ? "-default" : path).GenerateUUID();
 		}
@@ -246,7 +248,7 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the refer URL of the refresher
 		/// </summary>
-		internal static string RefresherRefererURL => "https://portals.vieapps.net/~url.refresher";
+		internal static string RefresherRefererURL { get; } = UtilityService.GetAppSetting("Portals:RefresherRefererURL", "https://portals.vieapps.net/~url.refresher");
 
 		/// <summary>
 		/// Refreshs a web page

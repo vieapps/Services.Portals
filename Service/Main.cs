@@ -1199,7 +1199,7 @@ namespace net.vieapps.Services.Portals
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process HTTP resource => {uri}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			// get the type of the resource
-			var type = requestInfo.Query["x-resource"];
+			var type = requestInfo.Query.Get("x-resource", "assets");
 
 			// permanent link
 			if (type.IsEquals("permanentlink") || type.IsEquals("permanently") || type.IsEquals("permanent"))
@@ -1268,7 +1268,7 @@ namespace net.vieapps.Services.Portals
 			else
 				type = type.IsStartsWith("img") || type.IsStartsWith("image")
 					? "images"
-					: type.IsStartsWith("font") ? "fonts" : "";
+					: type.IsStartsWith("font") ? "fonts" : type;
 
 			// fake URIs
 			string filesHttpURI = null, portalsHttpURI = null;
@@ -1285,7 +1285,7 @@ namespace net.vieapps.Services.Portals
 			var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
 			if (this.CacheDesktopResources && lastModified == null && (type.IsEquals("css") || type.IsEquals("js")))
 			{
-				if (identity.Length == 34 && identity.Right(32).IsValidUUID())
+				if (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID())
 				{
 					if (identity.Left(1).IsEquals("o"))
 					{
@@ -1371,11 +1371,6 @@ namespace net.vieapps.Services.Portals
 				};
 			}
 
-			// normalize fake URIs
-			var system = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
-			filesHttpURI = filesHttpURI ?? this.GetFilesHttpURI(system);
-			portalsHttpURI = portalsHttpURI ?? this.GetPortalsHttpURI(system);
-
 			// static files in 'assets' directory or image/font files of a theme
 			if (type.IsEquals("assets") || type.IsEquals("images") || type.IsEquals("fonts"))
 			{
@@ -1387,6 +1382,8 @@ namespace net.vieapps.Services.Portals
 				if (!fileInfo.Exists)
 					throw new InformationNotFoundException(filePath);
 
+				filesHttpURI = filesHttpURI ?? this.GetFilesHttpURI();
+				portalsHttpURI = portalsHttpURI ?? this.GetPortalsHttpURI();
 				var data = filePath.IsEndsWith(".css")
 					? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").MinifyCss().ToBytes()
 					: filePath.IsEndsWith(".js")
@@ -1395,9 +1392,10 @@ namespace net.vieapps.Services.Portals
 
 				// response
 				lastModified = fileInfo.LastWriteTime.ToHttpString();
+				var contentType = fileInfo.GetMimeType();
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					{ "Content-Type", $"{fileInfo.GetMimeType()}; charset=utf-8" },
+					{ "Content-Type", $"{contentType}; charset=utf-8" },
 					{ "X-Cache", "None" },
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
@@ -1411,7 +1409,7 @@ namespace net.vieapps.Services.Portals
 						{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
 						{ "Cache-Control", "public" }
 					};
-					resources = filePath.IsEndsWith(".css") || filePath.IsEndsWith(".js") ? data.GetString() : data.ToBase64();
+					resources = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") ? data.ToBase64() : data.GetString();
 					await Task.WhenAll
 					(
 						Utility.Cache.SetAsFragmentsAsync(eTag, resources, cancellationToken),
@@ -1436,13 +1434,13 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
-				if (identity.Length == 34 && identity.Right(32).IsValidUUID())
+				if (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID())
 				{
 					if (identity.Left(1).IsEquals("s"))
 					{
 						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = this.GetFilesHttpURI(site) ?? this.GetFilesHttpURI(system);
-						portalsHttpURI = this.GetPortalsHttpURI(site) ?? this.GetPortalsHttpURI(system);
+						filesHttpURI = this.GetFilesHttpURI(site);
+						portalsHttpURI = this.GetPortalsHttpURI(site);
 						resources = site != null
 							? (this.IsDebugLogEnabled ? $"/* css of the '{site.Title}' site */\r\n" : "") + (string.IsNullOrWhiteSpace(site.Stylesheets) ? "" : site.Stylesheets.MinifyCss())
 							: $"/* the requested site ({identity}) is not found */";
@@ -1450,8 +1448,8 @@ namespace net.vieapps.Services.Portals
 					else if (identity.Left(1).IsEquals("d"))
 					{
 						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = this.GetFilesHttpURI(desktop) ?? this.GetFilesHttpURI(system);
-						portalsHttpURI = this.GetPortalsHttpURI(desktop) ?? this.GetPortalsHttpURI(system);
+						filesHttpURI = this.GetFilesHttpURI(desktop);
+						portalsHttpURI = this.GetPortalsHttpURI(desktop);
 						resources = desktop != null
 							? (this.IsDebugLogEnabled ? $"/* css of the '{desktop.Title}' desktop */\r\n" : "") + (string.IsNullOrWhiteSpace(desktop.Stylesheets) ? "" : desktop.Stylesheets.MinifyCss())
 							: $"/* the requested desktop ({identity}) is not found */";
@@ -1466,6 +1464,8 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// response
+				filesHttpURI = filesHttpURI ?? this.GetFilesHttpURI();
+				portalsHttpURI = portalsHttpURI ?? this.GetPortalsHttpURI();
 				resources = resources.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/");
 				var headers = new Dictionary<string, string>
 				{
@@ -1474,7 +1474,7 @@ namespace net.vieapps.Services.Portals
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
 
-				if (this.CacheDesktopResources && ((identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity)))
+				if (this.CacheDesktopResources && ((identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity)))
 				{
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
@@ -1507,13 +1507,13 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
-				if (identity.Length == 34 && identity.Right(32).IsValidUUID())
+				if (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID())
 				{
 					if (identity.Left(1).IsEquals("o"))
 					{
 						var organization = await identity.Right(32).GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = this.GetFilesHttpURI(organization) ?? this.GetFilesHttpURI(system);
-						portalsHttpURI = this.GetPortalsHttpURI(organization) ?? this.GetPortalsHttpURI(system);
+						filesHttpURI = this.GetFilesHttpURI(organization);
+						portalsHttpURI = this.GetPortalsHttpURI(organization);
 						lastModified = lastModified ?? organization?.LastModified.ToHttpString();
 						resources = organization != null
 							? (this.IsDebugLogEnabled ? $"/* scripts of the '{organization.Title}' organization */\r\n" : "") + organization.Javascripts
@@ -1522,8 +1522,8 @@ namespace net.vieapps.Services.Portals
 					else if (identity.Left(1).IsEquals("s"))
 					{
 						var site = await identity.Right(32).GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = this.GetFilesHttpURI(site) ?? this.GetFilesHttpURI(system);
-						portalsHttpURI = this.GetPortalsHttpURI(site) ?? this.GetPortalsHttpURI(system);
+						filesHttpURI = this.GetFilesHttpURI(site);
+						portalsHttpURI = this.GetPortalsHttpURI(site);
 						lastModified = lastModified ?? site?.LastModified.ToHttpString();
 						resources = site != null
 							? (this.IsDebugLogEnabled ? $"/* scripts of the '{site.Title}' site */\r\n" : "") + (string.IsNullOrWhiteSpace(site.Scripts) ? "" : site.Scripts.MinifyJs())
@@ -1532,8 +1532,8 @@ namespace net.vieapps.Services.Portals
 					else if (identity.Left(1).IsEquals("d"))
 					{
 						var desktop = await identity.Right(32).GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-						filesHttpURI = this.GetFilesHttpURI(desktop) ?? this.GetFilesHttpURI(system);
-						portalsHttpURI = this.GetPortalsHttpURI(desktop) ?? this.GetPortalsHttpURI(system);
+						filesHttpURI = this.GetFilesHttpURI(desktop);
+						portalsHttpURI = this.GetPortalsHttpURI(desktop);
 						lastModified = lastModified ?? desktop?.LastModified.ToHttpString();
 						resources = desktop != null
 							? (this.IsDebugLogEnabled ? $"/* scripts of the '{desktop.Title}' desktop */\r\n" : "") + (string.IsNullOrWhiteSpace(desktop.Scripts) ? "" : desktop.Scripts.MinifyJs())
@@ -1549,6 +1549,8 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// response
+				filesHttpURI = filesHttpURI ?? this.GetFilesHttpURI();
+				portalsHttpURI = portalsHttpURI ?? this.GetPortalsHttpURI();
 				resources = resources.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/");
 				var headers = new Dictionary<string, string>
 				{
@@ -1557,7 +1559,7 @@ namespace net.vieapps.Services.Portals
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
 
-				if (this.CacheDesktopResources && ((identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity)))
+				if (this.CacheDesktopResources && ((identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity)))
 				{
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
@@ -1652,18 +1654,18 @@ namespace net.vieapps.Services.Portals
 
 			// get site by domain
 			var host = requestInfo.GetParameter("x-host");
-			var site = await (host ?? "").GetSiteByDomainAsync(Utility.DefaultSite?.ID, cancellationToken).ConfigureAwait(false);
+			var site = await (host ?? "").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
 
-			// get default site if not found
+			// get default site if no approrivate site was found
 			if (site == null)
 			{
 				if (!string.IsNullOrWhiteSpace(Utility.CmsPortalsHttpURI) && host.Equals(new Uri(Utility.CmsPortalsHttpURI).Host) && (organization._siteIDs == null || !organization._siteIDs.Any()))
 				{
 					organization._siteIDs = null;
-					site = (await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault();
+					site = (await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault() ?? Utility.DefaultSite;
 				}
 				else
-					site = organization.DefaultSite;
+					site = organization.DefaultSite ?? Utility.DefaultSite;
 			}
 
 			// stop if no site is found
@@ -1963,7 +1965,7 @@ namespace net.vieapps.Services.Portals
 				{
 					var desktopData = await this.GenerateDesktopAsync(desktop, organization, site, mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					title = desktopData.Item1;
-					metaTags = $"<link rel=\"preconnect\" href=\"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}\"/>" + "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"/><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\"/><link rel=\"preconnect\" href=\"https://cdnjs.cloudflare.com\"/>" + desktopData.Item2;
+					metaTags = $"<link rel=\"preconnect\" href=\"{this.GetPortalsHttpURI(organization)}\"/>" + "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"/><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\"/><link rel=\"preconnect\" href=\"https://cdnjs.cloudflare.com\"/>" + desktopData.Item2;
 					body = desktopData.Item3;
 					stylesheets = desktopData.Item4;
 					scripts = desktopData.Item5;
@@ -2997,13 +2999,13 @@ namespace net.vieapps.Services.Portals
 			// add the stylesheet of the site
 			if (!string.IsNullOrWhiteSpace(site.Stylesheets))
 				stylesheets += site.UseInlineStylesheets
-					? site.Stylesheets.MinifyCss()
+					? site.Stylesheets.MinifyCss().Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
 					: $"<link rel=\"stylesheet\" href=\"~#/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the desktop
 			if (!string.IsNullOrWhiteSpace(desktop.Stylesheets))
 				stylesheets += site.UseInlineStylesheets
-					? desktop.Stylesheets.MinifyCss()
+					? desktop.Stylesheets.MinifyCss().Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
 					: $"<link rel=\"stylesheet\" href=\"~#/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}\"/>";
 
 			if (site.UseInlineStylesheets)
@@ -3092,7 +3094,7 @@ namespace net.vieapps.Services.Portals
 
 			if (organization.IsHasJavascripts)
 				scripts += site.UseInlineScripts
-					? organization.Javascripts
+					? organization.Javascripts.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
 					: $"<script src=\"~#/_js/o_{organization.ID}.js?v={organization.LastModified.ToUnixTimestamp()}\"></script>";
 
 			// add the scripts of the site
@@ -3103,7 +3105,7 @@ namespace net.vieapps.Services.Portals
 
 			if (!string.IsNullOrWhiteSpace(site.Scripts))
 				scripts += site.UseInlineScripts
-					? site.Scripts.MinifyJs()
+					? site.Scripts.MinifyJs().Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
 					: $"<script src=\"~#/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}\"></script>";
 
 			// add the scripts of the desktop
@@ -3114,7 +3116,7 @@ namespace net.vieapps.Services.Portals
 
 			if (!string.IsNullOrWhiteSpace(desktop.Scripts))
 				scripts += site.UseInlineScripts
-					? desktop.Scripts.MinifyJs()
+					? desktop.Scripts.MinifyJs().Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
 					: $"<script src=\"~#/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}\"></script>";
 
 			scripts += site.UseInlineScripts ? "</script>" : "";
@@ -4976,7 +4978,7 @@ namespace net.vieapps.Services.Portals
 
 				// get site by domain
 				var host = requestInfo.GetParameter("x-host");
-				var site = await (host ?? "").GetSiteByDomainAsync(Utility.DefaultSite?.ID, cancellationToken).ConfigureAwait(false) ?? organization?.DefaultSite;
+				var site = await (host ?? "").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false) ?? organization.DefaultSite ?? Utility.DefaultSite;
 				if (site == null)
 					throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(this.IsDebugLogEnabled ? $" because the organization ({ organization.Title }) has no site [{organization.Sites?.Count}]" : "")}");
 
@@ -5032,7 +5034,7 @@ namespace net.vieapps.Services.Portals
 				contents = contents.OrderByDescending(content => content.StartDate).ThenByDescending(content => content.PublishedTime).ToList();
 				var useAlias = (requestInfo.GetParameter("x-url") ?? "").IsContains($"~{organization.Alias}/");
 				if (!useAlias)
-					host = requestInfo.GetHeaderParameter("x-srp-host") ?? site.Host;
+					host = requestInfo.GetHeaderParameter("x-srp-host") ?? requestInfo.GetHeaderParameter("x-host") ?? site.Host;
 				var href = site.GetURL(host, requestInfo.GetParameter("x-url"));
 				var baseHref = useAlias ? $"/~{organization.Alias}/" : "/";
 
@@ -5117,7 +5119,7 @@ namespace net.vieapps.Services.Portals
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.InternalServerError },
-					{ "Headers", new JObject { [ "Content-Type"] = $"application/{(asJson ? "json" : "atom+xml")}; charset=utf-8" } },
+					{ "Headers", new JObject { [ "Content-Type"] = $"application/{(asJson ? "json" : "atom+xml")}; charset=utf-8", ["X-Correlation-ID"] = requestInfo.CorrelationID } },
 					{ "Body", body.Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
 				};
