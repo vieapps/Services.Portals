@@ -1,0 +1,393 @@
+﻿/* slide banners */
+.banner.slides {
+	position: relative;
+	padding: 0;
+}
+.banner.slides:not(.auto) {
+	min-height: calc(100vh - 70px);
+}
+.banner.slides:not(.auto) .owl-carousel {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	right: 0;
+}
+.banner.slides:not(.auto) .owl-carousel .owl-stage-outer,
+.banner.slides:not(.auto) .owl-carousel .owl-stage,
+.banner.slides:not(.auto) .owl-carousel .owl-item {
+	height: 100%;
+}
+.banner.slides .owl-carousel .item {
+	position: relative;
+	align-items: center;
+	width: 100%;
+	background-position: center center;
+	background-repeat: no-repeat;
+	background-size: cover;
+}
+.banner.slides:not(.auto) .owl-carousel .item {
+	height: 100%;
+}
+.banner.slides .owl-carousel .item > .content {
+	position: absolute;
+	padding: 0px;
+	width: calc(100vw - 60px);
+	color: #fff;
+	background-color: #212529;
+	opacity: .7;
+	border-radius: 10px;
+}
+.banner.slides:not(.auto):not(.alternative) .owl-carousel .item > .content {
+	left: 30px;
+	bottom: 90px;
+	padding: 30px;
+}
+.banner.slides.auto .owl-carousel .item > .content {
+	left: 15px;
+	bottom: 15px;
+}
+.banner.slides .owl-carousel .item > .content h2 {
+	font-size: 1.3rem;
+	font-weight: bold;
+	margin-top: 0;
+	margin-bottom: 0;
+}
+.banner.slides .owl-carousel .item > .content h2 + p,
+.banner.slides .owl-carousel .item > .content h2 + p + span,
+.banner.slides .owl-carousel .item > .content h2 + span {
+	margin-top: 15px;
+}
+.banner.slides .owl-carousel .item > .content p {
+	font-size: .9rem;
+}
+.banner.slides .owl-carousel .item > .content span {
+	display: inline-block;
+	padding: 15px;
+	color: #212529;
+	background-color: #ccc;
+	border-radius: 10px;
+}
+.banner.slides .owl-carousel .item > .content h2 > a,
+.banner.slides .owl-carousel .item > .content span > a {
+	color: inherit;
+	text-decoration: none;
+}
+.banner.slides .owl-dots {
+	position: absolute;
+}
+.banner.slides:not(.auto) .owl-dots {
+	bottom: 30px;
+	right: 30px;
+}
+.banner.slides.auto .owl-dots {
+	bottom: 15px;
+	right: 15px;
+}
+.banner.slides .owl-dots .owl-dot span {
+	width: 20px;
+	height: 20px;
+}
+@media (min-width: 768px) {
+	.banner.slides .owl-carousel .item > .content {
+		padding: 30px;
+	}
+	.banner.slides:not(.auto):not(.alternative) .owl-carousel .item > .content {
+		left: 60px;
+		width: calc(100vw - 120px);
+	}
+	.banner.slides.auto .owl-carousel .item > .content {
+		left: 30px;
+		bottom: 30px;
+	}
+	.banner.slides .owl-carousel .item > .content h2 {
+		font-size: 2.2rem;
+	}
+	.banner.slides .owl-carousel .item > .content p {
+		font-size: 1.1rem;
+	}
+	.banner.slides.auto .owl-dots {
+		bottom: 30px;
+		right: 30px;
+	}
+}
+@media (min-width: 1024px) {
+	.banner.slides .owl-carousel .item > .content,
+	.banner.slides.auto .owl-carousel .item > .content {
+		left: 90px;
+		width: auto;
+		min-width: calc(50vw - 180px);
+		max-width: calc(100vw - 180px);
+	}
+	.banner.slides .owl-carousel .item > .content h2 {
+		font-size: 2.5rem;
+	}
+	.banner.slides .owl-carousel .item > .content p {
+		font-size: 1.2rem;
+	}
+}
+@media (min-width: 1280px) {
+	.banner.slides .owl-carousel .item > .content,
+	.banner.slides.auto .owl-carousel .item > .content {
+		left: 120px;
+		bottom: 120px;
+		min-width: calc(50vw - 240px);
+		max-width: calc(100vw - 240px);
+	}
+	.banner.slides .owl-carousel .item > .content h2 {
+		font-size: 3rem;
+	}
+	.banner.slides .owl-carousel .item > .content p {
+		font-size: 1.3rem;
+	}
+}
+@media (min-width: 1440px) {
+	.banner.slides .owl-carousel .item > .content,
+	.banner.slides.auto .owl-carousel .item > .content {
+		left: 150px;
+		bottom: 150px;
+		min-width: calc(50vw - 300px);
+		max-width: calc(100vw - 300px);
+	}
+	.banner.slides .owl-carousel .item > .content h2 {
+		font-size: 4rem;
+	}
+	.banner.slides .owl-carousel .item > .content p {
+		font-size: 1.4rem;
+	}
+}
+@media (min-width: 1680px) {
+	.banner.slides .owl-carousel .item > .content,
+	.banner.slides.auto .owl-carousel .item > .content {
+		left: 200px;
+		bottom: 200px;
+		min-width: calc(50vw - 400px);
+		max-width: calc(100vw - 400px);
+	}
+	.banner.slides .owl-carousel .item > .content h2 {
+		font-size: 5rem;
+	}
+	.banner.slides .owl-carousel .item > .content p {
+		font-size: 1.5rem;
+	}
+}
+.banner.slides.alternative .owl-carousel .item {
+	display: flex;
+}
+.banner.slides.borders .owl-carousel .item > .content,
+.banner.slides.alternative .owl-carousel .item > .content {
+	background-color: transparent;
+	opacity: 1;
+}
+.banner.slides.alternative .owl-carousel .item > .content {
+	left: 0;
+	right: 0;
+	top: unset;
+	bottom: unset;
+	min-width: unset;
+	max-width: unset;
+}
+.banner.slides.alternative .owl-carousel .item > .content h2 {
+	font-size: 40px;
+	letter-spacing: -0.01em;
+	line-height: 1.05;
+	color: #fff;
+	margin-bottom: 20px;
+}
+.banner.slides.alternative .owl-carousel .item > .content p {
+	max-width: 550px;
+	font-size: 14px;
+	line-height: 1.5;
+	color: #fff;
+	margin-bottom: 0;
+}
+.banner.slides.borders .owl-carousel .item > .content span,
+.banner.slides.alternative .owl-carousel .item > .content span {
+	padding: 0;
+	background-color: transparent;
+}
+.banner.slides.alternative .owl-carousel .item > .content span a {
+	display: inline-block;
+	font-size: 18px;
+	font-weight: bold;
+	color: #fff;
+	margin-top: 25px;
+}
+.banner.slides.alternative .owl-carousel .item > .content span i {
+	margin-left: 6px;
+	vertical-align: -1px;
+}
+.banner.slides.borders .owl-carousel .item > .content h2,
+.banner.slides.borders .owl-carousel .item > .content p,
+.banner.slides.borders .owl-carousel .item > .content span,
+.banner.slides.alternative .owl-carousel .item > .content h2,
+.banner.slides.alternative .owl-carousel .item > .content p,
+.banner.slides.alternative .owl-carousel .item > .content span {
+	color: #fff;
+	text-shadow:
+		1px 1px 0 #006659,
+		-1px 1px 0 #006659,
+		1px -1px 0 #006659,
+		-1px -1px 0 #006659,
+		0px 1px 0 #006659,
+		0px -1px 0 #006659,
+		-1px 0px 0 #006659,
+		1px 0px 0 #006659,
+		2px 2px 0 #006659,
+		-2px 2px 0 #006659,
+		2px -2px 0 #006659,
+		-2px -2px 0 #006659,
+		0px 2px 0 #006659,
+		0px -2px 0 #006659,
+		-2px 0px 0 #006659,
+		2px 0px 0 #006659,
+		1px 2px 0 #006659,
+		-1px 2px 0 #006659,
+		1px -2px 0 #006659,
+		-1px -2px 0 #006659,
+		2px 1px 0 #006659,
+		-2px 1px 0 #006659,
+		2px -1px 0 #006659,
+		-2px -1px 0 #006659;
+}
+.banner.slides .footer {
+	position: absolute;
+	z-index: 1;
+	left: 0;
+	bottom: 40px;
+	right: 0;
+}
+.banner.slides .footer ul {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	margin: 0 -3px;
+	display: flex;
+	flex-wrap: wrap;
+}
+.banner.slides .footer ul li {
+	width: calc(100% / 7);
+	padding: 0 7px;
+}
+.banner.slides .footer ul li > span {
+	display: block;
+	position: relative;
+	height: 1px;
+	background-color: rgba(255, 255, 255, 0.6);
+}
+.banner.slides .footer ul li > span small {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 0;
+	height: 100%;
+	background-color: #006659;
+}
+.banner.slides .footer ul li h3 {
+	font-weight: 500;
+	font-size: 14px;
+	line-height: 1.43;
+	color: #fff;
+	padding-top: 20px;
+	cursor: pointer;
+} 
+@media (max-width: 767.98px) {
+	.banner.slides .footer ul li h3 {
+		font-size: 0;
+		padding-top: 0;
+	}
+}
+@media (min-width: 768px) {
+	.banner.slides.alternative .owl-carousel .item > .content h2 {
+	  font-size: 50px;
+	}
+	.banner.slides.alternative .owl-carousel .item > .content p {
+	  font-size: 18px;
+	}
+	.banner.slides.alternative .owl-carousel .item > .content span {
+	  margin-top: 35px;
+	}
+	.banner.slides .footer {
+	  bottom: 60px;
+	}
+	.banner.slides .footer ul {
+	  margin: 0 -15px;
+	}
+	.banner.slides .footer ul li {
+	  padding: 0 15px;
+	}
+}
+@media (min-width: 992px) {
+	.banner.slides .footer ul li h3 {
+	  font-size: 16px;
+	}
+}
+@media (min-width: 1280px) {
+	.banner.slides.alternative .owl-carousel .item > .content p {
+		max-width: 70%;
+	}
+	.banner.slides.alternative .owl-carousel .item > .content span {
+		font-size: 16px;
+		margin-top: 45px;
+	}
+	.banner.slides .footer {
+		bottom: 20px;
+	}
+}
+@media (min-width: 1680px) {
+	.banner.slides.alternative .owl-carousel .item > .content h2 {
+		font-size: 70px;
+	}
+	 .banner.slides.alternative .owl-carousel .item > .content p {
+		font-size: 22px;
+	}
+}
+  
+/* carousel banners */
+.banner.carousel .item {
+	height: 80px;
+}
+.banner.carousel .item img {
+	width: auto;
+	height: 100%;
+}
+.banner.carousel .owl-nav {
+	margin: 0;
+	padding: 0;
+}
+.banner.carousel .owl-nav .owl-prev,
+.banner.carousel .owl-nav .owl-next {
+	display: block !important;
+	position: absolute;
+	width: 50px;
+	height: 80px;
+	top: 0;
+	border: solid 0px black;
+}
+.banner.carousel .owl-nav > button,
+.banner.carousel .owl-nav > button:hover {
+	color: inherit;
+	background-color: transparent;
+}
+.banner.carousel .owl-nav > button {
+	position: absolute;
+	top: 30%;
+}
+.banner.carousel .owl-nav > button.owl-prev {
+	left: 5px;
+}
+.banner.carousel .owl-nav > button.owl-next {
+	right: 5px;
+}
+.banner.carousel .owl-nav > button > span {
+	display: inline-block;
+	height: 50px;
+	width: 50px;
+	opacity: .8;
+	background-color: #ddd;
+	border: solid 3px #444;
+	border-radius: 50%;
+}
+.banner.carousel .owl-nav > button > span > i {
+	line-height: 45px;
+}

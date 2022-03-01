@@ -1,0 +1,5 @@
+<div class="portlet {{ansi-title}}">
+	<nav zone-id="ContextMenu" class="menu"></nav>
+	<section zone-id="Title" class="title"></section>
+	<div zone-id="Content" class="content"></div>
+</div>

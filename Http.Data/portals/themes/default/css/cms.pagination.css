@@ -1,0 +1,126 @@
+﻿/*
+	theme: all - pagination
+*/
+.cms.pagination {
+	display: block;
+	position: relative;
+	clear: both;
+	overflow: hidden;
+	margin: 0;
+	padding: 15px 0;
+	text-align: center;
+	font-size: .9rem;
+}
+.cms.pagination.links > div,
+.cms.pagination.links > section {
+	display: inline-block;
+	clear: both;
+	width: 100%;
+	margin: 0;
+	padding: 0;
+}
+.cms.pagination.boxes > div {
+	float: left;
+	clear: none;
+	width: auto;
+}
+.cms.pagination.boxes > section {
+	float: right;
+	clear: none;
+	width: auto;
+}
+.cms.pagination > div > label {
+	display: inline-block;
+	line-height: 52px;
+	margin: 0;
+}
+.cms.pagination > div > select {
+	height: 52px;
+	padding: 7.5px;
+	margin-left: 7.5px;
+	border: solid 1px transparent;
+}
+.cms.pagination > div > ul {
+	display: inline-block;
+	list-style-type: none;
+	margin: 0;
+	padding: 0;
+}
+.cms.pagination > div > ul > li {
+	display: inline-block;
+	margin: 7px;
+}
+.cms.pagination > div > ul > li > label,
+.cms.pagination > div > ul > li > a {
+	display: inline-block;
+	border-radius: 7px;
+	padding: 3px 15px;
+	margin: 0;
+	line-height: 32px;
+	min-width: 32px;
+	min-height: 32px;
+	background-color: #f0f0e9;
+	border: solid 1px #d6d6d0;
+}
+.cms.pagination > div > ul > li > label {
+	background-color: #d6d6d0;
+}
+.cms.pagination > div > ul > li > a {
+	transition: background-color .5s, color 1s;
+}
+.cms.pagination > div > ul > li > label:hover,
+.cms.pagination > div > ul > li > a:hover {
+	color: #717171;
+	background-color: #d6d6d0;
+	text-decoration: none;
+}
+.cms.pagination > section > a {
+	line-height: 60px;
+	margin-left: 15px;
+	color: #717171;
+}
+.cms.pagination > section > a,
+.cms.pagination > section > a > span,
+.cms.pagination > section > a > span .fa,
+.cms.pagination > section > a > span .far,
+.cms.pagination > section > a > span .fab,
+.cms.pagination > section > a > span .fas {
+	line-height: 52px;
+	margin: 0;
+	display: inline-block;
+}
+.cms.pagination > section > a.next {
+	margin-left: 15px;
+}
+.cms.pagination > section > a > span .fa,
+.cms.pagination > section > a > span .far,
+.cms.pagination > section > a > span .fab,
+.cms.pagination > section > a > span .fas {
+	font-size: 1.5rem;
+	vertical-align: middle;
+	margin-top: -2px;
+}
+.cms.pagination > section > a.previous .fa,
+.cms.pagination > section > a.previous .far,
+.cms.pagination > section > a.previous .fab,
+.cms.pagination > section > a.previous .fas {
+	margin-right: 7px;
+}
+.cms.pagination > section > a.next .fa,
+.cms.pagination > section > a.next .far,
+.cms.pagination > section > a.next .fab,
+.cms.pagination > section > a.next .fas {
+	margin-left: 7px;
+}
+@media (min-width: 1200px) {
+	.cms.pagination.links > div {
+		float: left;
+		clear: none;
+		width: auto;
+	}
+	.cms.pagination.links > section {
+		float: right;
+		clear: none;
+		width: auto;
+	}
+}

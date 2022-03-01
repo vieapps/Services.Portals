@@ -1,0 +1,84 @@
+<xsl:if test="/VIEApps/Options/ShowPagination = 'true' and /VIEApps/Pagination/TotalPages &gt; 1">
+	<xsl:variable name="PageNumber">
+		<xsl:value-of select="/VIEApps/Pagination/PageNumber"/>
+	</xsl:variable>
+	<xsl:variable name="ShowPageLinks">
+		<xsl:value-of select="/VIEApps/Pagination/ShowPageLinks"/>
+	</xsl:variable>
+	<section>
+		<xsl:attribute name="class">
+			cms pagination 
+			<xsl:if test="$ShowPageLinks = 'true'">
+				links
+			</xsl:if>
+			<xsl:if test="$ShowPageLinks != 'true'">
+				boxes
+			</xsl:if>
+		</xsl:attribute>
+		<section>
+			<xsl:if test="count(/VIEApps/Pagination/PreviousPage) &gt; 0">
+				<a class="previous" href="{/VIEApps/Pagination/PreviousPage/URL}">
+					<span>
+						<i class="far fa-arrow-alt-circle-left">&#xa0;</i>
+					</span>
+					<span>
+						<xsl:value-of select="/VIEApps/Pagination/PreviousPage/Text"/>
+					</span>
+				</a>
+			</xsl:if>
+			<xsl:if test="count(/VIEApps/Pagination/NextPage) &gt; 0">
+				<a class="next" href="{/VIEApps/Pagination/NextPage/URL}">
+					<span>
+						<xsl:value-of select="/VIEApps/Pagination/NextPage/Text"/>
+					</span>
+					<span>
+						<i class="far fa-arrow-alt-circle-right">&#xa0;</i>
+					</span>
+				</a>
+			</xsl:if>
+		</section>
+		<div>
+			<label>
+				<xsl:value-of select="/VIEApps/Pagination/Pages/@Label"/>
+			</label>
+			<xsl:if test="$ShowPageLinks = 'true'">
+				<ul>
+					<xsl:for-each select="/VIEApps/Pagination/Pages/Page">
+						<xsl:variable name="Selected">
+							<xsl:value-of select="$PageNumber = ./Text"/>
+						</xsl:variable>
+						<li>
+							<xsl:choose>
+								<xsl:when test="$Selected = 'true'">
+									<label>
+										<xsl:value-of select="./Text"/>
+									</label>
+								</xsl:when>
+								<xsl:otherwise>
+									<a href="{./URL}">
+										<xsl:value-of select="./Text"/>
+									</a>
+								</xsl:otherwise>
+							</xsl:choose>
+						</li>
+					</xsl:for-each>
+				</ul>
+			</xsl:if>
+			<xsl:if test="$ShowPageLinks != 'true'">
+				<select onchange="location.href=this.value">
+					<xsl:for-each select="/VIEApps/Pagination/Pages/Page">
+						<xsl:variable name="Selected">
+							<xsl:value-of select="$PageNumber = ./Text"/>
+						</xsl:variable>
+						<option value="{./URL}">
+							<xsl:if test="$Selected = 'true'">
+								<xsl:attribute name="selected"/>
+							</xsl:if>
+							<xsl:value-of select="./Text"/>
+						</option>
+					</xsl:for-each>
+				</select>
+			</xsl:if>
+		</div>
+	</section>
+</xsl:if>

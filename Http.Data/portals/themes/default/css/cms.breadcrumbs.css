@@ -1,0 +1,33 @@
+﻿/*
+	theme: all - breadcrumbs
+*/
+ul.cms.breadcrumbs {
+	clear: both;
+	overflow: hidden;
+	list-style-type: none;
+	margin: 0;
+	padding: 15px 0;
+}
+ul.cms.breadcrumbs > li {
+	display: inline-block;
+}
+ul.cms.breadcrumbs > li,
+ul.cms.breadcrumbs > li a {
+	color: inherit;
+}
+ul.cms.breadcrumbs > li > label {
+	margin: 0 10px;
+}
+ul.cms.breadcrumbs > li > label,
+ul.cms.breadcrumbs > li > span {
+	line-height: 25px;
+	font-size: .9rem;
+}
+
+/*
+	theme: default - coloring codes of breadcrumbs in content zones
+*/
+.default.desktop .zone.content div.content ul.breadcrumbs > li,
+.default.desktop .zone.content div.content ul.breadcrumbs > li a {
+	color: #696763;
+}

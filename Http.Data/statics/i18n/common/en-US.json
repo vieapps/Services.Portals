@@ -1,0 +1,180 @@
+{
+	"common": {
+		"sidebar": {
+			"home": "Home",
+			"login": "Login",
+			"register": "Register",
+			"profile": "Profile",
+			"search": "Search"
+		},
+		"alert": {
+			"header": {
+				"general": "Attention",
+				"error": "Error"
+			}
+		},
+		"buttons": {
+			"yes": "Yes",
+			"no": "No",
+			"ok": "OK",
+			"done": "Done",
+			"add": "Add",
+			"moderate": "Moderate",
+			"approve": "Approve",
+			"create": "Create new",
+			"update": "Update",
+			"delete": "Delete",
+			"edit": "Edit",
+			"view": "View",
+			"save": "Save",
+			"cancel": "Cancel",
+			"close": "Close",
+			"select": "Select",
+			"search": "Search",
+			"upload": "Upload",
+			"download": "Download",
+			"refresh": "Refresh",
+			"filter": "Quick filter",
+			"move": "Move",
+			"continue": "Continue",
+			"later": "Later",
+			"login": "Log In",
+			"logout": "Log Out",
+			"submit": "Submit"
+		},
+		"messages": {
+			"loading": "Loading...",
+			"activating": "Activating...",
+			"processing": "Processing...",
+			"errors": {
+				"general": "Unexpected error!",
+				"wrongAccountOrPassword": "Wrong account or password!",
+				"wrongCaptcha": "Verification code is invalid"
+			},
+			"delete": {
+				"normal": "Sure to delete?",
+				"selected": "Are you sure you want to delete the selected information?"
+			},
+			"completer": {
+				"searching": "searching...",
+				"noresults": "no matched result is found"
+			}
+		},
+		"audits": {
+			"identity": "Identity",
+			"label": "Management information",
+			"info": "Created by {{creator}} at {{created}} - {{modifier}} was modified at {{modified}}"
+		},
+		"preferences": {
+			"label": "Preferences",			
+			"options": {
+				"language": "Language",
+				"theme": "Use dark-theme"
+			},
+			"apps": {
+				"desktop:": "Desktop apps",
+				"mobile": "Mobile & Tablet apps"
+			},
+			"about": "Information"
+		}
+	},
+	"privileges": {
+		"roles": {
+			"systems": {
+				"All": "All (include anonymous)",
+				"Authorized": "Authorized users",
+				"SystemAdministrator": "System Administrator"
+			},
+			"privileges": {
+				"Administrator": "Administrator",
+				"Moderator": "Moderator",
+				"Editor": "Editor",
+				"Contributor": "Contributor",
+				"Viewer": "Viewer (Read Only)",
+				"Downloader": "Downloader"
+			}
+		},
+		"services": {
+			"role": "Acting role in the '{{service}}'",
+			"other": "Other roles",
+			"object": "Acting role of '{{object}}'"
+		},
+		"objects": {
+			"inheritFromParent": "Inherit from parent",
+			"Administrative": {
+				"label": "Manage",
+				"description": "",
+				"roles": "Roles can manage",
+				"users": "Users can manage"
+			},
+			"Moderate": {
+				"label": "Moderate",
+				"description": "",
+				"roles": "Roles can moderate",
+				"users": "Users can moderate"
+			},
+			"Editable": {
+				"label": "Edit",
+				"description": "",
+				"roles": "Roles can edit",
+				"users": "Users can edit"
+			},
+			"Contributive": {
+				"label": "Contribute",
+				"description": "",
+				"roles": "Roles can contribute (create new)",
+				"users": "Users can contribute (create new)"
+			},
+			"Viewable": {
+				"label": "View (Read-Only)",
+				"description": "",
+				"roles": "Roles can view (read-only)",
+				"users": "Users can view (read-only)"
+			},
+			"Downloadable": {
+				"label": "Only download files",
+				"description": "",
+				"roles": "Roles can only download files (cannot view)",
+				"users": "Users can only download files (cannot view)"
+			}
+		}
+	},
+	"status": {
+		"approval": {
+			"label": "Approval status",
+			"Draft": "Draft",
+			"Pending": "Pending",
+			"Rejected": "Rejected",
+			"Approved": "Approved",
+			"Published": "Published",
+			"Archieved": "Archieved"
+		}
+	},
+	"events": {
+		"label": "Events",
+		"Create": "Create",
+		"Update": "Update",
+		"Delete": "Delete"
+	},
+	"files": {
+		"thumbnails": {
+			"label": "Thumbnail image",
+			"current": "Current",
+			"new": "Newly selected"
+		},
+		"attachments": {
+			"segment": "Attachments",
+			"label": "Attached files",
+			"confirm": "Are you sure you want to delete '{{name}}' file?",
+			"upload": "Upload",
+			"download": "Download",
+			"controls": {
+				"title": "Title",
+				"description": "Description",
+				"shared": "Shared to use in the whole system",
+				"tracked": "Track all activities",
+				"filename": "Filename"
+			}
+		}
+	}
+}

@@ -1,0 +1,444 @@
+﻿/*
+	theme: all - default menu with pure html/css and MMenuJs
+*/
+
+/* 
+	MMenuJs
+*/
+
+/* search box */
+nav.navigator.mm-menu ul.mm-listview > li.search.box > span > span {
+	display: block;
+	position: relative;
+	width: 100%;
+	height: 24px;
+	line-height: 18px;
+}
+nav.navigator.mm-menu ul.mm-listview > li.search.box > span > span > input {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 24px;
+	padding: 0 25px 0 10px;
+	border-radius: 20px;
+	border: solid 1px #fff;
+	color: #000;
+	background-color: #fff;
+}
+nav.navigator.mm-menu ul.mm-listview > li.search.box > span > span > span.fa,
+nav.navigator.mm-menu ul.mm-listview > li.search.box > span > span > span.far,
+nav.navigator.mm-menu ul.mm-listview > li.search.box > span > span > span.fab,
+nav.navigator.mm-menu ul.mm-listview > li.search.box > span > span > span.fas {
+	position: absolute;
+	top: 0;
+	right: 5px;
+	line-height: 24px;
+	color: #000;
+}
+
+/* toggle button */
+a.navigator.toggle {
+	display: block;
+	float: right;
+	margin-top: 16px;
+}
+a.navigator.toggle > button {
+	border: solid 1px transparent;
+	padding: 10px 5px;
+	border-radius: 4px;
+}
+a.navigator.toggle > button > .fas {
+	display: block;
+	width: 28px;
+}
+
+/* 
+	HTML menu with pure CSS
+*/
+
+/* the entry point */
+nav.navigator {
+	margin: 0;
+	padding: 0;
+}
+
+/* the menu */
+nav.navigator > ul {
+	display: block;
+	list-style-type: none;
+	margin: 0;
+	padding: 0;
+}
+
+/* menu item */
+nav.navigator > ul > li {
+	display: block;
+	float: left;
+	position: relative;
+	margin-left: 30px;
+}
+nav.navigator > ul > li:first-child {
+	margin-left: 0;
+}
+nav.navigator > ul > li.selected > a,
+nav.navigator > ul > li > ul > li.selected > a {
+	font-weight: inherit;
+	color: #fdb45e;
+}
+nav.navigator > ul > li > a > figure {
+	display: inline-block;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+}
+nav.navigator > ul > li > a > figure > img {
+	vertical-align: middle;
+	margin-right: .5rem;
+	max-height: 100%;
+}
+
+/* symbol of the sub-menu */
+nav.navigator > ul > li > label {
+	float: none;
+	vertical-align: middle;
+	height: 4px;
+	margin-left: 5px;
+	border-top: 4px solid;
+	border-right: 4px solid transparent;
+	border-left: 4px solid transparent;
+}
+
+/* search box */
+nav.navigator > ul > li.search.box > span,
+div.navigator.previous.links > span.search.box > span {
+	display: inline-block;
+	overflow: hidden;
+	line-height: inherit;
+	position: relative;
+	height: 22px;
+	max-height: 100%;
+	width: 22px;
+	vertical-align: middle;
+	box-sizing: border-box;
+	border: solid 1px transparent;
+	border-radius: 10px;
+	transition: width 0.8s, border 0.8s, background-color 0.5s;
+}
+nav.navigator > ul > li.search.box > span:hover,
+nav.navigator > ul > li.search.box > span:focus,
+nav.navigator > ul > li.search.box > span:active,
+div.navigator.previous.links > span.search.box > span:hover,
+div.navigator.previous.links > span.search.box > span:focus,
+div.navigator.previous.links > span.search.box > span:active {
+	width: 150px;
+	border: solid 1px #d6d6d0;
+	background-color: #fff;
+}
+nav.navigator > ul > li.search.box > span > input,
+div.navigator.previous.links > span.search.box > span > input {
+	position: absolute;
+	top: 0;
+	right: 0;
+	line-height: 20px;
+	font-size: 85%;
+	width: 100%;
+	height: 22px;
+	max-height: 100%;
+	padding: 0 25px 0 10px;
+	border: none;
+	background-color: transparent;
+}
+nav.navigator > ul > li.search.box > span > label,
+div.navigator.previous.links > span.search.box > span > label {
+	display: inline-block;
+	position: absolute;
+	top: -1px;
+	right: 5px;
+	line-height: 22px;
+	margin: 0;
+	padding: 0;
+	background-color: transparent;
+}
+nav.navigator > ul > li.search.box > span > span.fa,
+nav.navigator > ul > li.search.box > span > span.far,
+nav.navigator > ul > li.search.box > span > span.fab,
+nav.navigator > ul > li.search.box > span > span.fas,
+div.navigator.previous.links > span.search.box > span > span.fa,
+div.navigator.previous.links > span.search.box > span > span.far,
+div.navigator.previous.links > span.search.box > span > span.fab,
+div.navigator.previous.links > span.search.box > span > span.fas {
+	float: right;
+	margin: 2px;
+}
+
+/* line-height of menu item */
+nav.navigator > ul > li > a,
+nav.navigator > ul > li.search.box {
+	line-height: 70px;
+}
+
+/* sub-menu */
+nav.navigator > ul > li > ul {
+	display: none;
+	position: absolute;
+	list-style: none;
+	left: 0;
+	width: auto;
+	padding: 0;
+	margin: 0;
+	background-color: rgba(0, 0, 0, 0.6);
+	box-shadow: 0 3px 3px rgba(0, 0, 0, 0.1);
+	z-index: 999;
+}
+nav.navigator > ul > li > ul > li > ul,
+nav.navigator > ul > li > ul > li > ul > li > ul {
+	padding-inline-start: 10px;
+}
+
+/* sub-menu item */
+nav.navigator > ul > li ul > li {
+	display: block;
+	position: relative;
+	padding: 1rem;
+	padding-bottom: 0;
+	white-space: nowrap;
+}
+nav.navigator > ul > li > ul > li:last-child {
+	padding-bottom: 1rem;
+}
+nav.navigator > ul > li ul > li > a {
+	color: #fff;
+}
+
+/* show the sub-menu when user moves mouse over the menu item */
+@keyframes menuFadeInUp {
+	from {
+		opacity: 0;
+		-webkit-transform: translateY(20px);
+		-ms-transform: translateY(20px);
+		transform: translateY(20px);
+	}
+	to {
+		opacity: 1;
+		-ms-transform: translateY(0);
+		-webkit-transform: translateY(0);
+		transform: translateY(0);
+	}
+}
+
+nav.navigator > ul > li:hover > ul
+{
+	display: block;
+	-webkit-animation: menuFadeInUp 400ms;
+	-moz-animation: menuFadeInUp 400ms;
+	-ms-animation: menuFadeInUp 400ms;
+	-o-animation: menuFadeInUp 400ms;
+	animation: menuFadeInUp 400ms;
+}
+
+/* display of HTML menu */
+.desktop .header .zone.menu nav.navigator {
+	display: none;
+}
+.desktop .footer .zone.menu nav.navigator {
+	display: block;
+}
+@media (min-width: 1200px) {
+	.desktop .header .zone.menu nav.navigator {
+		display: block;
+	}
+	nav.navigator > ul > li > ul {
+		top: 70px;
+	}
+	.desktop .header .zone.menu nav.navigator > ul > li {
+		line-height: 70px;
+	}
+	.desktop .header .zone.menu nav.navigator > ul > li > ul > li {
+		line-height: 25px;
+	}
+	.desktop .header .zone.menu a.navigator.toggle {
+		display: none;
+	}
+}
+
+/* previous links */
+.desktop .header .zone.menu div.navigator.previous.links {
+	float: right;
+	text-align: right;
+	margin-right: 7.5px;
+	white-space: nowrap;
+}
+.desktop .header .zone.menu div.navigator.previous.links > span {
+	display: none;
+	margin-right: 7px;
+	line-height: 70px;
+}
+.desktop .header .zone.menu div.navigator.previous.links > span.search.box.start + span {
+	display: inline-block;
+}
+.desktop .header .zone.menu div.navigator.previous.links > span > a > i.fa,
+.desktop .header .zone.menu div.navigator.previous.links > span > a > i.far,
+.desktop .header .zone.menu div.navigator.previous.links > span > a > i.fab,
+.desktop .header .zone.menu div.navigator.previous.links > span > a > i.fas {
+	margin-right: 5px;
+}
+.desktop .header .zone.menu div.navigator.previous.links > span.search.box > span:hover,
+.desktop .header .zone.menu div.navigator.previous.links > span.search.box > span:focus,
+.desktop .header .zone.menu div.navigator.previous.links > span.search.box > span:active {
+	border-color: #000;
+}
+@media (min-width: 768px) {
+	.desktop .header .zone.menu div.navigator.previous.links > span:not(.search.box) {
+		display: inline-block;
+	}
+}
+@media (min-width: 1200px) {
+	.desktop .header .zone.menu div.navigator.previous.links > span.search.box {
+		display: inline-block;
+	}
+	.desktop .header .zone.menu div.navigator.previous.links > span,
+	.desktop .header .zone.menu div.navigator.previous.links > span.search.box.start + span {
+		line-height: 30px;
+	}
+	.desktop .header .zone.menu nav.navigator.previous.links > ul > li,
+	.desktop .header .zone.menu nav.navigator.previous.links > ul > li > a,
+	.desktop .header .zone.menu nav.navigator.previous.links > ul > li.search.box {
+		line-height: 40px;
+	}
+	.desktop .header .zone.menu nav.navigator.previous.links > ul > li > ul {
+		top: 40px;
+	}
+	.desktop .header .zone.menu div.navigator.previous.links {
+		float: none;
+		margin-right: 0;
+		margin-top: 0;
+	}
+	.desktop .header .zone.menu div.navigator.previous.links > span,
+	.desktop .header .zone.menu div.navigator.previous.links > span.search.box.start + span {
+		margin-right: 15px;
+	}
+	.desktop .header .zone.menu div.navigator.previous.links > span.search.box.start + span:last-child,
+	.desktop .header .zone.menu div.navigator.previous.links > span:last-child {
+		margin-right: 0;
+	}
+	.desktop .header .zone.menu div.navigator.previous.links > span.search.box {
+		display: inline-block;
+	}
+}
+
+/* next links */
+.desktop .zone.widgets nav.navigator.next.links > ul > li > a,
+.desktop .zone.widgets div.navigator.next.links {
+	line-height: 30px;
+}
+.desktop .zone.widgets div.navigator.next.links {
+	white-space: nowrap;
+}
+.desktop .zone.widgets div.navigator.next.links > span {
+	margin-left: 15px;
+}
+.desktop .zone.widgets div.navigator.next.links > span:first-child {
+	margin-left: 0;
+}
+@media (max-width: 767px) {
+	.desktop .zone.widgets nav.navigator.next.links,
+	.desktop .zone.widgets div.navigator.next.links {
+		display: flex;
+		flex: 0 0 100%;
+	}
+	.desktop .zone.widgets div.navigator.next.links {
+		margin-top: 15px;
+	}
+}
+@media (min-width: 768px) {
+	.desktop .zone.widgets div.navigator.next.links {
+		float: right;
+	}
+}
+
+/* mega menu */
+div.navigator.mega > ul,
+div.navigator.mega > ul > li > ul {
+	display: block;
+	list-style-type: none;
+	margin: 0;
+	padding: 0;
+}
+div.navigator.mega > ul > li {
+	display: block;
+	float: left;
+	padding-right: 15px;
+	width: 100%;
+}
+div.navigator.mega > ul > li > a {
+	display: block;
+	font-weight: bold;
+	color: #696763;
+}
+div.navigator.mega > ul > li > label {
+	display: none;
+}
+div.navigator.mega > ul > li > ul {
+	list-style-type: square;
+	margin-left: 3px;
+}
+div.navigator.mega > ul > li > ul > li {
+	margin: 15px;
+	font-size: .9rem;
+}
+div.navigator.mega > ul > li > ul > li > a {
+	color: #696763;
+}
+@media (min-width: 414px) {
+	div.navigator.mega.two.columns > ul > li,
+	div.navigator.mega.four.columns > ul > li {
+		width: 50%;
+	}
+	div.navigator.mega.three.columns > ul > li {
+		width: 33.333333%;
+	}
+	div.navigator.mega.two.columns > ul > li:nth-child(odd),
+	div.navigator.mega.three.columns > ul > li:nth-child(3n+1),
+	div.navigator.mega.four.columns > ul > li:nth-child(2n+1) {
+		clear: left;
+	}
+	div.navigator.mega.two.columns > ul > li:nth-child(3n+0) > a,
+	div.navigator.mega.two.columns > ul > li:nth-child(4n+0) > a,
+	div.navigator.mega.three.columns > ul > li:nth-child(4n+0) > a,
+	div.navigator.mega.three.columns > ul > li:nth-child(5n+0) > a,
+	div.navigator.mega.three.columns > ul > li:nth-child(6n+0) > a,
+	div.navigator.mega.four.columns > ul > li:nth-child(3n+0) > a,
+	div.navigator.mega.four.columns > ul > li:nth-child(4n+0) > a {
+		margin-top: 30px;
+		margin-bottom: 15px;
+	}
+}
+@media (min-width: 768px) {
+	div.navigator.mega.four.columns > ul > li {
+		width: 25%;
+	}
+	div.navigator.mega.four.columns > ul > li:nth-child(2n+1) {
+		clear: none;
+	}
+	div.navigator.mega.four.columns > ul > li:nth-child(3n+0) > a,
+	div.navigator.mega.four.columns > ul > li:nth-child(4n+0) > a {
+		margin-top: 0;
+		margin-bottom: 0;
+	}
+}
+
+/*
+	theme: all - default coloring codes
+*/
+a.navigator.toggle > button {
+	color: #fff;
+	background-color: #696763;
+}
+nav.navigator > ul > li > a,
+div.navigator.previous.links,
+div.navigator.previous.links a,
+div.navigator.next.links,
+div.navigator.next.links a {
+	color: #696763;
+}

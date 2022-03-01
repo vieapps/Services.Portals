@@ -1,0 +1,466 @@
+{
+	"portals": {
+		"cms": {
+			"common": {
+				"buttons": {
+					"list": "Danh sách nội dung"
+				},
+				"links": {
+					"content": "Tạo liên kết từ nội dung đã có",
+					"file": "Tạo liên kết từ file đã tải lên",
+					"media": "Chèn nội dung media từ file đã tải lên"
+				},
+				"permanentLink": {
+					"label": "Liên kết cố định",
+					"description": "Hệ thống sẽ tự động mở đúng liên kết công khai từ liên kết cố định/không thay đổi này"
+				},
+				"featured": {
+					"updated": "Mới cập nhật",
+					"published": "Mới xuất bản"
+				},
+				"shortcuts": {
+					"active": {
+						"organization": "Đơn vị hoạt động: {{organization}}",
+						"module": "Module hoạt động: {{module}}"
+					},
+					"labels": {
+						"shortcuts": "Lối tắt quản trị nội dung",
+						"contents": "Quản trị tin - bài",
+						"others": "Quản trị các nội dung khác"
+					},
+					"select": {
+						"organization": "Chọn đơn vị - tổ chức",
+						"module": "Chọn module làm việc"
+					},
+					"messages": {
+						"removeOrganization": "Chắc chắn muốn rời khỏi '{{name}}'?"
+					}
+				}
+			},
+			"categories": {
+				"title": {
+					"list": "Danh sách phân loại {{info}}",
+					"search": "Tìm kiếm phân loại",
+					"reorder": "Thay đổi thứ tự phân loại",
+					"create": "Tạo mới phân loại",
+					"update": "Cập nhật phân loại"
+				},
+				"controls": {
+					"Info": "Phân loại của",
+					"ParentID": {
+						"label": "Phân loại cấp trên",
+						"placeholder": "",
+						"description": ""
+					},
+					"OrderIndex": {
+						"label": "Thứ tự hiển thị",
+						"placeholder": "",
+						"description": ""
+					},
+					"Title": {
+						"label": "Tiêu đề",
+						"placeholder": "",
+						"description": ""
+					},
+					"Alias": {
+						"label": "Tên rút gọn",
+						"placeholder": "",
+						"description": "Tên rút gọn sẽ được sử dụng để tạo các liên kết quản trị và xem trước nội dung"
+					},
+					"Description": {
+						"label": "Diễn giải",
+						"placeholder": "",
+						"description": "Diễn giải được sử dụng cho thẻ <b>Description</b> khi làm việc với SEO"
+					},
+					"DesktopID": {
+						"label": "Desktop hiển thị",
+						"placeholder": "",
+						"description": "Desktop mặc định sử dụng để hiển thị các nội dung của phân loại, sẽ sử dụng desktop của kiểu dữ liệu nghiêp vụ nội dung tương ứng nếu không có desktop nào được chỉ định"
+					},
+					"OpenBy": {
+						"label": "Cách thức mở phân loại nội dung",
+						"placeholder": "",
+						"description": "Chỉ định cách thức mở (tạo liên kết) của phân loại nội dung",
+						"DesktopWithAlias": "Mở desktop hiển thị với tên rút gọn",
+						"DesktopOnly": "Chỉ mở desktop hiển thị",
+						"SpecifiedURI": "Mở theo liên kết tĩnh được chỉ định ở dưới"
+					},
+					"SpecifiedURI": {
+						"label": "Liên kết tĩnh",
+						"placeholder": "",
+						"description": "Chỉ định liên kết tĩnh/cố định của phân loại.<br/>Tips: có thể sử dụng ký hiệu '<b>~/</b>' để chỉ định liên kết từ gốc (root), hoặc sử dụng '<b>javascript:</b>' để chỉ định chạy hàm Javascript."
+					},
+					"Notes": {
+						"label": "Ghi chú",
+						"placeholder": "",
+						"description": "Sử dụng để ghi chú hoặc ghi nhận một số thông tin đặc biệt"
+					}
+				},
+				"list": {
+					"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác phân loại, đặt dấu + ở đầu nếu bắt buộc phải có",
+					"children": "{{number}} phân loại cấp dưới: {{children}}",
+					"labels": {
+						"edit": "Cập nhật phân loại",
+						"children": "Xem danh sách phân loại cấp dưới",
+						"view": "Xem danh sách nội dung",
+						"move": "Di chuyển toàn bộ nội dung sang phân loại khác",
+						"moveFirstConfirm": "Chắc chắn muốn di chuyển sang phân loại khác?",
+						"moveLastConfirm": "Thực sự muốn di chuyển sang phân loại khác?",
+						"moveExplanation": "Di chuyển toàn bộ nội dung trong phân loại hiện tại sang phân loại khác",
+						"moveNoCategory": "Chưa có mã định danh của kiểu dữ liệu/phân loại khác",
+						"moveInvalidCategory": "Cần nhập lại chính xác mã định danh của kiểu dữ liệu/phân loại khác",
+						"moveDone": "Đã di chuyển sang phân loại khác thành công"
+					},
+					"buttons": {
+						"edit": "Cập nhật",
+						"children": "Xem cấp dưới",
+						"view": "Xem nội dung"
+					}
+				},
+				"update": {
+					"segments": {
+						"basic": "Thông tin cơ bản",
+						"privileges": "Quyền truy cập",
+						"notifications": "Thông báo"
+					},
+					"messages": {
+						"confirm": {
+							"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo phân loại?",
+							"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của phân loại?",
+							"delete": "Chắc chắn muốn xoá bỏ phân loại và các thông tin liên quan?",
+							"remove": "phân loại và toàn bộ nội dung tin/bài của phân loại này sẽ bị xoá bỏ (chuyển vào thùng rác và có thể khôi phục lại trong 30 ngày)"
+						},
+						"success": {
+							"new": "Đã khởi tạo phân loại thành công",
+							"update": "Đã cập nhật các thay đổi của phân loại thành công",
+							"delete": "Đã đưa phân loại và các thông tin liên quan vào hàng đợi để chuyển vào thùng rác"
+						}
+					},
+					"buttons": {
+						"delete": "Xoá phân loại",
+						"remove": "Đồng ý xoá"
+					}
+				}
+			},
+			"contents": {
+				"title": {
+					"search": "Tìm kiếm nội dung",
+					"filter": "Tìm nhanh theo từ khoá",
+					"list": "Danh sách nội dung {{info}}",
+					"create": "Tạo mới nội dung",
+					"update": "Cập nhật nội dung",
+					"view": "Xem chi tiết nội dung"
+				},
+				"controls": {
+					"Status": {
+						"label": "Trạng thái",
+						"placeholder": "",
+						"description": "Nội dung sẽ chỉ xuất hiện công khai khi trạng thái là 'Xuất bản'"
+					},
+					"CategoryID": {
+						"label": "Phân loại nội dung",
+						"placeholder": "",
+						"description": "Chỉ định phân loại mà nội dung sẽ xuất hiện chính ở đó"
+					},
+					"OtherCategories": {
+						"label": "Phân loại nội dung đồng thời xuất hiện",
+						"placeholder": "",
+						"description": "Chỉ định các phân loại mà nội dung sẽ đồng thời xuất hiện ở đó"
+					},
+					"Alias": {
+						"label": "Tên rút gọn",
+						"placeholder": "vd: my-content",
+						"description": "Tên rút gọn sẽ được sử dụng để tạo các liên kết quản trị và xem nội dung"
+					},
+					"StartDate": {
+						"label": "Ngày bắt đầu",
+						"placeholder": "",
+						"description": "Chỉ định ngày mà nội dung sẽ bắt đầu xuất hiện"
+					},
+					"EndDate": {
+						"label": "Ngày kết thúc",
+						"placeholder": "",
+						"description": "Chỉ định ngày mà nội dung sẽ kết thúc (không xuất hiện công khai). Không thiết đặt giá trị để chỉ định không bao giờ kết thúc."
+					},
+					"PublishedTime": {
+						"label": "Thời gian xuất bản",
+						"placeholder": "",
+						"description": "Chỉ định thời gian xuất bản nội dung cụ thể. Không thiết đặt giá trị để hệ thống tự chỉ định thời gian khi bắt đầu xuất bản."
+					},
+					"Tags": {
+						"label": "Thẻ (tags) phân loại",
+						"placeholder": "",
+						"description": "Phân loại chủ động theo các thẻ, các giá trị được phân cách nhau bởi dấu phẩy (,). Ngoài ra, các thẻ cũng được sử dụng như từ khoá (keywords) khi làm việc với SEO"
+					},
+					"AllowComments": {
+						"label": "Cho phép bình luận",
+						"placeholder": "",
+						"description": ""
+					},
+					"Title": {
+						"label": "Tiêu đề",
+						"placeholder": "",
+						"description": "Tiêu đề chính sẽ được sử dụng để hiện thị trên các danh sách, đồng thời sử dụng cho tiêu đều (title) khi làm việc với SEO"
+					},
+					"SubTitle": {
+						"label": "Tiêu đề phụ",
+						"placeholder": "",
+						"description": "Tiêu đề phụ được sử dụng để bổ sung thêm thông tin cho tiêu đề chính"
+					},
+					"Author": {
+						"label": "Tác giả",
+						"placeholder": "",
+						"description": "Tên tác giả của nội dung. Chú ý: không phải tên của tài khoản khởi tạo/cập nhật nội dung"
+					},
+					"AuthorTitle": {
+						"label": "Chức danh của tác giả",
+						"placeholder": "",
+						"description": ""
+					},
+					"Source": {
+						"label": "Nguồn",
+						"placeholder": "",
+						"description": "Chỉ định nguồn của nội dung (đối với nội dung lấy từ bên ngoài về)"
+					},
+					"SourceURL": {
+						"label": "Liên kết nguồn",
+						"placeholder": "",
+						"description": "Chỉ định liên kết nguồn của nội dung (đối với nội dung lấy từ bên ngoài về)"
+					},
+					"Summary": {
+						"label": "Tóm tắt",
+						"placeholder": "",
+						"description": "Nôi dung tóm tắt sẽ được hiển thị trên danh sách, đồng thời được sử dụng như là mô tả (description) khi làm việc với SEO"
+					},
+					"Details": {
+						"label": "Chi tiết",
+						"placeholder": "",
+						"description": ""
+					},
+					"Relateds": {
+						"label": "Liên quan",
+						"placeholder": "",
+						"description": "Chỉ định các nội dung liên quan (trong hệ thống này)"
+					},
+					"ExternalRelateds": {
+						"label": "Thông tin liên quan từ bên ngoài hệ thống",
+						"placeholder": "",
+						"description": "",
+						"Title": {
+							"label": "Tiêu đề",
+							"placeholder": "",
+							"description": "Tiêu đề được kết hợp với URL gốc để tạo thành danh sách"
+							},
+						"Summary": {
+							"label": "Tóm tắt",
+							"placeholder": "",
+							"description": ""
+						},
+						"URL": {
+							"label": "URL gốc",
+							"placeholder": "",
+							"description": "URL của nội dung gốc ở website bên ngoài.<br/>Tips: Để trống tiêu đề hoặc URL gốc để loại bỏ cụm nội dung này."
+						}
+					}
+				},
+				"list": {
+					"search": "cho từ khoá vào \"..\" để tìm kiếm chính xác trong phân loại, đặt dấu + ở đầu nếu bắt buộc phải có",
+					"filter": "nhập từ khoá (không dấu cũng được) để lọc theo tiêu đề, đặt dấu + ở đầu nếu bắt buộc phải có"
+				},
+				"update": {
+					"segments": {
+						"management": "Quản trị",
+						"basic": "Nội dung",
+						"related": "Liên quan"
+					},
+					"messages": {
+						"confirm": {
+							"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo nội dung?",
+							"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của nội dung?",
+							"delete": "Chắc chắn muốn xoá bỏ nội dung?",
+							"deleteThumbnail": "Chắc chắn muốn xoá ảnh đại diện?"
+						},
+						"success": {
+							"new": "Đã khởi tạo nội dung thành công",
+							"update": "Đã cập nhật các thay đổi của nội dung thành công",
+							"delete": "Đã xoá nội dung (chuyển vào thùng rác) thành công"
+						}
+					},
+					"buttons": {
+						"delete": "Xoá nội dung",
+						"remove": "Đồng ý xoá",
+						"deleteThumbnail": "Xoá ảnh đại diện"
+					}
+				},
+				"view": {
+					"segments": {
+						"management": "Thông tin quản trị",
+						"basic": "Nội dung"
+					}
+				}
+			},
+			"links": {
+				"title": {
+					"list": "Danh sách liên kết {{info}}",
+					"search": "Tìm kiếm liên kết",
+					"reorder": "Thay đổi thứ tự hiển thị của liên kết",
+					"create": "Tạo mới liên kết",
+					"update": "Cập nhật liên kết",
+					"view": "Chi tiết liên kết"
+				},
+				"controls": {
+					"ParentID": {
+						"label": "Liên kết cấp trên",
+						"placeholder": "",
+						"description": ""
+					},
+					"OrderIndex": {
+						"label": "Thứ tự hiển thị",
+						"placeholder": "",
+						"description": ""
+					},
+					"Title": {
+						"label": "Tiêu đề",
+						"placeholder": "",
+						"description": "Tiêu đề của liên kết sẽ được sử dụng như nhãn hiển thị"
+					},
+					"Summary": {
+						"label": "Diễn giải",
+						"placeholder": "",
+						"description": "Diễn giải được sử dụng cho thẻ <b>Description</b> khi làm việc với SEO hoặc sử dụng để tạo ra các tình huống đặc biệt"
+					},
+					"URL": {
+						"label": "Địa chỉ liên kết",
+						"placeholder": "",
+						"description": "Chỉ định địa chỉ của liên kết.<br/>Tips: có thể sử dụng ký hiệu '<b>~/</b>' để chỉ định liên kết từ gốc (root), hoặc sử dụng '<b>javascript:</b>' để chỉ định chạy hàm Javascript."
+					},
+					"Target": {
+						"label": "Đích mở liên kết",
+						"placeholder": "",
+						"description": "Chỉ định đích đến khi mở liên kết.<br/>Tips: chỉ định giá trị '<b>_blank</b>' để mở liên kết ra cửa sổ mới/tab mới."
+					},
+					"ChildrenMode": {
+						"label": "Cách lấy các liên kết cấp dưới",
+						"placeholder": "",
+						"description": "Chỉ định cách thức lấy các liên kết cấp dưới",
+						"Normal": "Thông thường",
+						"Lookup": "Từ dữ liệu nghiệp vụ khác"
+					},
+					"LookupRepositoryID": {
+						"label": "Module nghiệp vụ",
+						"placeholder": "",
+						"description": "Chỉ định module nghiệp vụ để lấy dữ liệu tạo các liên kết cấp dưới"
+					},
+					"LookupRepositoryEntityID": {
+						"label": "Kiểu dữ liệu nghiệp vụ",
+						"placeholder": "",
+						"description": "Chỉ định kiểu dữ liệu nghiệp vụ để lấy dữ liệu tạo các liên kết cấp dưới"
+					},
+					"LookupRepositoryObjectID": {
+						"label": "Dữ liệu nghiệp vụ",
+						"placeholder": "",
+						"description": "Hệ thống sẽ lấy các nội dung cấp dưới của dữ liệu đã chỉ định ở trên để tạo các liên kết cấp dưới của mục liên kết này"
+					},
+					"Status": {
+						"label": "Trạng thái",
+						"placeholder": "",
+						"description": "Liên kết sẽ chỉ xuất hiện công khai và có thể sử dụng được khi trạng thái là 'Xuất bản'"
+					}
+				},
+				"list": {
+					"search": "cho từ khoá vào \"..\" để tìm kiếm chính xác liên kết, đặt dấu + ở đầu nếu bắt buộc phải có",
+					"children": "{{number}} liên kết cấp dưới: {{children}}",
+					"labels": {
+						"edit": "Cập nhật liên kết",
+						"children": "Xem danh sách liên kết cấp dưới",
+						"view": "Xem chi tiết liên kết"
+					},
+					"buttons": {
+						"edit": "Cập nhật",
+						"children": "Xem cấp dưới",
+						"view": "Xem chi tiết"
+					}
+				},
+				"update": {
+					"messages": {
+						"confirm": {
+							"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo liên kết?",
+							"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của liên kết?",
+							"delete": "Chắc chắn muốn xoá bỏ liên kết (chuyển vào thùng rác và có thể khôi phục lại trong 30 ngày)?",
+							"remove": "Đối với liên kết cấp dưới:"
+						},
+						"success": {
+							"new": "Đã khởi tạo liên kết thành công",
+							"update": "Đã cập nhật các thay đổi của liên kết thành công",
+							"delete": "Đã đưa liên kết và các thông tin liên quan vào hàng đợi để chuyển vào thùng rác"
+						}
+					},
+					"buttons": {
+						"delete": "Xoá liên kết",
+						"remove": "Đồng ý xoá"
+					}
+				}
+			},
+			"forms": {
+				"title": {
+					"list": "Thông tin yêu cầu",
+					"search": "Tìm kiếm thông tin yêu cầu",
+					"create": "Tạo mới yêu cầu",
+					"update": "Cập nhật yêu cầu",
+					"view": "Chi tiết yêu cầu"
+				},
+				"controls": {
+					"Name": {
+						"label": "Họ Tên",
+						"placeholder": "",
+						"description": ""
+					},
+					"Phone": {
+						"label": "Điện thoại",
+						"placeholder": "",
+						"description": ""
+					},
+					"Email": {
+						"label": "Email",
+						"placeholder": "",
+						"description": ""
+					},
+					"Address": {
+						"label": "Địa chỉ",
+						"placeholder": "",
+						"description": ""
+					},
+					"Postal": {
+						"label": "Mã bưu chính",
+						"placeholder": "",
+						"description": ""
+					},
+					"Notes": {
+						"label": "Ghi chú",
+						"placeholder": "",
+						"description": ""
+					},
+					"Title": {
+						"label": "Tiêu đề",
+						"placeholder": "",
+						"description": ""
+					},
+					"Details": {
+						"label": "Chi tiết",
+						"placeholder": "",
+						"description": ""
+					},
+					"Profiles": {
+						"label": "Tài khoản",
+						"placeholder": "",
+						"description": ""
+					}
+				},
+				"messages": {
+					"success": "Yêu cầu đã được gửi thành công!",
+					"error": "Đã xảy ra lỗi!"
+				}
+			}
+		}
+	}
+}

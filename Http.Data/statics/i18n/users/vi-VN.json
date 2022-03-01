@@ -1,0 +1,238 @@
+{
+	"users": {
+		"name": "Người dùng hệ thống",
+		"login": {
+			"login": {
+				"title": "Đăng nhập",
+				"buttons": {
+					"login": "Đăng nhập",
+					"forgot": "Quên mật khẩu?",
+					"register": "Đăng ký tài khoản"
+				},
+				"controls": {
+					"Account": {
+						"label": "Tài khoản",
+						"placeholder": "Địa chỉ email, số điện thoại, tên tài khoản, ..."
+					},
+					"Email": {
+						"label": "Email",
+						"placeholder": "Địa chỉ email ..."
+					},
+					"Password": "Mật khẩu",
+					"SaveLogins": "Lưu đăng nhập",
+					"OAuths": "Hoặc đăng nhập bằng"
+				}
+			},
+			"otp": {
+				"title": "Xác thực lần hai",
+				"button": "Xác thực",
+				"controls": {
+					"Provider": "Kiểu xác thực",
+					"OTP": {
+						"label": "Mã xác thực",
+						"description": {
+							"sms": "Nhập mã OTP trong SMS được gửi tới số trên điện thoại đã đăng ký. Mã OTP có giá trị trong vòng 5 phút, sau đó có thể bấm vào biểu tượng gửi SMS để gửi lại mã OTP.",
+							"app": "Nhập mã OTP được sinh bởi ứng dụng Authenticator trên điện thoại"
+						}
+					}
+				}
+			},
+			"reset": {
+				"title": "Lấy mật khẩu mới",
+				"button": "Lấy mật khẩu",
+				"renew": "Đặt lại mật khẩu",
+				"controls": {
+					"Captcha": {
+						"label": "Mã xác thực",
+						"description": "Nhập mã xác thực trong ảnh ở dưới",
+						"sms": "Nhập mã xác thực OTP trong vừa nhận ở điện thoại"
+					}
+				},
+				"messages": {
+					"account": "Vui lòng kiểm tra email ({{account}}) và làm theo hướng dẫn để đặt lại mật khẩu đăng nhập!",
+					"sms": "Mật khẩu mới đã được thiết đặt và gửi qua SMS đến {{account}}",
+					"password": "Cần nhập lại đúng mật khẩu đăng nhập mới!"
+				}
+			},
+			"hints": {
+				"otp": "Nhập mã OTP",
+				"reset": "Điền thông tin tài khoản để đặt lại mật khẩu đăng nhập mới"
+			}
+		},
+		"register": {
+			"title": "Đăng ký tài khoản",
+			"button": "Đăng ký",
+			"controls": {
+				"Email": "Email",
+				"ConfirmEmail": "Nhập lại email",
+				"Password": "Mật khẩu",
+				"ConfirmPassword": "Nhập lại mật khẩu",
+				"Name": {
+					"label": "Tên",
+					"description": "Sử dụng để hiển thị trong hệ thống"
+				},
+				"Gender": {
+					"label": "Giới tính",
+					"options": {
+						"NotProvided": "Không cung cấp",
+						"Male": "Nam",
+						"Female": "Nữ"
+					}
+				},
+				"BirthDay": "Ngày sinh",
+				"Address": {
+					"label": "Địa chỉ",
+					"placeholder": "Quận/Huyện, Thành phố/Tỉnh"
+				},
+				"Mobile": "Mobile",
+				"Language": {
+					"label": "Ngôn ngữ",
+					"description": "Chỉ định ngôn ngữ hiển thị và các định dạng số, ngày giờ, ..."
+				},
+				"DarkTheme": "Sử dụng tông màu tối"
+			},
+			"alert": {
+				"header": "Đăng ký thành công",
+				"message": "Vui lòng kiểm tra địa chỉ email ({{email}}) để kích hoạt tài khoản trước khi đăng nhập"
+			}
+		},
+		"activate": {
+			"header": {
+				"account": "Tài khoản mới",
+				"password": "Mật khẩu mới"
+			},
+			"subHeader": {
+				"success": "Kích hoạt thành công",
+				"error": "Không thể kích hoạt"
+			},
+			"messages": {
+				"success": {
+					"account": "Tài khoản đã được kích hoạt thành công!",
+					"password": "Mật khẩu đã được kích hoạt thành công!",
+					"email": "Email đã được kích hoạt thành công!",
+					"phone": "Số điện thoại đã được kích hoạt thành công!"
+				},
+				"error": {
+					"general": "Đã xảy ra lỗi, không thể kích hoạt {{error})",
+					"invalid": "Thông tin kích hoạt không hợp lệ {{mode}} - {{code}}]"
+				}
+			}
+		},
+		"profile": {
+			"title": "Thông tin tài khoản",
+			"labels": {
+				"header": "Thông tin",
+				"lastAccess": "Truy cập:"
+			},
+			"buttons": {
+				"password": "Đổi mật khẩu",
+				"email": "Đổi email",
+				"invite": "Gửi lời mời",
+				"invitation": "Mời tham gia",
+				"logout": "Đăng xuất"
+			},
+			"actions": {
+				"avatar": "Cập nhật ảnh đại diện",
+				"profile": "Cập nhật hồ sơ",
+				"password": "Đổi mật khẩu",
+				"email": "Đổi email đăng nhập",
+				"otp": "Thiết đặt bảo mật",
+				"privileges": "Đặt quyền truy cập",
+				"logout": "Đăng xuất"
+			},
+			"avatar": {
+				"title": "Cập nhật ảnh đại diện",
+				"header": "Kiểu ảnh đại diện",
+				"mode": {
+					"avatar": "Ảnh tải lên",
+					"gravatar": "Ảnh của Gravatar.com"
+				},
+				"message": "Ảnh đại diện đã được cập nhật..."
+			},
+			"update": {
+				"title": "Cập nhật hồ sơ",
+				"messages": {
+					"alert": "Huỷ cập nhật",
+					"confirm": "Chắc chắn muốn huỷ bỏ quá trình cập nhật?",
+					"success": "Hồ sơ đã được cập nhật..."
+				}
+			},
+			"password": {
+				"title": "Đổi mật khẩu đăng nhập",
+				"controls": {
+					"OldPassword": "Mật khẩu hiện tại",
+					"Password": "Mật khẩu mới",
+					"ConfirmPassword": "Nhập lại mật khẩu mới"
+				},
+				"message": "Mật khẩu đăng nhập đã được thay đổi thành công..."
+			},
+			"email": {
+				"title": "Đổi email đăng nhập",
+				"controls": {
+					"Email": "Email đăng nhập mới",
+					"ConfirmEmail": "Nhập lại email đăng nhập mới"
+				},
+				"message": "Email đăng nhập đã được thay đổi thành công..."
+			},
+			"otp": {
+				"title": "Thiết lập xác thực lần hai",
+				"status": {
+					"label": "Trạng thái xác thực lần hai",
+					"on": "Bật",
+					"off": "Tắt",
+					"provisioning": "Đang thiết đặt"
+				},
+				"buttons": {
+					"on": "Bật",
+					"delete": "Xoá",
+					"send": "Gửi mã OTP",
+					"verify": "Xác thực"
+				},
+				"providers": {
+					"title": "Các phương thức xác thực hiện tại",
+					"select": "Lựa chọn phương thức xác thực",
+					"app": "Ứng dụng Authenticator",
+					"sms": "SMS OTP của điện thoại"
+				},
+				"controls": {
+					"app": {
+						"label": "Mã QR cho ứng dụng Authenticator",
+						"description": "Mở ứng dụng Authenticator trên điện thoại, thêm một tài khoản bằng cách quét mã QR ở trên và nhập mã được sinh trong ứng dụng để xác thực đã hoàn thành quá trình cài đặt.<br/>Có thể sử dụng ứng dụng Google Authenticator hoặc Microsoft Authenticator có sẵn trên App Store (iOS) hoặc Play Store (Android)."
+					},
+					"sms": {
+						"label": "Số điện thoại",
+						"description": "Nhập số điện thoại, bấm nút 'Gửi mã OTP', nhập mã OTP đã nhận ở điện thoại để xác thực.<br/>Mã OTP có giá trị trong 5 phút, sau thời gian đó có thểm bấm lại nút 'Gửi mã OTP' để hệ thống gửi lại mã OTP vào điện thoại."
+					},
+					"provision": {
+						"app": "Mã OTP của ứng dụng Authenticator",
+						"sms": "Mã OTP đã nhận ở điện thoại"
+					}
+				},
+				"messages": {
+					"verify": "Số điện thoại {{label}} là chuẩn xác?",
+					"confirm": "Chắc chắn muốn xoá bỏ phương thức xác thực lần hai [{{label}}] này?",
+					"success": "Phương thức xác thực lần hai [{{label}}] đã được xoá bỏ..."
+				}
+			},
+			"invitation": {
+				"title": "Gửi lời mời tham gia hệ thống",
+				"message": "Lời mời tham gia hệ thống đã được gửi..."
+			},
+			"privileges": {
+				"title": "Đặt quyền truy cập",
+				"message": "Đã thiết đặt quyền truy cập cho người dùng {{name}} thành công..."
+			},
+			"logout": {
+				"confirm": "Đăng xuất khỏi hệ thống?",
+				"success": "Đã đăng xuất tài khoản khỏi hệ thống..."
+			}
+		},
+		"list": {
+			"title": {
+				"list": "Danh sách người dùng",
+				"search": "Tìm kiếm người dùng"
+			},
+			"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác"
+		}
+	}
+}

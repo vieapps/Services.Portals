@@ -1,0 +1,460 @@
+﻿/*
+	theme: all - title of a CMS list (contents, items, links)
+*/
+.cms.list.title {
+	width: 100%;
+	clear: both;
+	overflow: hidden;
+}
+.cms.list.title {
+	margin-bottom: 15px;
+}
+@media (min-width: 576px) {
+	.cms.list.title.relateds,
+	.cms.list.title.others {
+		margin-top: 15px;
+	}
+}
+@media (min-width: 768px) {
+	.cms.list.title.relateds,
+	.cms.list.title.others {
+		margin-top: 30px;
+	}
+}
+@media (min-width: 1200px) {
+	.cms.list.title.relateds,
+	.cms.list.title.others {
+		margin-top: 45px;
+	}
+}
+.cms.list.title > h2,
+.cms.list.title > h3 {
+	font-weight: bold;
+	padding: 15px 0;
+	line-height: 60px;
+	clear: both;
+	border-bottom: solid .5px #d0d0d6;
+}
+.zone.sidebar .cms.list.title {
+	margin-top: 0;
+	border-bottom: solid .5px #d0d0d6;
+}
+.zone.sidebar .cms.list.title > h2,
+.zone.sidebar .cms.list.title > h3 {
+	border-bottom: none;
+}
+.zone.sidebar .cms.list.title > label {
+	margin-bottom: 30px;
+}
+@media (min-width: 768px) {
+	.cms.list.title > h2 {
+		font-size: 2.5rem;
+	}
+	.cms.list.title > h3 {
+		font-size: 2rem;
+	}
+	.zone.sidebar .cms.list.title > h2 {
+		font-size: 1.8rem;
+	}
+}
+@media (min-width: 1200px) {
+	.cms.list.title > h2 {
+		font-size: 3rem;
+	}
+	.cms.list.title > h3 {
+		font-size: 2.5rem;
+	}
+	.zone.sidebar .cms.list.title > h2 {
+		font-size: 2.2rem;
+	}
+}
+.cms.list.title > h2 a,
+.cms.list.title > h3 a {
+	color: inherit;
+}
+.cms.list.title > a > figure {
+	float: left;
+	width: 160px;
+	height: 120px;
+	margin-right: 15px;
+	margin-bottom: 0;
+}
+.cms.list.title > a > figure > span {
+	display: inline-block;
+	width: 100%;
+	height: 100%;
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: cover;
+}
+@media (min-width: 768px) {
+	.cms.list.title > a > figure {
+		width: 200px;
+		height: 150px;
+	}
+}
+.cms.list.title > label {
+	display: block;
+	margin: 0;
+}
+.list.title > h2 > span {
+	float: right;
+	font-size: .9rem;
+	font-weight: normal;
+	line-height: 60px;
+}
+.cms.list.title > h2 > span > a,
+.cms.list.more,
+.cms.list.more > a,
+.cms.list .more,
+.cms.list .more > a,
+.cms.list .all,
+.cms.list .all > a {
+	text-decoration: none;
+	color: #696763;
+	margin-right: 5px;
+}
+.cms.list.more,
+.cms.list.more > a,
+.cms.list .more,
+.cms.list .more > a,
+.cms.list .all,
+.cms.list .all > a {
+	font-size: 1rem;
+	font-weight: bold;
+}
+.cms.list.title > h2 > span:hover > a,
+.cms.list.more:hover > a,
+.cms.list .more:hover > a,
+.cms.list .all:hover > a {
+	color: #fdb45e;
+}
+.cms.list.title > h2 > span:hover > a > i,
+.cms.list.more:hover > a > i,
+.cms.list .more:hover > a > i,
+.cms.list .all:hover > a > i {
+	transform: translateX(5px);
+}
+.cms.list.more.d-md-none,
+.cms.list .more.d-md-none {
+	margin-top: 20px;
+	margin-bottom: 40px;
+}
+
+/*
+	theme: all - CMS list (contents, items, links)
+*/
+ul.cms.list {
+	clear: both;
+	overflow: hidden;
+	list-style-type: none;
+	margin: 0;
+	padding: 0;
+}
+ul.cms.list.row {
+	margin-left: -15px;
+	margin-right: -15px;
+}
+ul.cms.list > li {
+	display: block;
+	position: relative;
+	padding-top: 15px;
+	padding-bottom: 15px;
+}
+ul.cms.list > li.all {
+	text-align: center;
+}
+@media (min-width: 1200px) {
+	.desktop .zone.content ul.cms.list > li {
+		padding-top: 30px;
+		padding-bottom: 30px;
+	}
+	.desktop .zone.content ul.cms.list > li.big {
+		padding-top: 15px;
+	}
+}
+ul.cms.list > li > a > figure {
+	margin-bottom: 0;
+}
+ul.cms.list > li > h3 + a > figure {
+	margin-bottom: 15px;
+}
+ul.cms.list:not(.grid) > li {
+	clear: both;
+	overflow: hidden;
+}
+ul.cms.list:not(.grid) > li > a > figure {
+	width: 100%;
+	max-width: 100%;
+}
+.cms.view.relateds .cms.list > li,
+.cms.view.others .cms.list > li,
+.desktop .zone.sidebar ul.cms.list:not(.grid) > li {
+	border-bottom: solid .5px #eee;
+	padding-top: 15px;
+}
+.cms.view.external.relateds .cms.list > li {
+	padding-top: 30px;
+}
+.desktop .portlet.special ul.cms.list > li > a > figure,
+.desktop .zone.sidebar ul.cms.list:not(.grid) > li > a > figure {
+	float: right;
+	margin-left: 15px;
+	margin-right: 0;
+	width: 100px;
+}
+ul.cms.list > li > a > figure img {
+	width: 100%;
+	max-width: 100%;
+}
+ul.cms.list > li > a > figure.background.thumbnail {
+	display: block;
+	height: 100px;
+	max-height: 100%;
+	max-width: 100%;
+}
+.desktop .portlet.special ul.cms.list > li > a > figure.background.thumbnail {
+	height: 50px;
+	width: 80px;
+}
+.desktop .zone.sidebar ul.cms.list:not(.grid) > li > a > figure.background.thumbnail {
+	height: 80px;
+	width: 130px;
+}
+@media (min-width: 576px) {
+	ul.cms.list:not(.grid) > li > a > figure {
+		float: left;
+		width: 160px;
+		max-width: 50%;
+		margin-right: 15px;
+	}
+	.desktop .portlet.special ul.cms.list > li > a > figure.background.thumbnail {
+		height: 50px;
+		width: 80px;
+	}
+	.desktop .zone.sidebar ul.cms.list:not(.grid) > li > a > figure {
+		width: 130px;
+	}
+	.desktop .zone.sidebar ul.cms.list > li > a > figure.background.thumbnail {
+		height: 90px;
+	}
+	.desktop .zone.sidebar ul.cms.list > li.big > a > figure.background.thumbnail {
+		height: 180px;
+	}
+}
+@media (min-width: 768px) {
+	.desktop .portlet.special ul.cms.list > li > a > figure.background.thumbnail {
+		height: 70px;
+		width: 120px;
+	}
+}
+@media (min-width: 992px) {
+	.desktop .portlet.special ul.cms.list > li > a > figure.background.thumbnail {
+		height: 60px;
+		width: 110px;
+	}
+}
+.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li > a > figure.background.thumbnail {
+	height: calc(100vw / 2);
+}
+@media (min-width: 576px) {
+	.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li > a > figure.background.thumbnail {
+		height: 120px;
+	}
+	.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li.big > a > figure.background.thumbnail {
+		height: calc(100vw / 2);
+	}
+}
+@media (min-width: 768px) {
+	.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li > a > figure.background.thumbnail {
+		height: 160px;
+	}
+	.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li.big > a > figure.background.thumbnail {
+		height: calc(100vw / 2);
+	}
+}
+@media (max-width: 991px) {
+	.desktop .zone.sidebar .portlet:not(.special) ul.cms.list.grid > li > a > figure.background.thumbnail {
+		height: calc(100vw / 4);
+	}
+	.desktop .zone.sidebar .portlet:not(.special) ul.cms.list.grid > li.big > a > figure.background.thumbnail {
+		height: calc(100vw / 2);
+	}
+}
+@media (min-width: 1200px) {
+	.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li > a > figure.background.thumbnail {
+		height: 210px;
+	}
+	.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li.big > a > figure.background.thumbnail {
+		height: 420px;
+	}
+}
+ul.cms.list > li > a > figure.background.thumbnail span {
+	display: inline-block;
+	width: 100%;
+	height: 100%;
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: cover;
+}
+@media (min-width: 768px) {
+	.portlet:not(.special) ul.cms.list:not(.grid) > li > a > figure {
+		width: 200px;
+	}
+}
+ul.cms.list > li > label {
+	clear: both;
+	width: 100%;
+	margin-bottom: 7.5px;
+	font-size: .8rem;
+}
+ul.cms.list > li > h3 {
+	font-size: 1.2rem;
+	font-weight: bold;
+	margin: 15px 0;
+	padding: 3px 0;
+}
+ul.cms.list > li > label + h3 {
+	margin-top: 0;
+}
+.portlet.special ul.cms.list > li > h3 {
+	font-size: 1rem;
+}
+@media (min-width: 768px) {
+	ul.cms.list > li.big > h3 {
+		font-size: 1.8rem;
+	}
+	.portlet.special ul.cms.list > li > h3,
+	.zone.sidebar ul.cms.list > li > h3 {
+		font-size: 1rem;
+	}
+	.portlet.special ul.cms.list > li.big > h3,
+	.zone.sidebar ul.cms.list > li.big > h3 {
+		font-size: 1.2rem;
+	}
+}
+.portlet.special ul.cms.list > li > a + h3,
+.zone.sidebar ul.cms.list > li > a + h3 {
+	margin-top: 0;
+}
+.zone.sidebar ul.cms.list.grid > li > h3 {
+	margin-top: 15px;
+}
+ul.cms.list > li > h3 > a {
+	color: inherit;
+}
+ul.cms.list > li > div {
+	font-size: .9rem;
+}
+ul.cms.list > li > div > i,
+ul.cms.list > li > div > span > i {
+	margin: 0 5px;
+}
+ul.cms.list > li > div > i:first-child,
+ul.cms.list > li > div > span > i:first-child {
+	margin-left: 0;
+}
+ul.cms.list > li > div > label,
+ul.cms.list > li > div > span > label {
+	margin: 0 5px;
+}
+ul.cms.list > li > div > span.summary {
+	margin: 0;
+}
+ul.cms.list > li > div > label {
+	margin: 0 5px;
+}
+ul.cms.list > li > div,
+ul.cms.list > li > div a {
+	color: #696763;
+}
+ul.cms.list > li > span {
+	display: block;
+	color: inherit;
+	margin-top: 15px;
+}
+ul.cms.list > li > section {
+	margin: 7.5px 0;
+	font-size: .9rem;
+}
+ul.cms.list > li > section a {
+	color: inherit;
+}
+
+/*
+	theme: all - CMS list without thumbnail images
+*/
+ul.cms.list:not(.grid) > li.no.thumbnail {
+	padding-left: 15px;
+}
+ul.cms.list:not(.grid) > li.no.thumbnail > h3 {
+	margin: 0;
+}
+ul.cms.list:not(.grid) > li.no.thumbnail > h3 + div {
+	margin-top: 15px;
+}
+ul.cms.list:not(.grid) > li.no.thumbnail > div {
+	margin-bottom: 0;
+}
+ul.cms.list:not(.grid) > li.no.thumbnail::before {
+	content: "\f0da";
+	font-family: "Font Awesome 5 Free";
+	font-weight: 900;
+	display: block;
+	float: left;
+	width: 15px;
+	margin-left: -15px;
+}
+.cms.relateds ul.cms.list:not(.grid) > li.no.thumbnail::before {
+	padding-top: 3px;
+}
+
+/*
+	theme: all - animation of thumbnail images on a special zone
+*/
+.desktop .zone.content .cms.list figure {
+	overflow: hidden;
+}
+.desktop .zone.content .cms.list figure img,
+.desktop .zone.content .cms.list figure.background.thumbnail:hover span {
+	transform: scale(1);
+	transition: all .3s ease-out;
+}
+.desktop .zone.content .cms.list figure:hover img,
+.desktop .zone.content .cms.list figure.background.thumbnail:hover span {
+	transform: scale(1.2);
+}
+.desktop .zone.content .cms.list li.big figure:hover img {
+	transform: scale(1.4);
+}
+
+/*
+	theme: all - category of CMS list
+*/
+.desktop.cms-content.list .cms.list.title {
+	margin-bottom: 30px;
+}
+@media (min-width: 576px) {
+	.desktop.cms-content.list .cms.list.title {
+		margin-bottom: 50px;
+	}
+}
+@media (min-width: 768px) {
+	.desktop.cms-content.list .cms.list.title {
+		margin-bottom: 60px;
+	}
+}
+@media (min-width: 1200px) {
+	.desktop.cms-content.list .cms.list.title {
+		margin-bottom: 80px;
+	}
+}
+
+/*
+	theme: all - CMS list of others on a special zone
+*/
+.desktop .zone.sidebar .cms.view.others .cms.list.title.others > h3 {
+	font-size: 1.4rem;
+	text-transform: uppercase;
+	margin-bottom: 0;
+}

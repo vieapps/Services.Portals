@@ -1,0 +1,30 @@
+<div class="{{organization-alias}} {{desktop-alias}} {{theme}} desktop {{os-platform}} {{os-mode}} {{parent-identity}} {{main-portlet-type}} {{main-portlet-action}}">
+	<header class="header">
+		<div class="container">
+			<div zone-id="HeaderWidgets" class="zone widgets d-flex w-100"></div>
+			<div class="row">
+				<div zone-id="Logo" class="zone logo col-8 col-sm-6 col-xl-3"></div>
+				<nav zone-id="Menu" class="zone menu right col-4 col-sm-6 col-xl-9"></nav>
+			</div>
+		</div>
+	</header>
+	<div zone-id="MiddleTopWidgets" class="zone middle top widgets"></div>
+	<div class="main container">
+		<div class="row">
+			<div zone-id="Content" class="zone content widgets col-12 col-lg-8"></div>
+			<div zone-id="Sidebar" class="zone sidebar widgets col-12 col-lg-4"></div>
+		</div>
+	</div>
+	<div zone-id="MiddleBottomWidgets" class="zone middle bottom widgets"></div>
+	<footer class="footer">
+		<div class="container">
+			<div zone-id="FooterWidgets" class="zone widgets d-flex w-100"></div>
+			<div class="row">
+				<div zone-id="FooterLeftWidgets" class="zone widgets col-12 col-lg-8"></div>
+				<div zone-id="FooterRightWidgets" class="zone widgets right col-12 col-lg-4"></div>
+			</div>
+		</div>
+	</footer>
+	<div zone-id="FooterBottomWidgets" class="zone footer bottom widgets"></div>
+	<div zone-id="HiddenWidgets" class="d-none"></div>
+</div>

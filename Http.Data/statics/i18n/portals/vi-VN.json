@@ -1,0 +1,1417 @@
+{
+	"portals": {
+		"name": "Cổng tích hợp nội dung",
+		"preferences": {
+			"cms": "Quản trị nội dung",
+			"portals": "Quản trị portals và thông tin hệ thống",
+			"notifications": "Thông báo"
+		},
+		"sidebar": {
+			"logs": "Logs hệ thống",
+			"organizations": "Đơn vị - Tổ chức",
+			"sites": "Site - Điểm truy cập",
+			"roles": "Vai trò sử dụng",
+			"desktops": "Desktop hiển thị",
+			"modules": "Module nghiệp vụ",
+			"content-types": "Kiểu dữ liệu nghiệp vụ",
+			"expressions": "Biểu thức truy vấn - sắp xếp",
+			"titles": {
+				"system": "Quản trị",
+				"categories": "Phân loại nội dung",
+				"contents": "Các nội dung"
+			}
+		},
+		"common": {
+			"unspecified": "Không xác định",
+			"advancedEdit": "Cập nhật cấp cao",
+			"excel": {
+				"action": {
+					"export": "Kết xuất dữ liệu ra Excel",
+					"import": "Nhập dữ liệu từ Excel"
+				},
+				"message": {
+					"export": "Kết xuất dữ liệu thành công, chọn 'Tải xuống' để tải về file Excel",
+					"import": "Đã nhập dữ liệu từ file Excel thành công"
+				},
+				"button": "Tải lên & cập nhật"
+			},
+			"controls": {
+				"notifications": {
+					"inheritFromParent": "Sử dụng thiết đặt các sự kiện và phương thức gửi thông báo từ cấp trên",
+					"events": "Gửi thông báo khi",
+					"methods": "Phương thức gửi thông báo",
+					"emails": {
+						"inheritFromParent": "Sử dụng thiết đặt từ cấp trên để gửi thông báo qua emails",
+						"label": "Thiết đặt gửi thông báo qua emails",
+						"toAddresses": {
+							"label": "Gửi tới địa chỉ",
+							"placeholder": "Địa chỉ email có thể nhập dạng Tên <địa chỉ email>, vd: VIEApps.net <info@vieapps.net>",
+							"description": "Các địa chỉ email nhận thông báo, phân cách nhau bằng dấu chấm phẩy (;)"
+						},
+						"ccAddresses": {
+							"label": "Gửi tới địa chỉ (CC)",
+							"description": "Các địa chỉ email nhận thông báo tại phần đồng gửi (CC), phân cách nhau bằng dấu chấm phẩy (;)"
+						},
+						"bccAddresses": {
+							"label": "Gửi tới địa chỉ (BCC)",
+							"description": "Các địa chỉ email nhận thông báo tại phần đồng gửi ẩn (BCC), phân cách nhau bằng dấu chấm phẩy (;)"
+						},
+						"subject": {
+							"label": "Tiêu đề email thông báo"
+						},
+						"body": {
+							"label": "Nội dung email thông báo",
+							"description": "Nội dung email thông báo có thể nhập các mã HTML, hệ thống sẽ tự động thêm các thẻ '<b>&lt;br/&gt;</b>' khi xuống dòng.<br/><u>Chú ý</u>: có thể được sử dụng các tokens 'bộ râu' (brace tokens) trong tiêu đề và nội dung của email để điền các dữ liệu, vd: <b>{{</b>@current(Title)<b>}}</b> để lấy ra tiêu đề của dữ liệu hiện tại.<br/>Có 3 đối tượng dữ liệu chính là '<b>@request</b>' là đối tượng thông tin yêu cầu, '<b>@current</b>' là đối tượng thông tin trong ngữ cảnh thao tác, '<b>@params</b>' là đối tượng thông tin bổ sung (Organization, Site, ...).<br/>Vui lòng tham khảo tài liệu hướng dẫn để tìm hiểu chi tiết các đối tượng dữ liệu."
+						}
+					},
+					"emailsByApprovalStatus": {
+						"label": "Thiết đặt gửi thông báo qua emails với trạng thái cụ thể",
+						"description": "Nếu được chỉ định, nội dung thông báo qua emails với trạng thái cụ thể sẽ được sử dụng cho thông báo qua emails mặc định"
+					},
+					"emailsWhenPublish": {
+						"label": "Thiết đặt gửi thông báo qua emails khi xuất bản",
+						"description": "Nếu được chỉ định (có ít nhất 01 địa chỉ email, có đề và nội dung), thông báo qua emails này sẽ được gửi theo cách thức bổ sung thêm (so với thông báo qua emails mặc định) khi trạng thái là 'Xuất bản - Published'"
+					},
+					"webhooks": {
+						"label": "Thiết đặt gửi thông báo qua Web Hooks",
+						"inheritFromParent": "Sử dụng thiết đặt từ cấp trên để gửi thông báo qua webhooks",
+						"endpointURLs": {
+							"label": "Địa chỉ nhận web-hooks",
+							"placeholder": "vd: https://apis.vieapps.net/webhooks",
+							"description": "Các địa chỉ web nhận thông báo webhooks, mỗi một địa chỉ trên một dòng, phải bắt đầu bằng http:// hoặc https://"
+						},
+						"signKey": {
+							"description": "Chỉ định cụm từ tạo khoá để ký webhooks.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng giá trị mặc định theo thứ tự ưu tiên:<br/>- Mã định danh của app đang tương tác<br/>- Cụm khoá mặc định của hệ thống"
+						},
+						"signatureName": {
+							"description": "Chỉ định tên của tham số chữ ký trong webhooks.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng tên của phương pháp, vd: HmacSha256Signature"
+						},
+						"generateIdentity": {
+							"label": "Tạo lại mã định danh của dữ liệu (nếu có)"
+						},
+						"additionalQuery": {
+							"label": "Thông tin bổ sung cho query-string",
+							"description": "Nhập thông tin bổ sung cho query-string dạng JSON.<br/>Ví dụ:<br/>{<br/>&nbsp;&nbsp;\"webhook.query\":\"this is web hook query\"<br/>}"
+						},
+						"additionalHeader": {
+							"label": "Thông tin bổ sung cho header",
+							"description": "Nhập thông tin bổ sung cho header dạng JSON.<br/>Ví dụ:<br/>{<br/>&nbsp;&nbsp;\"webhook.header\":\"this is web hook header\"<br/>}"
+						}
+					}
+				},
+				"emails": {
+					"label": "Thiết đặt gửi emails",
+					"inheritFromParent": "Sử dụng thiết đặt gửi emails từ cấp trên",
+					"sender": {
+						"label": "Địa chỉ email gửi đi",
+						"placeholder": "Địa chỉ email có thể nhập dạng Tên <địa chỉ email>, vd: VIEApps.net <info@vieapps.net>"
+					},
+					"signature": {
+						"label": "Chữ ký (sẽ đặt phía dưới tất cả các email)",
+						"description": "Nội dung có thể nhập các mã HTML, hệ thống sẽ tự động thêm các thẻ '<b>&lt;br/&gt;</b>' khi xuống dòng"
+					},
+					"smtp": {
+						"label": "Máy chủ gửi email",
+						"host": {
+							"label": "Địa chỉ",
+							"description": "Địa chỉ máy chủ gửi email có thể là địa chỉ kiểu tên miền (vd: smtp.gmail.com) hoặc địa chỉ IP"
+						},
+						"port": {
+							"label": "Cổng (port) kết nối",
+							"description": "Thông thường cổng kết nối SMTP là 25, tuy nhiên có khi sử dụng SSL cổng kết nối có thể là 587"
+						},
+						"enableSsl": "Chỉ định sử dụng kết nối an toàn SSL",
+						"user": {
+							"label": "Tài khoản kết nối",
+							"description": "Tên tài khoản sử dụng để đăng nhập và kết nối tới máy chủ gửi email"
+						},
+						"userPassword": {
+							"label": "Mật khẩu kết nối",
+							"description": "Mật khẩu của tài khoản sử dụng để đăng nhập và kết nối tới máy chủ gửi email"
+						}
+					},
+					"test": {
+						"label": "Thử nghiệm gửi email với các thông số đã thiết đặt",
+						"button": "Gửi email",
+						"to": "Gửi tới địa chỉ email",
+						"subject": "Tiêu đề email thử nghiệm",
+						"body": "Nội dung email thử nghiệm"
+					}
+				},
+				"webhooks": {
+					"label": "Thiết đặt nhận thông tin qua Web Hooks",
+					"url": {
+						"label": "URL để nhận thông tin qua Web Hooks",
+						"description": "URL ở trên được sử dụng đối với các hệ thống bên ngoài nhằm truyền thông tin vào hệ thống qua Web Hook (truyền qua HTTP bằng phương thức POST)"
+					},
+					"signAlgorithm": {
+						"label": "Phương pháp ký HMAC",
+						"description": "Chỉ định phương pháp ký từ nội dung message bằng khoá được tạo từ cụm từ tạo khoá chữ ký"
+					},
+					"signKey": {
+						"label": "Cụm từ tạo khoá để chữ ký",
+						"description": "Chỉ định cụm từ tạo khoá để tạo chữ ký kiểm tra tính hợp lệ của webhooks.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng giá trị mặc định theo thứ tự ưu tiên:<br/>- Mã định danh của app đang tương tác<br/>- Cụm khoá mặc định của hệ thống"
+					},
+					"signatureName": {
+						"label": "Tên của tham số chữ ký",
+						"description": "Chỉ định tên của tham số chữ ký để kiểm tra tính hợp lệ của webhooks.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng tên của phương pháp, vd: HmacSha256Signature"
+					},
+					"signatureAsHex": {
+						"label": "Chữ ký dạng hex (tắt nếu muốn chữ ký dạng base64)"
+					},
+					"signatureInQuery": {
+						"label": "Đặt chữ ký trong query-string (tắt nếu muốn đặt chữ ký trong header)"
+					},
+					"additionalQuery": {
+						"label": "Tham số phải có trong query-string",
+						"description": "Chỉ định các tham số buộc phải có trong query-string đối với thông tin truyền vào (dạng JSON).<br/>Ví dụ:<br/>{<br/>&nbsp;&nbsp;\"webhook.query\":\"this is web hook query\"<br/>}"
+					},
+					"additionalHeader": {
+						"label": "Tham số phải có trong header",
+						"description": "Chỉ định các tham số buộc phải có trong header đối với thông tin truyền vào (dạng JSON).<br/>Ví dụ:<br/>{<br/>&nbsp;&nbsp;\"webhook.header\":\"this is web hook header\"<br/>}"
+					}
+				},
+				"UISettings": {
+					"label": "Tuỳ chỉnh hiển thị",
+					"description": "",
+					"Padding": {
+						"label": "Cách lề",
+						"placeholder": "vd: 10px 3px",
+						"description": "Chỉ định thông số cách lề (padding) theo tiêu chuẩn của HTML (trên dưới trái phải), các giá trị có thể là px, %, rem, em"
+					},
+					"Margin": {
+						"label": "Dãn lề",
+						"placeholder": "vd: 10px 3px 7px 20px",
+						"description": "Chỉ định thông số dãn lề (margin) theo tiêu chuẩn của HTML (trên dưới trái phải), các giá trị có thể là px, %, rem, em"
+					},
+					"Width": {
+						"label": "Chiều rộng (cố định)",
+						"placeholder": "",
+						"description": "Chỉ định chiều rộng (width) có định theo tiêu chuẩn của HTML, giá trị có thể là px, %, rem, em"
+					},
+					"Height": {
+						"label": "Chiều cao (cố định)",
+						"placeholder": "",
+						"description": "Chỉ định chiều cao (height) có định theo tiêu chuẩn của HTML, giá trị có thể là px, %, rem, em"
+					},
+					"Color": {
+						"label": "Mầu chữ",
+						"placeholder": "vd: #000000",
+						"description": "Chỉ mầu chữ theo tiêu chuẩn của HTML với mã mầu RGB theo giá trị hexa"
+					},
+					"BackgroundColor": {
+						"label": "Mầu nền",
+						"placeholder": "vd: #ffccff",
+						"description": "Chỉ mầu nền theo tiêu chuẩn của HTML với mã mầu RGB theo giá trị hexa"
+					},
+					"BackgroundImageURI": {
+						"label": "Ảnh nền",
+						"placeholder": "",
+						"description": "Chỉ định ảnh nền từ file đã upload"
+					},
+					"BackgroundImageRepeat": {
+						"label": "Cách thức lặp của ảnh nền",
+						"placeholder": "",
+						"description": "Chỉ định cách thức lặp lại của ảnh nền"
+					},
+					"BackgroundImagePosition": {
+						"label": "Vị trí của ảnh nền",
+						"placeholder": "",
+						"description": "Chỉ định vị trí hiển thị của ảnh nền"
+					},
+					"BackgroundImageSize": {
+						"label": "Kích cỡ của ảnh nền",
+						"placeholder": "",
+						"description": "Chỉ định kích cỡ hiển thị của ảnh nền"
+					},
+					"Css": {
+						"label": "Các mã CSS",
+						"placeholder": "",
+						"description": "Chỉ định các mã CSS sẽ sử dụng theo tiêu chuẩn của HTML, các giá trị sẽ cách nhau bằng khoảng trắng (space)"
+					},
+					"Style": {
+						"label": "Tuỳ chỉnh khác",
+						"placeholder": "",
+						"description": "Chỉ định tuỳ chỉnh khác qua thông số <b>style</b> theo tiêu chuẩn của HTML"
+					}
+				}
+			},
+			"lookup": {
+				"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác",
+				"children": "{{number}} nội dung cấp dưới: {{children}}"
+			},
+			"cache": {
+				"title": "Xoá dữ liệu bộ đệm (cache)",
+				"confirm": "Chắc chắn muốn xoá dữ liệu bộ đệm (cache)?",
+				"done": "Đã xoá dữ liệu bộ đệm (cache) thành công"
+			},
+			"approval": {
+				"label": "Trạng thái hiện tại: {{status}}",
+				"message": "Đã phê duyệt theo trạng thái mới ({{status}}) thành công",
+				"Draft": "Chuyển về bản nháp",
+				"Pending": "Gửi duyệt",
+				"Pending2": "Chuyển về đợi duyệt",
+				"Rejected": "Từ chối",
+				"Approved": "Duyệt & Gửi đăng",
+				"Published": "Xuất bản",
+				"Archieved": "Chuyển về lưu trữ"
+			},
+			"errors": {
+				"alias": {
+					"organization": "Tên rút gọn của đơn vị - tổ chức đã được sử dụng bởi đơn vị khác, cần lựa chọn tên khác",
+					"desktop": "Tên rút gọn của desktop đã được sử dụng bởi desktop hiển thị khác"
+				},
+				"template": {
+					"desktop": {
+						"invalid": "Mẫu hiển thị của desktop chưa đúng tiêu chuẩn (không đúng mã XHTML hoặc thiếu các thông tin bắt buộc)",
+						"required": "Mẫu hiển thị của desktop chưa đúng tiêu chuẩn do thiếu các vùng buộc phải có",
+						"noZone": "Mẫu hiển thị của desktop không có bất kỳ một vùng hiển thị nào (nghĩa là phải có thẻ với thuộc tính 'zone-id')",
+						"zoneNoID": "Vùng hiển thị của desktop chưa đúng tiêu chuẩn do không có mã định danh",
+						"zoneExisted": "Vùng hiển thị của desktop chưa đúng tiêu chuẩn do mã định danh đã được dùng cho vùng khác"
+					},
+					"portlet": {
+						"invalid": "Mẫu hiển thị của portlet chưa đúng tiêu chuẩn (không đúng mã XHTML hoặc thiếu các thông tin bắt buộc)",
+						"listXslt": "Mẫu hiển thị danh sách chưa đúng tiêu chuẩn XSLT",
+						"viewXslt": "Mẫu hiển thị chi tiết chưa đúng tiêu chuẩn XSLT",
+						"paginationXslt": "Mẫu hiển thị thanh nhảy trang chưa đúng tiêu chuẩn XSLT",
+						"breadcrumbXslt": "Mẫu hiển thị chỉ thị chưa đúng tiêu chuẩn XSLT"
+					}
+				},
+				"metaTags": "Các thẻ meta chưa đúng tiêu chuẩn XHTML/XML",
+				"scripts": "Các thẻ script chưa đúng tiêu chuẩn XHTML/XML",
+				"listOptions": "Tuỳ chọn hiển thị danh sách chưa đúng tiêu chuẩn JSON",
+				"viewOptions": "Tuỳ chọn hiển thị chi tiết chưa đúng tiêu chuẩn JSON"
+			}
+		},
+		"organizations": {
+			"title": {
+				"search": "Tìm kiếm đơn vị - tổ chức",
+				"list": "Danh sách đơn vị - tổ chức",
+				"create": "Tạo mới đơn vị - tổ chức",
+				"update": "Cập nhật đơn vị - tổ chức",
+				"register": "Đăng ký mới đơn vị - tổ chức"
+			},
+			"controls": {
+				"Title": {
+					"label": "Tiêu đề",
+					"placeholder": "",
+					"description": ""
+				},
+				"Description": {
+					"label": "Chú thích",
+					"placeholder": "",
+					"description": ""
+				},
+				"OwnerID": {
+					"label": "Tài khoản chủ sở hữu",
+					"placeholder": "",
+					"description": "Tài khoản này sẽ tự động có tất cả các quyền của quản trị cao nhất đối với các thông tin trong tổ chức - đơn vị"
+				},
+				"Status": {
+					"label": "Trạng thái",
+					"placeholder": "",
+					"description": "Hệ thống sẽ chỉ hoạt động khi trạng thái là 'Đã duyệt' hoặc 'Xuất bản'"
+				},
+				"Alias": {
+					"label": "Tên rút gọn",
+					"placeholder": "vd: my-org",
+					"description": "Tên rút gọn sẽ được sử dụng để tạo các liên kết quản trị và xem trước nội dung"
+				},
+				"ExpiredDate": {
+					"label": "Ngày hết hạn",
+					"placeholder": "",
+					"description": "Chỉ định ngày hết hạn - không nhập dữ liệu/xoá toàn bộ dữ liệu để chỉ định không bao giờ hết hạn"
+				},
+				"FilesQuotes": {
+					"label": "Hạn mức lưu trữ (GB)",
+					"placeholder": "",
+					"description": "Không đặt hạn mức (giá trị là 0) để chỉ định không giới hạn về hạn mức lưu trữ"
+				},
+				"Required2FA": {
+					"label": "Yêu cầu phải xác thực 2 lớp",
+					"placeholder": "",
+					"description": "Nếu được bật, tất cả các tài khoản truy cập vào để biên tập phải được xác thực 2 lớp trước khi thao tác"
+				},
+				"TrackDownloadFiles": {
+					"label": "Ghi nhận tất cả các hoạt động tải files",
+					"placeholder": "",
+					"description": "Nếu được bật, tất cả các thao tác tải file đều được ghi nhận lại"
+				},
+				"Theme": {
+					"label": "Theme",
+					"placeholder": "",
+					"description": ""
+				},
+				"HomeDesktopID": {
+					"label": "Desktop cho trang chủ",
+					"placeholder": "",
+					"description": ""
+				},
+				"SearchDesktopID": {
+					"label": "Desktop cho tìm kiếm",
+					"placeholder": "",
+					"description": ""
+				},
+				"Instructions": {
+					"description": "Nội dung thông điệp có thể nhập các mã HTML, hệ thống sẽ tự động thêm các thẻ '<b>&lt;br/&gt;</b>' khi xuống dòng.<br/><u>Chú ý</u>: có thể được sử dụng các tokens 'bộ râu' (brace tokens) trong tiêu đề và nội dung của email để điền các dữ liệu, vd: <b>{{</b>@current(Title)<b>}}</b> để lấy ra tiêu đề của dữ liệu hiện tại.<br/>Có 3 đối tượng dữ liệu chính là '<b>@request</b>' là đối tượng thông tin yêu cầu, '<b>@current</b>' là đối tượng thông tin trong ngữ cảnh thao tác, '<b>@params</b>' là đối tượng thông tin bổ sung (Organization, Site, ...).<br/>Vui lòng tham khảo tài liệu hướng dẫn để tìm hiểu chi tiết các đối tượng dữ liệu.",
+					"language": "Ngôn ngữ",
+					"Account": {
+						"label": "Thông điệp kích hoạt tài khoản mới",
+						"Subject": "Tiêu đề email thông điệp kích hoạt tài khoản mới",
+						"Body": "Nội dung email thông điệp kích hoạt tài khoản mới"
+					},
+					"Invite": {
+						"label": "Thông điệp mời gia nhập hệ thống",
+						"Subject": "Tiêu đề email thông điệp mời gia nhập hệ thống",
+						"Body": "Nội dung email thông điệp mời gia nhập hệ thống"
+					},
+					"Reset": {
+						"label": "Thông điệp đặt lại mật khẩu đăng nhập",
+						"Subject": "Tiêu đề email thông điệp kích hoạt mật khẩu đăng nhập mới",
+						"Body": "Nội dung email thông điệp kích hoạt mật khẩu đăng nhập mới"
+					},
+					"Password": {
+						"label": "Thông điệp đổi mật khẩu đăng nhập",
+						"Subject": "Tiêu đề email thông điệp thông báo đã đổi mật khẩu đăng nhập mới thành công",
+						"Body": "Nội dung email thông điệp thông báo đã đổi mật khẩu đăng nhập mới thành công"
+					},
+					"Email": {
+						"label": "Thông điệp đổi email đăng nhập",
+						"Subject": "Tiêu đề email thông điệp thông báo đã đổi email đăng nhập mới thành công",
+						"Body": "Nội dung email thông điệp thông báo đã đổi email đăng nhập mới thành công"
+					}
+				},
+				"Socials": "Tích hợp thư viện của mạng xã hội",
+				"Trackings": {
+					"label": "Các hệ thống đếm/theo dõi",
+					"GoogleAnalytics": {
+						"label": "Mã Google Analytics",
+						"description": "Nhập các mã định danh của GA, phân cách bằng dấu chấm phẩy (;) để đếm dạng page-view (web) hoặc screen-view (app)"
+					},
+					"FacebookPixel": {
+						"label": "Mã Facebook Pixel",
+						"description": "Nhập các mã định danh của FB Pixel, phân cách bằng dấu chấm phẩy (;) để đếm dạng page-view (web)"
+					}
+				},
+				"Others": {
+					"label": "Thẻ meta và script bổ sung",
+					"MetaTags": {
+						"label": "Các thẻ meta bổ sung",
+						"description": "Các thẻ meta bổ sung sẽ được thêm vào phần HEAD của toàn bộ các desktop hiển thị, cần phải viết các thẻ meta đúng theo quy chuẩn của XML"
+					},
+					"ScriptLibraries": {
+						"label": "Các thư viện scripts bổ sung",
+						"description": "Các mã script thư viện (Javascript) bổ sung sẽ được thêm vào phần cuối (trước khi đóng thẻ BODY) của toàn bộ các desktop hiển thị.<br/>Các đoạn mã này phải nằm trong &lt;script&gt; và &lt;/script&gt; và có thể sử dụng jQuery ($), đồng thời cho phép trỏ ra các thư viện script ở bên ngoài.<br/>Tips: cũng có thể các thẻ HTML bổ sung vào đây cũng được."
+					},
+					"Scripts": {
+						"label": "Các mã scripts bổ sung",
+						"description": "Các mã script (Javascript) bổ sung sẽ được thêm vào phần cuối (trước khi đóng thẻ BODY) của toàn bộ các desktop hiển thị.<br/>Các đoạn mã này KHÔNG được nằm trong thẻ &lt;script&gt; và &lt;/script&gt; (vì sẽ được tạo thành liên kết ngoài)."
+					}
+				},
+				"HttpIndicators": {
+					"label": "Các nội dung chỉ thị cho bots/spiders/hệ thống quảng cáo",
+					"Name": {
+						"label": "Tên chỉ thị",
+						"description": "Tên file chứa nội dung chỉ thị, vd: robots.txt"
+					},
+					"Content": {
+						"label": "Nội dung",
+						"description": "Nội dung chỉ thị cụ thể"
+					}
+				},
+				"AlwaysUseHtmlSuffix": "Luôn dùng hậu tố .html đối với toàn bộ liên kết",
+				"RefreshUrls": {
+					"label": "Các URLs sẽ làm tươi",
+					"Addresses": {
+						"label": "Các địa chỉ URLs sẽ làm tươi định kỳ",
+						"description": "Các URLs ở trên sẽ được làm tươi định kỳ để phản hồi nhanh nhất khi có yêu cầu mở web, một địa chỉ URL nằm trên 1 dòng.<br/><u>Chú ý</u>: có thể sử dụng ký hiệu '<b>~/</b>' để chỉ định liên kết từ gốc (root)."
+					},
+					"Interval": {
+						"label": "Thời gian làm tươi định kỳ (phút)",
+						"description": "Chỉ định thời gian (phút) để làm tươi định kỳ các URLs đã chỉ định."
+					}
+				},
+				"RedirectUrls": {
+					"label": "Các URLs sẽ chuyển hướng",
+					"Addresses": {
+						"label": "Các địa chỉ URLs sẽ chuyển hướng",
+						"description": "Các URLs ở trên sẽ được chuyển hướng khi gặp lỗi không tìm thấy (HTTP 404), một địa chỉ URL nằm trên 1 dòng, nhập theo mẫu 'URL nguồn|URL đích.<br/><u>Chú ý</u>: có thể sử dụng ký hiệu '<b>~/</b>' để chỉ định liên kết từ gốc (root), sử dụng ký hiệu '<b>*</b>' để chỉ định toàn bộ liên kết (nguồn)."
+					},
+					"AllHttp404": "Chuyển hướng toàn bộ các liên kết không tìm thấy (HTTP 404) về liên kết toàn bộ (*) hoặc về trang chủ"
+				},
+				"FakeURIs": {
+					"label": "Các địa chỉ 'máy chủ rởm':"
+				},
+				"FakeFilesHttpURI": {
+					"label": "Địa chỉ máy chủ dịch vụ files",
+					"description": "Chỉ định địa chỉ 'máy chủ chủ dịch vụ files rởm' để sử dụng trong mã HTML nhằm che dấu địa chỉ thật của máy chủ dịch vụ files (thông thường sử dụng qua proxy như CloudFlare)"
+				},
+				"FakePortalsHttpURI": {
+					"label": "Địa chỉ máy chủ dịch vụ portals",
+					"description": "Chỉ định địa chỉ 'máy chủ chủ dịch vụ portals rởm' để sử dụng trong mã HTML nhằm che dấu địa chỉ thật của máy chủ dịch vụ portals (thông thường sử dụng qua proxy như CloudFlare)"
+				}
+			},
+			"list": {
+				"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác đơn vị - tổ chức",
+				"owner": "Tài khoản chủ sở hữu: {{owner}}",
+				"invalid": "Thông tin về đơn vị - tổ chức chưa đúng, cần chọn đơn vị - tổ chức sẽ hoạt động",
+				"active": "Chỉ định sử dụng đơn vị - tổ chức"
+			},
+			"update": {
+				"segments": {
+					"basic": "Thông tin cơ bản",
+					"privileges": "Quyền truy cập",
+					"notifications": "Thông báo",
+					"instructions": "Thông điệp",
+					"socials": "Mạng XH & Bổ sung",
+					"urls": "URLs",
+					"emails": "Emails"
+				},
+				"messages": {
+					"confirm": {
+						"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo đơn vị - tổ chức?",
+						"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của đơn vị - tổ chức?",
+						"delete": "Chắc chắn muốn xoá bỏ đơn vị - tổ chức và các thông tin liên quan?"
+					},
+					"success": {
+						"new": "Đã khởi tạo đơn vị - tổ chức thành công",
+						"update": "Đã cập nhật các thay đổi của đơn vị - tổ chức thành công",
+						"delete": "Đã đưa đơn vị - tổ chức và các thông tin liên quan vào hàng đợi để chuyển vào thùng rác"
+					}
+				}
+			}
+		},
+		"roles": {
+			"title": {
+				"search": "Tìm kiếm vai trò sử dụng",
+				"list": "Danh sách vai trò sử dụng {{info}}",
+				"create": "Tạo mới vai trò sử dụng",
+				"update": "Cập nhật vai trò sử dụng"
+			},
+			"controls": {
+				"Organization": "Vai trò trong đơn vị - tổ chức",
+				"ParentID": {
+					"label": "Vai trò cấp trên",
+					"placeholder": "",
+					"description": "Vai trò cấp trên sẽ tự động có các quyền sử dụng được chỉ định đối với vai trò này"
+				},
+				"Title": {
+					"label": "Tiêu đề",
+					"placeholder": "",
+					"description": ""
+				},
+				"Description": {
+					"label": "Chú thích",
+					"placeholder": "",
+					"description": ""
+				},
+				"UserIDs": {
+					"label": "Tài khoản người dùng trong vai trò",
+					"placeholder": "",
+					"description": "Các tài khoản người dùng trong vai trò này sẽ có các quyền sử dụng được chỉ định cho vai trò",
+					"confirm": "Chắc chắn muốn bỏ các tài khoản người dùng đã chọn khỏi vai trò?"
+				}
+			},
+			"list": {
+				"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác vai trò sử dụng",
+				"children": "{{number}} vai trò cấp dưới: {{children}}"
+			},
+			"update": {
+				"messages": {
+					"confirm": {
+						"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo vai trò sử dụng?",
+						"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của vai trò sử dụng?",
+						"delete": "Chắc chắn muốn xoá bỏ vai trò sử dụng và các thông tin liên quan?"
+					},
+					"success": {
+						"new": "Đã khởi tạo vai trò sử dụng thành công",
+						"update": "Đã cập nhật các thay đổi của vai trò sử dụng thành công",
+						"delete": "Đã xoá vai trò sử dụng thành công"
+					},
+					"mode": "Cách thức thực hiện với toàn bộ vai trò cấp dưới:"
+				},
+				"buttons": {
+					"delete": "Xoá vai trò sử dụng",
+					"delete-all": "Xoá bỏ",
+					"set-null-all": "Chuyển về gốc"
+				}
+			}
+		},
+		"sites": {
+			"title": {
+				"search": "Tìm kiếm site",
+				"list": "Danh sách site {{info}}",
+				"create": "Tạo mới site",
+				"update": "Cập nhật site"
+			},
+			"controls": {
+				"Organization": "Site của đơn vị - tổ chức",
+				"Title": {
+					"label": "Tên site",
+					"placeholder": "",
+					"description": ""
+				},
+				"Description": {
+					"label": "Chú thích",
+					"placeholder": "",
+					"description": ""
+				},
+				"Status": {
+					"label": "Trạng thái",
+					"placeholder": "",
+					"description": "Site sẽ chỉ hoạt động khi trạng thái là 'Đã duyệt' hoặc 'Xuất bản'"
+				},
+				"PrimaryDomain": {
+					"label": "Tên miền chính",
+					"placeholder": "vd: company.com",
+					"description": "Chỉ định tên miền chính (primary domain) để nhận dạng ra site"
+				},
+				"SubDomain": {
+					"label": "Tên miền phụ",
+					"placeholder": "vd: www hoặc *",
+					"description": "Chỉ định tên miền phụ (sub domain) để kết hợp với tên miền chính nhận dạng ra site, có thể sử dụng giá trị <b>*</b> để chỉ định toàn bộ tên miền phụ"
+				},
+				"OtherDomains": {
+					"label": "Tên miền khác",
+					"placeholder": "",
+					"description": "Chỉ định các tên miền khác sẽ sử dụng để nhận dạng ra site, viết theo đúng nguyên tắc của tên miền.<br/>Các giá trị được phân cách bởi dấu chấm phẩy (;)."
+				},
+				"AlwaysUseHTTPs": {
+					"label": "Luôn sử dụng các kết nối an toàn HTTPS (chú ý: phải có chứng chỉ SSL phù hợp)",
+					"placeholder": "",
+					"description": ""
+				},
+				"Language": {
+					"label": "Ngôn ngữ hiển thị",
+					"placeholder": "",
+					"description": "Các nhãn, số, ngày tháng, ... sẽ được hiển thị theo định dạng của loại ngôn ngữ đã chọn đối với các desktop không chỉ định ngôn ngữ hiển thị cụ thể (có giá trị <b>'Không xác định'</b>)"
+				},
+				"Theme": {
+					"label": "Theme",
+					"placeholder": "",
+					"description": "Nếu không chỉ định sẽ sử dụng bộ theme kế thừa từ đơn vị - tổ chức"
+				},
+				"HomeDesktopID": {
+					"label": "Desktop cho trang chủ",
+					"placeholder": "",
+					"description": "Nếu không chỉ định thì sẽ sử dụng desktop trang chủ đã xác định đối với đơn vi - tổ chức"
+				},
+				"SearchDesktopID": {
+					"label": "Desktop cho tìm kiếm",
+					"placeholder": "",
+					"description": "Nếu không chỉ định thì sẽ sử dụng desktop tìm kiếm đã xác định đối với đơn vi - tổ chức"
+				},
+				"UISettings": "Tuỳ chỉnh hiển thị (sẽ áp dụng cho toàn bộ các desktop trong site)",
+				"IconURI": {
+					"label": "Ảnh biểu tượng",
+					"placeholder": "",
+					"description": "Chỉ định ảnh biểu tượng cho toàn bộ các desktop trong site, tốt nhất là loại .ICO hoặc .PNG có kích thước 64x64"
+				},
+				"CoverURI": {
+					"label": "Ảnh bìa",
+					"placeholder": "",
+					"description": "Chỉ định ảnh bìa (cover) toàn bộ các desktop trong site để hiển thị mặc định đối với mạng xã hội khi nội dung không có ảnh bìa cụ thể, tốt nhất là loại .JPG hoặc .PNG có kích thước 1200x630 hoặc 600x315"
+				},
+				"MetaTags": {
+					"label": "Các thẻ meta bổ sung",
+					"placeholder": "",
+					"description": "Các thẻ meta bổ sung sẽ được thêm vào phần HEAD của toàn bộ các desktop trong site, cần phải viết các thẻ meta đúng theo quy chuẩn của XML"
+				},
+				"Stylesheets": {
+					"label": "Các stylesheet (CSS) dùng chung toàn bộ site",
+					"placeholder": "",
+					"description": "Các mã stylesheet (CSS) dùng chung cho toàn bộ các desktop trong site. Lưu ý: nếu truy cập các desktop với thiết đặt của site khác, các mã stylesheet này sẽ không được sử dụng."
+				},
+				"ScriptLibraries": {
+					"label": "Các thư viện scripts bổ sung",
+					"placeholder": "",
+					"description": "Các mã script thư viện (Javascript) bổ sung sẽ được thêm vào phần cuối (trước khi đóng thẻ BODY) của toàn bộ các desktop hiển thị của site.<br/>Các đoạn mã này phải nằm trong &lt;script&gt; và &lt;/script&gt; và có thể sử dụng jQuery ($), đồng thời cho phép trỏ ra các thư viện script ở bên ngoài.<br/>Tips: cũng có thể các thẻ HTML bổ sung vào đây cũng được."
+				},
+				"Scripts": {
+					"label": "Các mã scripts bổ sung",
+					"placeholder": "",
+					"description": "Các mã script (Javascript) bổ sung sẽ được thêm vào phần cuối (trước khi đóng thẻ BODY) của toàn bộ các desktop hiển thị của site.<br/>Các đoạn mã này KHÔNG được nằm trong thẻ &lt;script&gt; và &lt;/script&gt; (vì sẽ được tạo thành liên kết ngoài)."
+				},
+				"RedirectToNoneWWW": {
+					"label": "Luôn điều hướng các liên kết có 'WWW' về gốc (để tạo URL ngắn hơn)",
+					"placeholder": "",
+					"description": ""
+				},
+				"UseInlineStylesheets": {
+					"label": "Sử dụng các mã stylesheets trực tiếp thay cho liên kết ra bên ngoài",
+					"placeholder": "",
+					"description": ""
+				},
+				"UseInlineScripts": {
+					"label": "Sử dụng các mã scripts trực tiếp thay cho liên kết ra bên ngoài",
+					"placeholder": "",
+					"description": ""
+				},
+				"SEOInfo": {
+					"label": "Thiết đặt thông số SEO",
+					"placeholder": "",
+					"description": "",
+					"Title": {
+						"label": "Tiêu đề",
+						"placeholder": "",
+						"description": "Tiêu đề của site, được sử dụng để tổ hợp với tiêu đề của portlet chính và tiêu đề của desktop"
+					},
+					"Description": {
+						"label": "Diễn giải",
+						"placeholder": "",
+						"description": "Diễn giải của site, được sử dụng để tổ hợp với diễn giải của portlet chính và diễn giải của desktop"
+					},
+					"Keywords": {
+						"label": "Từ khoá",
+						"placeholder": "",
+						"description": "Từ khoá của site, được sử dụng để tổ hợp với từ khoá của portlet chính và từ khoá của desktop"
+					}
+				}
+			},
+			"list": {
+				"search": "cho từ khoá vào \"..\" để tìm kiếm chính xác site, đặt dấu + ở đầu nếu bắt buộc phải có",
+				"open": "Mở site theo tên miền mặc định"
+			},
+			"update": {
+				"segments": {
+					"basic": "Thông tin cơ bản",
+					"display": "Thiết đặt hiển thị",
+					"seo": "Thiết đặt SEO"
+				},
+				"messages": {
+					"confirm": {
+						"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo site?",
+						"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của site?",
+						"delete": "Chắc chắn muốn xoá bỏ site và các thông tin liên quan?"
+					},
+					"success": {
+						"new": "Đã khởi tạo site thành công",
+						"update": "Đã cập nhật các thay đổi của site thành công",
+						"delete": "Đã xoá site thành công"
+					}
+				},
+				"buttons": {
+					"delete": "Xoá site"
+				}
+			}
+		},
+		"desktops": {
+			"title": {
+				"search": "Tìm kiếm desktop hiển thị",
+				"list": "Danh sách desktop hiển thị {{info}}",
+				"create": "Tạo mới desktop hiển thị",
+				"update": "Cập nhật desktop hiển thị"
+			},
+			"controls": {
+				"Organization": "Desktop trong đơn vị - tổ chức",
+				"CopyFromID": {
+					"label": "Tạo bản sao từ desktop",
+					"placeholder": "",
+					"description": "Chỉ định desktop để tạo bản sao (mẫu hiển thị, tuỳ chỉnh hiển thị và các portlets)"
+				},
+				"ParentID": {
+					"label": "Desktop cấp trên",
+					"placeholder": "",
+					"description": "Khi chỉ định desktop cấp trên, các thiết đặt hiển thị và SEO sẽ kế thừa từ đó nếu không thiết đặt trong desktop này"
+				},
+				"Title": {
+					"label": "Tên đầy đủ",
+					"placeholder": "",
+					"description": "Tên này được sử dụng trong quá trình quản trị"
+				},
+				"Alias": {
+					"label": "Tên rút gọn",
+					"placeholder": "vd: my-dsk",
+					"description": "Tên rút gọn sẽ được sử dụng để tạo các liên kết quản trị và xem trước nội dung"
+				},
+				"Aliases": {
+					"label": "Tên rút gọn khác",
+					"placeholder": "",
+					"description": "Cho phép tạo ra nhiều liên kết khác nhau từ desktop để đảm bảo tính kế thừa, các giá trị được phân cách bởi dấu chấm phẩy (;)"
+				},
+				"Language": {
+					"label": "Ngôn ngữ hiển thị",
+					"placeholder": "",
+					"description": "Các nhãn, số, ngày tháng, ... sẽ được hiển thị theo định dạng của loại ngôn ngữ đã chọn. Chọn giá trị <b>'Không xác định'</b> để chỉ định sẽ kế thừ từ desktop cấp trên."
+				},
+				"Theme": {
+					"label": "Theme",
+					"placeholder": "",
+					"description": "Nếu không chỉ định sẽ sử dụng bộ theme kế thừa từ desktop cấp trên hoặc từ site hoặc của đơn vị"
+				},
+				"Template": {
+					"label": "Mẫu hiển thị",
+					"placeholder": "",
+					"description": "Mã XHTML cho mẫu hiển thị của desktop, sẽ sử dụng mẫu hiển thị mặc định nếu không nhập, phải có ít nhất 1 vùng (zone) có mã định danh là <b>Content</b>.<br/>Các vùng (zone) để đặt các portlet phải là các thẻ HTML phù hợp (div, section, ...) và có mã định danh qua tham số <b>zone-id</b> (vd: zone-id=\"Content\").<br/>Tips: bấm vào biểu tượng ở bên cạnh để hệ thống lấy mã XHTML mặc định của mẫu hiển thị rồi sửa từ đó."
+				},
+				"IconURI": {
+					"label": "Ảnh biểu tượng",
+					"placeholder": "",
+					"description": "Chỉ định ảnh biểu tượng cho desktop, tốt nhất là loại .ICO hoặc .PNG có kích thước 64x64"
+				},
+				"CoverURI": {
+					"label": "Ảnh bìa",
+					"placeholder": "",
+					"description": "Chỉ định ảnh bìa (cover) cho desktop để hiển thị mặc định đối với mạng xã hội khi nội dung không có ảnh bìa cụ thể, tốt nhất là loại .JPG hoặc .PNG có kích thước 1200x630 hoặc 600x315"
+				},
+				"MetaTags": {
+					"label": "Các thẻ meta bổ sung",
+					"placeholder": "",
+					"description": "Các thẻ meta bổ sung sẽ được thêm vào phần HEAD của desktop hiển thị, cần phải viết các thẻ meta đúng theo quy chuẩn của XML"
+				},
+				"Stylesheets": {
+					"label": "Các stylesheet (CSS) bổ sung",
+					"placeholder": "",
+					"description": "Các mã stylesheet (CSS) bổ sung cho desktop"
+				},
+				"ScriptLibraries": {
+					"label": "Các thư viện scripts bổ sung",
+					"placeholder": "",
+					"description": "Các mã script thư viện (Javascript) bổ sung sẽ được thêm vào phần cuối (trước khi đóng thẻ BODY) của desktop hiển thị của site.<br/>Các đoạn mã này phải nằm trong &lt;script&gt; và &lt;/script&gt; và có thể sử dụng jQuery ($), đồng thời cho phép trỏ ra các thư viện script ở bên ngoài.<br/>Tips: cũng có thể các thẻ HTML bổ sung vào đây cũng được."
+				},
+				"Scripts": {
+					"label": "Các mã scripts bổ sung",
+					"placeholder": "",
+					"description": "Các mã script (Javascript) bổ sung sẽ được thêm vào phần cuối (trước khi đóng thẻ BODY) của desktop hiển thị.<br/>Các đoạn mã này KHÔNG được nằm trong thẻ &lt;script&gt; và &lt;/script&gt; (vì sẽ được tạo thành liên kết ngoài)."
+				},
+				"MainPortletID": {
+					"label": "Portlet chính",
+					"placeholder": "",
+					"description": "Chỉ định portlet chính để tổ hợp các tham số SEO"
+				},
+				"SEOSettings": {
+					"label": "Tuỳ chỉnh SEO",
+					"placeholder": "",
+					"description": "",
+					"SEOInfo": {
+						"label": "",
+						"placeholder": "",
+						"description": "",
+						"Title": {
+							"label": "Tiêu đề",
+							"placeholder": "",
+							"description": "Tiêu đề của desktop, được sử dụng để tổ hợp với tiêu đề của portlet chính và tiêu đề của site"
+						},
+						"Description": {
+							"label": "Diễn giải",
+							"placeholder": "",
+							"description": "Diễn giải của desktop, được sử dụng để tổ hợp với diễn giải của portlet chính và với diễn giải của site"
+						},
+						"Keywords": {
+							"label": "Từ khoá",
+							"placeholder": "",
+							"description": "Từ khoá của desktop, được sử dụng để tổ hợp với từ khoá của portlet chính và với từ khoá của site"
+						}
+					},
+					"TitleMode": {
+						"label": "Cách thức tổ hợp tiêu đề",
+						"placeholder": "",
+						"description": "Chỉ định cách thức tổ hợp để tạo tiêu đề (thẻ <b>title</b>) của desktop"
+					},
+					"DescriptionMode": {
+						"label": "Cách thức tổ hợp diễn giải",
+						"placeholder": "",
+						"description": "Chỉ định cách thức tổ hợp để tạo diễn giải (thẻ <b>description</b>) của desktop"
+					},
+					"KeywordsMode": {
+						"label": "Cách thức tổ hợp từ khoá",
+						"placeholder": "",
+						"description": "Chỉ định cách thức tổ hợp để tạo từ khoá (thẻ <b>keywords</b>) của desktop"
+					}
+				}
+			},
+			"list": {
+				"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác desktop hiển thị",
+				"children": "{{number}} desktop cấp dưới: {{children}}",
+				"view": "Danh sách desktop cấp dưới"
+			},
+			"update": {
+				"segments": {
+					"basic": "Thông tin cơ bản",
+					"display": "Thiết đặt hiển thị",
+					"seo": "Thiết đặt SEO"
+				},
+				"messages": {
+					"confirm": {
+						"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo desktop hiển thị?",
+						"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của desktop hiển thị?",
+						"delete": "Chắc chắn muốn xoá bỏ desktop hiển thị và các thông tin liên quan?"
+					},
+					"success": {
+						"new": "Đã khởi tạo desktop hiển thị thành công",
+						"update": "Đã cập nhật các thay đổi của desktop hiển thị thành công",
+						"delete": "Đã xoá desktop hiển thị thành công"
+					},
+					"mode": "Cách thức thực hiện với toàn bộ desktop cấp dưới:"
+				},
+				"buttons": {
+					"delete": "Xoá desktop hiển thị",
+					"delete-all": "Xoá bỏ",
+					"set-null-all": "Chuyển về gốc"
+				},
+				"seo": {
+					"PortletAndDesktopAndSite": "Porlet + Desktop + Site",
+					"SiteAndDesktopAndPortlet": "Site + Desktop + Portlet",
+					"PortletAndDesktop": "Porlet + Desktop",
+					"DesktopAndPortlet": "Desktop + Portlet",
+					"PortletAndSite": "Porlet + Site",
+					"SiteAndPortlet": "Site + Portlet",
+					"DesktopAndSite": "Desktop + Site",
+					"SiteAndDesktop": "Site + Desktop",
+					"Portlet": "Chỉ của Portlet",
+					"Desktop": "Chỉ của Desktop"
+				}
+			}
+		},
+		"portlets": {
+			"title": {
+				"search": "Tìm kiếm portlet hiển thị",
+				"list": "Danh sách portlet hiển thị {{info}}",
+				"create": "Tạo mới portlet hiển thị",
+				"update": "Cập nhật portlet hiển thị",
+				"reorder": "Thay đổi vị trí các portlets"
+			},
+			"actions": {
+				"List": "Hiển thị danh sách",
+				"View": "Xem chi tiết nội dung"
+			},
+			"controls": {
+				"Title": {
+					"label": "Tên portlet hiển thị",
+					"placeholder": "",
+					"description": ""
+				},
+				"Action": {
+					"label": "Hành động",
+					"placeholder": "",
+					"description": "Được sử dụng mặc định desktop hiển thị không có đủ thông số"
+				},
+				"AlternativeAction": {
+					"label": "Hành động thay thế",
+					"placeholder": "",
+					"description": "Được sử dụng khi desktop hiển thị có đầy đủ đủ thông số về nội dung sẽ hiển thị, bao gồm <b>ParentIdentity</b> và <b>ContentIdentity</b>"
+				},
+				"DesktopID": {
+					"label": "Hiển thị trong desktop",
+					"placeholder": "",
+					"description": ""
+				},
+				"OtherDesktops": {
+					"label": "Đồng thời hiển thị trong các desktop",
+					"placeholder": "",
+					"description": "Chỉ định các desktop mà portlet sẽ đồng thời hiển thị tại đó"
+				},
+				"Zone": {
+					"label": "Hiển thị tại vùng",
+					"placeholder": "",
+					"description": ""
+				},
+				"RepositoryEntityID": {
+					"label": "Kiểu dữ liệu nghiệp vụ",
+					"placeholder": "",
+					"description": "Portlet sẽ hiển thị dữ liệu của kiểu dữ liệu nghiệp vụ đã chỉ định"
+				},
+				"OriginalPortlet": {
+					"label": "Portlet gốc",
+					"placeholder": "",
+					"description": "Các thiết đặt sẽ được sử dụng từ thiết đặt của portlet gốc này"
+				},
+				"OriginalPortletID": {
+					"label": "Mã định danh của portlet gốc",
+					"placeholder": "",
+					"description": ""
+				},
+				"CommonSettings": {
+					"label": "Thiết đặt hiển thị của portlet",
+					"Template": {
+						"label": "Mẫu hiển thị",
+						"placeholder": "",
+						"description": "Mã XHTML cho mẫu hiển thị của portlet, sẽ sử dụng mẫu hiển thị mặc định nếu không có nội dung được nhập.<br/>Thông thường mẫu hiển thị của portlet có 3 vùng (zone) hiển thị, với mã định danh (được chỉ định qua tham số <b>zone-id</b>) tương ứng là:<ul><li>'<b>ContextMenu</b>' sử dụng để đặt menu ngữ cảnh của portlet,</li><li>'<b>Title</b>' sử dụng để đặt tiêu đề của portlet,</li><li>'<b>Content</b>' để hiển thị nội dung của portlet (đây là vùng bắt buộc phải có)</ul>Tips:<ul><li>Có thể bỏ <b>Kiểu dữ liệu nghiệp vụ</b> rồi đưa vào đó các nội dung tĩnh (mã XHTML) tại vùng <b>Content</b></li><li>Bấm vào biểu tượng ở bên cạnh để hệ thống lấy mã XHTML mặc định của mẫu hiển thị rồi sửa từ đó</li></ul>"
+					},
+					"HideTitle": {
+						"label": "Ẩn tiêu đề của portlet khi hiển thị"
+					},
+					"TitleURL": {
+						"label": "Liên kết tại tiêu đề",
+						"placeholder": "",
+						"description": "Chỉ định liên kết sẽ được mở khi người dùng bấm chuột vào tiêu đề của portlet"
+					},
+					"IconURI": {
+						"label": "Ảnh biểu tượng tại tiêu đề",
+						"placeholder": "",
+						"description": "Chỉ định ảnh biểu tượng sẽ được đặt vào tiêu đề của portlet, nếu có ảnh biểu tượng thì menu ngữ cảnh sẽ xuất hiện khi người dùng di chuột qua đó"
+					},
+					"TitleUISettings": "Tuỳ chỉnh hiển thị vùng tiêu đề",
+					"ContentUISettings": "Tuỳ chỉnh hiển thị vùng nội dung"
+				},
+				"ExpressionID": {
+					"label": "Biểu thức truy vấn và sắp xếp dữ liệu",
+					"placeholder": "",
+					"description": "Chỉ định biểu thức truy vấn và sắp xếp dữ liệu sẽ hiển thị cho danh sách"
+				},
+				"ListSettings": {
+					"Template": {
+						"label": "Mẫu hiển thị",
+						"placeholder": "",
+						"description": "Mã XSLT để hiển thị danh sách nội dung của portlet, sẽ sử dụng mẫu hiển thị mặc định nếu không có nội dung được nhập.<br/>Tips: Bấm vào biểu tượng ở bên cạnh để hệ thống lấy mã XSLT mặc định của mẫu hiển thị rồi sửa từ đó."
+					},
+					"PageSize": {
+						"label": "Số lượng nội dung trên 1 trang",
+						"placeholder": "",
+						"description": "Chỉ định số lượng nội dung dữ liệu sẽ hiển thị trên 1 trang, sẽ được desktop hiển thị truyền dữ liệu qua tham số <b>PageSize</b>.<br/><b>Tips</b>: đặt giá trị là <b>0</b> để chỉ định lấy toàn bộ dữ liệu."
+					},
+					"AutoPageNumber": {
+						"label": "Chỉ định lấy số trang tự động (qua tham số PageNumber, không chỉ định để luôn lấy trang đầu tiên)"
+					},
+					"Options": {
+						"label": "Tuỳ chọn hiển thị",
+						"placeholder": "",
+						"description": "Mã JSON để chỉ định các thông tin sẽ hiển thị trên danh sách, các nội dung này sẽ được đặt vào thẻ &lt;Options&gt; của mã XML chứa dữ liệu danh sách"
+					},
+					"ShowBreadcrumbs": {
+						"label": "Hiển thị thanh chỉ thị"
+					},
+					"ShowPagination": {
+						"label": "Hiển thi thanh phân trang"
+					}
+				},
+				"ViewSettings": {
+					"Template": {
+						"label": "Mẫu hiển thị",
+						"placeholder": "",
+						"description": "Mã XSLT để hiển thị nội dung (chi tiết) của portlet, sẽ sử dụng mẫu hiển thị mặc định nếu không có nội dung được nhập.<br/>Tips: Bấm vào biểu tượng ở bên cạnh để hệ thống lấy mã XSLT mặc định của mẫu hiển thị rồi sửa từ đó."
+					},
+					"Options": {
+						"label": "Tuỳ chọn hiển thị",
+						"placeholder": "",
+						"description": "Mã JSON để chỉ định các thông tin sẽ hiển thị, các nội dung này sẽ được đặt vào thẻ &lt;Options&gt; của mã XML chứa dữ liệu nội dung hiển thị chi tiết"
+					},
+					"ShowBreadcrumbs": {
+						"label": "Hiển thị thanh chỉ thị"
+					},
+					"ShowPagination": {
+						"label": "Hiển thi thanh phân trang"
+					}
+				},
+				"PaginationSettings": {
+					"label": "Thiết đặt hiển thị thanh nhảy trang",
+					"Template": {
+						"label": "Mẫu hiển thị",
+						"placeholder": "",
+						"description": "Mã XSLT cho mẫu hiển thị của thanh nhảy trang, sẽ sử dụng mẫu hiển thị mặc định nếu không có nội dung được nhập.<br/>Tips: Bấm vào biểu tượng ở bên cạnh để hệ thống lấy mã XHTML mặc định của mẫu hiển thị rồi sửa từ đó."
+					},
+					"PreviousPageLabel": {
+						"label": "Nhãn 'Trang trước'",
+						"placeholder": "",
+						"description": "Nội dung ở trên sẽ được sử dụng để hiển thị cho nhãn '<b>Trang trước</b>' trên thanh nhảy trang"
+					},
+					"NextPageLabel": {
+						"label": "Nhãn 'Trang sau'",
+						"placeholder": "",
+						"description": "Nội dung ở trên sẽ được sử dụng để hiển thị cho nhãn '<b>Trang sau</b>' trên thanh nhảy trang"
+					},
+					"CurrentPageLabel": {
+						"label": "Nhãn 'Trang hiện tại'",
+						"placeholder": "",
+						"description": "Nội dung ở trên sẽ được sử dụng để hiển thị cho nhãn '<b>Trang hiện tại</b>' trên thanh nhảy trang"
+					},
+					"ShowPageLinks": {
+						"label": "Hiển thị liên kết trang (không chọn nếu muốn hiển thị hộp chọn)"
+					},
+					"NumberOfPageLinks": {
+						"label": "Số lượng liên kết trang sẽ hiển thị",
+						"placeholder": "",
+						"description": "Chỉ định số lượng các liên kết trang sẽ hiển thị trên thanh nhẩy trang. Tips: đặt giá trị <b>0</b> (không) để hiển thị toàn bộ các liên kết trang, chỉ nên sử dụng khi có ít nội dung."
+					}
+				},
+				"BreadcrumbSettings": {
+					"label": "Thiết đặt hiển thị thanh chỉ thị",
+					"Template": {
+						"label": "Mẫu hiển thị",
+						"placeholder": "",
+						"description": "Mã XSLT cho mẫu hiển thị của thanh chỉ thị, sẽ sử dụng mẫu hiển thị mặc định nếu không có nội dung được nhập.<br/>Tips: Bấm vào biểu tượng ở bên cạnh để hệ thống lấy mã XHTML mặc định của mẫu hiển thị rồi sửa từ đó."
+					},
+					"SeparatedLabel": {
+						"label": "Nhãn phân cách",
+						"placeholder": "",
+						"description": "Nội dung ở trên sẽ được sử dụng để phân cách các nội dung trên thanh chỉ thị"
+					},
+					"HomeLabel": {
+						"label": "Nhãn 'Trang chủ'",
+						"placeholder": "",
+						"description": "Nội dung ở trên sẽ được sử dụng để hiển thị nhãn '<b>Trang chủ</b>' trên thanh chỉ thị"
+					},
+					"HomeURL": {
+						"label": "Liên kết về trang chủ",
+						"placeholder": "",
+						"description": "Chỉ định liên kết về trang chủ, sử dụng ký hiệu <b>~/</b> để chỉ định liên kết gốc, không nhập nội dung để sử dụng liên kết mặc định"
+					},
+					"HomeAdditionalLabel": {
+						"label": "Nhãn bổ sung cho 'Trang chủ' (phía sau)",
+						"placeholder": "",
+						"description": "Nội dung ở trên sẽ được sử dụng để hiển thị nhãn bổ sung ở phía sau nhãn trang chủ trên thanh chỉ thị"
+					},
+					"HomeAdditionalURL": {
+						"label": "Liên kết nhãn bổ sung",
+						"placeholder": "",
+						"description": "Chỉ định liên kết cho nhãn bổ sung, sử dụng ký hiệu <b>~/</b> để chỉ định liên kết gốc"
+					},
+					"ShowModuleLink": {
+						"label": "Hiển thị liên kết tới module nghiệp vụ"
+					},
+					"ModuleLabel": {
+						"label": "Nhãn 'Module nghiệp vụ'",
+						"placeholder": "",
+						"description": "Nội dung ở trên sẽ được sử dụng để hiển thị nhãn '<b>Module nghiệp vụ</b>' trên thanh chỉ thị, không nhập để lấy giá trị mặc định (tiêu đề)"
+					},
+					"ModuleURL": {
+						"label": "Liên kết về module nghiệp vụ",
+						"placeholder": "",
+						"description": "Chỉ định liên kết về module nghiệp vụ, sử dụng ký hiệu <b>~/</b> để chỉ định liên kết gốc, không nhập nội dung để sử dụng liên kết mặc định"
+					},
+					"ModuleAdditionalLabel": {
+						"label": "Nhãn bổ sung cho 'Module nghiệp vụ' (phía sau)",
+						"placeholder": "",
+						"description": "Nội dung ở trên sẽ được sử dụng để hiển thị nhãn bổ sung ở phía sau nhãn module nghiệp vụ trên thanh chỉ thị"
+					},
+					"ModuleAdditionalURL": {
+						"label": "Liên kết nhãn bổ sung",
+						"placeholder": "",
+						"description": "Chỉ định liên kết cho nhãn bổ sung, sử dụng ký hiệu <b>~/</b> để chỉ định liên kết gốc"
+					},
+					"ShowContentTypeLink": {
+						"label": "Hiển thị liên kết tới kiểu dữ liệu nghiệp vụ"
+					},
+					"ContentTypeLabel": {
+						"label": "Nhãn 'Kiểu dữ liệu nghiệp vụ'",
+						"placeholder": "",
+						"description": "Nội dung ở trên sẽ được sử dụng để hiển thị nhãn '<b>Kiểu dữ liệu nghiệp vụ</b>' trên thanh chỉ thị, không nhập để lấy giá trị mặc định (tiêu đề)"
+					},
+					"ContentTypeURL": {
+						"label": "Liên kết về kiểu dữ liệu nghiệp vụ",
+						"placeholder": "",
+						"description": "Chỉ định liên kết về kiểu dữ liệu nghiệp vụ, sử dụng ký hiệu <b>~/</b> để chỉ định liên kết gốc, không nhập nội dung để sử dụng liên kết mặc định"
+					},
+					"ContentTypeAdditionalLabel": {
+						"label": "Nhãn bổ sung cho 'Kiểu dữ liệu nghiệp vụ' (phía sau)",
+						"placeholder": "",
+						"description": "Nội dung ở trên sẽ được sử dụng để hiển thị nhãn bổ sung ở phía sau nhãn kiểu dữ liệu nghiệp vụ trên thanh chỉ thị"
+					},
+					"ContentTypeAdditionalURL": {
+						"label": "Liên kết nhãn bổ sung",
+						"placeholder": "",
+						"description": "Chỉ định liên kết cho nhãn bổ sung, sử dụng ký hiệu <b>~/</b> để chỉ định liên kết gốc"
+					},
+					"NumberOfNodes": {
+						"label": "Số lượng liên kết sẽ hiển thị",
+						"placeholder": "",
+						"description": "Chỉ định số lượng liên kết sẽ hiển thị (tính từ cuối - không kể các liên kết trang chủ, module nghiệp vụ, kiểu dữ liệu nghiệp vụ), đặt giá trị không (0) để hiển thị toàn bộ"
+					}
+				}
+			},
+			"list": {
+				"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác portlet hiển thị",
+				"invalid": "Chưa chỉ định portlet hiển thị"
+			},
+			"update": {
+				"segments": {
+					"common": "Thiết đặt chung",
+					"list": "Hiển thị danh sách",
+					"view": "Xem chi tiết",
+					"other": "Phân trang & Thanh chỉ thị"
+				},
+				"messages": {
+					"confirm": {
+						"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo portlet hiển thị?",
+						"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của portlet hiển thị?",
+						"delete": "Chắc chắn muốn xoá bỏ portlet hiển thị?",
+						"remove": "Portlet hiển thị này sẽ bị xoá bỏ (chuyển vào thùng rác và có thể khôi phục lại trong 30 ngày)"
+					},
+					"success": {
+						"new": "Đã khởi tạo portlet hiển thị thành công",
+						"update": "Đã cập nhật các thay đổi của portlet hiển thị thành công",
+						"delete": "Đã đưa portlet hiển thị và các thông tin liên quan vào hàng đợi để chuyển vào thùng rác"
+					},
+					"json": "Lỗi trong cú pháp JSON của tuỳ chọn hiển thị"
+				},
+				"buttons": {
+					"delete": "Xoá portlet hiển thị",
+					"remove": "Đồng ý xoá"
+				},
+				"reorder": "Các portlets trong vùng {{zone}}"
+			}
+		},
+		"modules": {
+			"title": {
+				"search": "Tìm kiếm module nghiệp vụ",
+				"list": "Danh sách module nghiệp vụ {{info}}",
+				"create": "Tạo mới module nghiệp vụ",
+				"update": "Cập nhật module nghiệp vụ"
+			},
+			"controls": {
+				"Organization": "Module nghiệp vụ của đơn vị - tổ chức",
+				"ModuleDefinitionID": {
+					"label": "Module mẫu",
+					"placeholder": "",
+					"description": "Các chức năng của module nghiệp vụ này sẽ được cung cấp bởi module mẫu chỉ định ở trên"
+				},
+				"Title": {
+					"label": "Tên module nghiệp vụ",
+					"placeholder": "",
+					"description": ""
+				},
+				"Description": {
+					"label": "Diễn giải",
+					"placeholder": "",
+					"description": ""
+				},
+				"DesktopID": {
+					"label": "Desktop hiển thị",
+					"placeholder": "",
+					"description": "Desktop mặc định sử dụng để hiển thị các nội dung nghiệp vụ của module"
+				},
+				"Trackings": {
+					"label": "Các hệ thống đếm/theo dõi",
+					"GoogleAnalytics": {
+						"label": "Mã Google Analytics",
+						"description": "Nhập các mã định danh của GA, phân cách bằng dấu chấm phẩy (;) để đếm dạng page-view (web) hoặc screen-view (app) đối với các nội dung của module nghiệp vụ"
+					},
+					"FacebookPixel": {
+						"label": "Mã Facebook Pixel",
+						"description": "Nhập các mã định danh của FB Pixel, phân cách bằng dấu chấm phẩy (;) để đếm dạng page-view (web) đối với các nội dung của module nghiệp vụ"
+					}
+				}
+			},
+			"list": {
+				"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác module nghiệp vụ",
+				"invalid": "Chưa chỉ định module nghiệp vụ",
+				"active": "Chỉ định sử dụng module nghiệp vụ"
+			},
+			"update": {
+				"segments": {
+					"basic": "Thông tin cơ bản",
+					"privileges": "Quyền truy cập",
+					"notifications": "Thông báo",
+					"emails": "Mã theo dõi & Emails"
+				},
+				"messages": {
+					"confirm": {
+						"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo module nghiệp vụ?",
+						"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của module nghiệp vụ?",
+						"delete": "Chắc chắn muốn xoá bỏ module nghiệp vụ và các thông tin liên quan?",
+						"remove": "Module nghiệp vụ, kiểu dữ liệu và toàn bộ các dữ liệu nghiệp vụ của module này sẽ bị xoá bỏ (chuyển vào thùng rác và có thể khôi phục lại trong 30 ngày)"
+					},
+					"success": {
+						"new": "Đã khởi tạo module nghiệp vụ thành công",
+						"update": "Đã cập nhật các thay đổi của module nghiệp vụ thành công",
+						"delete": "Đã đưa module nghiệp vụ và các thông tin liên quan vào hàng đợi để chuyển vào thùng rác"
+					}
+				},
+				"buttons": {
+					"delete": "Xoá module nghiệp vụ",
+					"remove": "Đồng ý xoá"
+				}
+			}
+		},
+		"contenttypes": {
+			"title": {
+				"search": "Tìm kiếm kiểu dữ liệu nghiệp vụ",
+				"list": "Danh sách kiểu dữ liệu nghiệp vụ {{info}}",
+				"create": "Tạo mới kiểu dữ liệu nghiệp vụ",
+				"update": "Cập nhật kiểu dữ liệu nghiệp vụ"
+			},
+			"controls": {
+				"Organization": "Kiểu dữ liệu nghiệp vụ của đơn vị - tổ chức",
+				"RepositoryID": {
+					"label": "Module nghiệp vụ",
+					"placeholder": "",
+					"description": "Kiểu dữ liệu nghiệp vụ này sẽ thuộc về module nghiệp vụ được chỉ định"
+				},
+				"ContentTypeDefinitionID": {
+					"label": "Kiểu dữ liệu mẫu",
+					"placeholder": "",
+					"description": "Các chức năng của kiểu dữ liệu nghiệp vụ này sẽ được cung cấp bởi kiểu dữ liệu mẫu đã chỉ định"
+				},
+				"Title": {
+					"label": "Tên kiểu dữ liệu nghiệp vụ",
+					"placeholder": "",
+					"description": ""
+				},
+				"Description": {
+					"label": "Diễn giải",
+					"placeholder": "",
+					"description": ""
+				},
+				"DesktopID": {
+					"label": "Desktop hiển thị",
+					"placeholder": "",
+					"description": "Desktop mặc định sử dụng để hiển thị các nội dung nghiệp vụ của kiểu dữ liệu"
+				},
+				"CreateNewVersionWhenUpdated": {
+					"label": "Tạo phiên bản nội dung khi cập nhật dữ liệu nghiệp vụ",
+					"placeholder": "",
+					"description": ""
+				},
+				"AllowComments": {
+					"label": "Cho phép bình luận đối với các nội dung",
+					"placeholder": "",
+					"description": ""
+				},
+				"UseSocialNetworkComments": {
+					"label": "Sử dụng hệ thống bình luận của mạng xã hội",
+					"placeholder": "",
+					"description": ""
+				},
+				"DefaultCommentStatus": {
+					"label": "Trạng thái phê duyệt mặc định của bình luận mới",
+					"placeholder": "",
+					"description": "Chú ý: nếu trạng thái mặc định là 'Xuất bản', các bình luận mới tự động hiển thị ngay tức thì sau khi người dùng gửi bình luận mà không qua kiểm soát"
+				},
+				"Trackings": {
+					"label": "Các hệ thống đếm/theo dõi",
+					"GoogleAnalytics": {
+						"label": "Mã Google Analytics",
+						"description": "Nhập các mã định danh của GA, phân cách bằng dấu chấm phẩy (;) để đếm dạng page-view (web) hoặc screen-view (app) đối với các nội dung của kiểu dữ liệu nghiệp vụ"
+					},
+					"FacebookPixel": {
+						"label": "Mã Facebook Pixel",
+						"description": "Nhập các mã định danh của FB Pixel, phân cách bằng dấu chấm phẩy (;) để đếm dạng page-view (web) đối với các nội dung của kiểu dữ liệu nghiệp vụ"
+					}
+				},
+				"ExtendedPropertyDefinitions": {
+					"label": "Thuộc tính mở rộng",
+					"description": "Mã JSON định nghĩa các thuộc tính mở rộng"
+				},
+				"ExtendedControlDefinitions": {
+					"label": "Form nhập dữ liệu thuộc tính mở rộng",
+					"description": "Mã JSON định nghĩa các controls trong form nhập dữ liệu đối với các thuộc tính mở rộng"
+				},
+				"StandardControlDefinitions": {
+					"label": "Form nhập dữ liệu thuộc tính tiêu chuẩn",
+					"description": "Mã JSON tái chỉ định các controls đặc biệt trong form nhập dữ liệu của một số thuộc tính tiêu chuẩn"
+				}
+			},
+			"list": {
+				"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác kiểu dữ liệu nghiệp vụ",
+				"invalid": "Chưa chỉ định kiểu dữ liệu nghiệp vụ",
+				"no": "Chưa có kiểu dữ liệu nghiệp vụ nào",
+				"move": "Di chuyển kiểu dữ liệu và toàn bộ nội dung sang module khác",
+				"moveFirstConfirm": "Chắc chắn muốn di chuyển sang module khác?",
+				"moveLastConfirm": "Thực sự muốn di chuyển sang module khác?",
+				"moveExplanation": "Di chuyển kiểu dữ liệu và toàn bộ nội dung hiện tại sang module khác",
+				"moveNoModule": "Chưa có mã định danh của module khác",
+				"moveInvalidModule": "Cần nhập lại chính xác mã định danh của module khác",
+				"moveDone": "Đã di chuyển sang module khác thành công"
+			},
+			"update": {
+				"segments": {
+					"basic": "Thông tin cơ bản",
+					"privileges": "Quyền truy cập",
+					"notifications": "Thông báo",
+					"emails": "Mã theo dõi & Emails",
+					"extend": "Tuỳ chỉnh dữ liệu mở rộng"
+				},
+				"messages": {
+					"confirm": {
+						"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo kiểu dữ liệu nghiệp vụ?",
+						"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của kiểu dữ liệu nghiệp vụ?",
+						"delete": "Chắc chắn muốn xoá bỏ kiểu dữ liệu nghiệp vụ và các thông tin liên quan?",
+						"remove": "Thông tin và toàn bộ các dữ liệu nghiệp vụ của kiểu dữ liệu này sẽ bị xoá bỏ (chuyển vào thùng rác và có thể khôi phục lại trong 30 ngày)"
+					},
+					"success": {
+						"new": "Đã khởi tạo kiểu dữ liệu nghiệp vụ thành công",
+						"update": "Đã cập nhật các thay đổi của kiểu dữ liệu nghiệp vụ thành công",
+						"delete": "Đã đưa kiểu dữ liệu nghiệp vụ và các thông tin liên quan vào hàng đợi để chuyển vào thùng rác"
+					},
+					"json": {
+						"extendedProperty": "Lỗi trong cú pháp JSON định nghĩa thuộc tính mở rộng",
+						"extendedControl": "Lỗi trong cú pháp JSON định nghĩa form nhập liệu cho thuộc tính mở rộng",
+						"extendedNotMatched": "JSON định nghĩa thuộc tính mở rộng không khớp với JSON định nghĩa form nhập liệu cho thuộc tính mở rộng",
+						"standardControl": "Lỗi trong cú pháp JSON định nghĩa form nhập liệu cho thuộc tính tiêu chuẩn",
+						"standardNotMatched": "JSON định nghĩa form nhập liệu cho thuộc tính tiêu chuẩn không khớp với form nhập liệu mặc định"
+					}
+				},
+				"buttons": {
+					"delete": "Xoá kiểu dữ liệu nghiệp vụ",
+					"remove": "Đồng ý xoá"
+				}
+			}
+		},
+		"expressions": {
+			"title": {
+				"search": "Tìm kiếm biểu thức truy vấn",
+				"list": "Danh sách biểu thức truy vấn {{info}}",
+				"create": "Tạo mới biểu thức truy vấn",
+				"update": "Cập nhật biểu thức truy vấn"
+			},
+			"controls": {
+				"Organization": "Biểu thức truy vấn của đơn vị - tổ chức",
+				"Title": {
+					"label": "Tên biểu thức truy vấn",
+					"placeholder": "",
+					"description": ""
+				},
+				"Description": {
+					"label": "Diễn giải",
+					"placeholder": "",
+					"description": ""
+				},
+				"RepositoryID": {
+					"label": "Module nghiệp vụ",
+					"placeholder": "",
+					"description": "Biểu thức truy vấn này sẽ được sử dụng để truy vấn dữ liệu của module nghiệp vụ được chỉ định"
+				},
+				"ContentTypeDefinitionID": {
+					"label": "Kiểu dữ liệu mẫu",
+					"placeholder": "",
+					"description": "Chỉ định biểu thức truy vấn sẽ được sử dụng cho kiểu dữ liệu mẫu cụ thể"
+				},
+				"RepositoryEntityID": {
+					"label": "Kiểu dữ liệu nghiệp vụ",
+					"placeholder": "",
+					"description": "Chỉ định biểu thức truy vấn sẽ được sử dụng cho kiểu dữ liệu nghiệp vụ cụ thể. Nếu không chỉ định, biểu thức truy vấn có thể được sử dụng cho tất cả các kiểu dữ liệu nghiệp vụ cùng có chung kiểu dữ liệu mẫu đã chỉ định."
+				},
+				"Filter": {
+					"label": "Biểu thức truy vấn (JSON)",
+					"placeholder": "",
+					"description": ""
+				},
+				"Sorts": {
+					"label": "Các biểu thức sắp xếp (JSON)",
+					"placeholder": "",
+					"description": ""
+				}
+			},
+			"list": {
+				"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác biểu thức truy vấn",
+				"invalid": "Chưa chỉ định biểu thức truy vấn"
+			},
+			"update": {
+				"segments": {
+					"basic": "Cơ bản",
+					"filter": "Chi tiết truy vấn",
+					"sorts": "Chi tiết sắp xếp"
+				},
+				"messages": {
+					"confirm": {
+						"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo biểu thức truy vấn?",
+						"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của biểu thức truy vấn?",
+						"delete": "Chắc chắn muốn xoá bỏ biểu thức truy vấn?",
+						"remove": "Biểu thức truy vấn này sẽ bị xoá bỏ (chuyển vào thùng rác và có thể khôi phục lại trong 30 ngày)"
+					},
+					"success": {
+						"new": "Đã khởi tạo biểu thức truy vấn thành công",
+						"update": "Đã cập nhật các thay đổi của biểu thức truy vấn thành công",
+						"delete": "Đã đưa biểu thức truy vấn và các thông tin liên quan vào hàng đợi để chuyển vào thùng rác"
+					},
+					"json": "Lỗi trong cú pháp JSON của biểu thức"
+				},
+				"buttons": {
+					"delete": "Xoá biểu thức truy vấn",
+					"remove": "Đồng ý xoá",
+					"edit": "Cập nhật cấp cao"
+				}
+			}
+		}
+	}
+}

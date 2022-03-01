@@ -1,0 +1,16 @@
+[
+	{
+		"name": "YouTube",
+		"schemes": [
+			"https://(.*).youtube.com/watch(.*)",
+			"https://(.*).youtube.com/v/(.*)",
+			"https://(.*).youtube.com/embed/(.*)",
+			"https://youtu.be/(.*)"
+		],
+		"pattern": {
+			"expression": "(?:.+?)?(?:\\/v\\/|watch\\/|embed\\/|\\?v=|\\&v=|youtu\\.be\\/|\\/v=|^youtu\\.be\\/)([a-zA-Z0-9_-]{11})",
+			"position": 1,
+			"html": "<iframe width=\"560\" height=\"315\" src=\"https://www.youtube.com/embed/{{id}}\" frameborder=\"0\" allow=\"accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture\" allowfullscreen></iframe>"
+		}
+	}
+]

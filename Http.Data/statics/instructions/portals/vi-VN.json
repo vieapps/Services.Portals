@@ -1,0 +1,53 @@
+﻿{
+	"notifications": {
+		"email": {
+			"subject": "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" đã được {{@toLower(@params(Event-i18n))}}",
+			"body": "Xin chào,
+			<br/>
+			Nội dung \"{{@current(Title)}}\" ({{@params(ObjectName)}} trên website <a href=\"{{@params(Site.URL)}}\">{{@params(Site.Title)}}</a>) đã được {{@toLower(@params(Event-i18n))}} (Trạng thái: {{@params(Status-i18n)}}).
+			<br/>
+			Thực hiện bởi <b>{{@params(Sender.Name)}}</b> ({{@params(Sender.Email)}}) lúc {{@time.ToString(@time.Now)}}, từ {{@params(Sender.Location)}} (IP: {{@params(Sender.IP)}}) bằng {{@params(Sender.AppName)}} ({{@params(Sender.AppPlatform)}}).
+			<br/>
+			Có thể truy cập vào nội dung bằng một trong các địa web ở dưới:
+			<ul>
+				<li>Public: <a href=\"{{@params(URLs.Public)}}\">{{@params(URLs.Public)}}</a></li>
+				<li>Portal: <a href=\"{{@params(URLs.Portal)}}\">{{@params(URLs.Portal)}}</a></li>
+				<li>App: <a href=\"{{@params(URLs.Private)}}\">{{@params(URLs.Private)}}</a></li>
+			</ul>
+			<br/>
+			{{@params(EmailSignature)}}
+			<hr/>
+			{{@params(HTMLs.Details)}}"
+		},
+		"emailByApprovalStatus": {
+			"Draft": {
+				"subject": "",
+				"body": ""
+			},
+			"Pending": {
+				"subject": "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" đã được gửi duyệt",
+				"body": ""
+			},
+			"Rejected": {
+				"subject": "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" đã bị từ chối",
+				"body": ""
+			},
+			"Approved": {
+				"subject": "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" đã được phê duyệt đợi xuất bản",
+				"body": ""
+			},
+			"Published": {
+				"subject": "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" đã được xuất bản",
+				"body": ""
+			},
+			"Archieved": {
+				"subject": "",
+				"body": ""
+			}
+		},
+		"emailsWhenPublish": {
+			"subject": "",
+			"body": ""
+		}
+	}
+}

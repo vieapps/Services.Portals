@@ -1,0 +1,182 @@
+{
+	"common": {
+		"sidebar": {
+			"home": "Màn hình chính",
+			"login": "Đăng nhập",
+			"register": "Đăng ký tài khoản",
+			"profile": "Thông tin tài khoản",
+			"search": "Tìm kiếm"
+		},
+		"alert": {
+			"header": {
+				"general": "Chú ý",
+				"error": "Lỗi"
+			}
+		},
+		"buttons": {
+			"yes": "Có",
+			"no": "Không",
+			"ok": "Đồng ý",
+			"done": "Hoàn thành",
+			"add": "Thêm",
+			"moderate": "Kiểm duyệt",
+			"approve": "Phê duyệt",
+			"create": "Tạo mới",
+			"update": "Cập nhật",
+			"delete": "Xoá",
+			"edit": "Cập nhật",
+			"view": "Xem",
+			"save": "Lưu",
+			"cancel": "Huỷ",
+			"close": "Đóng",
+			"select": "Chọn",
+			"search": "Tìm",
+			"upload": "Tải lên",
+			"download": "Tải xuống",
+			"refresh": "Làm tươi",
+			"filter": "Lọc nhanh",
+			"move": "Di chuyển",
+			"continue": "Tiếp theo",
+			"later": "Để sau",
+			"login": "Đăng nhập",
+			"logout": "Đăng xuất",
+			"submit": "Gửi"
+		},
+		"messages": {
+			"loading": "Tải dữ liệu...",
+			"searching": "Tìm kiếm dữ liệu...",
+			"activating": "Kích hoạt...",
+			"processing": "Xử lý...",
+			"errors": {
+				"general": "Đã xảy ra lỗi!",
+				"wrongAccountOrPassword": "Tài khoản hoặc mật khẩu không đúng!",
+				"wrongCaptcha": "Mã xác thực không đúng"
+			},
+			"delete": {
+				"normal": "Chắc chắn muốn xoá bỏ?",
+				"selected": "Chắc chắn muốn xoá bỏ các thông tin đã chọn?"
+			},
+			"completer": {
+				"searching": "tìm kiếm...",
+				"noresults": "không có kết quả phù hợp"
+			}
+		},
+		"audits": {
+			"identity": "Mã định danh",
+			"label": "Thông tin quản trị",
+			"info": "{{creator}} khởi tạo lúc {{created}} - {{modifier}} cập nhật lần cuối lúc {{modified}}"
+		},
+		"preferences": {
+			"label": "Tuỳ chỉnh",
+			"options": {
+				"language": "Ngôn ngữ",
+				"theme": "Sử dụng theme màu tối"
+			},
+			"apps": {
+				"desktop": "Apps cho máy tính",
+				"mobile": "Apps cho điện thoại"
+			},
+			"about": "Thông tin về app"
+		}
+	},
+	"privileges": {
+		"roles": {
+			"systems": {
+				"All": "Toàn bộ người dùng",
+				"Authorized": "Người dùng dã đăng nhập",
+				"SystemAdministrator": "Quản trị hệ thống"
+			},
+			"privileges": {
+				"Administrator": "Người quản trị",
+				"Moderator": "Người kiểm duyệt",
+				"Editor": "Người biên tập",
+				"Contributor": "Người cập nhật",
+				"Viewer": "Người đọc",
+				"Downloader": "Chỉ tải file"
+			}
+		},
+		"services": {
+			"role": "Vai trò chung trong '{{service}}'",
+			"other": "Vai trò khác",
+			"object": "Vai trò đối với '{{object}}'"
+		},
+		"objects": {
+			"inheritFromParent": "Kế thừa quyền truy cập từ cấp trên",
+			"Administrative": {
+				"label": "Quản trị",
+				"description": "",
+				"roles": "Các vai trò quản trị",
+				"users": "Các thành viên quản trị"
+			},
+			"Moderate": {
+				"label": "Kiểm duyệt",
+				"description": "",
+				"roles": "Các vai trò kiểm duyệt",
+				"users": "Các thành viên kiểm duyệt"
+			},
+			"Editable": {
+				"label": "Biên tập",
+				"description": "",
+				"roles": "Các vai trò biên tập",
+				"users": "Các thành viên biên tập"
+			},
+			"Contributive": {
+				"label": "Cập nhật",
+				"description": "",
+				"roles": "Các vai trò cập nhật",
+				"users": "Các thành viên cập nhật"
+			},
+			"Viewable": {
+				"label": "Chỉ đọc",
+				"description": "",
+				"roles": "Các vai trò đọc/xem",
+				"users": "Các thành viên đọc/xem"
+			},
+			"Downloadable": {
+				"label": "Tải file",
+				"description": "",
+				"roles": "Các vai trò chỉ tải file",
+				"users": "Các thành viên chỉ tải file"
+			}
+		}
+	},
+	"status": {
+		"approval": {
+			"label": "Trạng thái",
+			"Draft": "Bản nháp",
+			"Pending": "Đợi duyệt",
+			"Rejected": "Bị từ chối",
+			"Approved": "Đã duyệt",
+			"Published": "Xuất bản",
+			"Archieved": "Lưu trữ"
+		}
+	},
+	"events": {
+		"label": "Sự kiện",
+		"Create": "Tạo mới",
+		"Update": "Cập nhật",
+		"Delete": "Xoá"
+	},
+	"files": {
+		"thumbnails": {
+			"label": "Ảnh đại diện",
+			"current": "Ảnh hiện tại",
+			"new": "Ảnh mới"
+		},
+		"attachments": {
+			"segment": "Tệp đính kèm",
+			"label": "Các tệp đính kèm",
+			"confirm": "Chắc chắn muốn xoá tệp tin '{{name}}'?",
+			"upload": "Tải lên",
+			"download": "Tải xuống",
+			"controls": {
+				"title": "Tiêu đề",
+				"description": "Diễn giải",
+				"shared": "Chia sẻ dùng chung trong toàn bộ hệ thống",
+				"tracked": "Lưu toàn bộ log truy cập (bao gồm cả xem)",
+				"filename": "Tên tệp tin",
+				"uri": "Liên kết xem/tải tệp tin"
+			}
+		}
+	}
+}

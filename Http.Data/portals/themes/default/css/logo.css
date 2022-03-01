@@ -1,0 +1,51 @@
+﻿/*
+	theme: all - logo zone
+*/
+:root {
+	--logo-height: 40px;
+	--logo-padding: 15px;
+	--logo-height-md: 50px;
+	--logo-padding-md: 10px;
+}
+
+.desktop .zone.logo h1,
+.desktop .zone.logo h2 {
+	display: block !important;
+	width: auto !important;
+	height: auto !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	font-size: 1rem !important;
+	color: transparent !important;
+	background-color: transparent !important;
+}
+.desktop .zone.logo h1 > a,
+.desktop .zone.logo h2 > a {
+	display: block !important;
+	height: var(--logo-height);
+	margin: 0 !important;
+	padding: 0 !important;
+	color: transparent !important;
+	background-color: transparent !important;
+	background-repeat: no-repeat !important;
+	background-position: left center !important;
+	background-size: auto 100% !important;	
+}
+.default.desktop .header .zone.logo::before,
+.default.desktop .header .zone.logo::after {
+	content: "";
+	display: block;
+	clear: both;
+	height: var(--logo-padding);
+	width: 100%;
+}
+@media (min-width: 768px) {
+	.desktop .zone.logo h1 > a,
+	.desktop .zone.logo h2 > a {
+		height: var(--logo-height-md);
+	}
+	.default.desktop .header .zone.logo::before,
+	.default.desktop .header .zone.logo::after {
+		height: var(--logo-padding-md);
+	}
+}

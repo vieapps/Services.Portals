@@ -1,0 +1,31 @@
+﻿/* Roboto font */
+@import url(https://fonts.googleapis.com/css?family=Roboto:300,300italic,400,400italic,500,500italic,700,700italic,900,900italic&subset=latin,latin-ext,vietnamese);
+
+/* Twitter Bootstrap */
+@import url(https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.1.0/css/bootstrap.min.css);
+
+/* Font Awesome */
+@import url(https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css);
+
+/* Animate */
+@import url(https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css);
+
+/* MMenuJs */
+@import url(https://cdnjs.cloudflare.com/ajax/libs/jQuery.mmenu/8.5.24/mmenu.min.css);
+
+/* OwlCarousel2 */
+@import url(https://cdnjs.cloudflare.com/ajax/libs/OwlCarousel2/2.3.4/assets/owl.carousel.min.css);
+@import url(https://cdnjs.cloudflare.com/ajax/libs/OwlCarousel2/2.3.4/assets/owl.theme.default.min.css);
+
+/* FancyBox (light-box) */
+@import url(https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.5.7/jquery.fancybox.min.css);
+
+/*
+	theme: all - anchors
+*/
+a {
+	text-decoration: none;
+}
+a:hover {
+	text-decoration: underline;
+}

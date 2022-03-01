@@ -1,0 +1,24 @@
+<xsl:if test="/VIEApps/Options/ShowBreadcrumbs = 'true' and count(/VIEApps/Breadcrumbs/Nodes/Node) &gt; 0">
+	<xsl:variable name="SeparatedLabel">
+		<xsl:value-of select="/VIEApps/Breadcrumbs/SeparatedLabel"/>
+	</xsl:variable>
+	<ul class="cms breadcrumbs" itemprop="breadcrumb" itemtype="http://schema.org/BreadcrumbList">
+		<xsl:for-each select="/VIEApps/Breadcrumbs/Nodes/Node">
+			<xsl:if test="position() != 1">
+				<li>
+					<label>
+						<xsl:value-of select="$SeparatedLabel"/>
+					</label>
+				</li>
+			</xsl:if>
+			<li itemprop="itemListElement" itemtype="http://schema.org/ListItem">
+				<meta property="position" content="{position()}"/>
+				<span>
+					<a href="{./URL}">
+						<xsl:value-of select="./Text"/>
+					</a>
+				</span>
+			</li>
+		</xsl:for-each>
+	</ul>
+</xsl:if>

@@ -1,0 +1,115 @@
+﻿{
+	"account": {
+		"subject": "[{{@request.Session(AppName)}}] Kích hoạt tài khoản đăng nhập",
+		"body": "Xin chào <b>{{@params(Name)}}</b>
+		<br/>
+		Chào mừng bạn đã tham gia vào hệ thống cùng chúng tôi.
+		<br/>
+		Tài khoản thành viên của bạn sẽ được khởi tạo với các thông tin sau:
+		<blockquote>
+			Tài khoản đăng nhập: <b>{{@params(Account)}}</b>
+			Mật khẩu đăng nhập: <b>{{@params(Password)}}</b>
+		</blockquote>
+		Để hoàn tất quá trình đăng ký, bạn vui lòng kích hoạt tài khoản đã đăng ký bằng cách mở liên kết dưới:
+		<br/>
+		<span style='display:inline-block;padding:15px;border-radius:5px;background-color:#eee;font-weight:bold'>
+			<a href='{{@params(Uri)}}' style='color:red'>Kích hoạt tài khoản</a>
+		</span>
+		<br/>
+		{{@params(EmailSignature)}}
+		<hr/>
+		<i>Thông tin thêm:</i>
+		<ul>
+			<li>Hoạt động này được thực hiện lúc <b>{{@toString(@params(Time))}}</b> tại <b>{{@params(Location)}}</b> bằng {{@request.Session(AppName)}} ({{@request.Session(AppPlatform)}})</li>
+			<li>Mã kích hoạt chỉ có giá trị trong vòng 01 tháng kể từ thời điểm nhận được email này.<br/>Sau thời gian đó, để gia nhập hệ thống bạn cần thực hiện lại hoạt động đăng ký thành viên.</li>
+			<li>Nếu không phải bạn thực hiện hoạt động này, bạn cũng không phải bận tâm vì hệ thống sẽ tự động loại bỏ các thông tin không sử dụng sau thời gian 01 tháng.</li>
+		</ul>"
+	},
+	"invite": {
+		"subject": "[{{@request.Session(AppName)}}] Lời mời tham gia hệ thống",
+		"body": "Xin chào <b>{{@params(Name)}}</b>
+		<br/>
+		Chào mừng bạn đến với hệ thống qua lời mời của <b>{{@params(Inviter.Name)}}</b> ({{@params(Inviter.Email)}})
+		<br/>
+		Tài khoản thành viên của bạn sẽ được khởi tạo với các thông tin sau:
+		<blockquote>
+			Tài khoản đăng nhập: <b>{{@params(Account)}}</b>
+			Mật khẩu đăng nhập: <b>{{@params(Password)}}</b>
+		</blockquote>
+		Để hoàn tất quá trình tham gia hệ thống, bạn vui lòng kích hoạt tài khoản bằng cách mở liên kết dưới:
+		<br/>
+		<span style='display:inline-block;padding:15px;border-radius:5px;background-color:#eee;font-weight:bold'>
+			<a href='{{@params(Uri)}}' style='color:red'>Kích hoạt tài khoản</a>
+		</span>
+		<br/>
+		{{@params(EmailSignature)}}
+		<hr/>
+		<i>Thông tin thêm:</i>
+		<ul>
+			<li>Hoạt động này được thực hiện lúc <b>{{@toString(@params(Time))}}</b> tại <b>{{@params(Location)}}</b></li>
+			<li>Mã kích hoạt chỉ có giá trị trong vòng 01 tháng kể từ thời điểm nhận được email này.<br/>Sau thời gian đó, để gia nhập hệ thống bạn cần thực hiện lại hoạt động đăng ký thành viên.</li>
+			<li>Nếu không phải bạn thực hiện hoạt động này, bạn cũng không phải bận tâm vì hệ thống sẽ tự động loại bỏ các thông tin không sử dụng sau thời gian 01 tháng.</li>
+		</ul>"
+	},
+	"reset": {
+		"subject": "[{{@request.Session(AppName)}}] Kích hoạt mật khẩu đăng nhập mới",
+		"body": "Xin chào <b>{{@params(Name)}}</b>
+		<br/>
+		Tài khoản đăng nhập của bạn đã được yêu cầu đặt lại thông tin đăng nhập như sau:
+		<blockquote>
+			Tài khoản đăng nhập: <b>{{@params(Account)}}</b>
+			Mật khẩu đăng nhập (mới): <b>{{@params(Password)}}</b>
+		</blockquote>
+		Để hoàn tất quá trình lấy mật khẩu mới, bạn vui lòng kích hoạt bằng cách mở liên kết dưới:
+		<br/>
+		<span style='display:inline-block;padding:15px;border-radius:5px;background-color:#eee;font-weight:bold'>
+			<a href='{{@params(Uri)}}' style='color:red'>Kích hoạt mật khẩu đăng nhập mới</a>
+		</span>
+		<br/>
+		{{@params(EmailSignature)}}
+		<hr/>
+		<i>Thông tin thêm:</i>
+		<ul>
+			<li>Hoạt động này được thực hiện lúc <b>{{@toString(@params(Time))}}</b> tại <b>{{@params(Location)}}</b> bằng {{@request.Session(AppName)}} ({{@request.Session(AppPlatform)}})</li>
+			<li>Khi bạn chưa kích hoạt thì mật khẩu đăng nhập mới sẽ chưa có tác dụng.</li>
+			<li>Mã kích hoạt chỉ có giá trị trong vòng 01 ngày kể từ thời điểm nhận được email này.</li>
+			<li>Nếu không phải bạn thực hiện hoạt động này, bạn cũng không phải bận tâm vì sẽ không có thông tin nào của bạn bị ảnh hưởng.</li>
+		</ul>"
+	},
+	"password": {
+		"subject": "[{{@request.Session(AppName)}}] Thông báo thông tin đăng nhập tài khoản đã thay đổi (mật khẩu)",
+		"body": "Xin chào <b>{{@params(Name)}}</b>
+		<br/>
+		Tài khoản đăng nhập của bạn đã được cật nhật thông tin đăng nhập mới như sau:
+		<blockquote>
+			Tài khoản đăng nhập: <b>{{@params(Account)}}</b>
+			Mật khẩu đăng nhập (mới): <b>{{@params(Password)}}</b>
+		</blockquote>
+		<br/>
+		{{@params(EmailSignature)}}
+		<hr/>
+		<i>Thông tin thêm:</i>
+		<ul>
+			<li>Hoạt động này được thực hiện lúc <b>{{@toString(@params(Time))}}</b> tại <b>{{@params(Location)}}</b> bằng {{@request.Session(AppName)}} ({{@request.Session(AppPlatform)}})</li>
+			<li>Nếu không phải bạn thực hiện hoạt động này, bạn nên kiểm tra lại thông tin đăng nhập cũng như email liên quan vì có thể một điểm nào đó trong hệ thống thông tin bị rò rỉ (và có thể gây hại cho bạn).</li>
+		</ul>"
+	},
+	"email": {
+		"subject": "[{{@request.Session(AppName)}}] Thông báo thông tin đăng nhập tài khoản đã thay đổi (email)",
+		"body": "Xin chào <b>{{@params(Name)}}</b>
+		<br/>
+		Tài khoản đăng nhập của bạn đã được cật nhật thông tin đăng nhập mới như sau:
+		<blockquote>
+			Email đăng nhập (mới): <b>{{@params(Email)}}</b>
+			Đổi từ email đăng nhập cũ: <b>{{@params(OldEmail)}}</b>
+		</blockquote>
+		<br/>
+		{{@params(EmailSignature)}}
+		<hr/>
+		<i>Thông tin thêm:</i>
+		<ul>
+			<li>Hoạt động này được thực hiện lúc <b>{{@toString(@params(Time))}}</b> tại <b>{{@params(Location)}}</b> bằng {{@request.Session(AppName)}} ({{@request.Session(AppPlatform)}})</li>
+			<li>Nếu không phải bạn thực hiện hoạt động này, bạn nên kiểm tra lại thông tin đăng nhập cũng như email liên quan vì có thể một điểm nào đó trong hệ thống thông tin bị rò rỉ (và có thể gây hại cho bạn).</li>
+		</ul>"
+	},
+}

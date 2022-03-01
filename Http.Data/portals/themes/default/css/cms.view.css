@@ -1,0 +1,267 @@
+﻿/*
+	theme: all - view of CMS
+*/
+.cms.view,
+.cms.view > label,
+.cms.view > h2,
+.cms.view > div,
+.cms.view > section,
+.cms.view > figure {
+	clear: both;
+	overflow: hidden;
+}
+.cms.view.content,
+.cms.view.item {
+	padding-top: 15px;
+}
+@media (min-width: 768px) {
+	.cms.view.content,
+	.cms.view.item {
+		padding-top: 20px;
+	}
+}
+@media (min-width: 1200px) {
+	.cms.view.content,
+	.cms.view.item {
+		padding-top: 30px;
+	}
+}
+.cms.view > h2 {
+	font-weight: bold;
+	margin: 1rem 0;
+	padding: 3px 0;
+	clear: both;
+}
+@media (min-width: 768px) {
+	.cms.view > h2 {
+		font-size: 2.5rem;
+	}
+}
+@media (min-width: 1200px) {
+	.cms.view > h2 {
+		font-size: 3rem;
+	}
+}
+.cms.view > figure.background.thumbnail {
+	height: calc(100vw/4);
+	min-height: 240px;
+	max-height: 480px;
+}
+@media (min-width: 768px) {
+	.cms.view > figure.background.thumbnail {
+		height: 380px;
+	}
+}
+@media (min-width: 1200px) {
+	.cms.view > figure.background.thumbnail {
+		height: 480px;
+	}
+}
+.cms.view > figure.background.thumbnail > span {
+	display: inline-block;
+	width: 100%;
+	height: 100%;
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: cover;
+}
+.cms.view > figure,
+.cms.view > figure img {
+	width: 100%;
+}
+.cms.view img {
+	height: auto !important;
+}
+.cms.view blockquote {
+	overflow: hidden;
+	padding-right: 2em;
+	padding-left: 2em;
+	margin-left: 0;
+	margin-right: 0;
+	font-style: italic;
+}
+.cms.view blockquote > p:last-of-type {
+	margin-bottom: 0;
+}
+.cms.view blockquote::before,
+.cms.view blockquote::after {
+	font-family: "Font Awesome 5 Free";
+	font-weight: 900;
+	display: block;
+}
+.cms.view blockquote::before {
+	content: "\f10d";
+	float: left;
+	margin-left: -2.2rem;
+}
+.cms.view blockquote::after {
+	content: "\f10e";
+	float: right;
+	margin-right: -2rem;
+}
+.cms.view > div.tags {
+	padding-top: 30px;
+	padding-bottom: 15px;
+}
+.cms.view > div.tags > label {
+	margin: 0;
+	padding: 0;
+	display: inline-block;
+	color: #696763;
+}
+.cms.view > div.tags > label > i.fa,
+.cms.view > div.tags > label > i.fas {
+	margin-right: 5px;
+}
+.cms.view > div.tags > a {
+	margin: 0 0 5px 15px;
+	padding: 5px 10px;
+	color: #007bff;
+	background-color: #eee;
+	border-radius: 5px;
+	cursor: pointer;
+	display: inline-block;
+}
+
+/*
+	theme: all - view of a CMS content
+*/
+.cms.view.content > label {
+	display: block;
+	clear: both;
+	overflow: hidden;
+	margin: 0;
+	font-size: .8rem;
+}
+.cms.view.content > div > span {
+	display: block;
+	font-size: .9rem;
+}
+.cms.view.content > div > section {
+	padding: 15px 0;
+}
+@media (min-width: 768px) {
+	.cms.view.content > div > span {
+		float: left;
+		padding-bottom: 15px;
+	}
+	.cms.view.content > div > section {
+		float: right;
+		padding-top: 0;
+		padding-bottom: 15px;
+		text-align: right;
+	}
+}
+.cms.view.content > div > span,
+.cms.view.content > div > span a,
+.cms.view.content > div > section,
+.cms.view.content > div > section a,
+.cms.view.content > div > div,
+.cms.view.content > div > div a {
+	color: inherit;
+}
+.cms.view.content > div > span > label,
+.cms.view.content > div > span > span,
+.cms.view.content > div > section > span {
+	line-height: 1.2rem;
+	font-size: .9rem;
+	margin: 0;
+	padding: 0;
+}
+.cms.view.content > div.meta > span > label,
+.cms.view.content > div.meta > span > span,
+.cms.view.content > div.meta > section > span {
+	display: block;
+	clear: right;
+}
+.cms.view.content > div.meta > section > span .edit.icon {
+	margin-left: 30px;
+}
+.cms.view.content > div.meta > span > label {
+	font-weight: bold;
+}
+.cms.view.content > div.meta > span > span {
+	font-style: italic;
+}
+.cms.view.content > section {
+	padding: 30px 0;
+	border-top: solid 1px #d0d0d6;
+	font-size: 1.2rem;
+}
+.cms.view.content > span.summary {
+	display: block;
+	padding-top: 30px;
+	border-top: solid 1px #d0d0d6;
+	font-size: 1.2rem;
+}
+.cms.view.content > span.summary + section{
+	border-top: none;
+}
+.cms.view.content > div.info {
+	padding: 30px 0;
+	padding-top: 15px;
+}
+.cms.view.content > div > div,
+.cms.view.content > div.info > section {
+	text-align: right;
+	padding-bottom: 15px;
+}
+.cms.view.content > div > div > span > label,
+.cms.view.content > div > div > span > a {
+	font-weight: bold;
+}
+.cms.view.content > div > div > span,
+.cms.view.content > div.info > section > span {
+	margin-left: 15px;
+}
+@media (max-width: 767px) {
+	.cms.view.content > div.info > section > span:not(.shares) {
+		display: block;
+		padding-top: 30px;
+	}
+}
+.cms.view.content > div > section > span > label {
+	margin: 0 0 0 7px;
+}
+.cms.view.content > div > section > span .fa,
+.cms.view.content > div > section > span .far,
+.cms.view.content > div > section > span .fab,
+.cms.view.content > div > section > span .fas {
+	margin-right: 5px;
+}
+
+/*
+	theme: all - coloring codes on a special zone
+*/
+.desktop .zone.content div.content .cms.view.content > label,
+.desktop .zone.content div.content .cms.view.content > div > span,
+.desktop .zone.content div.content .cms.view.content > div > div,
+.desktop .zone.content div.content .cms.view.content > div > section {
+	color: #696763;
+}
+
+/*
+	theme: all - social shares of a CMS content on a special zone
+*/
+.desktop.mobile-os .zone.content div.content .cms.view.content > div > section > span.shares {
+	display: none;
+}
+
+/* relateds & others */
+.cms.view.relateds,
+.cms.view.others {
+	margin-bottom: 15px;
+}
+.desktop .zone.content .cms.view:last-child {
+	margin-bottom: 30px;
+}
+@media (min-width: 768px) {
+	.desktop .zone.content .cms.view:last-child {
+		margin-bottom: 60px;
+	}
+}
+@media (min-width: 1200px) {
+	.desktop .zone.content .cms.view:last-child {
+		margin-bottom: 80px;
+	}
+}

@@ -1,0 +1,175 @@
+﻿/*
+	theme: default - desktop header
+*/
+.default.desktop > .header {
+	background-color: #f0f0e9;
+}
+.default.desktop > .header.fixed,
+.default.desktop > .header.border {
+	border-bottom: solid .5px #d0d0d6;
+}
+
+/*
+	theme: default - desktop footer
+*/
+.default.desktop > .footer {
+	background-color: #f0f0e9;
+	border-top: solid .5px #d0d0d6;
+	font-size: .9rem;
+}
+.default.desktop > .zone.footer.bottom.widgets {
+	border-top: none;
+}
+.default.desktop > .footer > .container > .zone.widgets,
+.default.desktop > .footer > .container > .row:not(.empty),
+.default.desktop > .zone.footer.bottom.widgets {
+	padding: 30px 0;
+}
+.default.desktop > .footer > .container > .zone.widgets + .row,
+.default.desktop > .footer + .zone.footer.bottom.widgets {
+	padding-top: 0;
+}
+.default.desktop > .footer .zone > .portlet > .content,
+.default.desktop > .footer .zone > .portlet > .content a,
+.default.desktop > .zone.footer.bottom.widgets .portlet > .content,
+.default.desktop > .zone.footer.bottom.widgets .portlet > .content a {
+	color: #696763;
+}
+
+/*
+	theme: default - portlets
+*/
+.default.desktop .zone > .portlet > .title > div {
+	border-bottom: solid .5px #d0d0d6;
+}
+.default.desktop .zone > .portlet > .title > div > span,
+.default.desktop .zone > .portlet > .title > div > span > a {
+	font-size: 1.4rem;
+}
+
+.default.desktop .zone.sidebar > .portlet,
+.default.desktop .zone.sidebar > :last-child {
+	padding-bottom: 45px;
+}
+.default.desktop .zone.d-flex > .portlet.d-flex,
+.default.desktop .zone.footer.bottom.widgets .portlet.d-flex {
+	flex: 0 0 100%;
+}
+.default.desktop .zone.d-flex > .portlet.d-flex > .title,
+.default.desktop .zone.footer.bottom.widgets .portlet.d-flex > .title {
+	display: flex;
+	flex: 0 0 100%;
+}
+.default.desktop .zone.d-flex > .portlet.d-flex > .content,
+.default.desktop .zone.footer.bottom.widgets .portlet.d-flex > .content {
+	display: block;
+	width: 100%;
+}
+.default.desktop .zone.d-flex > .portlet.d-flex > .content > div.right,
+.default.desktop .zone.footer.bottom.widgets .portlet.d-flex > .content > div.right {
+	margin-top: 15px;
+}
+@media (min-width: 768px) {
+	.default.desktop .zone.d-flex > .portlet.d-flex > .content > div.left,
+	.default.desktop .zone.footer.bottom.widgets .portlet.d-flex > .content > div.left {
+		float: left;
+	}
+	.default.desktop .zone.d-flex > .portlet.d-flex > .content > div.right,
+	.default.desktop .zone.footer.bottom.widgets .portlet.d-flex > .content > div.right {
+		float: right;
+		margin-top: 0;
+	}
+}
+
+/*
+	theme: default - more space between zones on big screen
+*/
+@media (max-width: 991px) {
+	.default.desktop .zone.content {
+		padding-bottom: 50px;
+	}
+}
+@media (min-width: 992px) {
+	.default.desktop.cms-content.list .zone.content,
+	.default.desktop.cms-content.view .zone.content,
+	.default.desktop.cms-content.list .zone.sidebar,
+	.default.desktop.cms-content.view .zone.sidebar,
+	.default.desktop.cms-item.list .zone.content,
+	.default.desktop.cms-item.view .zone.content,
+	.default.desktop.cms-item.list .zone.sidebar,
+	.default.desktop.cms-item.view .zone.sidebar {
+		padding-top: 30px;
+		padding-bottom: 30px;
+	}
+	.default.desktop.cms-content.list .zone.content,
+	.default.desktop.cms-content.view .zone.content,
+	.default.desktop.cms-item.list .zone.content,
+	.default.desktop.cms-item.view .zone.content {
+		padding-right: 30px;
+	}
+	.default.desktop.cms-content.list.category .zone.sidebar,
+	.default.desktop.cms-item.list.category .zone.sidebar {
+		padding-top: 250px;
+	}
+	.default.desktop.cms-content.list.category.half .zone.sidebar,
+	.default.desktop.cms-item.list.category.half .zone.sidebar {
+		padding-top: 290px;
+	}
+	.default.desktop.cms-content.list.category.full .zone.sidebar,
+	.default.desktop.cms-item.list.category.full .zone.sidebar {
+		padding-top: 340px;
+	}
+	.default.desktop.cms-content.view .zone.sidebar,
+	.default.desktop.cms-item.view .zone.sidebar {
+		padding-top: 120px;
+	}
+}
+@media (min-width: 1200px) {
+	.default.desktop.cms-content.list .zone.content,
+	.default.desktop.cms-content.view .zone.content,
+	.default.desktop.cms-content.list .zone.sidebar,
+	.default.desktop.cms-content.view .zone.sidebar,
+	.default.desktop.cms-item.list .zone.content,
+	.default.desktop.cms-item.view .zone.content,
+	.default.desktop.cms-item.list .zone.sidebar,
+	.default.desktop.cms-item.view .zone.sidebar {
+		padding-top: 45px;
+		padding-bottom: 45px;
+	}
+	.default.desktop.cms-content.list .zone.sidebar,
+	.default.desktop.cms-content.view .zone.sidebar,
+	.default.desktop.cms-item.list .zone.sidebar,
+	.default.desktop.cms-item.view .zone.sidebar {
+		padding-top: 100px;
+	}
+	.default.desktop.cms-content.list .zone.content,
+	.default.desktop.cms-content.view .zone.content,
+	.default.desktop.cms-item.list .zone.content,
+	.default.desktop.cms-item.view .zone.content {
+		padding-right: 45px;
+	}
+	.default.desktop.cms-content.list.category .zone.sidebar,
+	.default.desktop.cms-item.list.category .zone.sidebar {
+		padding-top: 280px;
+	}
+	.default.desktop.cms-content.list.category.half .zone.sidebar,
+	.default.desktop.cms-item.list.category.half .zone.sidebar {
+		padding-top: 320px;
+	}
+	.default.desktop.cms-content.list.category.full .zone.sidebar,
+	.default.desktop.cms-item.list.category.full .zone.sidebar {
+		padding-top: 370px;
+	}
+	.default.desktop.cms-content.view .zone.sidebar,
+	.default.desktop.cms-item.view .zone.sidebar {
+		padding-top: 150px;
+	}
+}
+@media (min-width: 1400px) {
+	.default.desktop.cms-content.list .zone.content,
+	.default.desktop.cms-content.view .zone.content,
+	.default.desktop.cms-item.list .zone.content,
+	.default.desktop.cms-item.view .zone.content {
+		padding-right: 75px;
+	}
+}
