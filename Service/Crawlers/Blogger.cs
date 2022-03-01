@@ -74,9 +74,9 @@ namespace net.vieapps.Services.Portals.Crawlers
 		{
 			var content = new Content
 			{
-				Title = data.Get<JObject>("title")?.Get<string>("$t"),
-				Summary = data.Get<JObject>("summary")?.Get<string>("$t"),
-				Details = data.Get<JObject>("content")?.Get<string>("$t"),
+				Title = data.Get<JObject>("title")?.Get<string>("$t")?.HtmlDecode(),
+				Summary = data.Get<JObject>("summary")?.Get<string>("$t")?.HtmlDecode(),
+				Details = data.Get<JObject>("content")?.Get<string>("$t")?.HtmlDecode(),
 				ID = data.Get<JObject>("id")?.Get<string>("$t")?.GenerateUUID(),
 				PublishedTime = DateTime.Parse(data.Get<JObject>("published").Get<string>("$t")),
 				LastModified = DateTime.Parse(data.Get<JObject>("updated").Get<string>("$t"))
