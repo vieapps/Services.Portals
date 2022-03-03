@@ -1276,10 +1276,9 @@ namespace net.vieapps.Services.Portals
 			// special headers
 			var noneMatch = requestInfo.GetHeaderParameter("If-None-Match");
 			var modifiedSince = requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since");
-			var eTag = uri.ToString().ToLower();
-			eTag = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
+			var eTag = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
 				? $"{type}#{identity}"
-				: $"v#{(eTag.IndexOf("?") > 0 ? eTag.Left(eTag.IndexOf("?")) : eTag).GenerateUUID()}";
+				: $"v#{uri.AbsolutePath.ToLower().GenerateUUID()}";
 
 			// check special headers to reduce traffict
 			var lastModified = this.CacheDesktopResources ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
@@ -1345,6 +1344,27 @@ namespace net.vieapps.Services.Portals
 					contentType = "text/css";
 				else if (type.IsEquals("js"))
 					contentType = "application/javascript";
+				else if (type.IsEquals("assets"))
+					switch (filePath.ToList(".").Last())
+					{
+						case "js":
+							contentType = "application/javascript";
+							break;
+						case "json":
+							contentType = "application/json";
+							break;
+						case "css":
+							contentType = "text/css";
+							break;
+						case "htm":
+						case "html":
+						case "xhtml":
+							contentType = "text/html";
+							break;
+						case "xml":
+							contentType = "text/xml";
+							break;
+					}
 				else if (type.IsEquals("fonts"))
 					contentType = $"font/{filePath.ToList(".").Last()}";
 				else if (type.IsEquals("images"))

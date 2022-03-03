@@ -159,9 +159,11 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string GetDesktopCacheKey(this Organization organization, string desktopAlias, Uri requestURI)
 		{
-			var path = requestURI.AbsolutePath;
+			var path = requestURI.AbsolutePath.ToLower();
+			while (path.EndsWith("/"))
+				path = path.Left(path.Length - 1).Trim();
 			path = path.IsStartsWith($"/~{organization.Alias}") ? path.Right(path.Length - organization.Alias.Length - 2) : path;
-			path = (path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path).ToLower();
+			path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
 			path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
 			return $"{organization.ID}:" + (desktopAlias.IsEquals("-default") || desktopAlias.IsEquals(organization.HomeDesktop?.Alias) ? "-default" : path).GenerateUUID();
 		}
