@@ -1094,7 +1094,7 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "ID", organization.ID },
 					{ "Alias", organization.Alias },
-					{ "HomeDesktopAlias", (site.HomeDesktop ?? organization.HomeDesktop ?? organization.DefaultDesktop)?.Alias ?? "-default" },
+					{ "HomeDesktopAlias", (site?.HomeDesktop ?? organization.HomeDesktop ?? organization.DefaultDesktop)?.Alias ?? "-default" },
 					{ "FilesHttpURI", this.GetFilesHttpURI(organization) },
 					{ "PortalsHttpURI", this.GetPortalsHttpURI(organization) },
 					{ "CmsPortalsHttpURI", Utility.CmsPortalsHttpURI },
@@ -1208,7 +1208,7 @@ namespace net.vieapps.Services.Portals
 				if (!requestInfo.Query.TryGetValue("x-path", out var info) || string.IsNullOrWhiteSpace(info))
 					throw new InvalidRequestException();
 
-				var link = info.Replace(".html", "").ToArray("/");
+				var link = info.Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "").ToArray("/");
 				var contentType = link.Length > 1 ? await link[link.Length - 2].GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) : null;
 				if (contentType == null)
 					throw new InvalidRequestException();
@@ -5127,7 +5127,7 @@ namespace net.vieapps.Services.Portals
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
-					{ "Headers", new JObject { [ "Content-Type"] = $"application/{(asJson ? "json" : "atom+xml")}; charset=utf-8" } },
+					{ "Headers", new JObject { [ "Content-Type"] = $"application/{(asJson ? "json" : "atom+xml")}; charset=utf-8", ["X-Correlation-ID"] = requestInfo.CorrelationID } },
 					{ "Body", body.Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
 				};

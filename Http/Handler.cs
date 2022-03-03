@@ -40,7 +40,7 @@ namespace net.vieapps.Services.Portals
 
         static HashSet<string> Feeds { get; } = "feed,feed.xml,feed.json,atom,atom.xml,atom.json,rss,rss.xml,rss.json".ToHashSet();
 
-        static bool UseShortURLs => "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
+        static bool UseShortURLs { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
 
         static string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
 
@@ -728,8 +728,12 @@ namespace net.vieapps.Services.Portals
 
                             if (type.IsEquals("css"))
                                 contentType = "text/css";
+                            else if (type.IsEquals("xml"))
+                                contentType = "text/xml";
                             else if (type.IsEquals("js"))
                                 contentType = "application/javascript";
+                            else if (type.IsEquals("json"))
+                                contentType = "application/json";
                             else if (type.IsEquals("fonts"))
                                 contentType = $"font/{path.ToList(".").Last()}";
                             else if (type.IsEquals("images"))
@@ -1620,11 +1624,11 @@ namespace net.vieapps.Services.Portals
             var organizationID = systemIdentityJson.Get<string>("ID");
             var organizationAlias = systemIdentityJson.Get<string>("Alias");
 
-            var portalsHttpURI = systemIdentityJson.Get<string>("PortalsHttpURI");
+            var portalsHttpURI = systemIdentityJson.Get<string>("PortalsHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
             while (portalsHttpURI.EndsWith("/"))
                 portalsHttpURI = portalsHttpURI.Left(portalsHttpURI.Length - 1);
 
-            var filesHttpURI = systemIdentityJson.Get<string>("FilesHttpURI");
+            var filesHttpURI = systemIdentityJson.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
             while (filesHttpURI.EndsWith("/"))
                 filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1);
 
@@ -1647,7 +1651,7 @@ namespace net.vieapps.Services.Portals
             return @$"<!DOCTYPE html>
 					<html xmlns=""http://www.w3.org/1999/xhtml"">
 					<head>{(rootURL.Equals("/") ? "" : $"\r\n<base href=\"{portalsHttpURI}/~{organizationAlias}/\"/>")}
-					<title>{title} ({organizationAlias.ToUpper()})</title>
+					<title>{title.GetCapitalizedFirstLetter()} ({organizationAlias.ToUpper()})</title>
 					<meta name=""viewport"" content=""width=device-width, initial-scale=1""/>
 					<link rel=""stylesheet"" href=""{portalsHttpURI}/_assets/default.css?v={version}""/>
 					<link rel=""stylesheet"" href=""{portalsHttpURI}/_themes/default/css/all.css?v={version}""/>
