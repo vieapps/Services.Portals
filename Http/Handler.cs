@@ -58,6 +58,8 @@ namespace net.vieapps.Services.Portals
 
         internal static int ExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 0;
 
+        public static List<string> LegacyParameters { get; } = UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop,catName,contId,page").ToList();
+
         static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
             => Task.CompletedTask;
         #endregion
@@ -559,8 +561,8 @@ namespace net.vieapps.Services.Portals
                 else if (!systemIdentity.IsEquals("~indicators") && !systemIdentity.IsEquals("~resources") && !specialRequest.IsEquals("service"))
                     query["x-desktop"] = "-default";
 
-                // legacy
-                "desktop,catName,contId,page".ToList().ForEach(key => query.Remove(key));
+                // legacy parameters
+                Handler.LegacyParameters.ForEach(key => query.Remove(key));
             });
 
             // validate HTTP Verb
@@ -606,7 +608,7 @@ namespace net.vieapps.Services.Portals
             var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
             if (Global.IsDebugLogEnabled)
                 await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
-                    $"Process a request of CMS Portals{httpVerb} {requestURI}" + " \r\n" +
+                    $"Process a request of CMS Portals {httpVerb} {requestURI}" + " \r\n" +
                     $"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
                     $"- Request Info: {requestInfo.ToString(Formatting.Indented)}"
                 , null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
@@ -876,7 +878,6 @@ namespace net.vieapps.Services.Portals
                 catch (Exception ex)
                 {
                     var statusCode = ex.GetHttpStatusCode();
-                    var query = context.ParseQuery();
                     if (ex is WampException wampException)
                     {
                         var wampDetails = wampException.GetDetails(requestInfo);
