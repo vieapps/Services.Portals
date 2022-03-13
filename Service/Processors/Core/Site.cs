@@ -185,11 +185,11 @@ namespace net.vieapps.Services.Portals
 
 			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
-				site = Site.Find(domain.GetFilterBy(), null, 0, 1, null).GetSiteByDomain(domain)?.Set();
-				if (site == null)
+				site = Site.Find(domain.GetFilterBy(), null, 0, 1, null).GetSiteByDomain(domain);
+				if (site != null)
+					site = site.Prepare(domain)?.Set();
+				else if (Utility.DefaultSite == null)
 					Utility.NotRecognizedAliases.Add($"Site:{domain}");
-				else
-					site = site.Prepare(domain);
 			}
 
 			return site;
@@ -200,11 +200,11 @@ namespace net.vieapps.Services.Portals
 			var site = (domain ?? "").GetSiteByDomain(false);
 			if (site == null && !string.IsNullOrWhiteSpace(domain) && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
-				site = (await Site.FindAsync(domain.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain)?.Set();
-				if (site == null)
+				site = (await Site.FindAsync(domain.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain);
+				if (site != null)
+					site = site.Prepare(domain)?.Set();
+				else if (Utility.DefaultSite == null)
 					Utility.NotRecognizedAliases.Add($"Site:{domain}");
-				else
-					site = site.Prepare(domain);
 			}
 			return site;
 		}
