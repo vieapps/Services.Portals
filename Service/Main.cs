@@ -1094,9 +1094,11 @@ namespace net.vieapps.Services.Portals
 				if (site == null && !string.IsNullOrWhiteSpace(host) && !Utility.NotRecognizedAliases.Contains($"Site:{host}"))
 					site = Utility.DefaultSite;
 			}
+			else if (!string.IsNullOrWhiteSpace(site.Organization?.FakePortalsHttpURI) && new Uri(site.Organization.FakePortalsHttpURI).Host.Equals(host))
+				site = site.Prepare(host);
 
 			organization = organization ?? site?.Organization;
-			if (requestInfo.GetParameter("x-force-refresh") != null && organization != null)
+			if (organization != null && requestInfo.GetParameter("x-force-refresh") != null)
 				await organization.RefreshAsync(cancellationToken).ConfigureAwait(false);
 
 			return organization != null
@@ -1705,6 +1707,11 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 
+			// check with portals URI
+			site = site != null && !string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) && new Uri(organization.FakePortalsHttpURI).Host.IsEquals(host)
+				? site.Prepare(host)
+				: site;
+
 			// stop if no site is found
 			if (site == null)
 				throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(this.IsDebugLogEnabled ? $" because the organization ({ organization.Title }) has no site [{organization.Sites?.Count}]" : "")}");
@@ -1732,7 +1739,7 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(redirectURL))
 					throw new DesktopNotFoundException($"The requested desktop ({alias ?? "unknown"}) is not found");
 
-				redirectURL += organization.AlwaysUseHtmlSuffix && !redirectURL.IsEndsWith(".html") && !redirectURL.IsEndsWith(".aspx") ? ".html" : "";
+				redirectURL += organization.AlwaysUseHtmlSuffix && !redirectURL.IsEndsWith(".html") && !redirectURL.IsEndsWith(".aspx") && !redirectURL.IsEndsWith(".php") ? ".html" : "";
 				redirectCode = (int)HttpStatusCode.MovedPermanently;
 			}
 
@@ -2002,7 +2009,7 @@ namespace net.vieapps.Services.Portals
 				{
 					var desktopData = await this.GenerateDesktopAsync(desktop, organization, site, mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					title = desktopData.Item1;
-					metaTags = $"<link rel=\"preconnect\" href=\"{this.GetPortalsHttpURI(organization)}\"/>" + "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"/><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\"/><link rel=\"preconnect\" href=\"https://cdnjs.cloudflare.com\"/>" + desktopData.Item2;
+					metaTags = $"<link rel=\"preconnect\" href=\"{this.GetPortalsHttpURI(organization)}\"/>" + $"<link rel=\"preconnect\" href=\"{this.GetFilesHttpURI(organization)}\"/>" + "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"/><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\"/><link rel=\"preconnect\" href=\"https://cdnjs.cloudflare.com\"/>" + desktopData.Item2;
 					body = desktopData.Item3;
 					stylesheets = desktopData.Item4;
 					scripts = desktopData.Item5;

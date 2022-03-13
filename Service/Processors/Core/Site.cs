@@ -146,6 +146,26 @@ namespace net.vieapps.Services.Portals
 			return sites.FirstOrDefault(site => (site.SubDomain.Equals("*") ? primaryDomain.IsEquals(site.PrimaryDomain) : domain.IsEquals($"{site.SubDomain}.{site.PrimaryDomain}")) || site.OtherDomains.ToList(";").Any(host => primaryDomain.IsEquals(host)));
 		}
 
+		internal static Site Prepare(this Site site, string domain)
+		{
+			if (!string.IsNullOrWhiteSpace(site.Organization?.FakePortalsHttpURI) && new Uri(site.Organization.FakePortalsHttpURI).Host.Equals(domain))
+			{
+				Utility.NotRecognizedAliases.Add($"Site:{domain}");
+				site = null;
+			}
+			else
+			{
+				Utility.NotRecognizedAliases.Remove($"Site:{domain}");
+				new CommunicateMessage(Utility.ServiceName)
+				{
+					Type = $"{site.GetTypeName(true)}#Update",
+					Data = site.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
+			return site;
+		}
+
 		public static Site GetSiteByDomain(this string domain, bool fetchRepository = true)
 		{
 			if (string.IsNullOrWhiteSpace(domain) || Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
@@ -169,15 +189,7 @@ namespace net.vieapps.Services.Portals
 				if (site == null)
 					Utility.NotRecognizedAliases.Add($"Site:{domain}");
 				else
-				{
-					new CommunicateMessage(Utility.ServiceName)
-					{
-						Type = $"{site.GetTypeName(true)}#Update",
-						Data = site.ToJson(),
-						ExcludedNodeID = Utility.NodeID
-					}.Send();
-					Utility.NotRecognizedAliases.Remove($"Site:{domain}");
-				}
+					site = site.Prepare(domain);
 			}
 
 			return site;
@@ -188,19 +200,11 @@ namespace net.vieapps.Services.Portals
 			var site = (domain ?? "").GetSiteByDomain(false);
 			if (site == null && !string.IsNullOrWhiteSpace(domain) && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
-				site = (await Site.FindAsync(domain?.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain)?.Set();
+				site = (await Site.FindAsync(domain.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain)?.Set();
 				if (site == null)
 					Utility.NotRecognizedAliases.Add($"Site:{domain}");
 				else
-				{
-					new CommunicateMessage(Utility.ServiceName)
-					{
-						Type = $"{site.GetTypeName(true)}#Update",
-						Data = site.ToJson(),
-						ExcludedNodeID = Utility.NodeID
-					}.Send();
-					Utility.NotRecognizedAliases.Remove($"Site:{domain}");
-				}
+					site = site.Prepare(domain);
 			}
 			return site;
 		}
