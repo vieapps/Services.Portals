@@ -146,14 +146,14 @@ namespace net.vieapps.Services.Portals
 			return sites.FirstOrDefault(site => (site.SubDomain.Equals("*") ? primaryDomain.IsEquals(site.PrimaryDomain) : domain.IsEquals($"{site.SubDomain}.{site.PrimaryDomain}")) || site.OtherDomains.ToList(";").Any(host => primaryDomain.IsEquals(host)));
 		}
 
-		internal static Site Prepare(this Site site, string domain)
+		internal static Site Prepare(this Site site, string domain, bool update = true)
 		{
 			if (!string.IsNullOrWhiteSpace(site.Organization?.FakePortalsHttpURI) && new Uri(site.Organization.FakePortalsHttpURI).Host.Equals(domain))
 			{
 				Utility.NotRecognizedAliases.Add($"Site:{domain}");
 				site = null;
 			}
-			else
+			else if (update)
 			{
 				Utility.NotRecognizedAliases.Remove($"Site:{domain}");
 				new CommunicateMessage(Utility.ServiceName)
