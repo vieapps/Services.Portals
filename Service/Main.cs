@@ -97,6 +97,7 @@ namespace net.vieapps.Services.Portals
 			=> base.StartAsync(args, initializeRepository, _ =>
 			{
 				this.UpdateDefinition(this.GetDefinition());
+				this.Logger?.LogDebug($"Portals' data files directory: {Utility.DataFilesDirectory ?? "None"}");
 
 				Utility.APIsHttpURI = this.GetHttpURI("APIs", "https://apis.vieapps.net");
 				while (Utility.APIsHttpURI.EndsWith("/"))
@@ -121,11 +122,12 @@ namespace net.vieapps.Services.Portals
 				Utility.ValidationKey = this.ValidationKey;
 				Utility.NotificationsKey = UtilityService.GetAppSetting("Keys:Notifications");
 
-				Utility.DefaultSite = UtilityService.GetAppSetting("Portals:Default:SiteID", "").GetSiteByID();
 				Utility.NotRecognizedAliases.Add($"Site:{new Uri(Utility.PortalsHttpURI).Host}");
-
-				this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
-				this.Logger?.LogDebug($"Portals' data files directory: {Utility.DataFilesDirectory ?? "None"}");
+				Task.Run(async () =>
+				{
+					Utility.DefaultSite = await UtilityService.GetAppSetting("Portals:Default:SiteID", "").GetSiteByIDAsync().ConfigureAwait(false);
+					this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
+				}).ConfigureAwait(false);
 
 				this.StartTimer(() => this.SendDefinitionInfo(), 15 * 60);
 				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationToken).ConfigureAwait(false), 5 * 60);
@@ -608,11 +610,11 @@ namespace net.vieapps.Services.Portals
 						{ "description", name.IsEquals("default") ? "The theme with default styles and coloring codes" : "" },
 						{ "author", "System" }
 					};
-					var filename = Path.Combine(directory, "package.json");
-					if (File.Exists(filename))
+					var fileInfo = new FileInfo(Path.Combine(directory, "package.json"));
+					if (fileInfo.Exists)
 						try
 						{
-							packageInfo = JObject.Parse(await UtilityService.ReadTextFileAsync(filename, null, cancellationToken).ConfigureAwait(false));
+							packageInfo = JObject.Parse(await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false));
 						}
 						catch { }
 					themes.Add(packageInfo);
@@ -633,7 +635,7 @@ namespace net.vieapps.Services.Portals
 				}
 				try
 				{
-					languages.Merge(JObject.Parse(await UtilityService.FetchHttpAsync($"{Utility.APIsHttpURI}/statics/i18n/{module}/{language}.json", cancellationToken).ConfigureAwait(false)).ToExpandoObject());
+					languages.Merge(JObject.Parse(await new Uri($"{Utility.APIsHttpURI}/statics/i18n/{module}/{language}.json").FetchHttpAsync(cancellationToken).ConfigureAwait(false)).ToExpandoObject());
 				}
 				catch (Exception ex)
 				{
@@ -649,7 +651,7 @@ namespace net.vieapps.Services.Portals
 			var correlationID = UtilityService.NewUUID;
 			try
 			{
-				var providers = JArray.Parse(await UtilityService.FetchHttpAsync($"{Utility.APIsHttpURI}/statics/oembed.providers.json", cancellationToken).ConfigureAwait(false));
+				var providers = JArray.Parse(await new Uri($"{Utility.APIsHttpURI}/statics/oembed.providers.json").FetchHttpAsync(cancellationToken).ConfigureAwait(false));
 				Utility.OEmbedProviders.Clear();
 				providers.Select(provider => provider as JObject).ForEach(provider =>
 				{
@@ -1078,14 +1080,22 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JToken> IdentifySystemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
-			var site = requestInfo.Header.TryGetValue("x-host", out var host) && !string.IsNullOrWhiteSpace(host)
+			var organizationIdentity = requestInfo.GetParameter("x-system");
+			var host = requestInfo.GetParameter("x-host");
+
+			var organization = await (organizationIdentity ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
+			var site = !string.IsNullOrWhiteSpace(host)
 				? await host.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false)
 				: null;
 
-			site = site ?? organization?.DefaultSite ?? Utility.DefaultSite;
-			organization = organization ?? site?.Organization;
+			if (site == null)
+			{
+				site = organization?.DefaultSite;
+				if (site == null && !string.IsNullOrWhiteSpace(host) && !Utility.NotRecognizedAliases.Contains($"Site:{host}"))
+					site = Utility.DefaultSite;
+			}
 
+			organization = organization ?? site?.Organization;
 			if (requestInfo.GetParameter("x-force-refresh") != null && organization != null)
 				await organization.RefreshAsync(cancellationToken).ConfigureAwait(false);
 
@@ -1180,7 +1190,7 @@ namespace net.vieapps.Services.Portals
 				? new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
-					{ "Headers", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+					{ "Headers", new Dictionary<string, string>
 						{
 							{ "Content-Type", "text/plain; charset=utf-8" },
 							{ "X-Correlation-ID", requestInfo.CorrelationID }
@@ -1325,7 +1335,7 @@ namespace net.vieapps.Services.Portals
 					{ "StatusCode", (int)HttpStatusCode.NotModified },
 					{
 						"Headers",
-						new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+						new Dictionary<string, string>
 						{
 							{ "X-Cache", "SVC-304" },
 							{ "X-Correlation-ID", requestInfo.CorrelationID },
@@ -1375,7 +1385,7 @@ namespace net.vieapps.Services.Portals
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
-					{ "Headers", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+					{ "Headers", new Dictionary<string, string>
 						{
 							{ "X-Cache", "SVC-200" },
 							{ "X-Correlation-ID", requestInfo.CorrelationID },
@@ -1402,13 +1412,11 @@ namespace net.vieapps.Services.Portals
 				if (!fileInfo.Exists)
 					throw new InformationNotFoundException(filePath);
 
-				filesHttpURI = filesHttpURI ?? this.GetFilesHttpURI();
-				portalsHttpURI = portalsHttpURI ?? this.GetPortalsHttpURI();
 				var data = filePath.IsEndsWith(".css")
-					? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").MinifyCss().ToBytes()
+					? (await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false)).NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI()).MinifyCss().ToBytes()
 					: filePath.IsEndsWith(".js")
-						? (await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false)).Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").MinifyJs().ToBytes()
-						: await UtilityService.ReadBinaryFileAsync(fileInfo, cancellationToken).ConfigureAwait(false);
+						? (await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false)).NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI()).MinifyJs().ToBytes()
+						: await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 
 				// response
 				lastModified = fileInfo.LastWriteTime.ToHttpString();
@@ -1484,9 +1492,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// response
-				filesHttpURI = filesHttpURI ?? this.GetFilesHttpURI();
-				portalsHttpURI = portalsHttpURI ?? this.GetPortalsHttpURI();
-				resources = resources.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/");
+				resources = resources.NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI());
 				var headers = new Dictionary<string, string>
 				{
 					{ "Content-Type", "text/css; charset=utf-8" },
@@ -1569,9 +1575,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// response
-				filesHttpURI = filesHttpURI ?? this.GetFilesHttpURI();
-				portalsHttpURI = portalsHttpURI ?? this.GetPortalsHttpURI();
-				resources = resources.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/");
+				resources = resources.NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI());
 				var headers = new Dictionary<string, string>
 				{
 					{ "Content-Type", "application/javascript; charset=utf-8" },
@@ -1617,7 +1621,7 @@ namespace net.vieapps.Services.Portals
 			if (directory.Exists)
 				await directory.GetFiles($"*.{type}").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo =>
 				{
-					var resource = await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false);
+					var resource = await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false);
 					resources += (isJavascript ? ";" : "") + (this.IsDebugLogEnabled ? $"\r\n/* {fileInfo.FullName} */\r\n" : "")
 						+ (isJavascript ? this.DontMinifyJsThemes.Contains(theme) ? resource : resource.MinifyJs() : this.DontMinifyCssThemes.Contains(theme) ? resource : resource.MinifyCss()) + "\r\n";
 				}, true, false).ConfigureAwait(false);
@@ -1685,7 +1689,20 @@ namespace net.vieapps.Services.Portals
 					site = (await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault() ?? Utility.DefaultSite;
 				}
 				else
-					site = organization.DefaultSite ?? Utility.DefaultSite;
+				{
+					site = organization.DefaultSite;
+					if (site == null && !Utility.NotRecognizedAliases.Contains($"Site:{host}"))
+					{
+						if (string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI))
+							site = Utility.DefaultSite;
+						else
+						{
+							Utility.NotRecognizedAliases.Add($"Site:{new Uri(organization.FakePortalsHttpURI).Host}");
+							if (!Utility.NotRecognizedAliases.Contains($"Site:{host}"))
+								site = Utility.DefaultSite;
+						}
+					}
+				}
 			}
 
 			// stop if no site is found
@@ -1939,7 +1956,7 @@ namespace net.vieapps.Services.Portals
 					{
 						var portletTitle = requestJson.Get<string>("Title");
 						var portletID = requestJson.Get<string>("ID");
-						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portletTitle}_{portletID}".GetANSIUri()}{fileSuffixName}_request.json"), requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
+						await (requestJson?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL").ToBytes().SaveAsTextAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portletTitle}_{portletID}".GetANSIUri()}{fileSuffixName}_request.json"), cancellationToken).ConfigureAwait(false);
 					}
 					return data;
 				}
@@ -1952,7 +1969,7 @@ namespace net.vieapps.Services.Portals
 					if (data != null)
 						portletData[portlet.ID] = data;
 					if (writeDesktopLogs)
-						await UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSuffixName}_response.json"), data?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL", false, null, cancellationToken).ConfigureAwait(false);
+						await (data?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL").ToBytes().SaveAsTextAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSuffixName}_response.json"), cancellationToken).ConfigureAwait(false);
 				}, true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
 				stepwatch.Stop();
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete prepare portlets' data of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
@@ -2690,8 +2707,8 @@ namespace net.vieapps.Services.Portals
 								await Task.WhenAll
 								(
 									this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request"),
-									UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xml"), xml.ToString(), false, null, cancellationToken),
-									UtilityService.WriteTextFileAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xsl"), xslTemplate, false, null, cancellationToken)
+									xml.ToString().ToBytes().SaveAsTextAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xml"), cancellationToken),
+									xslTemplate.ToBytes().SaveAsTextAsync(Path.Combine(Utility.TempFilesDirectory, $"{filename}.xsl"), cancellationToken)
 								).ConfigureAwait(false);
 							}
 						}
@@ -2992,7 +3009,7 @@ namespace net.vieapps.Services.Portals
 			// the required stylesheet libraries
 			var version = DateTime.Now.GetTimeQuarter().ToUnixTimestamp();
 			var stylesheets = site.UseInlineStylesheets
-				? (await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css"), null, cancellationToken).ConfigureAwait(false)).MinifyCss() + await this.GetThemeResourcesAsync("default", "css", cancellationToken).ConfigureAwait(false)
+				? (await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false)).MinifyCss() + await this.GetThemeResourcesAsync("default", "css", cancellationToken).ConfigureAwait(false)
 				: $"<link rel=\"stylesheet\" href=\"~#/_assets/default.css?v={version}\"/><link rel=\"stylesheet\" href=\"~#/_themes/default/css/all.css?v={version}\"/>";
 
 			// add the stylesheet of the organization theme
@@ -3046,14 +3063,14 @@ namespace net.vieapps.Services.Portals
 			// add default scripts
 			var scripts = "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js") + "\"></script>"
 				+ "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js") + "\"></script>"
-				+ (site.UseInlineScripts ? "<script>" + (await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js"), null, cancellationToken).ConfigureAwait(false) + "\r\n" + await UtilityService.ReadTextFileAsync(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js"), null, cancellationToken).ConfigureAwait(false)).MinifyJs() : $"<script src=\"~#/_assets/rsa.js?v={version}\"></script><script src=\"~#/_assets/default.js?v={version}\"></script>");
+				+ (site.UseInlineScripts ? "<script>" + (await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false) + "\r\n" + await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false)).MinifyJs() : $"<script src=\"~#/_assets/rsa.js?v={version}\"></script><script src=\"~#/_assets/default.js?v={version}\"></script>");
 
 			// add scripts of the default theme
 			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", "default", "js"));
 			if (directory.Exists && this.AllowSrcResourceFiles)
 			{
 				scripts += site.UseInlineScripts ? "</script>" : "";
-				await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo => scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n", true, false).ConfigureAwait(false);
+				await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo => scripts += await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false) + "\r\n", true, false).ConfigureAwait(false);
 				scripts += site.UseInlineScripts ? "<script>" : "";
 			}
 
@@ -3068,7 +3085,7 @@ namespace net.vieapps.Services.Portals
 				if (directory.Exists && this.AllowSrcResourceFiles)
 				{
 					scripts += site.UseInlineScripts ? "</script>" : "";
-					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo => scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n", true, false).ConfigureAwait(false);
+					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo => scripts += await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false) + "\r\n", true, false).ConfigureAwait(false);
 					scripts += site.UseInlineScripts ? "<script>" : "";
 				}
 				scripts += site.UseInlineScripts
@@ -3083,7 +3100,7 @@ namespace net.vieapps.Services.Portals
 				if (directory.Exists && this.AllowSrcResourceFiles)
 				{
 					scripts += site.UseInlineScripts ? "</script>" : "";
-					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo => scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n", true, false).ConfigureAwait(false);
+					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo => scripts += await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false) + "\r\n", true, false).ConfigureAwait(false);
 					scripts += site.UseInlineScripts ? "<script>" : "";
 				}
 				scripts += site.UseInlineScripts
@@ -3098,7 +3115,7 @@ namespace net.vieapps.Services.Portals
 				if (directory.Exists && this.AllowSrcResourceFiles)
 				{
 					scripts += site.UseInlineScripts ? "</script>" : "";
-					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo => scripts += await UtilityService.ReadTextFileAsync(fileInfo, null, cancellationToken).ConfigureAwait(false) + "\r\n", true, false).ConfigureAwait(false);
+					await directory.GetFiles("*.src").OrderBy(fileInfo => fileInfo.Name).ForEachAsync(async fileInfo => scripts += await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false) + "\r\n", true, false).ConfigureAwait(false);
 					scripts += site.UseInlineScripts ? "<script>" : "";
 				}
 				scripts += site.UseInlineScripts
@@ -3931,9 +3948,7 @@ namespace net.vieapps.Services.Portals
 					if (dataSet != null)
 					{
 						using (var stream = dataSet.SaveAsExcel())
-						{
-							await UtilityService.WriteBinaryFileAsync(Path.Combine(this.GetPath("Temp", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "temp")), filename), stream, false, this.CancellationToken).ConfigureAwait(false);
-						}
+							await stream.SaveAsBinaryAsync(Path.Combine(this.GetPath("Temp", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "temp")), filename), this.CancellationToken).ConfigureAwait(false);
 						onCompleted?.Invoke(dataSet);
 					}
 

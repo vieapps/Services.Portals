@@ -191,9 +191,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="filename"></param>
 		/// <returns></returns>
 		public static string GetMimeType(this string filename)
-			=> Utility.MimeTypeProvider.TryGetContentType(filename, out var mimeType)
-				? mimeType
-				: "application/octet-stream";
+			=> Utility.MimeTypeProvider.TryGetContentType(filename, out var mimeType) && !string.IsNullOrWhiteSpace(mimeType) ? mimeType : "application/octet-stream; charset=utf-8";
 
 		/// <summary>
 		/// Gets the MIME type of a file
@@ -673,6 +671,16 @@ namespace net.vieapps.Services.Portals
 
 			return html;
 		}
+
+		/// <summary>
+		/// Normalizes all URLs for displaying
+		/// </summary>
+		/// <param name="string"></param>
+		/// <param name="portalsHttpURI"></param>
+		/// <param name="filesHttpURI"></param>
+		/// <returns></returns>
+		public static string NormalizeURLs(this string @string, string portalsHttpURI, string filesHttpURI)
+			=> @string.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/");
 
 		/// <summary>
 		/// Gets the identities of users (for working with notifications)

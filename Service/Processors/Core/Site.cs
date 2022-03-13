@@ -146,10 +146,10 @@ namespace net.vieapps.Services.Portals
 			return sites.FirstOrDefault(site => (site.SubDomain.Equals("*") ? primaryDomain.IsEquals(site.PrimaryDomain) : domain.IsEquals($"{site.SubDomain}.{site.PrimaryDomain}")) || site.OtherDomains.ToList(";").Any(host => primaryDomain.IsEquals(host)));
 		}
 
-		public static Site GetSiteByDomain(this string domain, string defaultSiteIDWhenNotFound = null, bool fetchRepository = true)
+		public static Site GetSiteByDomain(this string domain, bool fetchRepository = true)
 		{
 			if (string.IsNullOrWhiteSpace(domain) || Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
-				return (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
+				return null;
 
 			if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{domain}", out var site) || site == null)
 			{
@@ -169,38 +169,41 @@ namespace net.vieapps.Services.Portals
 				if (site == null)
 					Utility.NotRecognizedAliases.Add($"Site:{domain}");
 				else
+				{
 					new CommunicateMessage(Utility.ServiceName)
 					{
 						Type = $"{site.GetTypeName(true)}#Update",
 						Data = site.ToJson(),
 						ExcludedNodeID = Utility.NodeID
 					}.Send();
+					Utility.NotRecognizedAliases.Remove($"Site:{domain}");
+				}
 			}
 
-			return site ?? (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
+			return site;
 		}
 
-		public static async Task<Site> GetSiteByDomainAsync(this string domain, string defaultSiteIDWhenNotFound = null, CancellationToken cancellationToken = default)
+		public static async Task<Site> GetSiteByDomainAsync(this string domain, CancellationToken cancellationToken = default)
 		{
-			var site = (domain ?? "").GetSiteByDomain(defaultSiteIDWhenNotFound, false);
-			if (site == null && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
+			var site = (domain ?? "").GetSiteByDomain(false);
+			if (site == null && !string.IsNullOrWhiteSpace(domain) && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
 				site = (await Site.FindAsync(domain?.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain)?.Set();
 				if (site == null)
 					Utility.NotRecognizedAliases.Add($"Site:{domain}");
 				else
+				{
 					new CommunicateMessage(Utility.ServiceName)
 					{
 						Type = $"{site.GetTypeName(true)}#Update",
 						Data = site.ToJson(),
 						ExcludedNodeID = Utility.NodeID
 					}.Send();
+					Utility.NotRecognizedAliases.Remove($"Site:{domain}");
+				}
 			}
-			return site ?? (defaultSiteIDWhenNotFound ?? "").GetSiteByID(false, false);
+			return site;
 		}
-
-		public static Task<Site> GetSiteByDomainAsync(this string domain, CancellationToken cancellationToken)
-			=> (domain ?? "").GetSiteByDomainAsync(null, cancellationToken);
 
 		public static List<Site> FindSites(this string systemID, bool updateCache = true)
 		{
@@ -237,10 +240,10 @@ namespace net.vieapps.Services.Portals
 		}
 
 		internal static async Task<List<Site>> ReloadSitesAsync(this string systemID, CancellationToken cancellationToken = default)
-        {
+		{
 			var sites = string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? null : await systemID.FindSitesAsync(cancellationToken).ConfigureAwait(false);
 			if (sites == null)
-            {
+			{
 				var sort = Sorts<Site>.Ascending("Title");
 				sites = await Site.FindAsync(null, sort, 0, 1, null, cancellationToken).ConfigureAwait(false) ?? new List<Site>();
 				await sites.ForEachAsync(async site => await site.SetAsync(false, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);

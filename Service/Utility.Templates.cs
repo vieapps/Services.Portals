@@ -38,7 +38,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(subDirectory))
 				filePath = Path.Combine(filePath, subDirectory.Trim().ToLower());
 			filePath = Path.Combine(filePath, filename.Trim().ToLower());
-			return File.Exists(filePath) ? await UtilityService.ReadTextFileAsync(filePath, null, cancellationToken).ConfigureAwait(false) : null;
+			return File.Exists(filePath) ? await new FileInfo(filePath).ReadAsTextAsync(cancellationToken).ConfigureAwait(false) : null;
 		}
 
 		/// <summary>
@@ -159,14 +159,12 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(xslt))
 				try
 				{
-					using (var stream = UtilityService.CreateMemoryStream(xslt.ToBytes()))
+					using (var stream = xslt.ToBytes().ToMemoryStream())
+					using (var reader = XmlReader.Create(stream))
 					{
-						using (var reader = XmlReader.Create(stream))
-						{
-							var xslTransform = new XslCompiledTransform(Utility.Logger.IsEnabled(LogLevel.Debug));
-							xslTransform.Load(reader, enableDocumentFunctionAndInlineScript ? new XsltSettings(true, true) : null, stylesheetResolver ?? new XmlUrlResolver());
-							return xslTransform;
-						}
+						var xslTransform = new XslCompiledTransform(Utility.Logger.IsEnabled(LogLevel.Debug));
+						xslTransform.Load(reader, enableDocumentFunctionAndInlineScript ? new XsltSettings(true, true) : null, stylesheetResolver ?? new XmlUrlResolver());
+						return xslTransform;
 					}
 				}
 				catch (Exception ex)

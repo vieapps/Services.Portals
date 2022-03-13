@@ -160,7 +160,7 @@ namespace net.vieapps.Services.Portals
 		public static string GetDesktopCacheKey(this Organization organization, string desktopAlias, Uri requestURI)
 		{
 			var path = requestURI.AbsolutePath.ToLower();
-			while (path.EndsWith("/"))
+			while (path.EndsWith("/") || path.EndsWith("."))
 				path = path.Left(path.Length - 1).Trim();
 			path = path.IsStartsWith($"/~{organization.Alias}") ? path.Right(path.Length - organization.Alias.Length - 2) : path;
 			path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
@@ -266,7 +266,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (delay > 0)
 					await Task.Delay(delay * 1000).ConfigureAwait(false);
-				await UtilityService.FetchHttpAsync(url, $"{UtilityService.DesktopUserAgent} VIEAppsNGXRefresher", Utility.RefresherRefererURL, Utility.CancellationToken).ConfigureAwait(false);
+				await new Uri(url).FetchHttpAsync(new Dictionary<string, string> { ["Referer"] = Utility.RefresherRefererURL, ["User-Agent"] = $"{UtilityService.DesktopUserAgent} NGX-Refresher/{typeof(DesktopProcessor).Assembly.GetVersion(false)}" }, 13, Utility.CancellationToken).ConfigureAwait(false);
 				if (Utility.WriteCacheLogs)
 					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"{message ?? "Refresh an url successful"} => {url}", Utility.CancellationToken, "Caches").ConfigureAwait(false);
 			}

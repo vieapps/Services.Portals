@@ -27,7 +27,7 @@ namespace net.vieapps.Services.Portals.Crawlers
 
 		public async Task<List<Category>> FetchCategoriesAsync(CancellationToken cancellationToken = default)
 		{
-			var json = JObject.Parse(await new Uri($"{this.CrawlerInfo.URL}/feeds/posts/summary?max-results=1&alt=json").FetchHttpAsync(UtilityService.DesktopUserAgent, this.CrawlerInfo.URL, cancellationToken).ConfigureAwait(false));
+			var json = JObject.Parse(await this.CrawlerInfo.FetchAsync($"{this.CrawlerInfo.URL}/feeds/posts/summary?max-results=1&alt=json", cancellationToken).ConfigureAwait(false));
 			if (string.IsNullOrWhiteSpace(this.CrawlerInfo.WebURL))
 				this.GetInfo(json);
 			return json.Get<JObject>("feed").Get<JArray>("category").Select(category => category as JObject).Select(category =>
@@ -43,7 +43,7 @@ namespace net.vieapps.Services.Portals.Crawlers
 			{
 				url = url ?? this.CrawlerInfo.WebURL;
 				var contents = new List<Content>();
-				var json = JObject.Parse(await new Uri(url).FetchHttpAsync(UtilityService.DesktopUserAgent, this.CrawlerInfo.URL, cancellationToken).ConfigureAwait(false));
+				var json = JObject.Parse(await this.CrawlerInfo.FetchAsync(url, cancellationToken).ConfigureAwait(false));
 				var feed = json.Get<JObject>("feed");
 				await feed.Get<JArray>("entry").Select(data => data as JObject).ForEachAsync(async data =>
 				{
@@ -66,7 +66,7 @@ namespace net.vieapps.Services.Portals.Crawlers
 
 		public async Task<Content> FetchContentAsync(string url, Func<Content, CancellationToken, Task> normalizeAsync = null, CancellationToken cancellationToken = default)
 		{
-			var data = JObject.Parse(await new Uri(url).FetchHttpAsync(UtilityService.DesktopUserAgent, this.CrawlerInfo.URL, cancellationToken).ConfigureAwait(false));
+			var data = JObject.Parse(await this.CrawlerInfo.FetchAsync(url, cancellationToken).ConfigureAwait(false));
 			return await this.GetContentAsync(data.Get<JObject>("entry"), normalizeAsync, cancellationToken).ConfigureAwait(false);
 		}
 

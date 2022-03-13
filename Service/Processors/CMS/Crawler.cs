@@ -270,6 +270,9 @@ namespace net.vieapps.Services.Portals
 			return normalizingAdapter;
 		}
 
+		internal static Task<string> FetchAsync(this Crawlers.ICrawlerInfo crawler, string uri, CancellationToken cancellationToken = default)
+			=> new Uri(uri).FetchHttpAsync(new Dictionary<string, string> { ["Referer"] = crawler.URL, ["User-Agent"] = UtilityService.DesktopUserAgent }, 90, cancellationToken);
+
 		internal static async Task<JArray> FetchCrawlerCategoriesAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var crawler = requestInfo.CreateCrawler();

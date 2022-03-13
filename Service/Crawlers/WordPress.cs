@@ -25,7 +25,7 @@ namespace net.vieapps.Services.Portals.Crawlers
 
 		public async Task<List<Category>> FetchCategoriesAsync(CancellationToken cancellationToken = default)
 		{
-			var json = JArray.Parse(await new Uri($"{this.CrawlerInfo.URL}/wp-json/wp/v2/categories").FetchHttpAsync(UtilityService.DesktopUserAgent, this.CrawlerInfo.URL, cancellationToken).ConfigureAwait(false));
+			var json = JArray.Parse(await this.CrawlerInfo.FetchAsync($"{this.CrawlerInfo.URL}/wp-json/wp/v2/categories", cancellationToken).ConfigureAwait(false));
 			return json.Select(category => category as JObject).Select(category =>
 			{
 				var id = category.Get<long>("id").As<string>();
@@ -40,7 +40,7 @@ namespace net.vieapps.Services.Portals.Crawlers
 			try
 			{
 				url = url ?? $"{this.CrawlerInfo.URL}/wp-json/wp/v2/posts?per_page={Content.PageSize}";
-				var json = JArray.Parse(await new Uri(url).FetchHttpAsync(UtilityService.DesktopUserAgent, this.CrawlerInfo.URL, cancellationToken).ConfigureAwait(false));
+				var json = JArray.Parse(await this.CrawlerInfo.FetchAsync(url, cancellationToken).ConfigureAwait(false));
 				var contents = new List<Content>();
 				await json.Select(data => data as JObject).ForEachAsync(async data =>
 				{
@@ -56,7 +56,7 @@ namespace net.vieapps.Services.Portals.Crawlers
 
 		public async Task<Content> FetchContentAsync(string url, Func<Content, CancellationToken, Task> normalizeAsync = null, CancellationToken cancellationToken = default)
 		{
-			var data = JObject.Parse(await new Uri(url).FetchHttpAsync(UtilityService.DesktopUserAgent, this.CrawlerInfo.URL, cancellationToken).ConfigureAwait(false));
+			var data = JObject.Parse(await this.CrawlerInfo.FetchAsync(url, cancellationToken).ConfigureAwait(false));
 			return await this.GetContentAsync(data, normalizeAsync, cancellationToken).ConfigureAwait(false);
 		}
 
@@ -74,7 +74,7 @@ namespace net.vieapps.Services.Portals.Crawlers
 
 			if (data["featured_media"] != null)
 			{
-				var media = JObject.Parse(await new Uri($"{this.CrawlerInfo.URL}/wp-json/wp/v2/media/{data.Get<long>("featured_media")}").FetchHttpAsync(UtilityService.DesktopUserAgent, this.CrawlerInfo.URL, cancellationToken).ConfigureAwait(false));
+				var media = JObject.Parse(await this.CrawlerInfo.FetchAsync($"{this.CrawlerInfo.URL}/wp-json/wp/v2/media/{data.Get<long>("featured_media")}", cancellationToken).ConfigureAwait(false));
 				content.ThumbnailURL = media?.Get<JObject>("guid")?.Get<string>("rendered");
 			}
 			else
@@ -90,14 +90,14 @@ namespace net.vieapps.Services.Portals.Crawlers
 				content.Tags = "";
 				await tags.ForEachAsync(async id =>
 				{
-					var tag = JObject.Parse(await new Uri($"{this.CrawlerInfo.URL}/wp-json/wp/v2/tags/{id}").FetchHttpAsync(UtilityService.DesktopUserAgent, this.CrawlerInfo.URL, cancellationToken).ConfigureAwait(false));
+					var tag = JObject.Parse(await this.CrawlerInfo.FetchAsync($"{this.CrawlerInfo.URL}/wp-json/wp/v2/tags/{id}", cancellationToken).ConfigureAwait(false));
 					content.Tags += (content.Tags != "" ? "," : "") + tag.Get<string>("name");
 				}).ConfigureAwait(false);
 			}
 
 			if (this.CrawlerInfo.SetAuthor)
 			{
-				var author = JObject.Parse(await new Uri($"{this.CrawlerInfo.URL}/wp-json/wp/v2/users/{data.Get<long>("author")}").FetchHttpAsync(UtilityService.DesktopUserAgent, this.CrawlerInfo.URL, cancellationToken).ConfigureAwait(false));
+				var author = JObject.Parse(await this.CrawlerInfo.FetchAsync($"{this.CrawlerInfo.URL}/wp-json/wp/v2/users/{data.Get<long>("author")}", cancellationToken).ConfigureAwait(false));
 				content.Author = author?.Get<string>("name");
 			}
 
