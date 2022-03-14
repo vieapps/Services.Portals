@@ -644,7 +644,7 @@ namespace net.vieapps.Services.Portals
 								requestSegments.Insert(1, systemIdentityJson?.Get<string>("ID"));
 						}
 
-						if (legacyHandler.IsEquals("files") && requestSegments.Count > 3 && requestSegments[3].Contains("-") && requestSegments[3].Length > 32)
+						if (legacyHandler.IsEquals("files") && requestSegments.Count > 3 && requestSegments[3].Contains('-') && requestSegments[3].Length > 32)
 						{
 							var id = requestSegments[3].Left(32);
 							var filename = requestSegments[3].Right(requestSegments[3].Length - 33);
@@ -653,7 +653,7 @@ namespace net.vieapps.Services.Portals
 							requestSegments = requestSegments.Take(5).ToList();
 						}
 
-						else if (legacyHandler.IsStartsWith("thumbnail") && requestSegments.Count > 5 && requestSegments[5].Contains("-") && requestSegments[5].Length > 32)
+						else if (legacyHandler.IsStartsWith("thumbnail") && requestSegments.Count > 5 && requestSegments[5].Contains('-') && requestSegments[5].Length > 32)
 						{
 							var id = requestSegments[5].Left(32);
 							var filename = requestSegments[5].Right(requestSegments[5].Length - 33);
