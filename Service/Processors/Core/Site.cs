@@ -148,7 +148,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static Site Prepare(this Site site, string domain, bool update = true)
 		{
-			if (!string.IsNullOrWhiteSpace(site.Organization?.FakePortalsHttpURI) && new Uri(site.Organization.FakePortalsHttpURI).Host.Equals(domain))
+			if (!string.IsNullOrWhiteSpace(site.Organization?.FakePortalsHttpURI) && new Uri(site.Organization.FakePortalsHttpURI).Host.IsEquals(domain))
 			{
 				Utility.NotRecognizedAliases.Add($"Site:{domain}");
 				site = null;
@@ -195,10 +195,10 @@ namespace net.vieapps.Services.Portals
 			return site;
 		}
 
-		public static async Task<Site> GetSiteByDomainAsync(this string domain, CancellationToken cancellationToken = default)
+		public static async Task<Site> GetSiteByDomainAsync(this string domain, CancellationToken cancellationToken = default, bool fetchRepository = true)
 		{
 			var site = (domain ?? "").GetSiteByDomain(false);
-			if (site == null && !string.IsNullOrWhiteSpace(domain) && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
+			if (site == null && fetchRepository && !string.IsNullOrWhiteSpace(domain) && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
 			{
 				site = (await Site.FindAsync(domain.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain);
 				if (site != null)

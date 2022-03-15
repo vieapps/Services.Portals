@@ -1080,13 +1080,11 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JToken> IdentifySystemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			var organizationIdentity = requestInfo.GetParameter("x-system");
+			var identity = requestInfo.GetParameter("x-system");
 			var host = requestInfo.GetParameter("x-host");
 
-			var organization = await (organizationIdentity ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
-			var site = !string.IsNullOrWhiteSpace(host)
-				? await host.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false)
-				: null;
+			var organization = await (identity ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
+			var site = await (host ?? "").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
 
 			if (site == null)
 			{
@@ -1656,11 +1654,11 @@ namespace net.vieapps.Services.Portals
 		async Task<JToken> ProcessHttpDesktopRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare required information
-			var organizationIdentity = requestInfo.GetParameter("x-system");
-			if (string.IsNullOrWhiteSpace(organizationIdentity))
+			var identity = requestInfo.GetParameter("x-system");
+			if (string.IsNullOrWhiteSpace(identity))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 			var stopwatch = Stopwatch.StartNew();
-			var organization = await (organizationIdentity.IsValidUUID() ? organizationIdentity.GetOrganizationByIDAsync(cancellationToken) : organizationIdentity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false);
+			var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cancellationToken) : identity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false);
 			if (organization == null || string.IsNullOrWhiteSpace(organization.ID))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
@@ -1686,7 +1684,7 @@ namespace net.vieapps.Services.Portals
 
 			if (site == null)
 			{
-				if (!string.IsNullOrWhiteSpace(Utility.CmsPortalsHttpURI) && host.Equals(new Uri(Utility.CmsPortalsHttpURI).Host) && (organization._siteIDs == null || !organization._siteIDs.Any()))
+				if (!string.IsNullOrWhiteSpace(Utility.CmsPortalsHttpURI) && new Uri(Utility.CmsPortalsHttpURI).Host.IsEquals(host) && (organization._siteIDs == null || !organization._siteIDs.Any()))
 				{
 					organization._siteIDs = null;
 					site = (await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false)).FirstOrDefault() ?? Utility.DefaultSite;
@@ -5006,10 +5004,10 @@ namespace net.vieapps.Services.Portals
 			{
 				// prepare required information
 				var stopwatch = Stopwatch.StartNew();
-				var organizationIdentity = requestInfo.GetParameter("x-system");
-				if (string.IsNullOrWhiteSpace(organizationIdentity))
+				var identity = requestInfo.GetParameter("x-system");
+				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-				var organization = await (organizationIdentity.IsValidUUID() ? organizationIdentity.GetOrganizationByIDAsync(cancellationToken) : organizationIdentity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false);
+				var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cancellationToken) : identity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false);
 				if (organization == null)
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
@@ -5030,14 +5028,11 @@ namespace net.vieapps.Services.Portals
 					{
 						var categoryContentTypes = organization.Modules.Select(module => module.ContentTypes.Where(cntType => cntType.ContentTypeDefinitionID == "B0000000000000000000000000000001")).SelectMany(cntType => cntType).ToList();
 						var contentType = categoryContentTypes.FirstOrDefault(cntType => cntType.RepositoryID == contentTypes[index].RepositoryID);
-						if (contentType != null)
+						category = string.IsNullOrWhiteSpace(contentType?.ID) ? null : await contentType.ID.GetCategoryByAliasAsync(categoryAlias, cancellationToken).ConfigureAwait(false);
+						if (category != null)
 						{
-							category = await contentType.ID.GetCategoryByAliasAsync(categoryAlias, cancellationToken).ConfigureAwait(false);
-							if (category != null)
-							{
-								contentTypes = new List<ContentType> { contentTypes[index] };
-								break;
-							}
+							contentTypes = new List<ContentType> { contentTypes[index] };
+							break;
 						}
 					}
 
@@ -5125,10 +5120,7 @@ namespace net.vieapps.Services.Portals
 					)));
 				}, true, false).ConfigureAwait(false);
 
-				var body = asJson
-					? feed.ToJson().Get<JObject>("feed").ToString()
-					: null;
-
+				var body = asJson ? feed.ToJson().Get<JObject>("feed").ToString() : null;
 				if (body == null)
 				{
 					body = $"{new XDeclaration("1.0", "utf-8", "yes")}\r\n{feed.CleanInvalidCharacters()}";
