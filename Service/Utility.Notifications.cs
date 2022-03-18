@@ -102,6 +102,7 @@ namespace net.vieapps.Services.Portals
 				return;
 
 			// prepare parameters
+			var writeDebugLogs = requestInfo.IsWriteMessageLogs();
 			var sender = (await requestInfo.GetUserProfilesAsync(new[] { requestInfo.Session.User.ID }, cancellationToken).ConfigureAwait(false) as JArray)?.FirstOrDefault();
 			var businessObject = @object is IBusinessObject ? @object as IBusinessObject : null;
 			var serviceName = ServiceBase.ServiceComponent.ServiceName;
@@ -196,13 +197,13 @@ namespace net.vieapps.Services.Portals
 					Type = $"Portals#Notification#{@event}",
 					Data = new JObject
 					{
+						{ "Action", @event },
 						{ "Sender", new JObject
 							{
 								{ "ID", requestInfo.Session.User.ID },
 								{ "Name", sender?.Get<string>("Name") ?? "Unknown" }
 							}
 						},
-						{ "Action", @event },
 						{ "Info", new JObject
 							{
 								{ "ServiceName", serviceName },
@@ -221,7 +222,7 @@ namespace net.vieapps.Services.Portals
 					.Where(sessions => sessions != null)
 					.SelectMany(sessions => sessions.Select(session => session.Get<string>("DeviceID")))
 					.ForEach(deviceID => new UpdateMessage(baseMessage) { DeviceID = deviceID }.Send());
-				if (Utility.Logger.IsEnabled(LogLevel.Debug))
+				if (writeDebugLogs)
 					await requestInfo.WriteLogAsync($"Send app notifications successful\r\n{baseMessage.ToJson()}", cancellationToken, "Notifications").ConfigureAwait(false);
 			}
 			catch (Exception exception)
@@ -348,7 +349,7 @@ namespace net.vieapps.Services.Portals
 						await requestInfo.WriteErrorAsync(exception, cancellationToken, "Error occurred while fetching instructions").ConfigureAwait(false);
 					}
 
-				// send email message
+				// send a normal email message (when the status was changed)
 				if (sendEmailNotifications)
 					try
 					{
@@ -393,7 +394,7 @@ namespace net.vieapps.Services.Portals
 							$"- Sender: {sender?.Get<string>("Name")} ({sender?.Get<string>("Email")})" + "\r\n" +
 							$"- To: {message.To}" + (!string.IsNullOrWhiteSpace(message.Cc) ? $" / {message.Cc}" : "") + (!string.IsNullOrWhiteSpace(message.Bcc) ? $" / {message.Bcc}" : "") + "\r\n" +
 							$"- Subject: {message.Subject}";
-						if (Utility.Logger.IsEnabled(LogLevel.Debug))
+						if (writeDebugLogs)
 							log += $"\r\n- Message: {message.ToJson()}";
 						await requestInfo.WriteLogAsync(log, cancellationToken, "Notifications").ConfigureAwait(false);
 					}
@@ -402,7 +403,7 @@ namespace net.vieapps.Services.Portals
 						await requestInfo.WriteErrorAsync(exception, cancellationToken, "Error occurred while adding an email notification into queue").ConfigureAwait(false);
 					}
 
-				// send special email message (when publish)
+				// send a special email message (when publish)
 				if (!@event.IsEquals("Delete") && businessObject != null && status.Equals(ApprovalStatus.Published) && !status.Equals(previousStatus) && emailsWhenPublish != null)
 					try
 					{
@@ -447,7 +448,7 @@ namespace net.vieapps.Services.Portals
 							$"- Sender: {sender?.Get<string>("Name")} ({sender?.Get<string>("Email")})" + "\r\n" +
 							$"- To: {message.To}" + (!string.IsNullOrWhiteSpace(message.Cc) ? $" / {message.Cc}" : "") + (!string.IsNullOrWhiteSpace(message.Bcc) ? $" / {message.Bcc}" : "") + "\r\n" +
 							$"- Subject: {message.Subject}";
-						if (Utility.Logger.IsEnabled(LogLevel.Debug))
+						if (writeDebugLogs)
 							log += $"\r\n- Message: {message.ToJson()}";
 						await requestInfo.WriteLogAsync(log, cancellationToken, "Notifications").ConfigureAwait(false);
 					}
@@ -515,7 +516,7 @@ namespace net.vieapps.Services.Portals
 							$"- Object: {@object.Title} [{@object.GetType()}#{@object.ID}]" + "\r\n" +
 							$"- Event: {@event}" + "\r\n" +
 							$"- Status: {status} (previous: {previousStatus})" + "\r\n" +
-							$"- Endpoint URL: {message.EndpointURL}" + (Utility.Logger.IsEnabled(LogLevel.Debug) ? $"\r\n- Message: {message.ToJson()}" : "");
+							$"- Endpoint URL: {message.EndpointURL}" + (writeDebugLogs ? $"\r\n- Message: {message.ToJson()}" : "");
 						await requestInfo.WriteLogAsync(log, cancellationToken, "Notifications").ConfigureAwait(false);
 					}).ConfigureAwait(false);
 				}

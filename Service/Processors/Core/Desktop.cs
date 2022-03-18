@@ -652,13 +652,12 @@ namespace net.vieapps.Services.Portals
 
 			// message to update to all other connected clients
 			var response = desktop.ToJson(true, false);
-			if (desktop.ParentDesktop == null)
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*"
-				});
+			updateMessages.Add(new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = response,
+				DeviceID = "*"
+			});
 
 			// message to update to all service instances (on all other nodes)
 			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)

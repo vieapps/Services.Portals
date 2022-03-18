@@ -825,6 +825,7 @@ namespace net.vieapps.Services.Portals
 							if (!string.IsNullOrWhiteSpace(cached))
 							{
 								lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
+								var expiresAt = contentType.IsEquals("text/html") ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
 								context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 								{
 									{ "X-Cache", "HTTP-200" },
@@ -832,7 +833,7 @@ namespace net.vieapps.Services.Portals
 									{ "Content-Type", $"{contentType}; charset=utf-8" },
 									{ "ETag", eTag },
 									{ "Last-Modified", lastModified },
-									{ "Expires", expires.ToHttpString() },
+									{ "Expires", (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString() },
 									{ "Cache-Control", "public" }
 								});
 

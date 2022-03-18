@@ -199,13 +199,13 @@ namespace net.vieapps.Services.Portals
 					this.NotifyPropertyChanged("Childrens");
 				return desktops;
 			}
-			return this._childrenIDs.Select(id => id.GetDesktopByID()).ToList();
+			return this._childrenIDs.Select(id => id.GetDesktopByID()).Where(desktop => desktop != null).ToList();
 		}
 
 		internal async Task<List<Desktop>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
 				? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindDesktopsAsync(this.ID, cancellationToken).ConfigureAwait(false))
-				: this._childrenIDs.Select(id => id.GetDesktopByID()).ToList();
+				: this._childrenIDs.Select(id => id.GetDesktopByID()).Where(desktop => desktop != null).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Desktop> Children => this.FindChildren();

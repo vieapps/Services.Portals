@@ -1124,8 +1124,6 @@ namespace net.vieapps.Services.Portals
 					: this.ProcessHttpDesktopRequestAsync(requestInfo, cancellationToken);
 
 		#region Process resource requests of Portals HTTP service
-		bool WriteDesktopLogs => this.Logger.IsEnabled(LogLevel.Trace) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
-
 		HashSet<string> DontCacheThemes => UtilityService.GetAppSetting("Portals:Desktops:Resources:DontCacheThemes", "").Trim().ToLower().ToHashSet();
 
 		HashSet<string> DontMinifyJsThemes => (UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyJsThemes") ?? UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyThemes", "")).Trim().ToLower().ToHashSet();
@@ -1710,7 +1708,7 @@ namespace net.vieapps.Services.Portals
 				throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(this.IsDebugLogEnabled ? $" because the organization ({ organization.Title }) has no site [{organization.Sites?.Count}]" : "")}");
 
 			// get desktop and prepare the redirecting url
-			var writeDesktopLogs = this.WriteDesktopLogs || requestInfo.GetParameter("x-logs") != null;
+			var writeDesktopLogs = requestInfo.IsWriteDesktopLogs();
 			var useShortURLs = "true".IsEquals(requestInfo.GetParameter("x-use-short-urls"));
 			var requestURI = new Uri(requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri"));
 			var requestURL = requestURI.AbsoluteUri;
@@ -1838,9 +1836,10 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(html) && Utility.RefresherRefererURL.IsEquals(requestInfo.GetHeaderParameter("Referer")))
 			{
 				// got specified expiration time => clear to refresh
-				if (await Utility.Cache.ExistsAsync(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false))
+				var expiresAt = await Utility.Cache.GetAsync<string>(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false);
+				if (!string.IsNullOrWhiteSpace(expiresAt))
 				{
-					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified }.Concat(new[] { DateTime.TryParse(expiresAt, out var expirationTime) ? "" : cacheKeyOfExpiration }).Where(key => !string.IsNullOrWhiteSpace(key)), cancellationToken).ConfigureAwait(false);
 					html = null;
 				}
 
@@ -1866,12 +1865,14 @@ namespace net.vieapps.Services.Portals
 					lastModified = DateTime.Now.ToHttpString();
 					await Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, cancellationToken).ConfigureAwait(false);
 				}
+				var expiresAt = await Utility.Cache.GetAsync<string>(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false);
+				expiresAt = !string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) ? expirationTime.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString();
 				headers = new Dictionary<string, string>(headers)
 				{
 					{ "X-Cache", "SVC-200" },
 					{ "ETag", eTag },
 					{ "Last-Modified", lastModified },
-					{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
+					{ "Expires", expiresAt },
 					{ "Cache-Control", "public" }
 				};
 				response = new JObject
@@ -1979,7 +1980,7 @@ namespace net.vieapps.Services.Portals
 				if (writeDesktopLogs)
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate HTML of {desktopInfo}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
-				var portletHtmls = new ConcurrentDictionary<string, Tuple<string, bool, int>>(StringComparer.OrdinalIgnoreCase);
+				var portletHtmls = new ConcurrentDictionary<string, Tuple<string, bool, string>>(StringComparer.OrdinalIgnoreCase);
 				var generatePortletsTask = desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 				{
 					try
@@ -1990,7 +1991,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception ex)
 					{
-						portletHtmls[portlet.ID] = new Tuple<string, bool, int>(this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, portlet.ID), true, 0);
+						portletHtmls[portlet.ID] = new Tuple<string, bool, string>(this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, portlet.ID), true, null);
 					}
 				}, true, Utility.RunProcessorInParallelsMode);
 
@@ -2063,7 +2064,7 @@ namespace net.vieapps.Services.Portals
 						}
 						catch { }
 
-						portletHtmls[portletID] = new Tuple<string, bool, int>(portletHtml, portletGotError, portletCacheExpiration);
+						portletHtmls[portletID] = new Tuple<string, bool, string>(portletHtml, portletGotError, portletCacheExpiration);
 						portletScripts += portletScript;
 						portletStylesheets += portletStylesheet;
 					});
@@ -2146,28 +2147,46 @@ namespace net.vieapps.Services.Portals
 
 				if (processCache && !portletHtmls.Values.Any(data => data.Item2))
 				{
+					var expirationTime = 0;
+					DateTime? expiresAt = null;
+					portletHtmls.Values.Where(data => data.Item3 != null).ForEach(data =>
+					{
+						if (Int32.TryParse(data.Item3, out var minutes) && minutes > 0)
+						{
+							if (expirationTime < minutes)
+								expirationTime = minutes;
+						}
+						else if (DateTime.TryParse(data.Item3, out var time))
+							expiresAt = expiresAt == null || expiresAt < time
+								? time
+								: expiresAt;
+					});
 					lastModified = DateTime.Now.ToHttpString();
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
 						{ "ETag", eTag },
 						{ "Last-Modified", lastModified },
-						{ "Expires", DateTime.Now.AddMinutes(13).ToHttpString() },
+						{ "Expires", expiresAt != null ? expiresAt.Value.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString() },
 						{ "X-Cache", "None" },
 						{ "Cache-Control", "public" }
 					};
-					var cacheExpiration = 0;
-					portletHtmls.Values.Where(data => data.Item3 > 0).ForEach(data =>
-					{
-						if (cacheExpiration < data.Item3)
-							cacheExpiration = data.Item3;
-					});
-					await Task.WhenAll
-					(
-						Utility.Cache.SetAsync(cacheKey, this.NormalizeDesktopHtml(html, organization, site, desktop), cacheExpiration, cancellationToken),
-						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, cacheExpiration, cancellationToken),
-						cacheExpiration > 0 ? Utility.Cache.SetAsync(cacheKeyOfExpiration, cacheExpiration, cacheExpiration, cancellationToken) : Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken),
-						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken)
-					).ConfigureAwait(false);
+					await Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken).ConfigureAwait(false);
+					if (expiresAt != null)
+						await Task.WhenAll
+						(
+							Utility.Cache.SetAsync(cacheKey, this.NormalizeDesktopHtml(html, organization, site, desktop), expiresAt.Value, cancellationToken),
+							Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, expiresAt.Value, cancellationToken),
+							Utility.Cache.SetAsync(cacheKeyOfExpiration, expiresAt.Value.ToDTString(), expiresAt.Value, cancellationToken)
+						).ConfigureAwait(false);
+					else
+						await Task.WhenAll
+						(
+							Utility.Cache.SetAsync(cacheKey, this.NormalizeDesktopHtml(html, organization, site, desktop), expirationTime, cancellationToken),
+							Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, expirationTime, cancellationToken),
+							expirationTime > 0
+								? Utility.Cache.SetAsync(cacheKeyOfExpiration, DateTime.Now.AddMinutes(expirationTime).ToDTString(), expirationTime, cancellationToken)
+								: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken)
+						).ConfigureAwait(false);
 				}
 
 				// normalize
@@ -2344,7 +2363,7 @@ namespace net.vieapps.Services.Portals
 			return responseJson;
 		}
 
-		async Task<Tuple<string, bool, int>> GeneratePortletAsync(RequestInfo requestInfo, Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix, string language, CancellationToken cancellationToken, bool writeLogs, string fileSuffixName)
+		async Task<Tuple<string, bool, string>> GeneratePortletAsync(RequestInfo requestInfo, Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix, string language, CancellationToken cancellationToken, bool writeLogs, string fileSuffixName)
 		{
 			// get original first
 			var stopwatch = Stopwatch.StartNew();
@@ -2444,6 +2463,7 @@ namespace net.vieapps.Services.Portals
 			var objectType = "";
 			var gotError = false;
 			var cacheExpiration = data != null && Int32.TryParse(data["CacheExpiration"]?.ToString(), out var expiration) && expiration > 0 ? expiration : 0;
+			var cacheExpirationTime = data != null && DateTime.TryParse(data["CacheExpiration"]?.ToString(), out var expirationTime) ? expirationTime as DateTime? : null;
 			var contentType = data != null ? await (portlet.RepositoryEntityID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) : null;
 
 			if (contentType != null)
@@ -2783,7 +2803,7 @@ namespace net.vieapps.Services.Portals
 			if (writeLogs)
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {portletInfo} has been generated - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
-			return new Tuple<string, bool, int>(html, gotError, cacheExpiration);
+			return new Tuple<string, bool, string>(html, gotError, cacheExpiration > 0 ? cacheExpiration.ToString() : cacheExpirationTime != null ? cacheExpirationTime.Value.ToDTString() : null);
 		}
 
 		async Task<Tuple<string, string, string, string, string>> GenerateDesktopAsync(Desktop desktop, Organization organization, Site site, JObject mainPortlet, string parentIdentity, string contentIdentity, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
@@ -4426,7 +4446,7 @@ namespace net.vieapps.Services.Portals
 				await message.ProcessInterCommunicateMessageOfCrawlerAsync(cancellationToken).ConfigureAwait(false);
 
 			stopwatch.Stop();
-			if (Utility.WriteMessageLogs)
+			if (Utility.IsWriteMessageLogs(null))
 				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", cancellationToken, "Updates").ConfigureAwait(false);
 		}
 		#endregion

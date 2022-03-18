@@ -35,7 +35,11 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string, string>, List<string>, string>> Logs { get; } = new ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string, string>, List<string>, string>>();
 
-		internal static bool WriteMessageLogs => Utility.Logger.IsEnabled(LogLevel.Debug) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false"));
+		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo)
+			=> Utility.Logger.IsEnabled(LogLevel.Debug) || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
+
+		internal static bool IsWriteMessageLogs(this RequestInfo requestInfo)
+			=> Utility.Logger.IsEnabled(LogLevel.Debug) || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false"));
 
 		internal static bool Preload => "true".IsEquals(UtilityService.GetAppSetting("Portals:Preload", "true"));
 

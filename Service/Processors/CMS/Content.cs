@@ -84,7 +84,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// data cache keys
 			var dataCacheKeys = clearDataCache && content != null
-				? Extensions.GetRelatedCacheKeys(content.GetCacheKey())
+				? Extensions.GetRelatedCacheKeys(content.GetCacheKey()).Concat(new[] { $"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>() }).ToList()
 				: new List<string>();
 			if (clearDataCache && content?.ContentType != null)
 			{
@@ -117,7 +117,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.WriteCacheLogs && content !=null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				Utility.WriteCacheLogs && content != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
 				doRefresh && content != null
 					? Task.WhenAll
 					(
@@ -709,6 +709,7 @@ namespace net.vieapps.Services.Portals
 			JArray breadcrumbs = null, metaTags = null;
 			JObject pagination = null, seoInfo = null, filterBy = null, sortBy = null;
 			string coverURI = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null, ids = null;
+			DateTime? expiresAt = null;
 
 			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", true)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
 			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
@@ -831,31 +832,35 @@ namespace net.vieapps.Services.Portals
 					var dataXml = XElement.Parse("<Data/>");
 					objects.ForEach(@object =>
 					{
-						// check
-						if (exception != null)
-							return;
-
-						// generate
-						try
-						{
-							dataXml.Add(@object.ToXml(false, cultureInfo, element =>
+						if (exception == null && @object.Status.Equals(ApprovalStatus.Published))
+							try
 							{
-								element.Element("Details")?.Remove();
-								element.Element("StartDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
-								element.Element("EndDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
-								element.Element("PublishedTime")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
-								if (!string.IsNullOrWhiteSpace(@object.Summary))
-									element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
-								element.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
-								element.Add(new XElement("URL", @object.GetURL(desktop)));
-								var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-								element.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
-							}));
-						}
-						catch (Exception ex)
-						{
-							exception = requestInfo.GetRuntimeException(ex, null, async (msg, exc) => await requestInfo.WriteErrorAsync(exc, cancellationToken, $"Error occurred while generating a content => {msg} : {@object.ToJson()}", "Errors").ConfigureAwait(false));
-						}
+								if (@object.EndDate != null && DateTime.TryParse($"{@object.EndDate} 23:59:59", out var expires))
+								{
+									if (expires < DateTime.Now)
+										return;
+									expiresAt = expiresAt == null || expiresAt < expires
+										? expires
+										: expiresAt;
+								}
+								dataXml.Add(@object.ToXml(false, cultureInfo, element =>
+								{
+									element.Element("Details")?.Remove();
+									element.Element("StartDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
+									element.Element("EndDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
+									element.Element("PublishedTime")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
+									if (!string.IsNullOrWhiteSpace(@object.Summary))
+										element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
+									element.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
+									element.Add(new XElement("URL", @object.GetURL(desktop)));
+									var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+									element.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+								}));
+							}
+							catch (Exception ex)
+							{
+								exception = requestInfo.GetRuntimeException(ex, null, async (msg, exc) => await requestInfo.WriteErrorAsync(exc, cancellationToken, $"Error occurred while generating a content => {msg} : {@object.ToJson()}", "Errors").ConfigureAwait(false));
+							}
 					});
 
 					// check error
@@ -891,9 +896,17 @@ namespace net.vieapps.Services.Portals
 					// update cache
 					await Task.WhenAll
 					(
-						Utility.Cache.SetAsync(cacheKeyOfObjectsXml, data, cancellationToken),
-						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item5.Concat(new[] { cacheKeyOfObjectsXml }), cancellationToken) : Task.CompletedTask,
-						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item5.Count + 1}): {results.Item5.Concat(new[] { cacheKeyOfObjectsXml }).Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask
+						expiresAt != null
+							? expiresAt.Value < DateTime.Now
+								? Utility.Cache.RemoveAsync(results.Item5.Concat(new[] { cacheKeyOfObjectsXml }), cancellationToken)
+								: Utility.Cache.SetAsync(cacheKeyOfObjectsXml, data, expiresAt.Value, cancellationToken)
+							: Utility.Cache.SetAsync(cacheKeyOfObjectsXml, data, cancellationToken),
+						contentType != null
+							? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item5.Concat(new[] { cacheKeyOfObjectsXml }), cancellationToken)
+							: Task.CompletedTask,
+						Utility.WriteCacheLogs
+							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item5.Count + 1}): {results.Item5.Concat(new[] { cacheKeyOfObjectsXml }).Join(", ")}", cancellationToken, "Caches")
+							: Task.CompletedTask
 					).ConfigureAwait(false);
 
 					// preload
@@ -971,11 +984,22 @@ namespace net.vieapps.Services.Portals
 				if (!gotRights)
 					throw new AccessDeniedException();
 
-				// validate the published time
+				// check end date
+				if (@object.Status.Equals(ApprovalStatus.Published) && @object.EndDate != null && DateTime.TryParse($"{@object.EndDate} 23:59:59", out var expires))
+					expiresAt = expires;
+				if (expiresAt != null && expiresAt.Value < DateTime.Now)
+				{
+					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID);
+					if (!gotRights)
+						throw new AccessDeniedException();
+				}
+
+				// check published time
 				var validatePublishedTime = options.Get("ValidatePublished", options.Get("ValidatePublishedTime", options.Get("ValidateWithPublishedTime", false)));
 				if (validatePublishedTime && @object.Status.Equals(ApprovalStatus.Published) && @object.PublishedTime != null && @object.PublishedTime.Value > DateTime.Now)
 				{
-					if (!isSystemAdministrator && !requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) && !requestInfo.Session.User.ID.IsEquals(@object.CreatedID) && !requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID))
+					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID);
+					if (!gotRights)
 						throw new AccessDeniedException();
 				}
 
@@ -1132,10 +1156,20 @@ namespace net.vieapps.Services.Portals
 					// update cache
 					await Task.WhenAll
 					(
-						Utility.Cache.SetAsync(cacheKey, data, cancellationToken),
-						@object.ContentType != null ? Utility.Cache.AddSetMemberAsync(@object.ContentType.ObjectCacheKeys, @object.GetCacheKey(), cancellationToken) : Task.CompletedTask,
-						@object.ContentType != null ? Utility.Cache.AddSetMembersAsync(@object.ContentType.GetSetCacheKey(), new[] { cacheKey }, cancellationToken) : Task.CompletedTask,
-						Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate details of CMS.Content [{@object.ContentType?.Title} - ID: {@object.ContentType?.ID} - Set: {@object.ContentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", cancellationToken, "Caches") : Task.CompletedTask
+						expiresAt != null
+							? expiresAt.Value < DateTime.Now
+								? Task.CompletedTask
+								: Utility.Cache.SetAsync(cacheKey, data, expiresAt.Value, cancellationToken)
+							: Utility.Cache.SetAsync(cacheKey, data, cancellationToken),
+						@object.ContentType != null
+							? Utility.Cache.AddSetMemberAsync(@object.ContentType.ObjectCacheKeys, @object.GetCacheKey(), cancellationToken)
+							: Task.CompletedTask,
+						@object.ContentType != null
+							? Utility.Cache.AddSetMembersAsync(@object.ContentType.GetSetCacheKey(), new[] { cacheKey }, cancellationToken)
+							: Task.CompletedTask,
+						Utility.WriteCacheLogs
+							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate details of CMS.Content [{@object.ContentType?.Title} - ID: {@object.ContentType?.ID} - Set: {@object.ContentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", cancellationToken, "Caches")
+							: Task.CompletedTask
 					).ConfigureAwait(false);
 
 					// preload
@@ -1177,7 +1211,7 @@ namespace net.vieapps.Services.Portals
 				{ "SEOInfo", seoInfo },
 				{ "CoverURI", coverURI },
 				{ "MetaTags", metaTags },
-				{ "CacheExpiration", randomPage ? Utility.Logger.IsEnabled(LogLevel.Debug) ? 3 : 13 : 0 },
+				{ "CacheExpiration", expiresAt != null ? expiresAt.Value.ToDTString() : (randomPage ? Utility.Logger.IsEnabled(LogLevel.Debug) ? 3 : 13 : 0).ToString() },
 				{ "IDs", ids + $",service:\"{moduleDefinitionJson.Get<string>("ServiceName").ToLower()}\",object:\"{contentTypeDefinitionJson.Get<string>("ObjectNamePrefix")?.ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectName").ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectNameSuffix")?.ToLower()}\"" }
 			};
 		}
