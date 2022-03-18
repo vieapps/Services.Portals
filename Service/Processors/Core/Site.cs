@@ -489,8 +489,7 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{site.GetTypeName(true)}#Update",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
+				DeviceID = "*"
 			}.Send();
 
 			// response
