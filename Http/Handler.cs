@@ -50,11 +50,11 @@ namespace net.vieapps.Services.Portals
 
 		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop").ToList();
 
-		internal static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
+		internal static Cache Cache { get; } = new Cache(UtilityService.GetAppSetting("Portals:Cache:Name", "VIEApps-Services-Portals"), Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
 
-		static bool ProcessCaches { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:ProcessCaches", "true"));
+		static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
-		internal static string RefresherRefererURL { get; } = UtilityService.GetAppSetting("Portals:RefresherRefererURL", "https://portals.vieapps.net/~url.refresher");
+		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://portals.vieapps.net/~url.refresher");
 
 		internal static int ExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 0;
 
@@ -676,7 +676,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// working with cache (of portal desktops/resources)
-					if (Handler.ProcessCaches && !Handler.RefresherRefererURL.IsEquals(context.GetReferUrl()) && requestInfo.GetParameter("x-no-cache") == null && requestInfo.GetParameter("x-force-cache") == null)
+					if (Handler.AllowCache && !Handler.RefresherURL.IsEquals(context.GetReferUrl()) && requestInfo.GetParameter("x-no-cache") == null && requestInfo.GetParameter("x-force-cache") == null)
 					{
 						var cacheKey = "";
 						var eTag = "";

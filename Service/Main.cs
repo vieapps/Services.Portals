@@ -1833,7 +1833,7 @@ namespace net.vieapps.Services.Portals
 				: null;
 
 			// normalize the cache of HTML when got request from the refresher
-			if (!string.IsNullOrWhiteSpace(html) && Utility.RefresherRefererURL.IsEquals(requestInfo.GetHeaderParameter("Referer")))
+			if (!string.IsNullOrWhiteSpace(html) && Utility.RefresherURL.IsEquals(requestInfo.GetHeaderParameter("Referer")))
 			{
 				// got specified expiration time => clear to refresh
 				var expiresAt = await Utility.Cache.GetAsync<string>(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false);

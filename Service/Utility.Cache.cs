@@ -23,6 +23,11 @@ namespace net.vieapps.Services.Portals
 		internal static bool WriteCacheLogs { get; } = Utility.IsDebugEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
 
 		/// <summary>
+		/// Gets the refer URL of the refresher
+		/// </summary>
+		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://portals.vieapps.net/~url.refresher");
+
+		/// <summary>
 		/// Gets the key for storing a set of keys that belong to an organization
 		/// </summary>
 		/// <param name="organization"></param>
@@ -248,11 +253,6 @@ namespace net.vieapps.Services.Portals
 			=> Utility.Cache.SetAsync($"{Extensions.GetCacheKey(filter, sort)}:size", pageSize, cancellationToken);
 
 		/// <summary>
-		/// Gets the refer URL of the refresher
-		/// </summary>
-		internal static string RefresherRefererURL { get; } = UtilityService.GetAppSetting("Portals:RefresherRefererURL", "https://portals.vieapps.net/~url.refresher");
-
-		/// <summary>
 		/// Refreshs a web page
 		/// </summary>
 		/// <param name="url"></param>
@@ -266,7 +266,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (delay > 0)
 					await Task.Delay(delay * 1000).ConfigureAwait(false);
-				await new Uri(url).FetchHttpAsync(new Dictionary<string, string> { ["Referer"] = Utility.RefresherRefererURL, ["User-Agent"] = $"{UtilityService.DesktopUserAgent} NGX-Refresher/{typeof(DesktopProcessor).Assembly.GetVersion(false)}" }, 13, Utility.CancellationToken).ConfigureAwait(false);
+				await new Uri(url).FetchHttpAsync(new Dictionary<string, string> { ["Referer"] = Utility.RefresherURL, ["User-Agent"] = $"{UtilityService.DesktopUserAgent} NGX-Refresher/{typeof(DesktopProcessor).Assembly.GetVersion(false)}" }, 13, Utility.CancellationToken).ConfigureAwait(false);
 				if (Utility.WriteCacheLogs)
 					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"{message ?? "Refresh an url successful"} => {url}", Utility.CancellationToken, "Caches").ConfigureAwait(false);
 			}
