@@ -212,6 +212,8 @@ namespace net.vieapps.Services.Portals
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
 			var showURLs = requestInfo.GetParameter("ShowURLs") != null;
+			var siteURL = showURLs ? organization.DefaultSite?.GetURL(requestInfo.GetHeaderParameter("x-srp-host"), requestInfo.GetParameter("x-url")) + "/" : null;
+
 			var response = new JObject()
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
@@ -219,13 +221,16 @@ namespace net.vieapps.Services.Portals
 				{ "Pagination", pagination.GetPagination() },
 				{
 					"Objects",
-					objects.Select(@object => @object.ToJson(false, cjson =>
+					objects.Select(@object => @object.ToJson(false, json =>
 					{
-						cjson["Thumbnails"] = (thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
+						json["Thumbnails"] = (thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
 						if (showAttachments)
-							cjson["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
+							json["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
 						if (showURLs)
-							cjson["URL"] = @object.GetURL();
+						{
+							json["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL);
+							json["Summary"] = @object.Summary?.NormalizeHTMLBreaks();
+						}
 					})).ToJArray()
 				}
 			};
@@ -612,7 +617,7 @@ namespace net.vieapps.Services.Portals
 							dataXml.Add(@object.ToXml(false, cultureInfo, element =>
 							{
 								if (!string.IsNullOrWhiteSpace(@object.Summary))
-									element.Element("Summary").Value = @object.Summary.Replace("\r", "").Replace("\n", "<br/>");
+									element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
 								element.Add(new XElement("URL", @object.GetURL(desktop, false, parentIdentity)));
 								var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
 								element.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));

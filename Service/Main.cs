@@ -1110,6 +1110,7 @@ namespace net.vieapps.Services.Portals
 					{ "CmsPortalsHttpURI", Utility.CmsPortalsHttpURI },
 					{ "AlwaysUseHtmlSuffix", organization.AlwaysUseHtmlSuffix },
 					{ "AlwaysUseHTTPs", site != null && site.AlwaysUseHTTPs },
+					{ "AlwaysReturnHTTPs", site != null && site.AlwaysReturnHTTPs },
 					{ "RedirectToNoneWWW", site != null && site.RedirectToNoneWWW },
 					{ "Language", requestInfo.GetParameter("Language") ?? site?.Language ?? "en-US" }
 				}
@@ -5036,6 +5037,24 @@ namespace net.vieapps.Services.Portals
 				var site = await (host ?? "").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false) ?? organization.DefaultSite ?? Utility.DefaultSite;
 				if (site == null)
 					throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(this.IsDebugLogEnabled ? $" because the organization ({ organization.Title }) has no site [{organization.Sites?.Count}]" : "")}");
+
+				// do redirect
+				if (site.AlwaysUseHTTPs || site.RedirectToNoneWWW)
+				{
+					var requestURI = new Uri(requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri"));
+					var redirectHost = requestInfo.GetHeaderParameter("x-srp-host") ?? requestURI.Host;
+					var redirectURL = (site.AlwaysUseHTTPs ? "https" : requestURI.Scheme) + "://" + (site.RedirectToNoneWWW ? redirectHost.Replace("www.", "") : redirectHost) + $"{requestURI.PathAndQuery}{requestURI.Fragment}";
+					if (!string.IsNullOrWhiteSpace(redirectURL) && !redirectURL.Equals(requestURI.AbsoluteUri))
+						return new JObject
+						{
+							{ "StatusCode", site.AlwaysUseHTTPs && !requestURI.Scheme.IsEquals("https") ? (int)HttpStatusCode.Redirect : (int)HttpStatusCode.MovedPermanently },
+							{ "Headers", new JObject
+								{
+									{ "Location", redirectURL.NormalizeURLs(requestURI, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")) }
+								}
+							}
+						};
+				}
 
 				if (this.IsDebugResultsEnabled)
 					await this.WriteLogsAsync(requestInfo, $"Start to generate feed: {requestInfo.GetURI()}").ConfigureAwait(false);

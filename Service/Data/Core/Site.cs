@@ -20,9 +20,9 @@ namespace net.vieapps.Services.Portals
 	{
 		public Site() : base() { }
 
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
-		[Sortable(IndexName = "Title")]
 		[Searchable]
+		[Sortable(IndexName = "Title")]
+		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public override string Title { get; set; }
 
@@ -35,26 +35,30 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
-		[Property(MaxLength = 100, NotNull = true, NotEmpty = true)]
-		[Sortable(UniqueIndexName = "Domains")]
 		[Searchable]
+		[Sortable(UniqueIndexName = "Domains")]
+		[Property(MaxLength = 100, NotNull = true, NotEmpty = true)]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string PrimaryDomain { get; set; } = "company.com";
 
-		[Property(MaxLength = 50, NotNull = true, NotEmpty = true)]
 		[Sortable(UniqueIndexName = "Domains")]
+		[Property(MaxLength = 50, NotNull = true, NotEmpty = true)]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string SubDomain { get; set; } = "*";
 
-		[Property(MaxLength = 1000)]
-		[Sortable(IndexName = "OtherDomains")]
 		[Searchable]
+		[Sortable(IndexName = "OtherDomains")]
+		[Property(MaxLength = 1000)]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string OtherDomains { get; set; }
 
 		[Ignore, BsonIgnore]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public bool AlwaysUseHTTPs { get; set; } = false;
+
+		[Ignore, BsonIgnore]
+		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
+		public bool AlwaysReturnHTTPs { get; set; } = false;
 
 		[Property(MaxLength = 5)]
 		[FormControl(Segment = "display", ControlType = "Select", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
@@ -187,7 +191,7 @@ namespace net.vieapps.Services.Portals
 		public string Host => $"{this.SubDomain}.{this.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www.");
 
 		public string GetURL(string host = null, string requestedURL = null)
-			=> $"http{(this.AlwaysUseHTTPs || (requestedURL ?? "").IsStartsWith("https://") ? "s" : "")}://{host ?? this.Host}";
+			=> $"http{(this.AlwaysUseHTTPs || this.AlwaysReturnHTTPs || (requestedURL ?? "").IsStartsWith("https://") ? "s" : "")}://{host ?? this.Host}";
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
@@ -220,6 +224,7 @@ namespace net.vieapps.Services.Portals
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this.AlwaysUseHTTPs = this._json["AlwaysUseHTTPs"] != null && this._json["AlwaysUseHTTPs"].As<bool>();
+				this.AlwaysReturnHTTPs = this._json["AlwaysReturnHTTPs"] != null && this._json["AlwaysReturnHTTPs"].As<bool>();
 				this.UISettings = this._json["UISettings"]?.As<Settings.UI>();
 				this.IconURI = this._json["IconURI"]?.As<string>();
 				this.CoverURI = this._json["CoverURI"]?.As<string>();
