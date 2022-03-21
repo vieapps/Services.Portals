@@ -329,7 +329,11 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/item-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(item.WorkingPrivileges, item.ContentType.WorkingPrivileges, item.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(item.Organization.OwnerID);
+			if (!gotRights)
+				gotRights = item.Status.Equals(ApprovalStatus.Published)
+					? requestInfo.Session.User.IsViewer(item.WorkingPrivileges, item.ContentType.WorkingPrivileges, item.Organization, requestInfo.CorrelationID)
+					: requestInfo.Session.User.ID.IsEquals(item.CreatedID) || requestInfo.Session.User.IsEditor(item.WorkingPrivileges, item.ContentType.WorkingPrivileges, item.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
