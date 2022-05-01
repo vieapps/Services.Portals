@@ -35,6 +35,10 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string, string>, List<string>, string>> Logs { get; } = new ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string, string>, List<string>, string>>();
 
+		internal static bool IsDebugLogEnabled => Utility.Logger != null && Utility.Logger.IsEnabled(LogLevel.Debug);
+
+		internal static bool IsCacheLogEnabled => Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
+
 		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo)
 			=> Utility.Logger.IsEnabled(LogLevel.Debug) || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
 
@@ -655,7 +659,7 @@ namespace net.vieapps.Services.Portals
 				return html.NormalizeURLs(rootURL, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
 
 			var domains = new List<string>();
-			organization.Sites.ForEach(site =>
+			(organization.Sites ?? new List<Site>()).ForEach(site =>
 			{
 				domains.Add($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www."));
 				domains.Add($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", ""));
@@ -702,37 +706,37 @@ namespace net.vieapps.Services.Portals
 			switch (privilegeRole)
 			{
 				case PrivilegeRole.Administrator:
-					roles = privileges.AdministrativeRoles != null && privileges.AdministrativeRoles.Count > 0
+					roles = privileges.AdministrativeRoles != null && privileges.AdministrativeRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.AdministrativeRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
 						: new List<Role>();
 					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.AdministrativeUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				case PrivilegeRole.Moderator:
-					roles = privileges.ModerateRoles != null && privileges.ModerateRoles.Count > 0
+					roles = privileges.ModerateRoles != null && privileges.ModerateRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.ModerateRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
 						: new List<Role>();
 					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.ModerateUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				case PrivilegeRole.Editor:
-					roles = privileges.EditableRoles != null && privileges.EditableRoles.Count > 0
+					roles = privileges.EditableRoles != null && privileges.EditableRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.EditableRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
 						: new List<Role>();
 					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.EditableUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				case PrivilegeRole.Contributor:
-					roles = privileges.ContributiveRoles != null && privileges.ContributiveRoles.Count > 0
+					roles = privileges.ContributiveRoles != null && privileges.ContributiveRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.ContributiveRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
 						: new List<Role>();
 					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.ContributiveUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				case PrivilegeRole.Viewer:
-					roles = privileges.ViewableRoles != null && privileges.ViewableRoles.Count > 0
+					roles = privileges.ViewableRoles != null && privileges.ViewableRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.ViewableRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
 						: new List<Role>();
 					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.ViewableUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				case PrivilegeRole.Downloader:
-					roles = privileges.DownloadableRoles != null && privileges.DownloadableRoles.Count > 0
+					roles = privileges.DownloadableRoles != null && privileges.DownloadableRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.DownloadableRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
 						: new List<Role>();
 					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.DownloadableUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -791,24 +795,21 @@ namespace net.vieapps.Services.Portals
 			return Utility.Logs.WriteLogsAsync(Utility.CancellationToken, Utility.Logger);
 		}
 
-		internal static Task WriteErrorAsync(this RequestInfo requestInfo, Exception exception, CancellationToken cancellationToken = default, string message = null, string objectName = null, string additionnal = null)
+		internal static Task WriteErrorAsync(this RequestInfo requestInfo, Exception exception, string message = null, string objectName = null, string additionnal = null)
 		{
 			message = message ?? "Error occurred while sending a notification when an object was changed";
 			Utility.Logger.LogError(message, exception);
 			return Utility.WriteLogsAsync(requestInfo.Session.DeveloperID, requestInfo.Session.AppID, objectName ?? requestInfo.ObjectName ?? "Notifications", new List<string> { message }, exception, requestInfo.CorrelationID, additionnal);
 		}
 
-		internal static Task WriteLogAsync(this RequestInfo requestInfo, string log, CancellationToken cancellationToken = default, string objectName = null)
+		internal static Task WriteErrorAsync(Exception exception, string message = null, string objectName = null, string correlationID = null)
+			=> Utility.WriteLogsAsync(null, null, objectName, string.IsNullOrWhiteSpace(message) ? null : new List<string> { message }, exception, correlationID);
+
+		internal static Task WriteLogAsync(this RequestInfo requestInfo, string log, string objectName = null)
 			=> Utility.WriteLogsAsync(requestInfo.Session.DeveloperID, requestInfo.Session.AppID, objectName ?? requestInfo.ObjectName ?? "Notifications", new List<string> { log }, null, requestInfo.CorrelationID);
 
-		internal static void WriteLog(this RequestInfo requestInfo, string log, string objectName = null)
-			=> requestInfo.WriteLogAsync(log, Utility.CancellationToken, requestInfo.CorrelationID).Run();
-
-		internal static Task WriteLogAsync(string correlationID, string log, CancellationToken cancellationToken = default, string objectName = null)
+		internal static Task WriteLogAsync(string correlationID, string log, string objectName = null)
 			=> Utility.WriteLogsAsync(null, null, objectName, new List<string> { log }, null, correlationID);
-
-		internal static void WriteLog(string correlationID, string log, string objectName = null)
-			=> Utility.WriteLogAsync(correlationID, log, Utility.CancellationToken, objectName).Run();
 
 		internal static string MinifyJs(this string data)
 			=> Minifier.MinifyJs(data);
@@ -827,22 +828,22 @@ namespace net.vieapps.Services.Portals
 			return html;
 		}
 
-		internal static bool IsAdministrator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsAdministrator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
 			=> user.ID.IsEquals(organization?.OwnerID) || user.IsAdministrator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
-		internal static bool IsModerator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsModerator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
 			=> user.ID.IsEquals(organization?.OwnerID) || user.IsModerator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
-		internal static bool IsEditor(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsEditor(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
 			=> user.ID.IsEquals(organization?.OwnerID) || user.IsEditor(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
-		internal static bool IsContributor(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsContributor(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
 			=> user.ID.IsEquals(organization?.OwnerID) || user.IsContributor(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
-		internal static bool IsViewer(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsViewer(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
 			=> user.ID.IsEquals(organization?.OwnerID) || user.IsViewer(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
-		internal static bool IsDownloader(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, string correlationID = null)
+		internal static bool IsDownloader(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
 			=> user.ID.IsEquals(organization?.OwnerID) || user.IsDownloader(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 	}
 

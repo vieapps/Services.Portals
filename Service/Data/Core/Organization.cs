@@ -199,6 +199,9 @@ namespace net.vieapps.Services.Portals
 			set => this._siteIDs = value;
 		}
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public string URL => $"{Utility.PortalsHttpURI}/~{this.Alias}";
+
 		internal List<Site> FindSites(List<Site> sites = null, bool notifyPropertyChanged = true)
 		{
 			if (this._siteIDs == null)
@@ -242,7 +245,7 @@ namespace net.vieapps.Services.Portals
 					this.NotifyPropertyChanged("Modules");
 				return modules;
 			}
-			return this._moduleIDs?.Select(id => id.GetModuleByID()).ToList();
+			return this._moduleIDs?.Select(id => id.GetModuleByID()).Where(module => module != null).ToList();
 		}
 
 		internal async Task<List<Module>> FindModulesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
@@ -296,8 +299,28 @@ namespace net.vieapps.Services.Portals
 			this.HttpIndicators?.ForEach(indicator => indicator?.Normalize());
 			this.HttpIndicators = this.HttpIndicators?.Where(indicator => indicator != null && !string.IsNullOrWhiteSpace(indicator.Name) && !string.IsNullOrWhiteSpace(indicator.Content)).ToList();
 			this.HttpIndicators = this.HttpIndicators == null || this.HttpIndicators.Count < 1 ? null : this.HttpIndicators;
-			this.FakeFilesHttpURI = string.IsNullOrWhiteSpace(this.FakeFilesHttpURI) ? null : this.FakeFilesHttpURI.Trim();
-			this.FakePortalsHttpURI = string.IsNullOrWhiteSpace(this.FakePortalsHttpURI) ? null : this.FakePortalsHttpURI.Trim();
+			try
+			{
+				var uri = new Uri(this.FakeFilesHttpURI);
+				this.FakeFilesHttpURI = uri.AbsoluteUri;
+				while (this.FakeFilesHttpURI.EndsWith("/") || this.FakeFilesHttpURI.EndsWith("."))
+					this.FakeFilesHttpURI = this.FakeFilesHttpURI.Left(this.FakeFilesHttpURI.Length - 1);
+			}
+			catch
+			{
+				this.FakeFilesHttpURI = null;
+			}
+			try
+			{
+				var uri = new Uri(this.FakePortalsHttpURI);
+				this.FakePortalsHttpURI = uri.AbsoluteUri;
+				while (this.FakePortalsHttpURI.EndsWith("/") || this.FakePortalsHttpURI.EndsWith("."))
+					this.FakePortalsHttpURI = this.FakePortalsHttpURI.Left(this.FakePortalsHttpURI.Length - 1);
+			}
+			catch
+			{
+				this.FakePortalsHttpURI = null;
+			}
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			OrganizationProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
@@ -335,7 +358,7 @@ namespace net.vieapps.Services.Portals
 			}
 			else if ((name.IsEquals("Modules") || name.IsEquals("Sites")) && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title) && !string.IsNullOrWhiteSpace(this.Theme))
 			{
-				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{this.GetObjectName()}#Update",
 					Data = this.ToJson(false, false),

@@ -26,7 +26,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Images,Thumbnails,ThumbnailPngs,ThumbnailBigs,ThumbnailBigPngs,Default,Index,Feed,Atom,Rss").ToLower().ToHashSet();
 
-		public static Desktop CreateDesktopInstance(this ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
+		public static Desktop CreateDesktop(this ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
 			=> Desktop.CreateInstance(data, excluded?.ToHashSet(), desktop =>
 			{
 				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
@@ -38,10 +38,11 @@ namespace net.vieapps.Services.Portals
 					desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
 				});
 				desktop.SEOSettings = desktop.SEOSettings != null && desktop.SEOSettings.SEOInfo == null && desktop.SEOSettings.TitleMode == null && desktop.SEOSettings.DescriptionMode == null && desktop.SEOSettings.KeywordsMode == null ? null : desktop.SEOSettings;
+				desktop.NormalizeExtras();
 				onCompleted?.Invoke(desktop);
 			});
 
-		public static Desktop UpdateDesktopInstance(this Desktop desktop, ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
+		public static Desktop Update(this Desktop desktop, ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
 			=> desktop.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
@@ -53,6 +54,7 @@ namespace net.vieapps.Services.Portals
 					desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
 				});
 				desktop.SEOSettings = desktop.SEOSettings != null && desktop.SEOSettings.SEOInfo == null && desktop.SEOSettings.TitleMode == null && desktop.SEOSettings.DescriptionMode == null && desktop.SEOSettings.KeywordsMode == null ? null : desktop.SEOSettings;
+				desktop.NormalizeExtras();
 				onCompleted?.Invoke(desktop);
 			});
 
@@ -181,7 +183,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (message.Type.IsEndsWith("#Create"))
 			{
-				var desktop = message.Data.ToExpandoObject().CreateDesktopInstance();
+				var desktop = message.Data.ToExpandoObject().CreateDesktop();
 				desktop._portlets = null;
 				desktop._childrenIDs = null;
 				await Task.WhenAll
@@ -197,8 +199,8 @@ namespace net.vieapps.Services.Portals
 			{
 				var desktop = message.Data.Get("ID", "").GetDesktopByID(false, false);
 				desktop = desktop == null
-					? message.Data.ToExpandoObject().CreateDesktopInstance()
-					: desktop.UpdateDesktopInstance(message.Data.ToExpandoObject());
+					? message.Data.ToExpandoObject().CreateDesktop()
+					: desktop.Update(message.Data.ToExpandoObject());
 				desktop._portlets = null;
 				desktop._childrenIDs = null;
 				await Task.WhenAll
@@ -212,7 +214,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
-				message.Data.ToExpandoObject().CreateDesktopInstance().Remove();
+				message.Data.ToExpandoObject().CreateDesktop().Remove();
 		}
 
 		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
@@ -238,7 +240,7 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
@@ -254,7 +256,7 @@ namespace net.vieapps.Services.Portals
 					Data = desktop.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", cancellationToken, "Caches") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", "Caches") : Task.CompletedTask
 			}));
 
 		internal static async Task<JObject> SearchDesktopsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -290,7 +292,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationExistedException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -359,7 +361,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -394,10 +396,9 @@ namespace net.vieapps.Services.Portals
 					obj.Aliases = null;
 					obj._childrenIDs = new List<string>();
 				})
-				: request.CreateDesktopInstance("SystemID,Privileges,OriginalPrivileges,Alias,Created,CreatedID,LastModified,LastModifiedID", obj =>
+				: request.CreateDesktop("SystemID,Privileges,OriginalPrivileges,Alias,Created,CreatedID,LastModified,LastModifiedID", obj =>
 				{
 					obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-					obj.NormalizeExtras();
 					obj._childrenIDs = new List<string>();
 				});
 
@@ -498,7 +499,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, desktop.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, desktop.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -563,7 +564,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, desktop.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, desktop.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -586,11 +587,10 @@ namespace net.vieapps.Services.Portals
 			request.Get("MetaTags", "").ValidateTags();
 
 			// update
-			desktop.UpdateDesktopInstance(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async _ =>
+			desktop.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async _ =>
 			{
 				desktop.LastModified = DateTime.Now;
 				desktop.LastModifiedID = requestInfo.Session.User.ID;
-				desktop.NormalizeExtras();
 				await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			});
 			await Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
@@ -688,7 +688,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, desktop.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, desktop.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -742,7 +742,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, desktop.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, desktop.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -877,16 +877,11 @@ namespace net.vieapps.Services.Portals
 			{
 				if (desktop == null)
 				{
-					desktop = Desktop.CreateInstance(data);
-					desktop.Extras = data.Get<string>("Extras") ?? desktop.Extras;
+					desktop = Desktop.CreateInstance(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
 					await Desktop.CreateAsync(desktop, cancellationToken).ConfigureAwait(false);
 				}
 				else
-				{
-					desktop.Fill(data);
-					desktop.Extras = data.Get<string>("Extras") ?? desktop.Extras;
-					await Desktop.UpdateAsync(desktop, true, cancellationToken).ConfigureAwait(false);
-				}
+					await Desktop.UpdateAsync(desktop.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), true, cancellationToken).ConfigureAwait(false);
 			}
 			else if (desktop != null)
 				await Desktop.DeleteAsync<Desktop>(desktop.ID, desktop.LastModifiedID, cancellationToken).ConfigureAwait(false);

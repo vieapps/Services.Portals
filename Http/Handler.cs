@@ -54,7 +54,7 @@ namespace net.vieapps.Services.Portals
 
 		static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
-		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://portals.vieapps.net/~url.refresher");
+		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
 
 		internal static int ExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 0;
 
@@ -70,7 +70,7 @@ namespace net.vieapps.Services.Portals
 			if (context.WebSockets.IsWebSocketRequest)
 				await Task.WhenAll
 				(
-					Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.Connection.RemoteIpAddress}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
+					Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
 					Handler.WebSocket.WrapAsync(context)
 				).ConfigureAwait(false);
 
@@ -306,7 +306,7 @@ namespace net.vieapps.Services.Portals
 			var requestPath = context.GetRequestPathSegments(true).First();
 
 			if (Global.IsVisitLogEnabled)
-				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
+				await context.WriteVisitStartingLogAsync(context.GetParameter("x-logs") != null).ConfigureAwait(false);
 
 			// request to favicon.ico file
 			if (requestPath.Equals("favicon.ico"))
@@ -1154,6 +1154,7 @@ namespace net.vieapps.Services.Portals
 		async Task ProcessLogInRequestAsync(HttpContext context, JObject systemIdentityJson)
 		{
 			var correlationID = context.GetCorrelationID();
+			var isUserInteract = context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php");
 
 			async Task registerAsync()
 			{
@@ -1417,51 +1418,75 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 
-			switch (context.Request.Method)
+			try
 			{
-				// log a session in or others
-				case "POST":
-					switch ((context.GetQueryParameter("x-mode") ?? "login").ToUpper())
+				switch (context.Request.Method)
+				{
+					// log a session in or others
+					case "POST":
+						switch ((context.GetQueryParameter("x-mode") ?? "login").ToUpper())
+						{
+							// log a session in with OTP
+							case "OTP":
+								await loginOtpAsync().ConfigureAwait(false);
+								break;
+
+							// forgot password
+							case "RESET":
+							case "RENEW":
+							case "FORGOT":
+								await resetAsync().ConfigureAwait(false);
+								break;
+
+							// log a session in
+							default:
+								await loginAsync().ConfigureAwait(false);
+								break;
+						}
+						break;
+
+					// log a session in with OTP
+					case "PUT":
+						await loginOtpAsync().ConfigureAwait(false);
+						break;
+
+					// forgot password
+					case "PATCH":
+						await resetAsync().ConfigureAwait(false);
+						break;
+
+					// register a session in or open login form
+					default:
+						await (isUserInteract ? showAsync() : registerAsync()).ConfigureAwait(false);
+						break;
+				}
+			}
+			catch (Exception ex)
+			{
+				if (isUserInteract)
+				{
+					await context.WriteLogsAsync("Http.Authentications", $"Error occurred while logging in => {ex.Message}", ex).ConfigureAwait(false);
+					var code = ex.GetHttpStatusCode();
+					var message = ex.Message;
+					var type = ex.GetTypeName(true);
+					if (ex is WampException wampException)
 					{
-						// log a session in with OTP
-						case "OTP":
-							await loginOtpAsync().ConfigureAwait(false);
-							break;
-
-						// forgot password
-						case "RESET":
-						case "RENEW":
-						case "FORGOT":
-							await resetAsync().ConfigureAwait(false);
-							break;
-
-						// log a session in
-						default:
-							await loginAsync().ConfigureAwait(false);
-							break;
+						var details = wampException.GetDetails();
+						code = details.Item1;
+						message = details.Item2;
+						type = details.Item3;
 					}
-					break;
-
-				// log a session in with OTP
-				case "PUT":
-					await loginOtpAsync().ConfigureAwait(false);
-					break;
-
-				// forgot password
-				case "PATCH":
-					await resetAsync().ConfigureAwait(false);
-					break;
-
-				// register a session in or open login form
-				default:
-					await (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php") ? showAsync() : registerAsync()).ConfigureAwait(false);
-					break;
+					context.ShowError(code, message, type, correlationID, ex, Global.IsDebugLogEnabled);
+				}
+				else
+					context.WriteError(Global.Logger, ex);
 			}
 		}
 
 		async Task ProcessLogOutRequestAsync(HttpContext context, JObject systemIdentityJson)
 		{
 			var correlationID = context.GetCorrelationID();
+			var isUserInteract = context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php");
 			try
 			{
 				// call service to delete the session
@@ -1484,7 +1509,7 @@ namespace net.vieapps.Services.Portals
 				await context.SignOutAsync().ConfigureAwait(false);
 
 				// response
-				if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
+				if (isUserInteract)
 				{
 					var scripts = @"<script>
 					window.__logout = window.__logout || function(){};
@@ -1522,7 +1547,7 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
-				if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
+				if (isUserInteract)
 				{
 					await context.WriteLogsAsync("Http.Authentications", $"Error occurred while logging out => {ex.Message}", ex).ConfigureAwait(false);
 					var code = ex.GetHttpStatusCode();
@@ -1648,7 +1673,7 @@ namespace net.vieapps.Services.Portals
 			var version = DateTime.Now.GetTimeQuarter().ToUnixTimestamp().ToString();
 			var scripts = "<script>__vieapps={ids:{" + $"system:\"{organizationID}\"" + "},URLs:{root:" + $"\"{rootURL}\",portals:\"{portalsHttpURI}\",files:\"{filesHttpURI}\"" + "}" + $",language:\"{language}\",isMobile:{isMobile},osInfo:\"{osInfo}\",correlationID:\"{context.GetCorrelationID()}\"" + "};</script>"
 				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js")}\"></script>"
-				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js")}\"></script>"
+				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js")}\"></script>"
 				+ $"<script src=\"{portalsHttpURI}/_assets/rsa.js?v={version}\"></script>"
 				+ $"<script src=\"{portalsHttpURI}/_assets/default.js?v={version}\"></script>"
 				+ $"<script src=\"{portalsHttpURI}/_themes/default/js/all.js?v={version}\"></script>"

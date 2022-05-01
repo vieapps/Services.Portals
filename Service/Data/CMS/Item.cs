@@ -131,17 +131,14 @@ namespace net.vieapps.Services.Portals
 
 		internal static Item GetItemByAlias(string repositoryEntityID, string alias)
 		{
-			// check
 			if (string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			// get by identity (using cache)
-			var cacheKey = $"e:{repositoryEntityID}#a:{alias.NormalizeAlias()}".GetCacheKey<Item>();
+			var cacheKey = repositoryEntityID.GetCacheKeyOfAliasedItem(alias);
 			var id = Utility.Cache.Get<string>(cacheKey);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return Item.Get<Item>(id);
 
-			// get by alias
 			var item = Item.Get(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID);
 			if (item != null)
 				Utility.Cache.Set(cacheKey, item.ID);
@@ -153,20 +150,16 @@ namespace net.vieapps.Services.Portals
 				? null
 				: Item.GetItemByAlias(contentType.ID, alias);
 
-
 		internal static async Task<Item> GetItemByAliasAsync(string repositoryEntityID, string alias, CancellationToken cancellationToken = default)
 		{
-			// check
 			if (string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			// get by identity (using cache)
-			var cacheKey = $"e:{repositoryEntityID}#a:{alias.NormalizeAlias().GenerateUUID()}".GetCacheKey<Item>();
+			var cacheKey = repositoryEntityID.GetCacheKeyOfAliasedItem(alias);
 			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return await Item.GetAsync<Item>(id, cancellationToken).ConfigureAwait(false);
 
-			// get by alias
 			var item = await Item.GetAsync(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID, cancellationToken).ConfigureAwait(false);
 			if (item != null)
 				await Utility.Cache.SetAsync(cacheKey, item.ID, cancellationToken).ConfigureAwait(false);

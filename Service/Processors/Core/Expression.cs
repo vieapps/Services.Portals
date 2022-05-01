@@ -19,10 +19,10 @@ namespace net.vieapps.Services.Portals
 	{
 		internal static ConcurrentDictionary<string, Expression> Expressions { get; } = new ConcurrentDictionary<string, Expression>(StringComparer.OrdinalIgnoreCase);
 
-		public static Expression CreateExpressionInstance(this ExpandoObject data, string excluded = null, Action<Expression> onCompleted = null)
+		public static Expression CreateExpression(this ExpandoObject data, string excluded = null, Action<Expression> onCompleted = null)
 			=> Expression.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
 
-		public static Expression UpdateExpressionInstance(this Expression expression, ExpandoObject requestBody, string excluded = null, Action<Expression> onCompleted = null)
+		public static Expression Update(this Expression expression, ExpandoObject requestBody, string excluded = null, Action<Expression> onCompleted = null)
 			=> expression.Fill(requestBody, excluded?.ToHashSet(), onCompleted);
 
 		internal static Expression Set(this Expression expression, bool updateCache = false)
@@ -98,19 +98,19 @@ namespace net.vieapps.Services.Portals
 		internal static Task ProcessInterCommunicateMessageOfExpressionAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				message.Data.ToExpandoObject().CreateExpressionInstance().Set();
+				message.Data.ToExpandoObject().CreateExpression().Set();
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var expression = message.Data.Get("ID", "").GetExpressionByID(false, false);
 				expression = expression == null
-					? message.Data.ToExpandoObject().CreateExpressionInstance()
-					: expression.UpdateExpressionInstance(message.Data.ToExpandoObject());
+					? message.Data.ToExpandoObject().CreateExpression()
+					: expression.Update(message.Data.ToExpandoObject());
 				expression.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
-				message.Data.ToExpandoObject().CreateExpressionInstance().Remove();
+				message.Data.ToExpandoObject().CreateExpression().Remove();
 
 			return Task.CompletedTask;
 		}
@@ -154,7 +154,7 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an expression [{expression.Title} - ID: {expression.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an expression [{expression.Title} - ID: {expression.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{expression.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
@@ -170,7 +170,7 @@ namespace net.vieapps.Services.Portals
 					Data = expression.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of an expression [{expression.Title} - ID: {expression.ID}]", cancellationToken, "Caches") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of an expression [{expression.Title} - ID: {expression.ID}]", "Caches") : Task.CompletedTask
 			});
 
 		internal static async Task<JObject> SearchExpressionsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -196,7 +196,7 @@ namespace net.vieapps.Services.Portals
 				if (organization == null)
 					throw new InformationExistedException("The organization is invalid");
 
-				gotRights = requestInfo.Session.User.IsViewer(null, null, organization, requestInfo.CorrelationID);
+				gotRights = requestInfo.Session.User.IsViewer(null, null, organization);
 				if (!gotRights)
 					throw new AccessDeniedException();
 			}
@@ -254,12 +254,12 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// create new
-			var expression = request.ToExpandoObject().CreateExpressionInstance("SystemID,Privileges,Filter,Sorts,FilterBy,SortBy,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var expression = request.ToExpandoObject().CreateExpression("SystemID,Privileges,Filter,Sorts,FilterBy,SortBy,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
@@ -304,7 +304,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, expression.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, expression.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -332,13 +332,13 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, expression.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, expression.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// update
 			var request = requestInfo.GetBodyJson();
-			expression.UpdateExpressionInstance(request.ToExpandoObject(), "ID,SystemID,RepositoryID,RepositoryEntityID,ContentTypeDefinitionID,Privileges,Filter,Sorts,FilterBy,SortBy,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			expression.Update(request.ToExpandoObject(), "ID,SystemID,RepositoryID,RepositoryEntityID,ContentTypeDefinitionID,Privileges,Filter,Sorts,FilterBy,SortBy,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
@@ -381,7 +381,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, expression.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, expression.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -429,10 +429,7 @@ namespace net.vieapps.Services.Portals
 					await Expression.CreateAsync(expression, cancellationToken).ConfigureAwait(false);
 				}
 				else
-				{
-					expression.Fill(data);
-					await Expression.UpdateAsync(expression, true, cancellationToken).ConfigureAwait(false);
-				}
+					await Expression.UpdateAsync(expression.Update(data), true, cancellationToken).ConfigureAwait(false);
 			}
 			else if (expression != null)
 				await Expression.DeleteAsync<Expression>(expression.ID, expression.LastModifiedID, cancellationToken).ConfigureAwait(false);

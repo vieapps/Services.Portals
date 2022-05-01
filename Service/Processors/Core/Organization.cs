@@ -26,7 +26,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,ScriptLibraries,Scripts,AlwaysUseHtmlSuffix,RefreshUrls,RedirectUrls,EmailSettings,WebHookSettings,HttpIndicators,FakeFilesHttpURI,FakePortalsHttpURI".ToHashSet();
 
-		public static Organization CreateOrganizationInstance(this ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
+		public static Organization CreateOrganization(this ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
 			=> Organization.CreateInstance(data, excluded?.ToHashSet(), organization =>
 			{
 				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
@@ -35,7 +35,7 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(organization);
 			});
 
-		public static Organization UpdateOrganizationInstance(this Organization organization, ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
+		public static Organization Update(this Organization organization, ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
 			=> organization.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
@@ -52,7 +52,7 @@ namespace net.vieapps.Services.Portals
 					organization.Remove();
 
 				if (updateCache)
-					Utility.Cache.Set(organization);
+					Utility.Cache.SetAsync(organization).Run();
 
 				OrganizationProcessor.Organizations[organization.ID] = organization;
 				OrganizationProcessor.OrganizationsByAlias[organization.Alias] = organization;
@@ -70,19 +70,37 @@ namespace net.vieapps.Services.Portals
 			return organization;
 		}
 
+		internal static Organization Remove(this Organization organization)
+			=> (organization?.ID ?? "").RemoveOrganization();
+
+		internal static Organization RemoveOrganization(this string id)
+		{
+			if (string.IsNullOrWhiteSpace(id) || !OrganizationProcessor.Organizations.TryRemove(id, out var organization) || organization == null)
+				return null;
+			OrganizationProcessor.OrganizationsByAlias.Remove(organization.Alias);
+			Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
+			return organization;
+		}
+
+		internal static async Task<Organization> ReloadAsync(this Organization organization, CancellationToken cancellationToken = default, bool set = true)
+		{
+			organization._siteIDs = organization._moduleIDs = null;
+			await Task.WhenAll
+			(
+				organization.FindSitesAsync(cancellationToken, false),
+				organization.FindModulesAsync(cancellationToken, false)
+			).ConfigureAwait(false);
+			return set ? organization.Set() : organization;
+		}
+
 		internal static async Task<Organization> RefreshAsync(this Organization organization, CancellationToken cancellationToken)
 		{
 			// reload organization
 			await Utility.Cache.RemoveAsync(organization, cancellationToken).ConfigureAwait(false);
 			organization = await organization.Remove().ID.GetOrganizationByIDAsync(cancellationToken, true).ConfigureAwait(false);
 
-			// reload sites
-			organization._siteIDs = null;
-			await organization.FindSitesAsync(cancellationToken, false).ConfigureAwait(false);
-
-			// reload modules
-			organization._moduleIDs = null;
-			await organization.FindModulesAsync(cancellationToken).ConfigureAwait(false);
+			// reload sites & modules
+			await organization.ReloadAsync(cancellationToken, false).ConfigureAwait(false);
 			await organization.Modules.ForEachAsync(async module => await (module._contentTypeIDs == null ? module.FindContentTypesAsync(cancellationToken) : Task.CompletedTask).ConfigureAwait(false), true, false).ConfigureAwait(false);
 
 			// update cache and send update message
@@ -97,16 +115,97 @@ namespace net.vieapps.Services.Portals
 			return organization;
 		}
 
-		internal static Organization Remove(this Organization organization)
-			=> (organization?.ID ?? "").RemoveOrganization();
+		internal static List<string> GetRefreshingURLs(this Organization organization, IEnumerable<string> addresses = null, string rootURL = null)
+			=> (addresses ?? organization.RefreshUrls?.Addresses ?? new List<string>()).Select(address =>
+			{
+				var urls = new List<string>();
+				address.Replace("\r", "").ToArray("\n").ForEach(url =>
+				{
+					if (url.IsStartsWith("@desktop("))
+					{
+						var parameters = url.Replace(StringComparison.OrdinalIgnoreCase, "@desktop(", "").Replace(")", "").ToList();
+						var desktops = new[] { parameters.First().GetDesktopByID() }.ToList();
+						desktops.Concat(desktops.FirstOrDefault()?.Children).Where(desktop => desktop != null).ToList().ForEach(desktop => urls.Add($"~/{desktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}"));
+					}
+					else if (url.IsStartsWith("@category("))
+					{
+						var parameters = url.Replace(StringComparison.OrdinalIgnoreCase, "@category(", "").Replace(")", "").ToList();
+						var categories = new[] { parameters.First().GetCategoryByID() }.ToList();
+						categories.Concat(categories.FirstOrDefault()?.Children).Where(category => category != null).ToList().ForEach(category =>
+						{
+							url = category.GetURL(null, true);
+							if (url.IsContains("/{{pageNumber}}"))
+								for (var page = 1; page <= 10; page++)
+									urls.Add(url.Replace(StringComparison.OrdinalIgnoreCase, "/{{pageNumber}}", page > 1 ? $"/{page}" : ""));
+							else
+								urls.Add(url);
+						});
+					}
+					else if (url.IsContains("/{{pageNumber}}"))
+						for (var page = 1; page <= 10; page++)
+							urls.Add(url.Replace(StringComparison.OrdinalIgnoreCase, "/{{pageNumber}}", page > 1 ? $"/{page}" : ""));
+					else
+						urls.Add(url);
+				});
+				return urls;
+			})
+			.SelectMany(urls => urls)
+			.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL ?? $"{organization.URL}/"))
+			.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToList();
 
-		internal static Organization RemoveOrganization(this string id)
+		internal static void SendRefreshingTasks(this Organization organization, bool isDeleted = false)
 		{
-			if (string.IsNullOrWhiteSpace(id) || !OrganizationProcessor.Organizations.TryRemove(id, out var organization) || organization == null)
-				return null;
-			OrganizationProcessor.OrganizationsByAlias.Remove(organization.Alias);
-			Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
-			return organization;
+			var sendDeleteMessage = (string type) => new SchedulingTask
+			{
+				ID = $"{organization.ID}:URLs:{type}".GenerateUUID(),
+				SystemID = organization.ID,
+				Persistance = false
+			}.SendMessages("Delete");
+
+			if (isDeleted)
+			{
+				new[] { "Home", "Other", "Force" }.ForEach(type => sendDeleteMessage(type));
+				return;
+			}
+
+			var refreshURLs = new[] { $"{organization.URL}/" }.Concat((organization.Sites ?? new List<Site>()).Select(site => site.GetURL())).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var schedulingTasks = new[] { new SchedulingTask(3)
+			{
+				ID = $"{organization.ID}:URLs:Home".GenerateUUID(),
+				SystemID = organization.ID,
+				Title = "Refresh home URLs",
+				SchedulingType = SchedulingType.Refresh,
+				Data = refreshURLs.ToJArray().ToString(Formatting.None),
+				Persistance = false
+			}}.ToList();
+
+			refreshURLs = organization.GetRefreshingURLs();
+			if (refreshURLs.Any())
+				schedulingTasks.Add(new SchedulingTask(organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7)
+				{
+					ID = $"{organization.ID}:URLs:Other".GenerateUUID(),
+					SystemID = organization.ID,
+					Title = "Refresh all pre-defined URLs",
+					SchedulingType = SchedulingType.Refresh,
+					Data = refreshURLs.ToJArray().ToString(Formatting.None),
+					Persistance = false
+				});
+			else
+				sendDeleteMessage("Other");
+
+			schedulingTasks.Add(new SchedulingTask(12, RecurringType.Hours, DateTime.Parse($"{DateTime.Now.AddDays(DateTime.Now.Hour < 13 ? 0 : 1):yyyy/MM/dd} {(DateTime.Now.Hour < 13 ? 13 : 1):00}:{UtilityService.GetRandomNumber(0, 30):00}:00"))
+			{
+				ID = $"{organization.ID}:URLs:Force".GenerateUUID(),
+				SystemID = organization.ID,
+				Title = "Force refresh all pre-defined URLs",
+				SchedulingType = SchedulingType.Refresh,
+				Data = (schedulingTasks.First().DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).Concat(refreshURLs).Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=x").ToJArray().ToString(Formatting.None),
+				Persistance = false
+			});
+
+			schedulingTasks.ForEach(schedulingTask => schedulingTask.SendMessages("Update", schedulingTask.ToJson()));
 		}
 
 		public static Organization GetOrganizationByID(this string id, bool force = false, bool fetchRepository = true)
@@ -160,38 +259,45 @@ namespace net.vieapps.Services.Portals
 			return organization;
 		}
 
+		internal static async Task<List<Organization>> ReloadOrganizationsAsync(CancellationToken cancellationToken = default, bool sendRefreshingTasks = false)
+		{
+			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, cancellationToken).ConfigureAwait(false) ?? new List<Organization>();
+			await organizations.ForEachAsync(async organization =>
+			{
+				await organization.ReloadAsync(cancellationToken).ConfigureAwait(false);
+				if (sendRefreshingTasks)
+				{
+					organization.SendRefreshingTasks();
+					var filter = Filters<SchedulingTask>.And(Filters<SchedulingTask>.Equals("SystemID", organization.ID));
+					var sort = Sorts<SchedulingTask>.Ascending("Time");
+					var results = await SchedulingTaskProcessor.SearchAsync(null, filter, sort, 0, 1, -1, cancellationToken).ConfigureAwait(false);
+					results.Item2.ForEach(schedulingTask =>
+					{
+						SchedulingTaskProcessor.SchedulingTasks[schedulingTask.ID] = schedulingTask;
+						schedulingTask.SendMessages("Update", schedulingTask.ToJson(), Utility.NodeID);
+					});
+				}
+			}, true, false).ConfigureAwait(false);
+			return organizations;
+		}
+
 		internal static async Task ProcessInterCommunicateMessageOfOrganizationAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-			{
-				var organization = message.Data.ToExpandoObject().CreateOrganizationInstance();
-				organization._siteIDs = organization._moduleIDs = null;
-				await Task.WhenAll
-				(
-					organization.FindSitesAsync(cancellationToken, false),
-					organization.FindModulesAsync(cancellationToken, false)
-				).ConfigureAwait(false);
-				organization.Set();
-			}
+				await message.Data.ToExpandoObject().CreateOrganization().ReloadAsync(cancellationToken).ConfigureAwait(false);
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var organization = message.Data.Get("ID", "").GetOrganizationByID(false, false);
 				var oldAlias = organization?.Alias;
 				organization = organization == null
-					? message.Data.ToExpandoObject().CreateOrganizationInstance()
-					: organization.UpdateOrganizationInstance(message.Data.ToExpandoObject());
-				organization._siteIDs = organization._moduleIDs = null;
-				await Task.WhenAll
-				(
-					organization.FindSitesAsync(cancellationToken, false),
-					organization.FindModulesAsync(cancellationToken, false)
-				).ConfigureAwait(false);
-				organization.Set(false, false, oldAlias);
+					? message.Data.ToExpandoObject().CreateOrganization()
+					: organization.Update(message.Data.ToExpandoObject());
+				(await organization.ReloadAsync(cancellationToken, false).ConfigureAwait(false)).Set(false, false, oldAlias);
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
-				message.Data.ToExpandoObject().CreateOrganizationInstance().Remove();
+				message.Data.ToExpandoObject().CreateOrganization().Remove();
 		}
 
 		internal static async Task ClearRelatedCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
@@ -213,8 +319,8 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{organization.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
+				doRefresh ? $"{organization.URL}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -252,7 +358,7 @@ namespace net.vieapps.Services.Portals
 			tasks = tasks.Concat(new[]
 			{
 				Utility.Cache.RemoveAsync(organization.Remove(), cancellationToken),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of an organization [{organization.Title} - ID: {organization.ID}]", cancellationToken, "Caches") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of an organization [{organization.Title} - ID: {organization.ID}]", "Caches") : Task.CompletedTask,
 				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 				{
 					Type = $"{organization.GetObjectName()}#Delete",
@@ -275,8 +381,8 @@ namespace net.vieapps.Services.Portals
 				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 				await Task.WhenAll
 				(
-					Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"The module was reloaded when all cache were clean\r\n{module.ToJson()}", cancellationToken, "Caches") : Task.CompletedTask,
-					Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"The content-types were reloaded when all cache were clean\r\n{module.ContentTypes.Select(contentType => contentType.ToJson().ToString(Formatting.Indented)).Join("\r\n")}", cancellationToken, "Caches") : Task.CompletedTask
+					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"The module was reloaded when all cache were clean\r\n{module.ToJson()}", "Caches") : Task.CompletedTask,
+					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"The content-types were reloaded when all cache were clean\r\n{module.ContentTypes.Select(contentType => contentType.ToJson().ToString(Formatting.Indented)).Join("\r\n")}", "Caches") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}, true, false).ConfigureAwait(false);
 			await Task.WhenAll
@@ -298,8 +404,8 @@ namespace net.vieapps.Services.Portals
 
 			await Task.WhenAll
 			(
-				$"{Utility.PortalsHttpURI}/~{organization.Alias}/".RefreshWebPageAsync(0, correlationID, $"Refresh the home desktop when all cache of an organization were clean [{organization.Title} - ID: {organization.ID}]"),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"The organization was reloaded when all cache were clean\r\n{organization.ToJson()}", cancellationToken, "Caches") : Task.CompletedTask
+				$"{organization.URL}/".RefreshWebPageAsync(0, correlationID, $"Refresh the home desktop when all cache of an organization were clean [{organization.Title} - ID: {organization.ID}]"),
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"The organization was reloaded when all cache were clean\r\n{organization.ToJson()}", "Caches") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -382,7 +488,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// create new
-			var organization = request.CreateOrganizationInstance("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var organization = request.CreateOrganization("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? obj.Title.NormalizeAlias(false) + "-" + UtilityService.GetUUID(obj.ID, null, true).ToLower() : obj.Alias.NormalizeAlias(false);
@@ -421,12 +527,8 @@ namespace net.vieapps.Services.Portals
 			// send notification
 			await organization.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, organization.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
-			// start the refresh timer
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = "RefreshTimer#Start",
-				Data = response
-			}.Send();
+			// update scheduling tasks
+			organization.SendRefreshingTasks();
 
 			// response
 			return response;
@@ -441,7 +543,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationNotFoundException();
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -499,12 +601,8 @@ namespace net.vieapps.Services.Portals
 			// send notification
 			await organization.SendNotificationAsync("Update", organization.Notifications, oldStatus, organization.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
-			// restart the refresh timer
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = "RefreshTimer#Restart",
-				Data = response
-			}.Send();
+			// update scheduling tasks
+			organization.SendRefreshingTasks();
 
 			// response
 			return response;
@@ -518,7 +616,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationNotFoundException();
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -539,7 +637,7 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			var privileges = organization.OriginalPrivileges?.Copy();
-			organization.UpdateOrganizationInstance(request, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
+			organization.Update(request, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
 				organization.OwnerID = isSystemAdministrator ? request.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
 				organization.Status = isSystemAdministrator ? request.Get("Status", organization.Status.ToString()).ToEnum<ApprovalStatus>() : organization.Status;
@@ -601,6 +699,9 @@ namespace net.vieapps.Services.Portals
 			// send notifications
 			if (sendNotifications)
 				await organization.SendNotificationAsync(@event, organization.Notifications, oldStatus, organization.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+
+			// update scheduling tasks
+			organization.SendRefreshingTasks(@event.IsEquals("Delete"));
 
 			// send update messages
 			var json = @event.IsEquals("Delete")

@@ -20,7 +20,7 @@ namespace net.vieapps.Services.Portals
 {
 	public static class ContentProcessor
 	{
-		public static Content CreateContentInstance(this ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
+		public static Content CreateContent(this ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
 			=> Content.CreateInstance(data, excluded?.ToHashSet(), content =>
 			{
 				content.NormalizeHTMLs();
@@ -29,7 +29,7 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(content);
 			});
 
-		public static Content UpdateContentInstance(this Content content, ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
+		public static Content Update(this Content content, ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
 			=> content.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				content.NormalizeHTMLs();
@@ -37,6 +37,14 @@ namespace net.vieapps.Services.Portals
 				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
 				onCompleted?.Invoke(content);
 			});
+
+		internal static string GetCacheKeyOfAliasedContent(this ContentType contentType, Category category, string alias)
+			=> contentType != null && category != null && !string.IsNullOrWhiteSpace(alias)
+				? $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias().GenerateUUID()}".GetCacheKey<Content>()
+				: null;
+
+		internal static string GetCacheKeyOfAliasedContent(this Content content)
+			=> content?.ContentType?.GetCacheKeyOfAliasedContent(content.Category, content.Alias);
 
 		public static IFilterBy<Content> GetContentsFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, string categoryID = null, Action<FilterBys<Content>> onCompleted = null)
 		{
@@ -72,9 +80,9 @@ namespace net.vieapps.Services.Portals
 			message = (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]";
 			await Task.WhenAll
 			(
-				content.Status.Equals(ApprovalStatus.Published) ? $"{content.GetURL()}?x-force-cache=x".Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
-				content.Category != null ? $"{content.Category.GetURL()}?x-force-cache=x".Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
-				(content.OtherCategories ?? new List<string>()).Select(id => id.GetCategoryByID()).Where(category => category != null).ForEachAsync(category => $"{category.GetURL()}?x-force-cache=x".Replace("~/", $"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}/").RefreshWebPageAsync(1, correlationID, message))
+				content.Status.Equals(ApprovalStatus.Published) ? $"{content.GetURL()}?x-force-cache=x".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
+				content.Category != null ? $"{content.Category.GetURL()}?x-force-cache=x".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
+				(content.OtherCategories ?? new List<string>()).Select(id => id.GetCategoryByID()).Where(category => category != null).ForEachAsync(category => $"{category.GetURL()}?x-force-cache=x".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message))
 			).ConfigureAwait(false);
 
 			return content;
@@ -84,7 +92,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// data cache keys
 			var dataCacheKeys = clearDataCache && content != null
-				? Extensions.GetRelatedCacheKeys(content.GetCacheKey()).Concat(new[] { $"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>() }).ToList()
+				? Extensions.GetRelatedCacheKeys(content.GetCacheKey()).Concat(new[] { content.GetCacheKeyOfAliasedContent() }).Where(key => key != null).ToList()
 				: new List<string>();
 			if (clearDataCache && content?.ContentType != null)
 			{
@@ -117,12 +125,12 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.WriteCacheLogs && content != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled && content != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh && content != null
 					? Task.WhenAll
 					(
 						content.RefreshAsync(cancellationToken, correlationID, "Refresh when related cache of a CMS content was clean"),
-						$"{Utility.PortalsHttpURI}/~{content.Organization?.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]")
+						$"{content.Organization?.URL}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]")
 					) : Task.CompletedTask
 				).ConfigureAwait(false);
 		}
@@ -215,7 +223,7 @@ namespace net.vieapps.Services.Portals
 			var category = await (categoryID ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, contentType.WorkingPrivileges, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, contentType.WorkingPrivileges, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -304,7 +312,7 @@ namespace net.vieapps.Services.Portals
 				(
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken),
 					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationToken),
-					Utility.WriteCacheLogs ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask
+					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
 
@@ -338,12 +346,12 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The category is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsContributor(category.WorkingPrivileges, contentType.WorkingPrivileges, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsContributor(category.WorkingPrivileges, contentType.WorkingPrivileges, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// get data
-			var content = request.CreateContentInstance("Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var content = request.CreateContent("Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.SystemID = organization.ID;
 				obj.RepositoryID = module.ID;
@@ -398,7 +406,7 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
-			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
+			await Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, cancellationToken).ConfigureAwait(false);
 
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -436,7 +444,9 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
-			var content = await (identity.IsValidUUID() ? Content.GetAsync<Content>(identity, cancellationToken) : Content.GetContentByAliasAsync(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id"), identity, requestInfo.GetParameter("Category") ?? requestInfo.GetParameter("x-category-id"), cancellationToken)).ConfigureAwait(false);
+			var content = identity.IsValidUUID()
+				? await Content.GetAsync<Content>(identity, cancellationToken).ConfigureAwait(false)
+				: await Content.GetContentByAliasAsync(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id"), identity, requestInfo.GetParameter("Category") ?? requestInfo.GetParameter("x-category-id"), cancellationToken).ConfigureAwait(false);
 			if (content == null)
 				throw new InformationNotFoundException();
 			else if (content.Organization == null || content.Module == null || content.ContentType == null)
@@ -446,8 +456,8 @@ namespace net.vieapps.Services.Portals
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(content.Organization.OwnerID);
 			if (!gotRights)
 				gotRights = content.Status.Equals(ApprovalStatus.Published)
-					? requestInfo.Session.User.IsViewer(content.WorkingPrivileges, content.ContentType?.WorkingPrivileges, content.Organization, requestInfo.CorrelationID)
-					: requestInfo.Session.User.ID.IsEquals(content.CreatedID) || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType?.WorkingPrivileges, content.Organization, requestInfo.CorrelationID);
+					? requestInfo.Session.User.IsViewer(content.WorkingPrivileges, content.ContentType?.WorkingPrivileges, content.Organization)
+					: requestInfo.Session.User.ID.IsEquals(content.CreatedID) || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType?.WorkingPrivileges, content.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -459,10 +469,13 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", content.Alias }
 				};
 
-			// refresh (clear cache)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
-			if (isRefresh)
-				await content.RefreshAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			// refresh (reload and force cache of HTMLs)
+			if ("refresh".IsEquals(requestInfo.GetObjectIdentity()))
+				await Task.WhenAll
+				(
+					Utility.IsDebugLogEnabled ? requestInfo.WriteLogAsync($"Refresh the CMS content by a request [{content.Title} - ID: {content.ID}]", "Caches") : Task.CompletedTask,
+					content.RefreshAsync(cancellationToken, requestInfo.CorrelationID, "Refresh the CMS content by a request", true)
+				).ConfigureAwait(false);
 
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -478,26 +491,16 @@ namespace net.vieapps.Services.Portals
 				json["URL"] = content.GetURL();
 			});
 
-			// send update message
+			// store object cache key to clear related cached
+			await Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+
+			// send update message and return
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
+				DeviceID = "*"
 			}.Send();
-			if (isRefresh)
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
-
-			// store object cache key to clear related cached
-			await Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-
-			// response
 			return response;
 		}
 
@@ -508,7 +511,7 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			await Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await Utility.Cache.SetAsync($"e:{content.ContentTypeID}#c:{content.CategoryID}#a:{content.Alias.GenerateUUID()}".GetCacheKey<Content>(), content.ID, cancellationToken).ConfigureAwait(false);
+			await Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, cancellationToken).ConfigureAwait(false);
 
 			// prepare the response
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -551,11 +554,11 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization);
 			if (!gotRights)
 				gotRights = content.Status.Equals(ApprovalStatus.Draft) || content.Status.Equals(ApprovalStatus.Pending) || content.Status.Equals(ApprovalStatus.Rejected)
 					? requestInfo.Session.User.ID.IsEquals(content.CreatedID)
-					: requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization, requestInfo.CorrelationID);
+					: requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -565,8 +568,8 @@ namespace net.vieapps.Services.Portals
 			var oldOtherCategories = content.OtherCategories?.Select(id => id).ToList();
 			var oldAlias = content.Alias;
 			var oldStatus = content.Status;
-
-			content.UpdateContentInstance(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			
+			content.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
@@ -619,18 +622,19 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> DeleteContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var content = await Content.GetAsync<Content>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			var identity = requestInfo.GetObjectIdentity() ?? "";
+			var content = await Content.GetAsync<Content>(identity, cancellationToken).ConfigureAwait(false);
 			if (content == null)
-				throw new InformationNotFoundException();
-			else if (content.Organization == null || content.Module == null || content.ContentType == null)
+				throw new InformationNotFoundException($"The content was not found [{identity}]");
+			if (content.Organization == null || content.Module == null || content.ContentType == null)
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization);
 			if (!gotRights)
 				gotRights = content.Status.Equals(ApprovalStatus.Draft) || content.Status.Equals(ApprovalStatus.Pending) || content.Status.Equals(ApprovalStatus.Rejected)
-					? requestInfo.Session.User.ID.IsEquals(content.CreatedID) || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization, requestInfo.CorrelationID)
-					: requestInfo.Session.User.IsModerator(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization, requestInfo.CorrelationID);
+					? requestInfo.Session.User.ID.IsEquals(content.CreatedID) || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization)
+					: requestInfo.Session.User.IsModerator(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -652,7 +656,7 @@ namespace net.vieapps.Services.Portals
 			// clear cache and send notification
 			Task.WhenAll
 			(
-				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false),
 				Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
 				content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo, Utility.CancellationToken)
 			).Run();
@@ -733,7 +737,7 @@ namespace net.vieapps.Services.Portals
 					parentCategory = parentCategory?.ParentCategory;
 					parentPrivileges = parentCategory?.OriginalPrivileges;
 				}
-				var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, parentPrivileges ?? contentType?.WorkingPrivileges, organization, requestInfo.CorrelationID);
+				var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, parentPrivileges ?? contentType?.WorkingPrivileges, organization);
 				if (!gotRights)
 					throw new AccessDeniedException();
 
@@ -859,7 +863,7 @@ namespace net.vieapps.Services.Portals
 							}
 							catch (Exception ex)
 							{
-								exception = requestInfo.GetRuntimeException(ex, null, async (msg, exc) => await requestInfo.WriteErrorAsync(exc, cancellationToken, $"Error occurred while generating a content => {msg} : {@object.ToJson()}", "Errors").ConfigureAwait(false));
+								exception = requestInfo.GetRuntimeException(ex, null, async (msg, exc) => await requestInfo.WriteErrorAsync(exc, $"Error occurred while generating a content => {msg} : {@object.ToJson()}", "Errors").ConfigureAwait(false));
 							}
 					});
 
@@ -904,8 +908,8 @@ namespace net.vieapps.Services.Portals
 						contentType != null
 							? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item5.Concat(new[] { cacheKeyOfObjectsXml }), cancellationToken)
 							: Task.CompletedTask,
-						Utility.WriteCacheLogs
-							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item5.Count + 1}): {results.Item5.Concat(new[] { cacheKeyOfObjectsXml }).Join(", ")}", cancellationToken, "Caches")
+						Utility.IsCacheLogEnabled
+							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item5.Count + 1}): {results.Item5.Concat(new[] { cacheKeyOfObjectsXml }).Join(", ")}", "Caches")
 							: Task.CompletedTask
 					).ConfigureAwait(false);
 
@@ -979,8 +983,8 @@ namespace net.vieapps.Services.Portals
 					parentPrivileges = parentCategory?.OriginalPrivileges;
 				}
 				var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || @object.Status.Equals(ApprovalStatus.Published)
-					? requestInfo.Session.User.IsViewer(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID)
-					: requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID);
+					? requestInfo.Session.User.IsViewer(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization)
+					: requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization);
 				if (!gotRights)
 					throw new AccessDeniedException();
 
@@ -989,7 +993,7 @@ namespace net.vieapps.Services.Portals
 					expiresAt = expires;
 				if (expiresAt != null && expiresAt.Value < DateTime.Now)
 				{
-					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization);
 					if (!gotRights)
 						throw new AccessDeniedException();
 				}
@@ -998,7 +1002,7 @@ namespace net.vieapps.Services.Portals
 				var validatePublishedTime = options.Get("ValidatePublished", options.Get("ValidatePublishedTime", options.Get("ValidateWithPublishedTime", false)));
 				if (validatePublishedTime && @object.Status.Equals(ApprovalStatus.Published) && @object.PublishedTime != null && @object.PublishedTime.Value > DateTime.Now)
 				{
-					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization, requestInfo.CorrelationID);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(@object.Organization.OwnerID) || requestInfo.Session.User.ID.IsEquals(@object.CreatedID) || requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, parentPrivileges ?? @object.ContentType.WorkingPrivileges, @object.Organization);
 					if (!gotRights)
 						throw new AccessDeniedException();
 				}
@@ -1167,8 +1171,8 @@ namespace net.vieapps.Services.Portals
 						@object.ContentType != null
 							? Utility.Cache.AddSetMembersAsync(@object.ContentType.GetSetCacheKey(), new[] { cacheKey }, cancellationToken)
 							: Task.CompletedTask,
-						Utility.WriteCacheLogs
-							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate details of CMS.Content [{@object.ContentType?.Title} - ID: {@object.ContentType?.ID} - Set: {@object.ContentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", cancellationToken, "Caches")
+						Utility.IsCacheLogEnabled
+							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate details of CMS.Content [{@object.ContentType?.Title} - ID: {@object.ContentType?.ID} - Set: {@object.ContentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", "Caches")
 							: Task.CompletedTask
 					).ConfigureAwait(false);
 
@@ -1228,8 +1232,8 @@ namespace net.vieapps.Services.Portals
 				await Utility.Cache.AddSetMembersAsync(@object.ContentType.ObjectCacheKeys, cacheKeys, cancellationToken).ConfigureAwait(false);
 
 				stopwatch.Stop();
-				if (Utility.WriteCacheLogs)
-					await Utility.WriteLogAsync(correlationID, $"Update object cache keys into Content-Type's set when load related collection of CMS.Content - Execution times: {stopwatch.GetElapsedTimes()} - [{@object.ContentType.Title} - ID: {@object.ContentType.ID} - Set (objects): {@object.ContentType.ObjectCacheKeys}]\r\n- Objects cache keys ({cacheKeys.Count}): {cacheKeys.Join(", ")}", cancellationToken, "Caches").ConfigureAwait(false);
+				if (Utility.IsCacheLogEnabled)
+					await Utility.WriteLogAsync(correlationID, $"Update object cache keys into Content-Type's set when load related collection of CMS.Content - Execution times: {stopwatch.GetElapsedTimes()} - [{@object.ContentType.Title} - ID: {@object.ContentType.ID} - Set (objects): {@object.ContentType.ObjectCacheKeys}]\r\n- Objects cache keys ({cacheKeys.Count}): {cacheKeys.Join(", ")}", "Caches").ConfigureAwait(false);
 			}
 			return relateds;
 		}
@@ -1306,8 +1310,8 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			stopwatch.Stop();
-			if (Utility.WriteCacheLogs)
-				await Utility.WriteLogAsync(correlationID, $"Update related keys into Content-Type's set when load other collection of CMS.Content - Execution times: {stopwatch.GetElapsedTimes()} - [{@object.ContentType.Title} - ID: {@object.ContentType.ID}\r\n- Set (objects): {@object.ContentType.ObjectCacheKeys}]\r\n- Object cache keys ({objectCacheKeys.Count}): {objectCacheKeys.Join(", ")}\r\n- Set (relateds): {@object.ContentType.GetSetCacheKey()}]\r\n- Related cache keys ({relatedCacheKeys.Count}): {relatedCacheKeys.Join(", ")}", cancellationToken, "Caches").ConfigureAwait(false);
+			if (Utility.IsCacheLogEnabled)
+				await Utility.WriteLogAsync(correlationID, $"Update related keys into Content-Type's set when load other collection of CMS.Content - Execution times: {stopwatch.GetElapsedTimes()} - [{@object.ContentType.Title} - ID: {@object.ContentType.ID}\r\n- Set (objects): {@object.ContentType.ObjectCacheKeys}]\r\n- Object cache keys ({objectCacheKeys.Count}): {objectCacheKeys.Join(", ")}\r\n- Set (relateds): {@object.ContentType.GetSetCacheKey()}]\r\n- Related cache keys ({relatedCacheKeys.Count}): {relatedCacheKeys.Join(", ")}", "Caches").ConfigureAwait(false);
 
 			return others;
 		}
@@ -1320,22 +1324,18 @@ namespace net.vieapps.Services.Portals
 			// prepare
 			var stopwatch = Stopwatch.StartNew();
 			objects = objects.Select(@object => @object.ID).Distinct(StringComparer.OrdinalIgnoreCase).Select(id => objects.First(@object => @object.ID == id)).ToList();
-			if (Utility.WriteCacheLogs)
-				await Utility.WriteLogAsync(correlationID, $"Start to pre-load collection of CMS.Content ({objects.Count()})", cancellationToken, "Caches").ConfigureAwait(false);
+			if (Utility.IsCacheLogEnabled)
+				await Utility.WriteLogAsync(correlationID, $"Start to pre-load collection of CMS.Content ({objects.Count()})", "Caches").ConfigureAwait(false);
 
 			// load realteds
-			await objects.Select(@object => @object.LoadRelatedsAsync(cancellationToken, correlationID))
-				.ForEachAsync(async task => await task.ConfigureAwait(false), true, false)
-				.ConfigureAwait(false);
+			await objects.ForEachAsync(@object => @object.LoadRelatedsAsync(cancellationToken, correlationID), true, false).ConfigureAwait(false);
 
 			// load others
-			await objects.Select(@object => @object.LoadOthersAsync(cancellationToken, correlationID))
-				.ForEachAsync(async task => await task.ConfigureAwait(false), true, false)
-				.ConfigureAwait(false);
+			await objects.ForEachAsync(@object => @object.LoadOthersAsync(cancellationToken, correlationID), true, false).ConfigureAwait(false);
 
 			stopwatch.Stop();
-			if (Utility.WriteCacheLogs)
-				await Utility.WriteLogAsync(correlationID, $"Complete pre-load collection of CMS.Content - Execution times: {stopwatch.GetElapsedTimes()}", cancellationToken, "Caches").ConfigureAwait(false);
+			if (Utility.IsCacheLogEnabled)
+				await Utility.WriteLogAsync(correlationID, $"Complete pre-load collection of CMS.Content - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> SyncContentAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
@@ -1352,34 +1352,27 @@ namespace net.vieapps.Services.Portals
 			{
 				if (content == null)
 				{
-					content = Content.CreateInstance(data);
-					content.StartDate = string.IsNullOrWhiteSpace(content.StartDate)
-						? content.PublishedTime != null
-							? content.PublishedTime.Value.ToDTString(false, false)
-							: DateTime.Now.ToDTString(false, false)
-						: content.StartDate;
-					content.EndDate = string.IsNullOrWhiteSpace(content.EndDate) || content.EndDate.Equals("-")
-						? null
-						: content.EndDate;
-					content.CreatedID = string.IsNullOrWhiteSpace(content.CreatedID)
-						? requestInfo.Session.User.ID
-						: content.CreatedID;
-					content.LastModifiedID = string.IsNullOrWhiteSpace(content.LastModifiedID)
-						? requestInfo.Session.User.ID
-						: content.LastModifiedID;
+					content = data.CreateContent(null, obj =>
+					{
+						obj.StartDate = string.IsNullOrWhiteSpace(obj.StartDate)
+							? obj.PublishedTime != null
+								? obj.PublishedTime.Value.ToDTString(false, false)
+								: DateTime.Now.ToDTString(false, false)
+							: obj.StartDate;
+						obj.EndDate = string.IsNullOrWhiteSpace(obj.EndDate) || obj.EndDate.Equals("-") ? null : obj.EndDate;
+						obj.Details = obj.Organization.NormalizeURLs(obj.Details, false);
+						obj.CreatedID = string.IsNullOrWhiteSpace(obj.CreatedID) ? requestInfo.Session.User.ID : obj.CreatedID;
+						obj.LastModifiedID = string.IsNullOrWhiteSpace(obj.LastModifiedID) ? requestInfo.Session.User.ID : obj.LastModifiedID;
+					});
 					await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
 				}
 				else
-				{
-					content.Fill(data);
-					content.EndDate = string.IsNullOrWhiteSpace(content.EndDate) || content.EndDate.Equals("-")
-						? null
-						: content.EndDate;
-					content.LastModifiedID = string.IsNullOrWhiteSpace(content.LastModifiedID)
-						? requestInfo.Session.User.ID
-						: content.LastModifiedID;
-					await Content.UpdateAsync(content, true, cancellationToken).ConfigureAwait(false);
-				}
+					await Content.UpdateAsync(content.Update(data, null, obj =>
+					{
+						obj.Details = obj.Organization.NormalizeURLs(obj.Details, false);
+						obj.EndDate = string.IsNullOrWhiteSpace(obj.EndDate) || obj.EndDate.Equals("-") ? null : obj.EndDate;
+						obj.LastModifiedID = string.IsNullOrWhiteSpace(obj.LastModifiedID) ? requestInfo.Session.User.ID : obj.LastModifiedID;
+					}), true, cancellationToken).ConfigureAwait(false);
 			}
 			else if (content != null)
 				await Content.DeleteAsync<Content>(content.ID, content.LastModifiedID, cancellationToken).ConfigureAwait(false);

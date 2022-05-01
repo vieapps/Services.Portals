@@ -271,7 +271,7 @@ namespace net.vieapps.Services.Portals
 					: $"~/{this.Desktop?.Alias ?? desktop ?? this.Module?.Desktop?.Alias ?? "-default"}/{this.Alias}" + (addPageNumberHolder ? "/{{pageNumber}}" : "") + $"{(alwaysUseHtmlSuffix ? ".html" : "")}".ToLower();
 			if (url.StartsWith("~/") && url.IsEndsWith("/default.aspx") && alwaysUseHtmlSuffix)
 				url = url.Replace(StringComparison.OrdinalIgnoreCase, "/default.aspx", ".html");
-			return url.Equals("~.html") ? "~/index.html" : url;
+			return url.Equals("~.html") ? alwaysUseHtmlSuffix ? "~/index.html" : "~/" : url;
 		}
 
 		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)

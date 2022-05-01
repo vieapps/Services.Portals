@@ -19,11 +19,19 @@ namespace net.vieapps.Services.Portals
 	{
 		internal static ConcurrentDictionary<string, ContentType> ContentTypes { get; } = new ConcurrentDictionary<string, ContentType>(StringComparer.OrdinalIgnoreCase);
 
-		public static ContentType CreateContentTypeInstance(this ExpandoObject data, string excluded = null, Action<ContentType> onCompleted = null)
-			=> ContentType.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
+		public static ContentType CreateContentType(this ExpandoObject data, string excluded = null, Action<ContentType> onCompleted = null)
+			=> ContentType.CreateInstance(data, excluded?.ToHashSet(), contentType =>
+			{
+				contentType.NormalizeExtras();
+				onCompleted?.Invoke(contentType);
+			});
 
-		public static ContentType UpdateContentTypeInstance(this ContentType contentType, ExpandoObject data, string excluded = null, Action<ContentType> onCompleted = null)
-			=> contentType?.Fill(data, excluded?.ToHashSet(), onCompleted);
+		public static ContentType Update(this ContentType contentType, ExpandoObject data, string excluded = null, Action<ContentType> onCompleted = null)
+			=> contentType?.Fill(data, excluded?.ToHashSet(), _ =>
+			{
+				contentType.NormalizeExtras();
+				onCompleted?.Invoke(contentType);
+			});
 
 		internal static ContentType Set(this ContentType contentType, bool updateCache = false)
 		{
@@ -114,19 +122,19 @@ namespace net.vieapps.Services.Portals
 		internal static Task ProcessInterCommunicateMessageOfContentTypeAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				message.Data.ToExpandoObject().CreateContentTypeInstance().Set();
+				message.Data.ToExpandoObject().CreateContentType().Set();
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var contentType = message.Data.Get("ID", "").GetContentTypeByID(false, false);
 				contentType = contentType == null
-					? message.Data.ToExpandoObject().CreateContentTypeInstance()
-					: contentType.UpdateContentTypeInstance(message.Data.ToExpandoObject());
+					? message.Data.ToExpandoObject().CreateContentType()
+					: contentType.Update(message.Data.ToExpandoObject());
 				contentType.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
-				message.Data.ToExpandoObject().CreateContentTypeInstance().Remove();
+				message.Data.ToExpandoObject().CreateContentType().Remove();
 
 			return Task.CompletedTask;
 		}
@@ -170,7 +178,7 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{contentType.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a content-type was clean [{contentType.Title} - ID: {contentType.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
@@ -201,7 +209,7 @@ namespace net.vieapps.Services.Portals
 					Data = contentType.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a content-type [{contentType.Title} - ID: {contentType.ID}]", cancellationToken, "Caches") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a content-type [{contentType.Title} - ID: {contentType.ID}]", "Caches") : Task.CompletedTask
 			}).ToList();
 
 			await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -233,7 +241,7 @@ namespace net.vieapps.Services.Portals
 				var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id") ?? requestInfo.GetParameter("ModuleID");
 				var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 
-				gotRights = requestInfo.Session.User.IsEditor(module?.WorkingPrivileges, null, organization, requestInfo.CorrelationID);
+				gotRights = requestInfo.Session.User.IsEditor(module?.WorkingPrivileges, null, organization);
 				if (!gotRights)
 					throw new AccessDeniedException();
 			}
@@ -282,13 +290,12 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<ContentType> CreateContentTypeAsync(this ExpandoObject data, string systemID, string userID, string excludedProperties = null, string serviceName = null, CancellationToken cancellationToken = default, string correlationID = null)
 		{
 			// prepare
-			var contentType = data.CreateContentTypeInstance(excludedProperties, obj =>
+			var contentType = data.CreateContentType(excludedProperties, obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = systemID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = userID;
-				obj.NormalizeExtras();
 			});
 
 			// validate extended properties
@@ -356,7 +363,7 @@ namespace net.vieapps.Services.Portals
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(module?.WorkingPrivileges, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(module?.WorkingPrivileges, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -381,7 +388,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(contentType.Module?.WorkingPrivileges, null, contentType.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(contentType.Module?.WorkingPrivileges, null, contentType.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -456,17 +463,16 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization or module is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(contentType.Module.WorkingPrivileges, null, contentType.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(contentType.Module.WorkingPrivileges, null, contentType.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// gathering formation
 			var privileges = contentType.OriginalPrivileges?.Copy();
-			contentType.UpdateContentTypeInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,ContentTypeDefinitionID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			contentType.Update(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,ContentTypeDefinitionID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
 			});
 
 			// validate extended properties
@@ -492,7 +498,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization or module is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(contentType.Module.WorkingPrivileges, null, contentType.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(contentType.Module.WorkingPrivileges, null, contentType.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -559,18 +565,11 @@ namespace net.vieapps.Services.Portals
 			{
 				if (contentType == null)
 				{
-					contentType = ContentType.CreateInstance(data);
-					contentType.NormalizeExtras();
-					contentType.Extras = data.Get<string>("Extras") ?? contentType.Extras;
+					contentType = ContentType.CreateInstance(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
 					await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
 				}
 				else
-				{
-					contentType.Fill(data);
-					contentType.NormalizeExtras();
-					contentType.Extras = data.Get<string>("Extras") ?? contentType.Extras;
-					await ContentType.UpdateAsync(contentType, true, cancellationToken).ConfigureAwait(false);
-				}
+					await ContentType.UpdateAsync(contentType.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), true, cancellationToken).ConfigureAwait(false);
 			}
 			else if (contentType != null)
 				await ContentType.DeleteAsync<ContentType>(contentType.ID, contentType.LastModifiedID, cancellationToken).ConfigureAwait(false);

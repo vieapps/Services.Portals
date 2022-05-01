@@ -202,24 +202,20 @@ namespace net.vieapps.Services.Portals
 
 		internal static Content GetContentByAlias(ContentType contentType, string alias, string parentIdentity)
 		{
-			// check
 			if (contentType == null || string.IsNullOrWhiteSpace(alias) || string.IsNullOrWhiteSpace(parentIdentity))
 				return null;
 
-			// get category
 			var category = parentIdentity.IsValidUUID()
 				? parentIdentity.GetCategoryByID()
 				: (contentType.GetParent()?.RepositoryEntityID ?? "").GetCategoryByAlias(parentIdentity.NormalizeAlias());
 			if (category == null)
 				return null;
 
-			// get by identity (using cache)
-			var cacheKey = $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias()}".GetCacheKey<Content>();
+			var cacheKey = contentType.GetCacheKeyOfAliasedContent(category, alias);
 			var id = Utility.Cache.Get<string>(cacheKey);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return Content.Get<Content>(id);
 
-			// get by alias
 			var content = Content.Get<Content>(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID);
 			if (content != null)
 				Utility.Cache.Set(cacheKey, content.ID);
@@ -228,24 +224,20 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<Content> GetContentByAliasAsync(ContentType contentType, string alias, string parentIdentity, CancellationToken cancellationToken = default)
 		{
-			// check
 			if (contentType == null || string.IsNullOrWhiteSpace(alias) || string.IsNullOrWhiteSpace(parentIdentity))
 				return null;
 
-			// get category
 			var category = parentIdentity.IsValidUUID()
 				? await parentIdentity.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false)
 				: await (contentType.GetParent()?.RepositoryEntityID ?? "").GetCategoryByAliasAsync(parentIdentity.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
 			if (category == null)
 				return null;
 
-			// get by identity (using cache)
-			var cacheKey = $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias().GenerateUUID()}".GetCacheKey<Content>();
+			var cacheKey = contentType.GetCacheKeyOfAliasedContent(category, alias);
 			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return await Content.GetAsync<Content>(id, cancellationToken).ConfigureAwait(false);
 
-			// get by alias
 			var content = await Content.GetAsync<Content>(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID, cancellationToken).ConfigureAwait(false);
 			if (content != null)
 				await Utility.Cache.SetAsync(cacheKey, content.ID, cancellationToken).ConfigureAwait(false);

@@ -20,8 +20,7 @@ namespace net.vieapps.Services.Portals
 	{
 		public Site() : base() { }
 
-		[Searchable]
-		[Sortable(IndexName = "Title")]
+		[Sortable(IndexName = "Title"), Searchable]
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public override string Title { get; set; }
@@ -35,8 +34,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
-		[Searchable]
-		[Sortable(UniqueIndexName = "Domains")]
+		[Sortable(UniqueIndexName = "Domains"), Searchable]
 		[Property(MaxLength = 100, NotNull = true, NotEmpty = true)]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string PrimaryDomain { get; set; } = "company.com";
@@ -46,8 +44,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string SubDomain { get; set; } = "*";
 
-		[Searchable]
-		[Sortable(IndexName = "OtherDomains")]
+		[Sortable(IndexName = "OtherDomains"), Searchable]
 		[Property(MaxLength = 1000)]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string OtherDomains { get; set; }
@@ -163,7 +160,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string RepositoryEntityID { get; set; }
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override Privileges OriginalPrivileges { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
@@ -188,25 +185,25 @@ namespace net.vieapps.Services.Portals
 		public Desktop SearchDesktop => (this.SearchDesktopID ?? "").GetDesktopByID() ?? this.Organization?.SearchDesktop;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public string Host => $"{this.SubDomain}.{this.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www.");
+		public string Host => $"{this.SubDomain}.{this.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www.").Replace("*", "");
 
 		public string GetURL(string host = null, string requestedURL = null)
 			=> $"http{(this.AlwaysUseHTTPs || this.AlwaysReturnHTTPs || (requestedURL ?? "").IsStartsWith("https://") ? "s" : "")}://{host ?? this.Host}";
 
-		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
+		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				json.Remove("Privileges");
 				json.Remove("OriginalPrivileges");
-				onPreCompleted?.Invoke(json);
+				onCompleted?.Invoke(json);
 			});
 
 		internal void NormalizeExtras()
 		{
-			this.UISettings?.Normalize(uiSettings => uiSettings.BackgroundImageURI = uiSettings.BackgroundImageURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/"));
+			this.UISettings?.Normalize(uiSettings => uiSettings.BackgroundImageURI = uiSettings.BackgroundImageURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{this.Organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/"));
 			this.UISettings = this.UISettings != null && string.IsNullOrWhiteSpace(this.UISettings.Padding) && string.IsNullOrWhiteSpace(this.UISettings.Margin) && string.IsNullOrWhiteSpace(this.UISettings.Width) && string.IsNullOrWhiteSpace(this.UISettings.Height) && string.IsNullOrWhiteSpace(this.UISettings.Color) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundColor) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageURI) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageRepeat) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImagePosition) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageSize) && string.IsNullOrWhiteSpace(this.UISettings.Css) && string.IsNullOrWhiteSpace(this.UISettings.Style) ? null : this.UISettings;
-			this.IconURI = string.IsNullOrWhiteSpace(this.IconURI) ? null : this.IconURI.Trim().Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/");
-			this.CoverURI = string.IsNullOrWhiteSpace(this.CoverURI) ? null : this.CoverURI.Trim().Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/");
+			this.IconURI = string.IsNullOrWhiteSpace(this.IconURI) ? null : this.IconURI.Trim().Replace(StringComparison.OrdinalIgnoreCase, $"{this.Organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/");
+			this.CoverURI = string.IsNullOrWhiteSpace(this.CoverURI) ? null : this.CoverURI.Trim().Replace(StringComparison.OrdinalIgnoreCase, $"{this.Organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/");
 			this.MetaTags = string.IsNullOrWhiteSpace(this.MetaTags) ? null : this.MetaTags.Trim();
 			this.Stylesheets = string.IsNullOrWhiteSpace(this.Stylesheets) ? null : this.Stylesheets.Trim();
 			this.ScriptLibraries = string.IsNullOrWhiteSpace(this.ScriptLibraries) ? null : this.ScriptLibraries.Trim();

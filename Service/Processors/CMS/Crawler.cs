@@ -21,10 +21,10 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> RunningCrawlers { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-		public static Crawler CreateCrawlerInstance(this ExpandoObject data, string excluded = null, Action<Crawler> onCompleted = null)
+		public static Crawler CreateCrawler(this ExpandoObject data, string excluded = null, Action<Crawler> onCompleted = null)
 			=> Crawler.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
 
-		public static Crawler UpdateCrawlerInstance(this Crawler crawler, ExpandoObject data, string excluded = null, Action<Crawler> onCompleted = null)
+		public static Crawler Update(this Crawler crawler, ExpandoObject data, string excluded = null, Action<Crawler> onCompleted = null)
 			=> crawler.Fill(data, excluded?.ToHashSet(), onCompleted);
 
 		internal static Crawler Set(this Crawler crawler, bool clear = false, bool updateCache = false)
@@ -87,8 +87,8 @@ namespace net.vieapps.Services.Portals
 			var sort = Sorts<Crawler>.Ascending("OrderIndex").ThenByAscending("Title");
 			var cacheKey = processCache ? Extensions.GetCacheKey(filter, sort, 0, 1) : null;
 
-			if (Utility.IsDebugEnabled)
-				Utility.WriteLog(UtilityService.NewUUID, $"Find crawlers\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", "Crawler");
+			if (Utility.IsDebugLogEnabled)
+				Utility.WriteLogAsync(UtilityService.NewUUID, $"Find crawlers\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", "Crawler").Run();
 			return Crawler.Find(filter, sort, 0, 1, cacheKey);
 		}
 
@@ -101,24 +101,24 @@ namespace net.vieapps.Services.Portals
 			var sort = Sorts<Crawler>.Ascending("OrderIndex").ThenByAscending("Title");
 			var cacheKey = processCache ? Extensions.GetCacheKey(filter, sort, 0, 1) : null;
 
-			if (Utility.IsDebugEnabled)
-				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Find crawlers\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", cancellationToken, "Crawler").ConfigureAwait(false);
+			if (Utility.IsDebugLogEnabled)
+				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Find crawlers\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", "Crawler").ConfigureAwait(false);
 			return await Crawler.FindAsync(filter, sort, 0, 1, cacheKey, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task ProcessInterCommunicateMessageOfCrawlerAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				message.Data.ToExpandoObject().CreateCrawlerInstance().Set();
+				message.Data.ToExpandoObject().CreateCrawler().Set();
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var crawler = message.Data.Get("ID", "").GetCrawlerByID(false, false);
-				(crawler == null ? message.Data.ToExpandoObject().CreateCrawlerInstance() : crawler.UpdateCrawlerInstance(message.Data.ToExpandoObject())).Set();
+				(crawler == null ? message.Data.ToExpandoObject().CreateCrawler() : crawler.Update(message.Data.ToExpandoObject())).Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
-				message.Data.ToExpandoObject().CreateCrawlerInstance().Remove();
+				message.Data.ToExpandoObject().CreateCrawler().Remove();
 
 			return Task.CompletedTask;
 		}
@@ -198,8 +198,8 @@ namespace net.vieapps.Services.Portals
 			var pageSize = pagination.Item3;
 			var pageNumber = pagination.Item4;
 
-			if (Utility.IsDebugEnabled)
-				await requestInfo.WriteLogAsync($"Search crawlers (APIs)\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Pagination: {pagination.GetPagination()}", cancellationToken, "Crawler").ConfigureAwait(false);
+			if (Utility.IsDebugLogEnabled)
+				await requestInfo.WriteLogAsync($"Search crawlers (APIs)\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Pagination: {pagination.GetPagination()}", "Crawler").ConfigureAwait(false);
 
 			// process cache
 			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber) : null;
@@ -209,8 +209,8 @@ namespace net.vieapps.Services.Portals
 				if (!string.IsNullOrWhiteSpace(json))
 				{
 					var result = JObject.Parse(json);
-					if (Utility.IsDebugEnabled)
-						await requestInfo.WriteLogAsync($"Search crawlers (APIs) => cached was found\r\n- Key: {cacheKeyOfObjectsJson} => JSON: {result}", cancellationToken, "Crawler").ConfigureAwait(false);
+					if (Utility.IsDebugLogEnabled)
+						await requestInfo.WriteLogAsync($"Search crawlers (APIs) => cached was found\r\n- Key: {cacheKeyOfObjectsJson} => JSON: {result}", "Crawler").ConfigureAwait(false);
 					return result;
 				}
 			}
@@ -244,7 +244,7 @@ namespace net.vieapps.Services.Portals
 
 		static Crawlers.ICrawler CreateCrawler(this RequestInfo requestInfo)
 		{
-			var crawlerInfo = requestInfo.GetBodyExpando().CreateCrawlerInstance("Privileges,Created,CreatedID,LastModified,LastModifiedID");
+			var crawlerInfo = requestInfo.GetBodyExpando().CreateCrawler("Privileges,Created,CreatedID,LastModified,LastModifiedID");
 			if (!crawlerInfo.Type.Equals(Portals.Crawlers.Type.Custom))
 			{
 				var uri = new Uri(crawlerInfo.URL);
@@ -322,7 +322,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			var crawler = request.CreateCrawlerInstance("Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var crawler = request.CreateCrawler("Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
@@ -436,7 +436,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			crawler.UpdateCrawlerInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			crawler.Update(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;

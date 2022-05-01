@@ -16,14 +16,14 @@ namespace net.vieapps.Services.Portals
 {
 	public static class PortletProcessor
 	{
-		public static Portlet CreatePortletInstance(this ExpandoObject data, string excluded = null, Action<Portlet> onCompleted = null)
+		public static Portlet CreatePortlet(this ExpandoObject data, string excluded = null, Action<Portlet> onCompleted = null)
 			=> Portlet.CreateInstance(data, excluded?.ToHashSet(), portlet =>
 			{
 				portlet.Normalize();
 				onCompleted?.Invoke(portlet);
 			});
 
-		public static Portlet UpdatePortletInstance(this Portlet portlet, ExpandoObject data, string excluded = null, Action<Portlet> onCompleted = null)
+		public static Portlet Update(this Portlet portlet, ExpandoObject data, string excluded = null, Action<Portlet> onCompleted = null)
 			=> portlet.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				portlet.Normalize();
@@ -72,13 +72,13 @@ namespace net.vieapps.Services.Portals
 			{
 				Portlet portlet = null;
 				if (message.Type.IsEndsWith("#Create"))
-					portlet = message.Data.ToExpandoObject().CreatePortletInstance();
+					portlet = message.Data.ToExpandoObject().CreatePortlet();
 				else
 				{
 					portlet = await Portlet.GetAsync<Portlet>(message.Data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
 					portlet = portlet == null
-						? message.Data.ToExpandoObject().CreatePortletInstance()
-						: portlet.UpdatePortletInstance(message.Data.ToExpandoObject());
+						? message.Data.ToExpandoObject().CreatePortlet()
+						: portlet.Update(message.Data.ToExpandoObject());
 				}
 				var desktop = await (portlet.DesktopID ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (desktop != null && desktop._portlets != null)
@@ -95,7 +95,7 @@ namespace net.vieapps.Services.Portals
 			}
 			else if (message.Type.IsEndsWith("#Delete"))
 			{
-				var portlet = message.Data.ToExpandoObject().CreatePortletInstance();
+				var portlet = message.Data.ToExpandoObject().CreatePortlet();
 				var desktop = await (portlet.DesktopID ?? "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (desktop != null && desktop._portlets != null)
 				{
@@ -151,7 +151,7 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop?.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a portlet was clean [{portlet.Title} - ID: {portlet.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
@@ -164,7 +164,7 @@ namespace net.vieapps.Services.Portals
 			{
 				portlet.ClearRelatedCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),
 				Utility.Cache.RemoveAsync(portlet, cancellationToken),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", cancellationToken, "Caches") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", "Caches") : Task.CompletedTask
 			});
 
 		internal static async Task<JObject> SearchPortletsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -190,7 +190,7 @@ namespace net.vieapps.Services.Portals
 				if (organization == null)
 					throw new InformationExistedException("The organization is invalid");
 
-				gotRights = requestInfo.Session.User.IsViewer(null, null, organization, requestInfo.CorrelationID);
+				gotRights = requestInfo.Session.User.IsViewer(null, null, organization);
 				if (!gotRights)
 					throw new AccessDeniedException();
 			}
@@ -248,12 +248,12 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// create new
-			var portlet = request.CreatePortletInstance("SystemID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var portlet = request.CreatePortlet("SystemID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
@@ -368,7 +368,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, portlet.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, portlet.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -408,7 +408,7 @@ namespace net.vieapps.Services.Portals
 			if (portlet.Organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, portlet.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, portlet.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -416,7 +416,7 @@ namespace net.vieapps.Services.Portals
 			var oldDesktopID = portlet.DesktopID;
 			var oldZone = portlet.Zone;
 			var request = requestInfo.GetBodyExpando();
-			portlet.UpdatePortletInstance(request, "ID,SystemID,RepositoryID,RepositoryEntityID,OriginalPortletID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			portlet.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,OriginalPortletID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
@@ -658,7 +658,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, portlet.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, portlet.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -783,10 +783,7 @@ namespace net.vieapps.Services.Portals
 					await Portlet.CreateAsync(portlet, cancellationToken).ConfigureAwait(false);
 				}
 				else
-				{
-					portlet.Fill(data);
-					await Portlet.UpdateAsync(portlet, true, cancellationToken).ConfigureAwait(false);
-				}
+					await Portlet.UpdateAsync(portlet.Update(data), true, cancellationToken).ConfigureAwait(false);
 			}
 			else if (portlet != null)
 				await Portlet.DeleteAsync<Portlet>(portlet.ID, portlet.LastModifiedID, cancellationToken).ConfigureAwait(false);

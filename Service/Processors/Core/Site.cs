@@ -23,23 +23,45 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "AlwaysUseHTTPs,AlwaysReturnHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,UseInlineStylesheets,UseInlineScripts,SEOInfo".ToHashSet();
 
-		public static Site CreateSiteInstance(this ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
+		public static Site CreateSite(this ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
 			=> Site.CreateInstance(data, excluded?.ToHashSet(), site =>
 			{
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
 				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToList(";", true, true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
+				site.NormalizeExtras();
 				onCompleted?.Invoke(site);
 			});
 
-		public static Site UpdateSiteInstance(this Site site, ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
+		public static Site Update(this Site site, ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
 			=> site.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
 				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToList(";", true, true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
+				site.NormalizeExtras();
 				onCompleted?.Invoke(site);
 			});
+
+		internal static Site Prepare(this Site site, string domain, bool update = true)
+		{
+			if (!string.IsNullOrWhiteSpace(site.Organization?.FakePortalsHttpURI) && new Uri(site.Organization.FakePortalsHttpURI).Host.IsEquals(domain))
+			{
+				Utility.NotRecognizedAliases.Add($"Site:{domain}");
+				site = null;
+			}
+			else if (update)
+			{
+				Utility.NotRecognizedAliases.Remove($"Site:{domain}");
+				new CommunicateMessage(Utility.ServiceName)
+				{
+					Type = $"{site.GetTypeName(true)}#Update",
+					Data = site.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
+			return site;
+		}
 
 		internal static Site Set(this Site site, bool clear = false, bool updateCache = false, IEnumerable<string> oldDomains = null)
 		{
@@ -140,30 +162,10 @@ namespace net.vieapps.Services.Portals
 
 		static Site GetSiteByDomain(this List<Site> sites, string domain)
 		{
-			var hostname = domain.ToArray(".");
-			var subDomain = hostname.First();
-			var primaryDomain = hostname.Skip(1).Join(".");
+			var host = domain.ToArray(".");
+			var subDomain = host.First();
+			var primaryDomain = host.Skip(1).Join(".");
 			return sites.FirstOrDefault(site => (site.SubDomain.Equals("*") ? primaryDomain.IsEquals(site.PrimaryDomain) : domain.IsEquals($"{site.SubDomain}.{site.PrimaryDomain}")) || site.OtherDomains.ToList(";").Any(host => primaryDomain.IsEquals(host)));
-		}
-
-		internal static Site Prepare(this Site site, string domain, bool update = true)
-		{
-			if (!string.IsNullOrWhiteSpace(site.Organization?.FakePortalsHttpURI) && new Uri(site.Organization.FakePortalsHttpURI).Host.IsEquals(domain))
-			{
-				Utility.NotRecognizedAliases.Add($"Site:{domain}");
-				site = null;
-			}
-			else if (update)
-			{
-				Utility.NotRecognizedAliases.Remove($"Site:{domain}");
-				new CommunicateMessage(Utility.ServiceName)
-				{
-					Type = $"{site.GetTypeName(true)}#Update",
-					Data = site.ToJson(),
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
-			}
-			return site;
 		}
 
 		public static Site GetSiteByDomain(this string domain, bool fetchRepository = true)
@@ -230,48 +232,46 @@ namespace net.vieapps.Services.Portals
 		{
 			if (string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID())
 				return new List<Site>();
-
 			var filter = Filters<Site>.And(Filters<Site>.Equals("SystemID", systemID));
 			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
 			var sites = await Site.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
-			await sites.ForEachAsync(async site =>
-			{
-				if (site.ID.GetSiteByID(false, false) == null)
-					await site.SetAsync(false, updateCache, cancellationToken).ConfigureAwait(false);
-			}).ConfigureAwait(false);
-
+			await sites.ForEachAsync(site => site.ID.GetSiteByID(false, false) == null ? site.SetAsync(false, updateCache, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return sites;
 		}
 
 		internal static async Task<List<Site>> ReloadSitesAsync(this string systemID, CancellationToken cancellationToken = default)
 		{
-			var sites = string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? null : await systemID.FindSitesAsync(cancellationToken).ConfigureAwait(false);
+			var sites = string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID()
+				? null
+				: await systemID.FindSitesAsync(cancellationToken).ConfigureAwait(false);
 			if (sites == null)
 			{
-				var sort = Sorts<Site>.Ascending("Title");
-				sites = await Site.FindAsync(null, sort, 0, 1, null, cancellationToken).ConfigureAwait(false) ?? new List<Site>();
-				await sites.ForEachAsync(async site => await site.SetAsync(false, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+				sites = await Site.FindAsync(null, Sorts<Site>.Ascending("Title"), 0, 1, null, cancellationToken).ConfigureAwait(false) ?? new List<Site>();
+				sites.ForEach(site => site.Set());
 			}
 			return sites;
 		}
 
+		internal static Task<List<Site>> ReloadSitesAsync(CancellationToken cancellationToken)
+			=> SiteProcessor.ReloadSitesAsync(null, cancellationToken);
+
 		internal static Task ProcessInterCommunicateMessageOfSiteAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				message.Data.ToExpandoObject().CreateSiteInstance().Set();
+				message.Data.ToExpandoObject().CreateSite().Set();
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var site = message.Data.Get("ID", "").GetSiteByID(false, false);
 				var oldDomains = site != null ? new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }.Concat(site.OtherDomains.ToList(";")).ToList() : new List<string>();
 				site = site == null
-					? message.Data.ToExpandoObject().CreateSiteInstance()
-					: site.UpdateSiteInstance(message.Data.ToExpandoObject());
+					? message.Data.ToExpandoObject().CreateSite()
+					: site.Update(message.Data.ToExpandoObject());
 				site.Set(false, false, oldDomains);
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
-				message.Data.ToExpandoObject().CreateSiteInstance().Remove();
+				message.Data.ToExpandoObject().CreateSite().Remove();
 
 			return Task.CompletedTask;
 		}
@@ -298,14 +298,14 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{site.Organization.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
 		internal static Task ClearCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
-			=> Task.WhenAll(new[]
-			{
+			=> Task.WhenAll
+			(
 				site.ClearRelatedCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),
 				Utility.Cache.RemoveAsync(site.Remove(), cancellationToken),
 				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
@@ -314,8 +314,8 @@ namespace net.vieapps.Services.Portals
 					Data = site.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", cancellationToken, "Caches") : Task.CompletedTask
-			});
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", "Caches") : Task.CompletedTask
+			);
 
 		internal static async Task<JObject> SearchSitesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
@@ -340,7 +340,7 @@ namespace net.vieapps.Services.Portals
 				if (organization == null)
 					throw new InformationExistedException("The organization is invalid");
 
-				gotRights = requestInfo.Session.User.IsModerator(null, null, organization, requestInfo.CorrelationID);
+				gotRights = requestInfo.Session.User.IsModerator(null, null, organization);
 				if (!gotRights)
 					throw new AccessDeniedException();
 			}
@@ -398,7 +398,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -412,13 +412,12 @@ namespace net.vieapps.Services.Portals
 			request.Get("MetaTags", "").ValidateTags();
 
 			// create new
-			var site = request.CreateSiteInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var site = request.CreateSite("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
 			});
 			await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 
@@ -471,7 +470,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, site.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, site.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -538,7 +537,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, site.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, site.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -556,11 +555,10 @@ namespace net.vieapps.Services.Portals
 			request.Get("MetaTags", "").ValidateTags();
 
 			// gathering information
-			site.UpdateSiteInstance(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			site.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
 			});
 
 			// update
@@ -577,7 +575,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, site.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, site.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -655,16 +653,11 @@ namespace net.vieapps.Services.Portals
 			{
 				if (site == null)
 				{
-					site = Site.CreateInstance(data);
-					site.Extras = data.Get<string>("Extras") ?? site.Extras;
+					site = Site.CreateInstance(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
 					await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 				}
 				else
-				{
-					site.Fill(data);
-					site.Extras = data.Get<string>("Extras") ?? site.Extras;
-					await Site.UpdateAsync(site, true, cancellationToken).ConfigureAwait(false);
-				}
+					await Site.UpdateAsync(site.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), true, cancellationToken).ConfigureAwait(false);
 			}
 			else if (site != null)
 				await Site.DeleteAsync<Site>(site.ID, site.LastModifiedID, cancellationToken).ConfigureAwait(false);

@@ -6,7 +6,6 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Dynamic;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -22,11 +21,19 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Trackings,EmailSettings".ToHashSet();
 
-		public static Module CreateModuleInstance(this ExpandoObject data, string excluded = null, Action<Module> onCompleted = null)
-			=> Module.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
+		public static Module CreateModule(this ExpandoObject data, string excluded = null, Action<Module> onCompleted = null)
+			=> Module.CreateInstance(data, excluded?.ToHashSet(), module =>
+			{
+				module.NormalizeExtras();
+				onCompleted?.Invoke(module);
+			});
 
-		public static Module UpdateModuleInstance(this Module module, ExpandoObject data, string excluded = null, Action<Module> onCompleted = null)
-			=> module.Fill(data, excluded?.ToHashSet(), onCompleted);
+		public static Module Update(this Module module, ExpandoObject data, string excluded = null, Action<Module> onCompleted = null)
+			=> module.Fill(data, excluded?.ToHashSet(), _ =>
+			{
+				module.NormalizeExtras();
+				onCompleted?.Invoke(module);
+			});
 
 		internal static Module Set(this Module module, bool updateCache = false)
 		{
@@ -116,7 +123,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (message.Type.IsEndsWith("#Create"))
 			{
-				var module = message.Data.ToExpandoObject().CreateModuleInstance();
+				var module = message.Data.ToExpandoObject().CreateModule();
 				module._contentTypeIDs = null;
 				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 				module.Set();
@@ -126,15 +133,15 @@ namespace net.vieapps.Services.Portals
 			{
 				var module = message.Data.Get("ID", "").GetModuleByID(false, false);
 				module = module == null
-					? message.Data.ToExpandoObject().CreateModuleInstance()
-					: module.UpdateModuleInstance(message.Data.ToExpandoObject());
+					? message.Data.ToExpandoObject().CreateModule()
+					: module.Update(message.Data.ToExpandoObject());
 				module._contentTypeIDs = null;
 				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 				module.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
-				message.Data.ToExpandoObject().CreateModuleInstance().Remove();
+				message.Data.ToExpandoObject().CreateModule().Remove();
 		}
 
 		internal static async Task ClearRelatedCacheAsync(this Module module, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
@@ -175,7 +182,7 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a module [{module.Title} - ID: {module.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a module [{module.Title} - ID: {module.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{module.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a module was clean [{module.Title} - ID: {module.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
@@ -202,7 +209,7 @@ namespace net.vieapps.Services.Portals
 					Data = module.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a module [{module.Title} - ID: {module.ID}]", cancellationToken, "Caches") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a module [{module.Title} - ID: {module.ID}]", "Caches") : Task.CompletedTask
 			}).ToList();
 
 			await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -231,7 +238,7 @@ namespace net.vieapps.Services.Portals
 				if (organization == null)
 					throw new InformationExistedException("The organization is invalid");
 
-				gotRights = "true".IsEquals(requestInfo.GetHeaderParameter("x-init")) || requestInfo.Session.User.IsModerator(null, null, organization, requestInfo.CorrelationID);
+				gotRights = "true".IsEquals(requestInfo.GetHeaderParameter("x-init")) || requestInfo.Session.User.IsModerator(null, null, organization);
 				if (!gotRights)
 					throw new AccessDeniedException();
 			}
@@ -289,18 +296,17 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// create new module
-			var module = requestBody.CreateModuleInstance("SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var module = requestBody.CreateModule("SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
 			});
 			await Module.CreateAsync(module, cancellationToken).ConfigureAwait(false);
 			await module.Set().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
@@ -363,7 +369,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(module.WorkingPrivileges, null, module.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(module.WorkingPrivileges, null, module.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -421,17 +427,16 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(module.WorkingPrivileges, null, module.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(module.WorkingPrivileges, null, module.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// update
 			var privileges = module.OriginalPrivileges?.Copy();
-			module.UpdateModuleInstance(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			module.Update(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
 			});
 			await Module.UpdateAsync(module, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
@@ -476,7 +481,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, module.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, module.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -543,18 +548,11 @@ namespace net.vieapps.Services.Portals
 			{
 				if (module == null)
 				{
-					module = Module.CreateInstance(data);
-					module.NormalizeExtras();
-					module.Extras = data.Get<string>("Extras") ?? module.Extras;
+					module = Module.CreateInstance(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
 					await Module.CreateAsync(module, cancellationToken).ConfigureAwait(false);
 				}
 				else
-				{
-					module.Fill(data);
-					module.NormalizeExtras();
-					module.Extras = data.Get<string>("Extras") ?? module.Extras;
-					await Module.UpdateAsync(module, true, cancellationToken).ConfigureAwait(false);
-				}
+					await Module.UpdateAsync(module.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), true, cancellationToken).ConfigureAwait(false);
 			}
 			else if (module != null)
 				await Module.DeleteAsync<Module>(module.ID, module.LastModifiedID, cancellationToken).ConfigureAwait(false);

@@ -19,10 +19,10 @@ namespace net.vieapps.Services.Portals
 	{
 		internal static ConcurrentDictionary<string, Role> Roles { get; } = new ConcurrentDictionary<string, Role>(StringComparer.OrdinalIgnoreCase);
 
-		public static Role CreateRoleInstance(this ExpandoObject data, string excluded = null, Action<Role> onCompleted = null)
+		public static Role CreateRole(this ExpandoObject data, string excluded = null, Action<Role> onCompleted = null)
 			=> Role.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
 
-		public static Role UpdateRoleInstance(this Role role, ExpandoObject data, string excluded = null, Action<Role> onCompleted = null)
+		public static Role Update(this Role role, ExpandoObject data, string excluded = null, Action<Role> onCompleted = null)
 			=> role.Fill(data, excluded?.ToHashSet(), onCompleted);
 
 		internal static Role Set(this Role role, bool updateCache = false)
@@ -92,7 +92,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (message.Type.IsEndsWith("#Create"))
 			{
-				var role = message.Data.ToExpandoObject().CreateRoleInstance();
+				var role = message.Data.ToExpandoObject().CreateRole();
 				role._childrenIDs = null;
 				await role.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				role.Set();
@@ -102,15 +102,15 @@ namespace net.vieapps.Services.Portals
 			{
 				var role = message.Data.Get("ID", "").GetRoleByID(false, false);
 				role = role == null
-					? message.Data.ToExpandoObject().CreateRoleInstance()
-					: role.UpdateRoleInstance(message.Data.ToExpandoObject());
+					? message.Data.ToExpandoObject().CreateRole()
+					: role.Update(message.Data.ToExpandoObject());
 				role._childrenIDs = null;
 				await role.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				role.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
-				message.Data.ToExpandoObject().CreateRoleInstance().Remove();
+				message.Data.ToExpandoObject().CreateRole().Remove();
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Role role, string oldParentID, CancellationToken cancellationToken, string correlationID = null)
@@ -124,7 +124,7 @@ namespace net.vieapps.Services.Portals
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			return Task.WhenAll
 			(
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear related cache of role [{role.ID} => {role.Title}]\r\n{dataCacheKeys.Count} keys => {dataCacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of role [{role.ID} => {role.Title}]\r\n{dataCacheKeys.Count} keys => {dataCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				Utility.Cache.RemoveAsync(dataCacheKeys, cancellationToken)
 			);
 		}
@@ -140,7 +140,7 @@ namespace net.vieapps.Services.Portals
 					Data = role.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.WriteCacheLogs ? Utility.WriteLogAsync(correlationID, $"Clear cache of a role [{role.Title} - ID: {role.ID}]", cancellationToken, "Caches") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a role [{role.Title} - ID: {role.ID}]", "Caches") : Task.CompletedTask
 			});
 
 		internal static async Task<JObject> SearchRolesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -174,7 +174,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationExistedException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -234,12 +234,12 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// create new
-			var role = request.CreateRoleInstance("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var role = request.CreateRole("SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
@@ -360,7 +360,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, role.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, role.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -413,7 +413,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, role.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, role.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -421,7 +421,7 @@ namespace net.vieapps.Services.Portals
 			var oldParentID = role.ParentID;
 			var oldUserIDs = role.UserIDs ?? new List<string>();
 
-			role.UpdateRoleInstance(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async obj =>
+			role.Update(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
@@ -596,7 +596,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, role.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, role.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -812,10 +812,7 @@ namespace net.vieapps.Services.Portals
 					await Role.CreateAsync(role, cancellationToken).ConfigureAwait(false);
 				}
 				else
-				{
-					role.Fill(data);
-					await Role.UpdateAsync(role, true, cancellationToken).ConfigureAwait(false);
-				}
+					await Role.UpdateAsync(role.Update(data), true, cancellationToken).ConfigureAwait(false);
 			}
 			else if (role != null)
 				await Role.DeleteAsync<Role>(role.ID, role.LastModifiedID, cancellationToken).ConfigureAwait(false);

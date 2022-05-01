@@ -104,7 +104,7 @@ namespace net.vieapps.Services.Portals
 					var template = xdocTemplate.GetXDocument();
 					var zones = template.GetZones();
 
-					if (zones.Count() < 1)
+					if (!zones.Any())
 						throw new TemplateIsInvalidException("The template got no zone (means no any tag with 'zone-id' attribute)");
 
 					var zoneIDs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -162,7 +162,7 @@ namespace net.vieapps.Services.Portals
 					using (var stream = xslt.ToBytes().ToMemoryStream())
 					using (var reader = XmlReader.Create(stream))
 					{
-						var xslTransform = new XslCompiledTransform(Utility.Logger.IsEnabled(LogLevel.Debug));
+						var xslTransform = new XslCompiledTransform(Utility.IsDebugLogEnabled);
 						xslTransform.Load(reader, enableDocumentFunctionAndInlineScript ? new XsltSettings(true, true) : null, stylesheetResolver ?? new XmlUrlResolver());
 						return xslTransform;
 					}
@@ -280,7 +280,7 @@ namespace net.vieapps.Services.Portals
 		public static string Transform(this XDocument xml, string xslt, bool enableDocumentFunctionAndInlineScript = false, XsltArgumentList xsltArguments = null, XmlResolver stylesheetResolver = null)
 			=> xml?.ToXmlDocument().Transform(xslt, enableDocumentFunctionAndInlineScript, xsltArguments, stylesheetResolver);
 
-		static Regex InvalidXmlCharacters { get; }  = new Regex("[\x00-\x08\x0B\x0C\x0E-\x1F]", RegexOptions.Compiled);
+		static Regex InvalidXmlCharacters { get; } = new Regex("[\x00-\x08\x0B\x0C\x0E-\x1F]", RegexOptions.Compiled);
 
 		/// <summary>
 		/// Cleans invalid characters that not allowed in XML

@@ -183,11 +183,11 @@ namespace net.vieapps.Services.Portals
 			this.CommonSettings?.Normalize(settings =>
 			{
 				(settings.Template ?? "").ValidateTemplate();
-				settings.IconURI = settings.IconURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/");
+				settings.IconURI = settings.IconURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{this.Organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/");
 				if (settings.TitleUISettings != null)
-					settings.TitleUISettings.BackgroundImageURI = settings.TitleUISettings.BackgroundImageURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/");
+					settings.TitleUISettings.BackgroundImageURI = settings.TitleUISettings.BackgroundImageURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{this.Organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/");
 				if (settings.ContentUISettings != null)
-					settings.ContentUISettings.BackgroundImageURI = settings.ContentUISettings.BackgroundImageURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/");
+					settings.ContentUISettings.BackgroundImageURI = settings.ContentUISettings.BackgroundImageURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{this.Organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/");
 			});
 
 			this.ExpressionID = string.IsNullOrWhiteSpace(this.ExpressionID) ? null : this.ExpressionID;

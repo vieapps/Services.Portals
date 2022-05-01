@@ -18,14 +18,14 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory());
 
-		internal static bool IsDebugEnabled { get; } = Utility.Logger != null && Utility.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug);
+		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
 
-		internal static bool WriteCacheLogs { get; } = Utility.IsDebugEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
-
-		/// <summary>
-		/// Gets the refer URL of the refresher
-		/// </summary>
-		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://portals.vieapps.net/~url.refresher");
+		internal static Dictionary<string, string> RefresherHeaders { get; } = new Dictionary<string, string>
+		{
+			["AllowAutoRedirect"] = "true",
+			["Referer"] = Utility.RefresherURL,
+			["User-Agent"] = $"{UtilityService.DesktopUserAgent} NGX-Refresher/{typeof(DesktopProcessor).Assembly.GetVersion(false)}"
+		};
 
 		/// <summary>
 		/// Gets the key for storing a set of keys that belong to an organization
@@ -155,20 +155,26 @@ namespace net.vieapps.Services.Portals
 				.ToList();
 		}
 
-		/// <summary>
-		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
-		/// </summary>
-		/// <param name="organization"></param>
-		/// <param name="desktopAlias"></param>
-		/// <param name="requestURI"></param>
-		/// <returns></returns>
-		public static string GetDesktopCacheKey(this Organization organization, string desktopAlias, Uri requestURI)
+		internal static string GetRequestPath(this Organization organization, Uri requestURI)
 		{
 			var path = requestURI.AbsolutePath.ToLower();
 			while (path.EndsWith("/") || path.EndsWith("."))
 				path = path.Left(path.Length - 1).Trim();
 			path = path.IsStartsWith($"/~{organization.Alias}") ? path.Right(path.Length - organization.Alias.Length - 2) : path;
 			path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
+			return path;
+		}
+
+		/// <summary>
+		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
+		/// </summary>
+		/// <param name="organization"></param>
+		/// <param name="requestURI"></param>
+		/// <param name="desktopAlias"></param>
+		/// <returns></returns>
+		public static string GetDesktopCacheKey(this Organization organization, Uri requestURI, string desktopAlias)
+		{
+			var path = organization.GetRequestPath(requestURI);
 			path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
 			return $"{organization.ID}:" + (desktopAlias.IsEquals("-default") || desktopAlias.IsEquals(organization.HomeDesktop?.Alias) ? "-default" : path).GenerateUUID();
 		}
@@ -180,7 +186,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="requestURI"></param>
 		/// <returns></returns>
 		public static string GetDesktopCacheKey(this Desktop desktop, Uri requestURI)
-			=> desktop.Organization.GetDesktopCacheKey(desktop.Alias, requestURI);
+			=> desktop.Organization.GetDesktopCacheKey(requestURI, desktop.Alias);
 
 		/// <summary>
 		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
@@ -198,10 +204,10 @@ namespace net.vieapps.Services.Portals
 		/// <param name="desktopAlias"></param>
 		/// <param name="requestURI"></param>
 		/// <returns></returns>
-		public static List<string> GetDesktopCacheKeys(this Organization organization, string desktopAlias, Uri requestURI)
+		public static List<string> GetDesktopCacheKeys(this Organization organization, Uri requestURI, string desktopAlias)
 		{
-			var cacheKey = organization.GetDesktopCacheKey(desktopAlias, requestURI);
-			return new[] { cacheKey }.Concat(new[] { $"{cacheKey}:time", $"{cacheKey}:expiration" }).ToList();
+			var cacheKey = organization.GetDesktopCacheKey(requestURI, desktopAlias);
+			return new List<string> { cacheKey, $"{cacheKey}:time", $"{cacheKey}:expiration" };
 		}
 
 		/// <summary>
@@ -211,7 +217,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="requestURI"></param>
 		/// <returns></returns>
 		public static List<string> GetDesktopCacheKeys(this Desktop desktop, Uri requestURI)
-			=> desktop.Organization.GetDesktopCacheKeys(desktop.Alias, requestURI);
+			=> desktop.Organization.GetDesktopCacheKeys(requestURI, desktop.Alias);
 
 		/// <summary>
 		/// Gets all the keys for storing HTML code of a desktop that specified by alias and requested URL
@@ -222,20 +228,15 @@ namespace net.vieapps.Services.Portals
 		public static List<string> GetDesktopCacheKeys(this Desktop desktop, string requestURL)
 			=> desktop.GetDesktopCacheKeys(new Uri(requestURL.IsStartsWith("http://") || requestURL.IsStartsWith("https://") ? requestURL : "https://site.vieapps.net/" + (requestURL.Equals("#") ? "" : requestURL.Replace("~/", ""))));
 
-		/// <summary>
-		/// Gets all the keys for storing HTML code of all home desktops
-		/// </summary>
-		/// <param name="organization"></param>
-		/// <returns></returns>
 		internal static List<string> GetDesktopCacheKey(this Organization organization)
 		{
 			var cacheKeys = new List<string>
 			{
-				organization.HomeDesktop?.GetDesktopCacheKey($"{Utility.PortalsHttpURI}/~{organization.Alias}/{organization.HomeDesktop?.Alias}"),
+				organization.HomeDesktop?.GetDesktopCacheKey($"{organization.URL}/{organization.HomeDesktop?.Alias}"),
 				$"{organization.ID}:{organization.HomeDesktop?.Alias.GenerateUUID()}"
 			};
 			if (organization.Sites != null && organization.Sites.Count > 0)
-				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey($"{Utility.PortalsHttpURI}/~{organization.Alias}/{site.HomeDesktop?.Alias}"))).ToList();
+				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey($"{organization.URL}/{site.HomeDesktop?.Alias}"))).ToList();
 			cacheKeys = cacheKeys.Where(cacheKey => cacheKey != null).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			return cacheKeys.Concat(cacheKeys.Select(cacheKey => new[] { $"{cacheKey}:time", $"{cacheKey}:expiration" }).SelectMany(keys => keys)).ToList();
 		}
@@ -252,27 +253,20 @@ namespace net.vieapps.Services.Portals
 		public static Task SetCacheOfPageSizeAsync<T>(IFilterBy<T> filter, SortBy<T> sort, int pageSize, CancellationToken cancellationToken = default) where T : class
 			=> Utility.Cache.SetAsync($"{Extensions.GetCacheKey(filter, sort)}:size", pageSize, cancellationToken);
 
-		/// <summary>
-		/// Refreshs a web page
-		/// </summary>
-		/// <param name="url"></param>
-		/// <param name="delay"></param>
-		/// <param name="correlationID"></param>
-		/// <param name="message"></param>
-		/// <returns></returns>
-		internal static async Task RefreshWebPageAsync(this string url, int delay = 0, string correlationID = null, string message = null)
+		internal static async Task RefreshWebPageAsync(this string url, int delay = 0, string correlationID = null, string log = null)
 		{
+			correlationID = correlationID ?? UtilityService.NewUUID;
 			try
 			{
 				if (delay > 0)
-					await Task.Delay(delay * 1000).ConfigureAwait(false);
-				await new Uri(url).FetchHttpAsync(new Dictionary<string, string> { ["Referer"] = Utility.RefresherURL, ["User-Agent"] = $"{UtilityService.DesktopUserAgent} NGX-Refresher/{typeof(DesktopProcessor).Assembly.GetVersion(false)}" }, 13, Utility.CancellationToken).ConfigureAwait(false);
-				if (Utility.WriteCacheLogs)
-					await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"{message ?? "Refresh an url successful"} => {url}", Utility.CancellationToken, "Caches").ConfigureAwait(false);
+					await Task.Delay(delay * 1000, Utility.CancellationToken).ConfigureAwait(false);
+				await new Uri(url).FetchHttpAsync(Utility.RefresherHeaders, 13, Utility.CancellationToken).ConfigureAwait(false);
+				if (Utility.IsCacheLogEnabled)
+					await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {url}", "Caches").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await Utility.WriteLogAsync(correlationID ?? UtilityService.NewUUID, $"Error occurred while refreshing an url ({url}) => {ex.Message} [{ex.GetType()}]", Utility.CancellationToken, "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
 			}
 		}
 	}

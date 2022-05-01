@@ -1,11 +1,9 @@
 ﻿#region Related components
 using System;
 using System.Linq;
-using System.Dynamic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Caching;
@@ -43,7 +41,7 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception exception)
 			{
-				await requestInfo.WriteErrorAsync(exception, cancellationToken).ConfigureAwait(false);
+				await requestInfo.WriteErrorAsync(exception).ConfigureAwait(false);
 			}
 		}
 
@@ -88,8 +86,8 @@ namespace net.vieapps.Services.Portals
 					emailSettings = emailSettings ?? parentAsOrganization.EmailSettings;
 				}
 
-				events = events != null && events.Count > 0 ? events : parentNotificationSettings?.Events;
-				methods = methods != null && methods.Count > 0 ? methods : parentNotificationSettings?.Methods;
+				events = events != null && events.Any() ? events : parentNotificationSettings?.Events;
+				methods = methods != null && methods.Any() ? methods : parentNotificationSettings?.Methods;
 				emails = emails ?? parentNotificationSettings?.Emails;
 				emailsByApprovalStatus = emailsByApprovalStatus ?? parentNotificationSettings?.EmailsByApprovalStatus;
 				emailsWhenPublish = emailsWhenPublish ?? parentNotificationSettings?.EmailsWhenPublish;
@@ -98,7 +96,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// stop if has no event
-			if (events == null || events.Count < 1 || events.FirstOrDefault(e => e.IsEquals(@event)) == null)
+			if (events == null || !events.Any() || events.FirstOrDefault(e => e.IsEquals(@event)) == null)
 				return;
 
 			// prepare parameters
@@ -112,9 +110,9 @@ namespace net.vieapps.Services.Portals
 			var alwaysUseHtmlSuffix = organization == null || organization.AlwaysUseHtmlSuffix;
 			if (organization != null && organization._siteIDs == null)
 				await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false);
-			var site = organization?.Sites.FirstOrDefault();
-			var siteDomain = $"{site?.SubDomain}.{site?.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www.");
-			var siteURL = $"http{(site != null && site.AlwaysUseHTTPs ? "s" : "")}://{siteDomain}/";
+			var site = organization?.DefaultSite;
+			var siteDomain = site?.Host;
+			var siteURL = $"{site?.GetURL()}/";
 
 			// prepare the recipients and notification settings
 			var recipientIDs = new List<string>();
@@ -133,11 +131,11 @@ namespace net.vieapps.Services.Portals
 
 				case ApprovalStatus.Pending:
 					recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false);
-					if (recipientIDs.Count < 1)
+					if (!recipientIDs.Any())
 						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false);
-					if (recipientIDs.Count < 1)
+					if (!recipientIDs.Any())
 						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
-					if (recipientIDs.Count < 1)
+					if (!recipientIDs.Any())
 						recipientIDs = new[] { organization.OwnerID }.ToList();
 					emailNotifications = emailsByApprovalStatus != null && emailsByApprovalStatus.ContainsKey($"{status}")
 						? emailsByApprovalStatus[$"{status}"]
@@ -153,9 +151,9 @@ namespace net.vieapps.Services.Portals
 
 				case ApprovalStatus.Approved:
 					recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false);
-					if (recipientIDs.Count < 1)
+					if (!recipientIDs.Any())
 						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
-					if (recipientIDs.Count < 1)
+					if (!recipientIDs.Any())
 						recipientIDs = new[] { organization.OwnerID }.ToList();
 					emailNotifications = emailsByApprovalStatus != null && emailsByApprovalStatus.ContainsKey($"{status}")
 						? emailsByApprovalStatus[$"{status}"]
@@ -166,7 +164,7 @@ namespace net.vieapps.Services.Portals
 					recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
 						.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
 						.Concat(new[] { @object.CreatedID }).ToList();
-					if (recipientIDs.Count < 1)
+					if (!recipientIDs.Any())
 						recipientIDs = new[] { organization.OwnerID }.ToList();
 					emailNotifications = emailsByApprovalStatus != null && emailsByApprovalStatus.ContainsKey($"{status}")
 						? emailsByApprovalStatus[$"{status}"]
@@ -177,7 +175,7 @@ namespace net.vieapps.Services.Portals
 					recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
 						.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
 						.Concat(new[] { @object.CreatedID, @object.LastModifiedID }).ToList();
-					if (recipientIDs.Count < 1)
+					if (!recipientIDs.Any())
 						recipientIDs = new[] { organization.OwnerID }.ToList();
 					emailNotifications = emailsByApprovalStatus != null && emailsByApprovalStatus.ContainsKey($"{status}")
 						? emailsByApprovalStatus[$"{status}"]
@@ -223,11 +221,11 @@ namespace net.vieapps.Services.Portals
 					.SelectMany(sessions => sessions.Select(session => session.Get<string>("DeviceID")))
 					.ForEach(deviceID => new UpdateMessage(baseMessage) { DeviceID = deviceID }.Send());
 				if (writeDebugLogs)
-					await requestInfo.WriteLogAsync($"Send app notifications successful\r\n{baseMessage.ToJson()}", cancellationToken, "Notifications").ConfigureAwait(false);
+					await requestInfo.WriteLogAsync($"Send app notifications successful\r\n{baseMessage.ToJson()}", "Notifications").ConfigureAwait(false);
 			}
 			catch (Exception exception)
 			{
-				await requestInfo.WriteErrorAsync(exception, cancellationToken, "Error occurred while sending app notifications").ConfigureAwait(false);
+				await requestInfo.WriteErrorAsync(exception, "Error occurred while sending app notifications").ConfigureAwait(false);
 			}
 
 			// send email notifications
@@ -342,11 +340,11 @@ namespace net.vieapps.Services.Portals
 				if (sendEmailNotifications || (!@event.IsEquals("Delete") && businessObject != null && status.Equals(ApprovalStatus.Published) && !status.Equals(previousStatus) && emailsWhenPublish != null))
 					try
 					{
-						instructions = JObject.Parse(await UtilityService.FetchHttpAsync($"{Utility.APIsHttpURI}/statics/instructions/portals/{language}.json", cancellationToken).ConfigureAwait(false))?.Get<JObject>("notifications");
+						instructions = JObject.Parse(await new Uri($"{Utility.APIsHttpURI}/statics/instructions/portals/{language}.json").FetchHttpAsync(cancellationToken).ConfigureAwait(false))?.Get<JObject>("notifications");
 					}
 					catch (Exception exception)
 					{
-						await requestInfo.WriteErrorAsync(exception, cancellationToken, "Error occurred while fetching instructions").ConfigureAwait(false);
+						await requestInfo.WriteErrorAsync(exception, "Error occurred while fetching instructions").ConfigureAwait(false);
 					}
 
 				// send a normal email message (when the status was changed)
@@ -396,11 +394,11 @@ namespace net.vieapps.Services.Portals
 							$"- Subject: {message.Subject}";
 						if (writeDebugLogs)
 							log += $"\r\n- Message: {message.ToJson()}";
-						await requestInfo.WriteLogAsync(log, cancellationToken, "Notifications").ConfigureAwait(false);
+						await requestInfo.WriteLogAsync(log, "Notifications").ConfigureAwait(false);
 					}
 					catch (Exception exception)
 					{
-						await requestInfo.WriteErrorAsync(exception, cancellationToken, "Error occurred while adding an email notification into queue").ConfigureAwait(false);
+						await requestInfo.WriteErrorAsync(exception, "Error occurred while adding an email notification into queue").ConfigureAwait(false);
 					}
 
 				// send a special email message (when publish)
@@ -450,11 +448,11 @@ namespace net.vieapps.Services.Portals
 							$"- Subject: {message.Subject}";
 						if (writeDebugLogs)
 							log += $"\r\n- Message: {message.ToJson()}";
-						await requestInfo.WriteLogAsync(log, cancellationToken, "Notifications").ConfigureAwait(false);
+						await requestInfo.WriteLogAsync(log, "Notifications").ConfigureAwait(false);
 					}
 					catch (Exception exception)
 					{
-						await requestInfo.WriteErrorAsync(exception, cancellationToken, "Error occurred while adding an email notification (notify when publish) into queue").ConfigureAwait(false);
+						await requestInfo.WriteErrorAsync(exception, "Error occurred while adding an email notification (notify when publish) into queue").ConfigureAwait(false);
 					}
 			}
 
@@ -517,12 +515,12 @@ namespace net.vieapps.Services.Portals
 							$"- Event: {@event}" + "\r\n" +
 							$"- Status: {status} (previous: {previousStatus})" + "\r\n" +
 							$"- Endpoint URL: {message.EndpointURL}" + (writeDebugLogs ? $"\r\n- Message: {message.ToJson()}" : "");
-						await requestInfo.WriteLogAsync(log, cancellationToken, "Notifications").ConfigureAwait(false);
+						await requestInfo.WriteLogAsync(log, "Notifications").ConfigureAwait(false);
 					}).ConfigureAwait(false);
 				}
 				catch (Exception exception)
 				{
-					await requestInfo.WriteErrorAsync(exception, cancellationToken, "Error occurred while adding a web-hook notification into queue").ConfigureAwait(false);
+					await requestInfo.WriteErrorAsync(exception, "Error occurred while adding a web-hook notification into queue").ConfigureAwait(false);
 				}
 		}
 	}

@@ -167,15 +167,15 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<IBusinessRepositoryEntity> BusinessRepositoryEntities => this.ContentTypes.Select(contentType => contentType as IBusinessRepositoryEntity).ToList();
 
-		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onPreCompleted = null)
-			=> this.ToJson(false, addTypeOfExtendedProperties, onPreCompleted);
+		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
+			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addContentTypes, bool addTypeOfExtendedProperties, Action<JObject> onPreCompleted = null)
+		public JObject ToJson(bool addContentTypes, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				if (addContentTypes)
 					json["ContentTypes"] = this.ContentTypes?.Select(contentType => contentType?.ToJson()).Where(contentType => contentType != null).ToJArray();
-				onPreCompleted?.Invoke(json);
+				onCompleted?.Invoke(json);
 			});
 
 		internal void NormalizeExtras()

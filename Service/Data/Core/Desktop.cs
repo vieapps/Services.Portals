@@ -165,7 +165,7 @@ namespace net.vieapps.Services.Portals
 		INestedObject INestedObject.Parent => this.ParentDesktop;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
-		public string WorkingTheme => this.Theme ?? this.Organization?.Sites.FirstOrDefault()?.Theme ?? this.Organization?.Theme ?? "default";
+		public string WorkingTheme => this.Theme ?? this.Organization?.DefaultSite?.Theme ?? this.Organization?.Theme ?? "default";
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string WorkingLanguage => this.Language ?? this.ParentDesktop?.WorkingLanguage;
@@ -251,10 +251,10 @@ namespace net.vieapps.Services.Portals
 
 		internal void NormalizeExtras()
 		{
-			this.UISettings?.Normalize(uiSettings => uiSettings.BackgroundImageURI = uiSettings.BackgroundImageURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/"));
+			this.UISettings?.Normalize(uiSettings => uiSettings.BackgroundImageURI = uiSettings.BackgroundImageURI?.Replace(StringComparison.OrdinalIgnoreCase, $"{this.Organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/"));
 			this.UISettings = this.UISettings != null && string.IsNullOrWhiteSpace(this.UISettings.Padding) && string.IsNullOrWhiteSpace(this.UISettings.Margin) && string.IsNullOrWhiteSpace(this.UISettings.Width) && string.IsNullOrWhiteSpace(this.UISettings.Height) && string.IsNullOrWhiteSpace(this.UISettings.Color) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundColor) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageURI) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageRepeat) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImagePosition) && string.IsNullOrWhiteSpace(this.UISettings.BackgroundImageSize) && string.IsNullOrWhiteSpace(this.UISettings.Css) && string.IsNullOrWhiteSpace(this.UISettings.Style) ? null : this.UISettings;
-			this.IconURI = string.IsNullOrWhiteSpace(this.IconURI) ? null : this.IconURI.Trim().Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/");
-			this.CoverURI = string.IsNullOrWhiteSpace(this.CoverURI) ? null : this.CoverURI.Trim().Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/");
+			this.IconURI = string.IsNullOrWhiteSpace(this.IconURI) ? null : this.IconURI.Trim().Replace(StringComparison.OrdinalIgnoreCase, $"{this.Organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/");
+			this.CoverURI = string.IsNullOrWhiteSpace(this.CoverURI) ? null : this.CoverURI.Trim().Replace(StringComparison.OrdinalIgnoreCase, $"{this.Organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/");
 			this.MetaTags = string.IsNullOrWhiteSpace(this.MetaTags) ? null : this.MetaTags.Trim();
 			this.Stylesheets = string.IsNullOrWhiteSpace(this.Stylesheets) ? null : this.Stylesheets.Trim();
 			this.ScriptLibraries = string.IsNullOrWhiteSpace(this.ScriptLibraries) ? null : this.ScriptLibraries.Trim();

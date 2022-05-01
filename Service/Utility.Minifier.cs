@@ -144,7 +144,10 @@ namespace net.vieapps.Services.Portals
 		/// <param name="data"></param>
 		/// <returns></returns>
 		public static string MinifyJs(byte[] data)
-			=> Minifier.MinifyJs(data.ToMemoryStream());
+		{
+			using (var stream = data.ToMemoryStream())
+				return Minifier.MinifyJs(stream);
+		}
 
 		/// <summary>
 		/// Minifies Javascript code
@@ -272,7 +275,10 @@ namespace net.vieapps.Services.Portals
 		/// <param name="data"></param>
 		/// <returns></returns>
 		public static string MinifyCss(byte[] data)
-			=> Minifier.MinifyCss(data.ToMemoryStream());
+		{
+			using (var stream = data.ToMemoryStream())
+				return Minifier.MinifyCss(stream);
+		}
 
 		/// <summary>
 		/// Minifies CSS code

@@ -19,14 +19,14 @@ namespace net.vieapps.Services.Portals
 {
 	public static class FormProcessor
 	{
-		public static Form CreateFormInstance(this ExpandoObject data, string excluded = null, Action<Form> onCompleted = null)
+		public static Form CreateForm(this ExpandoObject data, string excluded = null, Action<Form> onCompleted = null)
 			=> Form.CreateInstance(data, excluded?.ToHashSet(), form =>
 			{
 				form.NormalizeHTMLs();
 				onCompleted?.Invoke(form);
 			});
 
-		public static Form UpdateFormInstance(this Form form, ExpandoObject data, string excluded = null, Action<Form> onCompleted = null)
+		public static Form Update(this Form form, ExpandoObject data, string excluded = null, Action<Form> onCompleted = null)
 			=> form.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				form.NormalizeHTMLs();
@@ -78,8 +78,8 @@ namespace net.vieapps.Services.Portals
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			await Utility.Cache.RemoveAsync(dataCacheKeys, cancellationToken).ConfigureAwait(false);
-			if (Utility.WriteCacheLogs && form != null)
-				await Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS form [{form.Title} - ID: {form.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}", cancellationToken, "Caches").ConfigureAwait(false);
+			if (Utility.IsCacheLogEnabled && form != null)
+				await Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS form [{form.Title} - ID: {form.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}", "Caches").ConfigureAwait(false);
 		}
 
 		static async Task<Tuple<long, List<Form>, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Form> filter, SortBy<Form> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false)
@@ -152,7 +152,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(contentType.WorkingPrivileges, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(contentType.WorkingPrivileges, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -205,7 +205,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationToken),
-					Utility.Logger.IsEnabled(LogLevel.Debug) ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS forms\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", cancellationToken, "Caches") : Task.CompletedTask
+					Utility.Logger.IsEnabled(LogLevel.Debug) ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS forms\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}
 
@@ -234,7 +234,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsContributor(contentType.WorkingPrivileges, null, organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsContributor(contentType.WorkingPrivileges, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -249,7 +249,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// get data
-			var form = request.CreateFormInstance("Privileges,Created,CreatedID,LastModified,LastModifiedID,Captcha", obj =>
+			var form = request.CreateForm("Privileges,Created,CreatedID,LastModified,LastModifiedID,Captcha", obj =>
 			{
 				obj.SystemID = organization.ID;
 				obj.RepositoryID = module.ID;
@@ -298,7 +298,7 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/form-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -366,17 +366,17 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/form-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsEditor(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsEditor(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization);
 			if (!gotRights)
 				gotRights = form.Status.Equals(ApprovalStatus.Draft) || form.Status.Equals(ApprovalStatus.Pending) || form.Status.Equals(ApprovalStatus.Rejected)
 					? requestInfo.Session.User.ID.IsEquals(form.CreatedID)
-					: requestInfo.Session.User.IsEditor(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization, requestInfo.CorrelationID);
+					: requestInfo.Session.User.IsEditor(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// prepare data
 			var oldStatus = form.Status;
-			form.UpdateFormInstance(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID,Profiles", obj =>
+			form.Update(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID,Profiles", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
@@ -399,11 +399,11 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/form-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization, requestInfo.CorrelationID);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization);
 			if (!gotRights)
 				gotRights = form.Status.Equals(ApprovalStatus.Draft) || form.Status.Equals(ApprovalStatus.Pending) || form.Status.Equals(ApprovalStatus.Rejected)
-					? requestInfo.Session.User.ID.IsEquals(form.CreatedID) || requestInfo.Session.User.IsEditor(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization, requestInfo.CorrelationID)
-					: requestInfo.Session.User.IsModerator(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization, requestInfo.CorrelationID);
+					? requestInfo.Session.User.ID.IsEquals(form.CreatedID) || requestInfo.Session.User.IsEditor(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization)
+					: requestInfo.Session.User.IsModerator(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -414,7 +414,7 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
-				await requestInfo.WriteErrorAsync(ex, cancellationToken, $"Error occurred while deleting files => {ex.Message}", "CMS.Form").ConfigureAwait(false);
+				await requestInfo.WriteErrorAsync(ex, $"Error occurred while deleting files => {ex.Message}", "CMS.Form").ConfigureAwait(false);
 				throw;
 			}
 
