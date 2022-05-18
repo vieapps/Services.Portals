@@ -941,6 +941,7 @@ namespace net.vieapps.Services.Portals
 			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 			var showAttachments = options.Get("ShowAttachments", true);
+			var forceCache = requestInfo.GetParameter("x-force-cache") != null || requestInfo.GetParameter("x-no-cache") != null;
 
 			var level = options.Get("Level", 1);
 			var maxLevel = options.Get("MaxLevel", 0);
@@ -948,16 +949,23 @@ namespace net.vieapps.Services.Portals
 			string data = null;
 
 			// get parent
-			var parent = filter.GetChild("ParentID") is FilterBy<Link> parentFilter && parentFilter.Operator.Equals(CompareOperator.Equals) && parentFilter.Value != null
-				? await Link.GetAsync<Link>(parentFilter.Value as string, cancellationToken).ConfigureAwait(false)
+			var parentIdentity = filter.GetChild("ParentID") is FilterBy<Link> parentFilter && parentFilter.Operator.Equals(CompareOperator.Equals) && parentFilter.Value != null
+				? parentFilter.Value as string
+				: null;
+
+			if (forceCache)
+				await Utility.Cache.RemoveAsync(parentIdentity.GetCacheKey<Link>(), cancellationToken).ConfigureAwait(false);
+
+			var parent = !string.IsNullOrWhiteSpace(parentIdentity)
+				? await Link.GetAsync<Link>(parentIdentity, cancellationToken).ConfigureAwait(false)
 				: null;
 
 			// as lookup
 			if (parent != null && options.Get("AsLookup", false))
 			{
 				// prepare cache
-				var cacheKey = $"{parent.ID}:xml:o#{optionsJson.ToString(Formatting.None).GenerateUUID()}:p#{paginationJson.ToString(Formatting.None).GenerateUUID()}";
-				if (requestInfo.GetParameter("x-no-cache") != null || requestInfo.GetParameter("x-force-cache") != null)
+				var cacheKey = $"{parent.GetCacheKey()}:xml:o#{optionsJson.ToString(Formatting.None).GenerateUUID()}:p#{paginationJson.ToString(Formatting.None).GenerateUUID()}";
+				if (forceCache)
 					await Utility.Cache.RemoveAsync(cacheKey, cancellationToken).ConfigureAwait(false);
 
 				// get cache
@@ -996,7 +1004,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Utility.Cache.SetAsync(cacheKey, data, cancellationToken),
-						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, new[] { parent.ID.GetCacheKey() }.Concat((parent.Children ?? new List<Link>()).Where(obj => obj != null && obj.ID != null && obj.ID.IsValidUUID()).Select(obj => obj.GetCacheKey())), cancellationToken) : Task.CompletedTask,
+						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, new[] { parent.GetCacheKey() }.Concat((parent.Children ?? new List<Link>()).Where(obj => obj != null && obj.ID != null && obj.ID.IsValidUUID()).Select(obj => obj.GetCacheKey())), cancellationToken) : Task.CompletedTask,
 						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), new[] { cacheKey }, cancellationToken) : Task.CompletedTask,
 						Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", "Caches") : Task.CompletedTask
 					).ConfigureAwait(false);
@@ -1020,7 +1028,7 @@ namespace net.vieapps.Services.Portals
 
 				// prepare cache
 				var cacheKey = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
-				if (requestInfo.GetParameter("x-no-cache") != null || requestInfo.GetParameter("x-force-cache") != null)
+				if (forceCache)
 					await Utility.Cache.RemoveAsync(new[] { cacheKey, Extensions.GetCacheKeyOfTotalObjects(filter, sort), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) }, cancellationToken).ConfigureAwait(false);
 
 				// get cache

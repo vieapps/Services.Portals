@@ -38,10 +38,13 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(content);
 			});
 
-		internal static string GetCacheKeyOfAliasedContent(this ContentType contentType, Category category, string alias)
-			=> contentType != null && category != null && !string.IsNullOrWhiteSpace(alias)
-				? $"e:{contentType.ID}#c:{category.ID}#a:{alias.NormalizeAlias().GenerateUUID()}".GetCacheKey<Content>()
+		internal static string GetCacheKeyOfAliasedContent(this string contentTypeID, string categoryID, string alias)
+			=> !string.IsNullOrWhiteSpace(contentTypeID) && !string.IsNullOrWhiteSpace(categoryID) && !string.IsNullOrWhiteSpace(alias)
+				? $"e:{contentTypeID}#c:{categoryID}#a:{alias.NormalizeAlias().GenerateUUID()}".GetCacheKey<Content>()
 				: null;
+
+		internal static string GetCacheKeyOfAliasedContent(this ContentType contentType, Category category, string alias)
+			=> contentType?.ID.GetCacheKeyOfAliasedContent(category.ID, alias);
 
 		internal static string GetCacheKeyOfAliasedContent(this Content content)
 			=> content?.ContentType?.GetCacheKeyOfAliasedContent(content.Category, content.Alias);
@@ -69,7 +72,7 @@ namespace net.vieapps.Services.Portals
 				Filters<Content>.Equals("Alias", alias.NormalizeAlias())
 			);
 
-		static async Task<Content> RefreshAsync(this Content content, CancellationToken cancellationToken = default, string correlationID = null, string message = null, bool fetchRepository = false)
+		static async Task<Content> RefreshAsync(this Content content, CancellationToken cancellationToken = default, string correlationID = null, string message = null, bool fetchRepository = false, bool reloadWebpages = true)
 		{
 			if (fetchRepository)
 			{
@@ -77,13 +80,16 @@ namespace net.vieapps.Services.Portals
 				content = await Content.GetAsync<Content>(content.ID, cancellationToken).ConfigureAwait(false);
 			}
 
-			message = (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]";
-			await Task.WhenAll
-			(
-				content.Status.Equals(ApprovalStatus.Published) ? $"{content.GetURL()}?x-force-cache=x".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
-				content.Category != null ? $"{content.Category.GetURL()}?x-force-cache=x".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
-				(content.OtherCategories ?? new List<string>()).Select(id => id.GetCategoryByID()).Where(category => category != null).ForEachAsync(category => $"{category.GetURL()}?x-force-cache=x".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message))
-			).ConfigureAwait(false);
+			if (reloadWebpages)
+			{
+				message = (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]";
+				await Task.WhenAll
+				(
+					content.Status.Equals(ApprovalStatus.Published) ? $"{content.GetURL()}?x-force-cache=x".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
+					content.Category != null ? $"{content.Category.GetURL()}?x-force-cache=x".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
+					(content.OtherCategories ?? new List<string>()).Select(id => id.GetCategoryByID()).Where(category => category != null).ForEachAsync(category => $"{category.GetURL()}?x-force-cache=x".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message))
+				).ConfigureAwait(false);
+			}
 
 			return content;
 		}
@@ -247,7 +253,9 @@ namespace net.vieapps.Services.Portals
 			// process cache
 			var suffix = string.IsNullOrWhiteSpace(query) ? (showAttachments ? ":a" : "") + (showURLs ? ":u" : "") + (showDetails ? "" : ":d") : null;
 			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber, string.IsNullOrWhiteSpace(suffix) ? null : suffix) : null;
-			if (cacheKeyOfObjectsJson != null)
+			if (requestInfo.GetParameter("x-force-cache") != null || requestInfo.GetParameter("x-no-cache") != null)
+				await Utility.Cache.RemoveAsync(new[] { cacheKeyOfObjectsJson, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), Extensions.GetCacheKeyOfTotalObjects(filter, sort) }, cancellationToken).ConfigureAwait(false);
+			else if (cacheKeyOfObjectsJson != null)
 			{
 				var json = await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsJson, cancellationToken).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(json))
@@ -474,7 +482,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					Utility.IsDebugLogEnabled ? requestInfo.WriteLogAsync($"Refresh the CMS content by a request [{content.Title} - ID: {content.ID}]", "Caches") : Task.CompletedTask,
-					content.RefreshAsync(cancellationToken, requestInfo.CorrelationID, "Refresh the CMS content by a request", true)
+					content.RefreshAsync(cancellationToken, requestInfo.CorrelationID, "Refresh the CMS content by a request", true, false)
 				).ConfigureAwait(false);
 
 			// prepare the response
@@ -723,6 +731,7 @@ namespace net.vieapps.Services.Portals
 
 			var showBreadcrumbs = options.Get("ShowBreadcrumbs", false);
 			var showPagination = options.Get("ShowPagination", false);
+			var forceCache = requestInfo.GetParameter("x-force-cache") != null || requestInfo.GetParameter("x-no-cache") != null;
 
 			// generate list
 			if (isList)
@@ -804,7 +813,7 @@ namespace net.vieapps.Services.Portals
 				// prepare cache
 				var cacheKeyOfTotalObjects = Extensions.GetCacheKeyOfTotalObjects(filter, sort);
 				var cacheKeyOfObjectsXml = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
-				if (requestInfo.GetParameter("x-no-cache") != null || requestInfo.GetParameter("x-force-cache") != null)
+				if (forceCache)
 					await Utility.Cache.RemoveAsync(new[] { cacheKeyOfTotalObjects, cacheKeyOfObjectsXml, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) }, cancellationToken).ConfigureAwait(false);
 
 				// get cache
@@ -819,7 +828,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				JToken categoryThumbnails = null;
-				data = await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsXml, cancellationToken).ConfigureAwait(false);
+				data = forceCache ? null : await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsXml, cancellationToken).ConfigureAwait(false);
 
 				// process if has no cache
 				if (string.IsNullOrWhiteSpace(data))
@@ -967,8 +976,17 @@ namespace net.vieapps.Services.Portals
 			// generate details
 			else
 			{
+				// process cache
+				var contentAlias = requestJson.Get<string>("ContentIdentity");
+				if (forceCache)
+				{
+					var cacheKeyOfAlias = contentTypeID.GetCacheKeyOfAliasedContent(category?.ID, contentAlias);
+					var contentIdentity = string.IsNullOrWhiteSpace(cacheKeyOfAlias) ? null : await Utility.Cache.GetAsync<string>(cacheKeyOfAlias, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.RemoveAsync(new[] { cacheKeyOfAlias, contentIdentity?.GetCacheKey<Content>() }, cancellationToken).ConfigureAwait(false);
+				}
+
 				// get the requested object
-				var @object = await Content.GetContentByAliasAsync(contentTypeID, requestJson.Get<string>("ContentIdentity"), category?.ID, cancellationToken).ConfigureAwait(false);
+				var @object = await Content.GetContentByAliasAsync(contentTypeID, contentAlias, category?.ID, cancellationToken).ConfigureAwait(false);
 				if (@object == null)
 					throw new InformationNotFoundException();
 				if (@object.Organization == null || @object.Module == null || @object.ContentType == null)
@@ -1009,8 +1027,8 @@ namespace net.vieapps.Services.Portals
 
 				// get cache
 				Task<JToken> thumbnailsTask = null;
-				var cacheKey = $"{@object.ID}:xml:o#{optionsJson.ToString(Formatting.None).GenerateUUID()}:p#{paginationJson.ToString(Formatting.None).GenerateUUID()}";
-				data = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
+				var cacheKey = $"{@object.GetCacheKey()}:xml:o#{optionsJson.ToString(Formatting.None).GenerateUUID()}:p#{paginationJson.ToString(Formatting.None).GenerateUUID()}";
+				data = forceCache ? null : await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 
 				// process if has no cache
 				if (string.IsNullOrWhiteSpace(data))
@@ -1025,7 +1043,7 @@ namespace net.vieapps.Services.Portals
 
 					// get other contents
 					var numberOfOthers = options.Get("NumberOfOthers", 12);
-					var othersTask = showOthers ? @object.LoadOthersAsync(cancellationToken, requestInfo.CorrelationID, numberOfOthers > 0 ? numberOfOthers : 12) : Task.FromResult(new List<Content>());
+					var othersTask = showOthers ? @object.LoadOthersAsync(cancellationToken, requestInfo.CorrelationID, numberOfOthers > 0 ? numberOfOthers : 12, forceCache) : Task.FromResult(new List<Content>());
 
 					// get files
 					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
@@ -1238,10 +1256,14 @@ namespace net.vieapps.Services.Portals
 			return relateds;
 		}
 
-		static async Task<List<Content>> LoadOthersAsync(this Content @object, CancellationToken cancellationToken = default, string correlationID = null, int numberOfOthers = 12)
+		static async Task<List<Content>> LoadOthersAsync(this Content @object, CancellationToken cancellationToken = default, string correlationID = null, int numberOfOthers = 12, bool forceCache = false)
 		{
 			var stopwatch = Stopwatch.StartNew();
 			var objectCacheKey = @object.GetCacheKey();
+
+			if (forceCache)
+				await Utility.Cache.RemoveAsync(new[] { $"{objectCacheKey}:others", $"{objectCacheKey}:newers", $"{objectCacheKey}:olders" }, cancellationToken).ConfigureAwait(false);
+
 			var relatedCacheKeys = new List<string>
 			{
 				$"{objectCacheKey}:others"
