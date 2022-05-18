@@ -172,32 +172,6 @@ namespace net.vieapps.Services.Portals
 							await UtilityService.FetchHttpAsync(Utility.FilesHttpURI).ConfigureAwait(false);
 						}
 						catch { }
-					/**
-					var wordpressCrawler = new Crawlers.WordPress(new Crawler
-					{
-						Title = "Blogchamsoc.com",
-						Type = Crawlers.Type.WordPress,
-						URL = "https://blogchamsoc.com",
-						Options = "{\"RemoveTags\":{\"div\":{\"Operator\":\"Or\",\"Predicates\":[{\"Attribute\":\"id\",\"Operator\":\"Contains\",\"Value\":\"-alert\"},{\"Attribute\":\"id\",\"Operator\":\"Contains\",\"Value\":\"_container\"},{\"Attribute\":\"class\",\"Operator\":\"Contains\",\"Value\":\"message\"},{\"Attribute\":\"class\",\"Operator\":\"Contains\",\"Value\":\"alert\"}]},\"a\":{\"Operator\":\"Or\",\"Predicates\":[{\"Attribute\":\"class\",\"Operator\":\"Contains\",\"Value\":\"-button\"}]}},\"Updates\":{\"Details\":{\"Operator\":\"Or\",\"Predicates\":[{\"Operator\":\"Contains\",\"Value\":\"Blogchamsoc\"}],\"Actions\":[{\"Operator\":\"Replace\",\"Value\":\"href=\\\"https://blogchamsoc.com/\",\"Replacement\":\"href=\\\"~/\"},{\"Operator\":\"Replace\",\"Value\":\"src=\\\"https://blogchamsoc.com/\",\"Replacement\":\"src=\\\"~/\"},{\"Operator\":\"Replace\",\"Value\":\"Blogchamsoc\",\"Replacement\":\"chúng tôi\"},{\"Operator\":\"Replace\",\"Value\":\"src=\\\"~/\",\"Replacement\":\"src=\\\"https://blogchamsoc.com/\"}]},\"Title\":{\"Operator\":\"Or\",\"Predicates\":[{\"Operator\":\"Contains\",\"Value\":\"kem chống lão hóa\"}],\"Actions\":[{\"Operator\":\"Set\",\"Attribute\":\"CategoryID\",\"Value\":\"123456789\"}]}}}"
-					});
-					wordpressCrawler.CrawlerInfo.Categories = await wordpressCrawler.FetchCategoriesAsync().ConfigureAwait(false);
-					wordpressCrawler.CrawlerInfo.SelectedCategories = new[] { wordpressCrawler.CrawlerInfo.Categories.First().ID }.ToList();
-					var adapter = new Crawlers.NormalizingAdapter(wordpressCrawler.CrawlerInfo);
-					var contents = await wordpressCrawler.FetchContentsAsync(null, adapter.NormalizeAsync).ConfigureAwait(false);
-					contents.ForEach(content => content.Normalize(wordpressCrawler.CrawlerInfo, false));
-					/**
-					var bloggerCrawler = new Crawlers.Blogger(new Crawler
-					{
-						Title = "Tyrion Q. Nguyen",
-						Type = Crawlers.Type.Blogger,
-						URL = "https://www.tyrionguyen.com",
-						Options = "{\"RemoveTagAttributes\":{\"Tags\":{\"iframe\":{\"class\":{\"Operator\":\"Or\",\"Predicates\":[{\"Operator\":\"CastAsBoolean\",\"Value\":\"false\"}],\"Actions\":[{\"Operator\":\"Set\",\"Attribute\":\"class\",\"Value\":\"youtube video\"}]},\"youtube-src-id\":{\"Operator\":\"Or\",\"Predicates\":[{\"Operator\":\"NotEquals\",\"Value\":\"\"}],\"Actions\":[{\"Operator\":\"Set\",\"Attribute\":\"class\",\"Value\":\"youtube video\"}]}}}}}"
-					});
-					bloggerCrawler.CrawlerInfo.Categories = await bloggerCrawler.FetchCategoriesAsync().ConfigureAwait(false);
-					var adapter = new Crawlers.NormalizingAdapter(bloggerCrawler.CrawlerInfo);
-					var contents = await bloggerCrawler.FetchContentsAsync(null, adapter.NormalizeAsync).ConfigureAwait(false);
-					contents.ForEach(content => content.Normalize(bloggerCrawler.CrawlerInfo));
-					/**/
 				}).ConfigureAwait(false);
 
 				// refine thumbnail images
@@ -205,7 +179,7 @@ namespace net.vieapps.Services.Portals
 					Task.Run(async () => await this.RefineThumbnailImagesAsync().ConfigureAwait(false)).ConfigureAwait(false);
 
 				// send info & reload resources
-				this.StartTimer(() => this.SendDefinitionInfo(), 59 * 60);
+				this.StartTimer(() => this.SendDefinitionInfo(), 12 * 60 * 60);
 
 				this.StartTimer(async () =>
 				{
@@ -220,7 +194,7 @@ namespace net.vieapps.Services.Portals
 						}.Send();
 						organizations.ForEach(organization => new UpdateMessage
 						{
-							Type = $"{this.ServiceName}#Organization#Create",
+							Type = $"{this.ServiceName}#Organization#Update",
 							Data = organization.ToJson(),
 							DeviceID = "*"
 						}.Send());
@@ -373,276 +347,276 @@ namespace net.vieapps.Services.Portals
 		{
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
 			var stopwatch = Stopwatch.StartNew();
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
-				try
+			try
+			{
+				JToken json = null;
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
+				switch (requestInfo.ObjectName.ToLower())
 				{
-					JToken json = null;
-					switch (requestInfo.ObjectName.ToLower())
-					{
 
-						#region process the request of Portals objects
-						case "organization":
-						case "core.organization":
-							json = await this.ProcessOrganizationAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					#region process the request of Portals objects
+					case "organization":
+					case "core.organization":
+						json = await this.ProcessOrganizationAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "role":
-						case "core.role":
-							json = await this.ProcessRoleAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "role":
+					case "core.role":
+						json = await this.ProcessRoleAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "site":
-						case "core.site":
-							json = await this.ProcessSiteAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "site":
+					case "core.site":
+						json = await this.ProcessSiteAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "desktop":
-						case "core.desktop":
-							json = await this.ProcessDesktopAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "desktop":
+					case "core.desktop":
+						json = await this.ProcessDesktopAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "portlet":
-						case "core.portlet":
-							json = await this.ProcessPortletAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "portlet":
+					case "core.portlet":
+						json = await this.ProcessPortletAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "module":
-						case "core.module":
-							json = await this.ProcessModuleAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "module":
+					case "core.module":
+						json = await this.ProcessModuleAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "contenttype":
-						case "content.type":
-						case "content-type":
-						case "core.contenttype":
-						case "core.content.type":
-							json = await this.ProcessContentTypeAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "contenttype":
+					case "content.type":
+					case "content-type":
+					case "core.contenttype":
+					case "core.content.type":
+						json = await this.ProcessContentTypeAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "expression":
-						case "core.expression":
-							json = await this.ProcessExpressionAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "expression":
+					case "core.expression":
+						json = await this.ProcessExpressionAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "task":
-						case "schedulingtask":
-						case "scheduling.task":
-						case "scheduling-task":
-						case "core.task":
-						case "core.schedulingtask":
-						case "core.scheduling.task":
-						case "core.scheduling-task":
-							json = await this.ProcessSchedulingTaskAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
-						#endregion
+					case "task":
+					case "schedulingtask":
+					case "scheduling.task":
+					case "scheduling-task":
+					case "core.task":
+					case "core.schedulingtask":
+					case "core.scheduling.task":
+					case "core.scheduling-task":
+						json = await this.ProcessSchedulingTaskAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
+					#endregion
 
-						#region process the request of CMS objects
-						case "category":
-						case "cms.category":
-							json = await this.ProcessCategoryAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					#region process the request of CMS objects
+					case "category":
+					case "cms.category":
+						json = await this.ProcessCategoryAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "content":
-						case "cms.content":
-							json = await this.ProcessContentAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "content":
+					case "cms.content":
+						json = await this.ProcessContentAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "item":
-						case "cms.item":
-							json = await this.ProcessItemAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "item":
+					case "cms.item":
+						json = await this.ProcessItemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "link":
-						case "cms.link":
-							json = await this.ProcessLinkAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "link":
+					case "cms.link":
+						json = await this.ProcessLinkAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "form":
-						case "cms.form":
-							json = await this.ProcessFormAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "form":
+					case "cms.form":
+						json = await this.ProcessFormAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "crawler":
-						case "crawlers":
-						case "cms.crawler":
-						case "cms.crawlers":
-							json = await this.ProcessCrawlerAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
-						#endregion
+					case "crawler":
+					case "crawlers":
+					case "cms.crawler":
+					case "cms.crawlers":
+						json = await this.ProcessCrawlerAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
+					#endregion
 
-						#region process request of Portals HTTP service
-						case "identify.system":
-							json = await this.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					#region process request of Portals HTTP service
+					case "identify.system":
+						json = await this.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "generate.feed":
-							json = await this.GenerateFeedAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "generate.feed":
+						json = await this.GenerateFeedAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "process.http.request":
-							json = await this.ProcessHttpRequestAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
-						#endregion
+					case "process.http.request":
+						json = await this.ProcessHttpRequestAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
+					#endregion
 
-						#region process the request of definitions, instructions, files, profiles and all known others
-						case "definitions":
-							switch (requestInfo.GetObjectIdentity())
-							{
-								case "moduledefinitions":
-								case "module.definitions":
-								case "module-definitions":
-									json = Utility.ModuleDefinitions.Values.OrderBy(definition => definition.Title).ToJArray();
-									break;
+					#region process the request of definitions, instructions, files, profiles and all known others
+					case "definitions":
+						switch (requestInfo.GetObjectIdentity())
+						{
+							case "moduledefinitions":
+							case "module.definitions":
+							case "module-definitions":
+								json = Utility.ModuleDefinitions.Values.OrderBy(definition => definition.Title).ToJArray();
+								break;
 
-								case "social":
-								case "socials":
-									json = UtilityService.GetAppSetting("Portals:Socials", "Facebook,Twitter").ToArray().ToJArray();
-									break;
+							case "social":
+							case "socials":
+								json = UtilityService.GetAppSetting("Portals:Socials", "Facebook,Twitter").ToArray().ToJArray();
+								break;
 
-								case "tracking":
-								case "trackings":
-									json = UtilityService.GetAppSetting("Portals:Trackings", "GoogleAnalytics,FacebookPixel").ToArray().ToJArray();
-									break;
+							case "tracking":
+							case "trackings":
+								json = UtilityService.GetAppSetting("Portals:Trackings", "GoogleAnalytics,FacebookPixel").ToArray().ToJArray();
+								break;
 
-								case "theme":
-								case "themes":
-									json = await this.GetThemesAsync(cts.Token).ConfigureAwait(false);
-									break;
+							case "theme":
+							case "themes":
+								json = await this.GetThemesAsync(cts.Token).ConfigureAwait(false);
+								break;
 
-								case "template":
-									json = await this.ProcessTemplateAsync(requestInfo, cts.Token).ConfigureAwait(false);
-									break;
+							case "template":
+								json = await this.ProcessTemplateAsync(requestInfo, cts.Token).ConfigureAwait(false);
+								break;
 
-								case "organization":
-								case "core.organization":
-									json = this.GenerateFormControls<Organization>();
-									break;
+							case "organization":
+							case "core.organization":
+								json = this.GenerateFormControls<Organization>();
+								break;
 
-								case "site":
-								case "core.site":
-									json = this.GenerateFormControls<Site>();
-									break;
+							case "site":
+							case "core.site":
+								json = this.GenerateFormControls<Site>();
+								break;
 
-								case "role":
-								case "core.role":
-									json = this.GenerateFormControls<Role>();
-									break;
+							case "role":
+							case "core.role":
+								json = this.GenerateFormControls<Role>();
+								break;
 
-								case "desktop":
-								case "core.desktop":
-									json = this.GenerateFormControls<Desktop>();
-									break;
+							case "desktop":
+							case "core.desktop":
+								json = this.GenerateFormControls<Desktop>();
+								break;
 
-								case "portlet":
-								case "core.portlet":
-									json = this.GenerateFormControls<Portlet>();
-									break;
+							case "portlet":
+							case "core.portlet":
+								json = this.GenerateFormControls<Portlet>();
+								break;
 
-								case "module":
-								case "core.module":
-									json = this.GenerateFormControls<Module>();
-									break;
+							case "module":
+							case "core.module":
+								json = this.GenerateFormControls<Module>();
+								break;
 
-								case "contenttype":
-								case "content.type":
-								case "content-type":
-								case "core.contenttype":
-								case "core.content.type":
-									json = this.GenerateFormControls<ContentType>();
-									break;
+							case "contenttype":
+							case "content.type":
+							case "content-type":
+							case "core.contenttype":
+							case "core.content.type":
+								json = this.GenerateFormControls<ContentType>();
+								break;
 
-								case "expression":
-								case "core.expression":
-									json = this.GenerateFormControls<Expression>();
-									break;
+							case "expression":
+							case "core.expression":
+								json = this.GenerateFormControls<Expression>();
+								break;
 
-								case "task":
-								case "schedulingtask":
-								case "scheduling.task":
-								case "scheduling-task":
-								case "core.task":
-								case "core.schedulingtask":
-								case "core.scheduling.task":
-								case "core.scheduling-task":
-									json = this.GenerateFormControls<SchedulingTask>();
-									break;
+							case "task":
+							case "schedulingtask":
+							case "scheduling.task":
+							case "scheduling-task":
+							case "core.task":
+							case "core.schedulingtask":
+							case "core.scheduling.task":
+							case "core.scheduling-task":
+								json = this.GenerateFormControls<SchedulingTask>();
+								break;
 
-								case "crawler":
-								case "cms.crawler":
-									json = this.GenerateFormControls<Crawler>();
-									break;
+							case "crawler":
+							case "cms.crawler":
+								json = this.GenerateFormControls<Crawler>();
+								break;
 
-								case "category":
-								case "cms.category":
-								case "content":
-								case "cms.content":
-								case "item":
-								case "cms.item":
-								case "link":
-								case "cms.link":
-								case "form":
-								case "cms.form":
-									json = (requestInfo.GetParameter("x-content-type-id") ?? "").GetContentTypeByID().GenerateFormControls(requestInfo.GetParameter("x-view-controls") != null, id => (id ?? "").GetContentTypeByID()) ?? new JArray();
-									break;
+							case "category":
+							case "cms.category":
+							case "content":
+							case "cms.content":
+							case "item":
+							case "cms.item":
+							case "link":
+							case "cms.link":
+							case "form":
+							case "cms.form":
+								json = (requestInfo.GetParameter("x-content-type-id") ?? "").GetContentTypeByID().GenerateFormControls(requestInfo.GetParameter("x-view-controls") != null, id => (id ?? "").GetContentTypeByID()) ?? new JArray();
+								break;
 
-								default:
-									throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-							}
-							break;
+							default:
+								throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+						}
+						break;
 
-						case "instructions":
-							var mode = requestInfo.Extra != null && requestInfo.Extra.ContainsKey("mode") ? requestInfo.Extra["mode"].GetCapitalizedFirstLetter() : null;
-							var organization = mode != null ? await (requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("active-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false) : null;
-							json = new JObject
+					case "instructions":
+						var mode = requestInfo.Extra != null && requestInfo.Extra.ContainsKey("mode") ? requestInfo.Extra["mode"].GetCapitalizedFirstLetter() : null;
+						var organization = mode != null ? await (requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("active-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false) : null;
+						json = new JObject
 							{
 								{ "Message", organization != null && organization.Instructions != null && organization.Instructions.TryGetValue(mode, out var instruction) ? instruction?.ToJson() : null },
 								{ "Email", organization?.EmailSettings?.ToJson() },
 							};
-							break;
+						break;
 
-						case "files":
-						case "attachments":
-							json = await this.ProcessAttachmentFileAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "files":
+					case "attachments":
+						json = await this.ProcessAttachmentFileAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "profile":
-							break;
+					case "profile":
+						break;
 
-						case "excel":
-							json = await this.DoExcelActionAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "excel":
+						json = await this.DoExcelActionAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "cache":
-						case "caches":
-							json = await this.ClearCacheAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "cache":
+					case "caches":
+						json = await this.ClearCacheAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "approve":
-						case "approval":
-							json = await this.ApproveAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "approve":
+					case "approval":
+						json = await this.ApproveAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						case "move":
-							json = await this.MoveAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							break;
+					case "move":
+						json = await this.MoveAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 
-						default:
-							throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+					default:
+						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 						#endregion
 
-					}
-					stopwatch.Stop();
-					await Task.WhenAll
-					(
-						this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}"),
-						this.IsDebugResultsEnabled ? this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}") : Task.CompletedTask
-					).ConfigureAwait(false);
-					return json;
 				}
-				catch (Exception ex)
-				{
-					throw this.GetRuntimeException(requestInfo, ex, stopwatch);
-				}
+				stopwatch.Stop();
+				await Task.WhenAll
+				(
+					this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}"),
+					this.IsDebugResultsEnabled ? this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}") : Task.CompletedTask
+				).ConfigureAwait(false);
+				return json;
+			}
+			catch (Exception ex)
+			{
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+			}
 		}
 
 		#region Get static data (themes, language resources, providers  of OEmbed media, ...)
@@ -1244,12 +1218,12 @@ namespace net.vieapps.Services.Portals
 				? organization?.FakePortalsHttpURI
 				: (@object?.OrganizationID ?? "").GetOrganizationByID()?.FakePortalsHttpURI;
 			httpURI = string.IsNullOrWhiteSpace(httpURI)
-				? Utility.PortalsHttpURI
+				? Utility.PortalsHttpURI ?? this.GetHttpURI("Portals", "https://portals.vieapps.net")
 				: httpURI;
 			while (httpURI.EndsWith("/"))
 				httpURI = httpURI.Left(httpURI.Length - 1);
 			return string.IsNullOrWhiteSpace(httpURI)
-				? Utility.PortalsHttpURI
+				? Utility.PortalsHttpURI ?? this.GetHttpURI("Portals", "https://portals.vieapps.net")
 				: httpURI;
 		}
 
@@ -1259,12 +1233,12 @@ namespace net.vieapps.Services.Portals
 				? organization?.FakeFilesHttpURI
 				: (@object?.OrganizationID ?? "").GetOrganizationByID()?.FakeFilesHttpURI;
 			httpURI = string.IsNullOrWhiteSpace(httpURI)
-				? Utility.FilesHttpURI
+				? Utility.FilesHttpURI ?? this.GetHttpURI("Files", "https://fs.vieapps.net")
 				: httpURI;
 			while (httpURI.EndsWith("/"))
 				httpURI = httpURI.Left(httpURI.Length - 1);
 			return string.IsNullOrWhiteSpace(httpURI)
-				? Utility.FilesHttpURI
+				? Utility.FilesHttpURI ?? this.GetHttpURI("Files", "https://fs.vieapps.net")
 				: httpURI;
 		}
 
@@ -1879,13 +1853,12 @@ namespace net.vieapps.Services.Portals
 			var cacheKey = desktop.GetDesktopCacheKey(requestURI);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
 			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
-			var forceCache = requestInfo.GetParameter("x-force-cache") != null;
-			var processCache = this.CacheDesktopHtmls && requestInfo.GetParameter("x-no-cache") == null;
+			var processCache = this.CacheDesktopHtmls && requestInfo.GetParameter("x-no-cache") == null && requestInfo.GetParameter("x-force-cache") == null;
 
 			// check "If-Modified-Since" request to reduce traffict
 			var eTag = $"v#{cacheKey}";
-			var noneMatch = processCache && !forceCache ? requestInfo.GetHeaderParameter("If-None-Match") : null;
-			var modifiedSince = processCache && !forceCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
+			var noneMatch = processCache ? requestInfo.GetHeaderParameter("If-None-Match") : null;
+			var modifiedSince = processCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
 			var headers = new Dictionary<string, string>
 			{
 				{ "Content-Type", "text/html; charset=utf-8" },
@@ -1893,7 +1866,7 @@ namespace net.vieapps.Services.Portals
 			};
 
 			string lastModified = null;
-			if (processCache && !forceCache && modifiedSince != null && eTag.IsEquals(noneMatch))
+			if (processCache && modifiedSince != null && eTag.IsEquals(noneMatch))
 			{
 				lastModified = await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(lastModified) && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
@@ -1924,7 +1897,7 @@ namespace net.vieapps.Services.Portals
 			var osInfo = requestInfo.GetHeaderParameter("x-environment-os-info") ?? "Generic OS";
 
 			// get cache of HTML
-			var html = processCache && !forceCache
+			var html = processCache
 				? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false)
 				: null;
 
@@ -2237,7 +2210,7 @@ namespace net.vieapps.Services.Portals
 				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
 
 				// prepare caching
-				if (forceCache)
+				if (requestInfo.GetParameter("x-force-cache") != null)
 					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken).ConfigureAwait(false);
 
 				if (processCache && !portletHtmls.Values.Any(data => data.Item2))

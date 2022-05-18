@@ -757,8 +757,8 @@ namespace net.vieapps.Services.Portals
 							var organizationAlias = systemIdentityJson.Get<string>("Alias");
 							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
 
-							alwaysUseHTTPs = systemIdentityJson.Get<bool>("AlwaysUseHTTPs");
-							redirectToNoneWWW = systemIdentityJson.Get<bool>("RedirectToNoneWWW");
+							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
+							redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
 
 							var desktopAlias = queryString["x-desktop"].ToLower();
 							var path = requestURI.AbsolutePath.ToLower();
@@ -797,25 +797,22 @@ namespace net.vieapps.Services.Portals
 							// last modified
 							var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 							var lastModified = modifiedSince != null ? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) : null;
-							if (modifiedSince != null)
+							var noneMatch = lastModified != null ? context.GetHeaderParameter("If-None-Match") : null;
+							if (lastModified != null && eTag.IsEquals(noneMatch) && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 							{
-								var noneMatch = context.GetHeaderParameter("If-None-Match");
-								if (eTag.IsEquals(noneMatch) && lastModified != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
+								context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 								{
-									context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-									{
-										{ "X-Cache", "HTTP-304" },
-										{ "X-Correlation-ID", correlationID },
-										{ "Content-Type", $"{contentType}; charset=utf-8" },
-										{ "ETag", eTag },
-										{ "Last-Modified", lastModified }
-									});
+									{ "X-Cache", "HTTP-304" },
+									{ "X-Correlation-ID", correlationID },
+									{ "Content-Type", $"{contentType}; charset=utf-8" },
+									{ "ETag", eTag },
+									{ "Last-Modified", lastModified }
+								});
 
-									if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
-										await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag} - {lastModified}) - Excution times: {watch.GetElapsedTimes()}").ConfigureAwait(false);
+								if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
+									await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag} - {lastModified}) - Excution times: {watch.GetElapsedTimes()}").ConfigureAwait(false);
 
-									return;
-								}
+								return;
 							}
 
 							// cached data

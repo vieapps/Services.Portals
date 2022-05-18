@@ -253,7 +253,7 @@ namespace net.vieapps.Services.Portals
 		public static Task SetCacheOfPageSizeAsync<T>(IFilterBy<T> filter, SortBy<T> sort, int pageSize, CancellationToken cancellationToken = default) where T : class
 			=> Utility.Cache.SetAsync($"{Extensions.GetCacheKey(filter, sort)}:size", pageSize, cancellationToken);
 
-		internal static async Task RefreshWebPageAsync(this string url, int delay = 0, string correlationID = null, string log = null)
+		internal static async Task RefreshWebPageAsync(this string url, int delay, string correlationID = null, string log = null)
 		{
 			correlationID = correlationID ?? UtilityService.NewUUID;
 			try
@@ -264,10 +264,26 @@ namespace net.vieapps.Services.Portals
 				if (Utility.IsCacheLogEnabled)
 					await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {url}", "Caches").ConfigureAwait(false);
 			}
+			catch (RemoteServerMovedException ex)
+			{
+				try
+				{
+					await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, 13, Utility.CancellationToken).ConfigureAwait(false);
+					if (Utility.IsCacheLogEnabled)
+						await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {ex.URI}", "Caches").ConfigureAwait(false);
+				}
+				catch (Exception mex)
+				{
+					await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({ex.URI}) => {mex.Message} [{mex.GetType()}]", "Caches").ConfigureAwait(false);
+				}
+			}
 			catch (Exception ex)
 			{
 				await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
 			}
 		}
+
+		internal static Task RefreshWebPageAsync(this string url, string correlationID = null, string log = null)
+			=> (url ?? "").RefreshWebPageAsync(0, correlationID, log);
 	}
 }

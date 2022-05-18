@@ -40,14 +40,14 @@ namespace net.vieapps.Services.Portals
 		internal static bool IsCacheLogEnabled => Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
 
 		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo)
-			=> Utility.Logger.IsEnabled(LogLevel.Debug) || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
+			=> Utility.IsDebugLogEnabled || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
 
 		internal static bool IsWriteMessageLogs(this RequestInfo requestInfo)
-			=> Utility.Logger.IsEnabled(LogLevel.Debug) || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false"));
+			=> Utility.IsDebugLogEnabled || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false"));
 
 		internal static bool Preload => "true".IsEquals(UtilityService.GetAppSetting("Portals:Preload", "true"));
 
-		internal static bool RunProcessorInParallelsMode => "Parallels".IsEquals(UtilityService.GetAppSetting("Portals:Processoor", "Parallels"));
+		internal static bool RunProcessorInParallelsMode => "Parallels".IsEquals(UtilityService.GetAppSetting("Portals:Processor", "Parallels"));
 
 		internal static CancellationToken CancellationToken => ServiceBase.ServiceComponent.CancellationToken;
 
@@ -305,7 +305,7 @@ namespace net.vieapps.Services.Portals
 				{ "PageSize", pageSize },
 				{ "PageNumber", pageNumber },
 				{ "URLPattern", string.IsNullOrWhiteSpace(urlPattern) ? null : urlPattern + (string.IsNullOrWhiteSpace(query) ? "" : (urlPattern.IndexOf("?") > 0 ? "&" : "?") + query) },
-				{ "Pages", pages == null ? null : new JObject { { "Page", pages.ToJArray() } } }
+				{ "Pages", pages == null ? null : new JObject { ["Page"] = pages.ToJArray() } }
 			};
 		}
 
@@ -410,8 +410,9 @@ namespace net.vieapps.Services.Portals
 					}
 					else
 					{
-						var tag = url.IsEndsWith(".mp3") ? "audio" : "video";
-						var height = url.IsEndsWith(".mp3") ? "32" : "315";
+						var isAudio = url.IsEndsWith(".mp3") || url.IsEndsWith(".m4a");
+						var tag = isAudio ? "audio" : "video";
+						var height = isAudio ? "32" : "315";
 						media = ($"<{tag} width=\"560\" height=\"{height}\" controls autoplay muted>" + "<source src=\"{{url}}\"/>" + $"</{tag}>").Format(new Dictionary<string, object> { ["url"] = url });
 					}
 					html = html.Substring(0, start) + media + html.Substring(end);
@@ -672,9 +673,11 @@ namespace net.vieapps.Services.Portals
 			});
 
 			html = html.Replace($"{Utility.PortalsHttpURI}/_", "~/_");
-			new[] { rootURL }
+			new[] { rootURL, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : new Uri(organization.FakePortalsHttpURI).GetRootURL(organization.Alias, false) }
 				.Concat(domains.Select(domain => $"http://{domain}/"))
 				.Concat(domains.Select(domain => $"https://{domain}/"))
+				.Where(url => !string.IsNullOrWhiteSpace(url))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ForEach(url => html = html.NormalizeURLs(url, false));
 
 			return html;

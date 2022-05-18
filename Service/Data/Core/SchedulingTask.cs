@@ -25,7 +25,7 @@ namespace net.vieapps.Services.Portals
 		{
 			this.RecurringUnit = recurringUnit;
 			this.RecurringType = recurringType;
-			this.UpdateTime(time);
+			this.SetTime(time);
 		}
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
@@ -137,8 +137,9 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(json);
 			});
 
-		internal void UpdateTime(DateTime? time = null)
-			=> this.Time = time != null && time.Value > DateTime.Now
+		internal SchedulingTask SetTime(DateTime? time = null, Action<SchedulingTask> onCompleted = null)
+		{
+			this.Time = time != null && time.Value >= this.Time
 				? time.Value
 				: this.RecurringUnit < 1
 					? this.Time
@@ -153,6 +154,16 @@ namespace net.vieapps.Services.Portals
 									: this.RecurringType.Equals(RecurringType.Minutes)
 										? DateTime.Now.AddMinutes(this.RecurringUnit)
 										: DateTime.Now.AddSeconds(this.RecurringUnit);
+			onCompleted?.Invoke(this);
+			return this;
+		}
+
+		internal SchedulingTask SetStatus(Status status, Action<SchedulingTask> onCompleted = null)
+		{
+			this.Status = status;
+			onCompleted?.Invoke(this);
+			return this;
+		}
 	}
 
 	public enum SchedulingType
