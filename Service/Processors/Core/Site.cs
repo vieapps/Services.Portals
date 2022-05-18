@@ -455,6 +455,9 @@ namespace net.vieapps.Services.Portals
 			// send notification
 			await site.SendNotificationAsync("Create", site.Organization.Notifications, ApprovalStatus.Draft, site.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
+			// update refreshing task
+			site.Organization.SendRefreshingTasks(false, false);
+
 			// response
 			return response;
 		}
@@ -515,6 +518,9 @@ namespace net.vieapps.Services.Portals
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+
+			// update refreshing task
+			site.Organization.SendRefreshingTasks(false, false);
 
 			// clear cache & send notification
 			Task.WhenAll

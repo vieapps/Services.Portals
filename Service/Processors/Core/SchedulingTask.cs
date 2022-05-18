@@ -65,20 +65,6 @@ namespace net.vieapps.Services.Portals
 			return schedulingTask;
 		}
 
-		internal static SchedulingTask SetTime(this SchedulingTask schedulingTask, Action<SchedulingTask> onCompleted = null)
-		{
-			schedulingTask.UpdateTime();
-			onCompleted?.Invoke(schedulingTask);
-			return schedulingTask;
-		}
-
-		internal static SchedulingTask SetStatus(this SchedulingTask schedulingTask, Status status, Action<SchedulingTask> onCompleted = null)
-		{
-			schedulingTask.Status = status;
-			onCompleted?.Invoke(schedulingTask);
-			return schedulingTask;
-		}
-
 		internal static JToken SendMessage(this SchedulingTask schedulingTask, string deviceID = null, string excludedDeviceID = null, string @event = null, JToken data = null)
 		{
 			data = data ?? schedulingTask.ToJson();
@@ -237,7 +223,7 @@ namespace net.vieapps.Services.Portals
 				obj.SystemID = organization.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.SetTime();
+				obj.SetTime(requestBody.Get<DateTime>("Time"));
 			});
 			await SchedulingTask.CreateAsync(schedulingTask, cancellationToken).ConfigureAwait(false);
 			await schedulingTask.Set().ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
@@ -302,11 +288,12 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// update
-			schedulingTask.Update(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var requestBody = requestInfo.GetBodyExpando();
+			schedulingTask.Update(requestBody, "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.SetTime();
+				obj.SetTime(requestBody.Get<DateTime>("Time"));
 			});
 			await SchedulingTask.UpdateAsync(schedulingTask, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await schedulingTask.Set().ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
@@ -509,7 +496,7 @@ namespace net.vieapps.Services.Portals
 
 					var status = @object.Status;
 					var json = schedulingTask.DataAsJson;
-					var expando = json?.Get<JObject>("Object")?.ToExpandoObject() ?? schedulingTask.DataAsExpandoObject;
+					var expando = json.Get<JObject>("Object")?.ToExpandoObject() ?? json.ToExpandoObject();
 
 					var requestInfo = new RequestInfo(new Session { SessionID = UtilityService.NewUUID }, Utility.ServiceName, (@object as RepositoryBase).GetObjectName(), "PUT");
 					requestInfo.Session.User.SessionID = requestInfo.Session.SessionID;
@@ -544,9 +531,15 @@ namespace net.vieapps.Services.Portals
 					}
 
 					if (@object.Status.Equals(ApprovalStatus.Published))
+					{
+						var rootURL = $"{schedulingTask.Organization.URL}/";
 						await (@object.Organization as Organization).GetRefreshingURLs(json?.Get<JArray>("URLs")?.Select(value => value as JValue).Select(value => value.ToString()) ?? new List<string>())
+							.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL))
+							.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
 							.Select(url => url.PositionOf("x-force-cache=") > 0 ? url : $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=x")
-							.ForEachAsync(url => url.RefreshWebPageAsync(0, requestInfo.CorrelationID), true, false).ConfigureAwait(false);
+							.Distinct(StringComparer.OrdinalIgnoreCase)
+							.ToList().ForEachAsync(url => url.RefreshWebPageAsync(requestInfo.CorrelationID), true, false).ConfigureAwait(false);
+					}
 				}
 				catch (Exception ex)
 				{
@@ -573,7 +566,11 @@ namespace net.vieapps.Services.Portals
 							}
 							return new List<string> { url };
 						})
-						.SelectMany(urls => urls).ToList().ForEachAsync(url => url.RefreshWebPageAsync(0, correlationID), true, false).ConfigureAwait(false);
+						.SelectMany(urls => urls)
+						.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL))
+						.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
+						.Distinct(StringComparer.OrdinalIgnoreCase)
+						.ToList().ForEachAsync(url => url.RefreshWebPageAsync(correlationID), true, false).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
@@ -600,7 +597,7 @@ namespace net.vieapps.Services.Portals
 					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task for crawling data => {ex.Message} [{ex.GetType()}]", "Task", correlationID).ConfigureAwait(false);
 				}
 
-			// update time of next run
+			// update next run
 			schedulingTask.SetTime().SetStatus(schedulingTask.RecurringUnit > 0 ? Status.Awaiting : Status.Completed).SendMessages();
 			if (schedulingTask.Persistance)
 				await SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).ConfigureAwait(false);

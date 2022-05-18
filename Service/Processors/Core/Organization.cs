@@ -150,12 +150,11 @@ namespace net.vieapps.Services.Portals
 				return urls;
 			})
 			.SelectMany(urls => urls)
-			.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL ?? $"{organization.URL}/"))
-			.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
+			.Where(url => !string.IsNullOrWhiteSpace(url))
 			.Distinct(StringComparer.OrdinalIgnoreCase)
 			.ToList();
 
-		internal static void SendRefreshingTasks(this Organization organization, bool isDeleted = false)
+		internal static void SendRefreshingTasks(this Organization organization, bool isDeleted = false, bool sendOtherURLs = true)
 		{
 			var sendDeleteMessage = (string type) => new SchedulingTask
 			{
@@ -170,7 +169,7 @@ namespace net.vieapps.Services.Portals
 				return;
 			}
 
-			var refreshURLs = new[] { $"{organization.URL}/" }.Concat((organization.Sites ?? new List<Site>()).Select(site => site.GetURL())).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var refreshURLs = new[] { "~/" }.Concat((organization.Sites ?? new List<Site>()).Select(site => site.GetURL())).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var schedulingTasks = new[] { new SchedulingTask(3)
 			{
 				ID = $"{organization.ID}:URLs:Home".GenerateUUID(),
@@ -181,29 +180,32 @@ namespace net.vieapps.Services.Portals
 				Persistance = false
 			}}.ToList();
 
-			refreshURLs = organization.GetRefreshingURLs();
-			if (refreshURLs.Any())
-				schedulingTasks.Add(new SchedulingTask(organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7)
+			if (sendOtherURLs)
+			{
+				refreshURLs = organization.GetRefreshingURLs();
+				if (refreshURLs.Any())
+					schedulingTasks.Add(new SchedulingTask(organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7)
+					{
+						ID = $"{organization.ID}:URLs:Other".GenerateUUID(),
+						SystemID = organization.ID,
+						Title = "Refresh all pre-defined URLs",
+						SchedulingType = SchedulingType.Refresh,
+						Data = refreshURLs.ToJArray().ToString(Formatting.None),
+						Persistance = false
+					});
+				else
+					sendDeleteMessage("Other");
+
+				schedulingTasks.Add(new SchedulingTask(12, RecurringType.Hours, DateTime.Parse($"{DateTime.Now.AddDays(DateTime.Now.Hour < 13 ? 0 : 1):yyyy/MM/dd} {(DateTime.Now.Hour < 13 ? 13 : 1):00}:{UtilityService.GetRandomNumber(0, 30):00}:00"))
 				{
-					ID = $"{organization.ID}:URLs:Other".GenerateUUID(),
+					ID = $"{organization.ID}:URLs:Force".GenerateUUID(),
 					SystemID = organization.ID,
-					Title = "Refresh all pre-defined URLs",
+					Title = "Force refresh all pre-defined URLs",
 					SchedulingType = SchedulingType.Refresh,
-					Data = refreshURLs.ToJArray().ToString(Formatting.None),
+					Data = (schedulingTasks.First().DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).Concat(refreshURLs).Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=x").ToJArray().ToString(Formatting.None),
 					Persistance = false
 				});
-			else
-				sendDeleteMessage("Other");
-
-			schedulingTasks.Add(new SchedulingTask(12, RecurringType.Hours, DateTime.Parse($"{DateTime.Now.AddDays(DateTime.Now.Hour < 13 ? 0 : 1):yyyy/MM/dd} {(DateTime.Now.Hour < 13 ? 13 : 1):00}:{UtilityService.GetRandomNumber(0, 30):00}:00"))
-			{
-				ID = $"{organization.ID}:URLs:Force".GenerateUUID(),
-				SystemID = organization.ID,
-				Title = "Force refresh all pre-defined URLs",
-				SchedulingType = SchedulingType.Refresh,
-				Data = (schedulingTasks.First().DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).Concat(refreshURLs).Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=x").ToJArray().ToString(Formatting.None),
-				Persistance = false
-			});
+			}
 
 			schedulingTasks.ForEach(schedulingTask => schedulingTask.SendMessages("Update", schedulingTask.ToJson()));
 		}
@@ -404,7 +406,7 @@ namespace net.vieapps.Services.Portals
 
 			await Task.WhenAll
 			(
-				$"{organization.URL}/".RefreshWebPageAsync(0, correlationID, $"Refresh the home desktop when all cache of an organization were clean [{organization.Title} - ID: {organization.ID}]"),
+				$"{organization.URL}/".RefreshWebPageAsync(correlationID, $"Refresh the home desktop when all cache of an organization were clean [{organization.Title} - ID: {organization.ID}]"),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"The organization was reloaded when all cache were clean\r\n{organization.ToJson()}", "Caches") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
