@@ -211,6 +211,8 @@ namespace net.vieapps.Services.Portals
 			{
 				if (addChildren && (maxLevel < 1 || level < maxLevel))
 					json["Children"] = this.Children?.Where(link => link != null).OrderBy(link => link.OrderIndex).Select(link => link.ToJson(addChildren, addTypeOfExtendedProperties, onChildrenCompleted, onChildrenCompleted, level + 1, maxLevel)).ToJArray();
+				if (!string.IsNullOrWhiteSpace(this.ContentType?.SubTitleFormula) && json.Get<string>("SubTitle") == null)
+					json["SubTitle"] = this.ContentType.SubTitleFormula.Evaluate(json.ToExpandoObject())?.ToString();
 				onCompleted?.Invoke(json);
 			});
 

@@ -169,6 +169,14 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		IPortalObject IPortalObject.Parent => this.ContentType;
 
+		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
+			=> base.ToJson(addTypeOfExtendedProperties, json =>
+			{
+				if (!string.IsNullOrWhiteSpace(this.ContentType?.SubTitleFormula) && json.Get<string>("SubTitle") == null)
+					json["SubTitle"] = this.ContentType.SubTitleFormula.Evaluate(json.ToExpandoObject())?.ToString();
+				onCompleted?.Invoke(json);
+			});
+
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
 			=> null;
 	}

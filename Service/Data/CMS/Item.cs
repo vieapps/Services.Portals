@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Xml.Serialization;
 using MsgPack.Serialization;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
 using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
@@ -119,6 +120,14 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalObject.Parent => this.ContentType;
+
+		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
+			=> base.ToJson(addTypeOfExtendedProperties, json =>
+			{
+				if (!string.IsNullOrWhiteSpace(this.ContentType?.SubTitleFormula) && json.Get<string>("SubTitle") == null)
+					json["SubTitle"] = this.ContentType.SubTitleFormula.Evaluate(json.ToExpandoObject())?.ToString();
+				onCompleted?.Invoke(json);
+			});
 
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
 			=> $"~/{this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{parentIdentity ?? this.ContentType?.Title?.GetANSIUri() ?? "-"}/{this.Alias}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}";

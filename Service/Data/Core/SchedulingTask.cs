@@ -144,16 +144,16 @@ namespace net.vieapps.Services.Portals
 				: this.RecurringUnit < 1
 					? this.Time
 					: this.RecurringType.Equals(RecurringType.Years)
-						? DateTime.Now.AddYears(this.RecurringUnit)
+						? this.Time.AddYears(this.RecurringUnit)
 						: this.RecurringType.Equals(RecurringType.Months)
-							? DateTime.Now.AddMonths(this.RecurringUnit)
+							? this.Time.AddMonths(this.RecurringUnit)
 							: this.RecurringType.Equals(RecurringType.Days)
-								? DateTime.Now.AddDays(this.RecurringUnit)
+								? this.Time.AddDays(this.RecurringUnit)
 								: this.RecurringType.Equals(RecurringType.Hours)
-									? DateTime.Now.AddHours(this.RecurringUnit)
+									? this.Time.AddHours(this.RecurringUnit)
 									: this.RecurringType.Equals(RecurringType.Minutes)
-										? DateTime.Now.AddMinutes(this.RecurringUnit)
-										: DateTime.Now.AddSeconds(this.RecurringUnit);
+										? this.Time.AddMinutes(this.RecurringUnit)
+										: this.Time.AddSeconds(this.RecurringUnit);
 			onCompleted?.Invoke(this);
 			return this;
 		}

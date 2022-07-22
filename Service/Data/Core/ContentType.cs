@@ -33,8 +33,7 @@ namespace net.vieapps.Services.Portals
 		public string ContentTypeDefinitionID { get; set; }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
-		[Sortable(IndexName = "Title")]
-		[Searchable]
+		[Sortable(IndexName = "Title"), Searchable]
 		[FormControl(Segment = "basic", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
 		public override string Title { get; set; }
 
@@ -82,6 +81,9 @@ namespace net.vieapps.Services.Portals
 		[AsJson]
 		[FormControl(Excluded = true)]
 		public List<StandardControlDefinition> StandardControlDefinitions { get; set; }
+
+		[FormControl(Segment = "extend", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
+		public string SubTitleFormula { get; set; }
 
 		JObject _json;
 		string _extras;
