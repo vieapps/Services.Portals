@@ -82,7 +82,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Excluded = true)]
 		public List<StandardControlDefinition> StandardControlDefinitions { get; set; }
 
-		[FormControl(Segment = "extend", Label = "{{portals.contenttypes.controls.[name].label}}", PlaceHolder = "{{portals.contenttypes.controls.[name].placeholder}}", Description = "{{portals.contenttypes.controls.[name].description}}")]
+		[FormControl(Excluded = true)]
 		public string SubTitleFormula { get; set; }
 
 		JObject _json;
