@@ -5035,6 +5035,7 @@ namespace net.vieapps.Services.Portals
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
 				// get site by domain
+				var url = requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri");
 				var host = requestInfo.GetParameter("x-host");
 				var site = await (host ?? "").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false) ?? organization.DefaultSite ?? Utility.DefaultSite;
 				if (site == null)
@@ -5043,7 +5044,7 @@ namespace net.vieapps.Services.Portals
 				// do redirect
 				if (site.AlwaysUseHTTPs || site.RedirectToNoneWWW)
 				{
-					var requestURI = new Uri(requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri"));
+					var requestURI = new Uri(url);
 					var redirectHost = requestInfo.GetHeaderParameter("x-srp-host") ?? requestURI.Host;
 					var redirectURL = (site.AlwaysUseHTTPs ? "https" : requestURI.Scheme) + "://" + (site.RedirectToNoneWWW ? redirectHost.Replace("www.", "") : redirectHost) + $"{requestURI.PathAndQuery}{requestURI.Fragment}";
 					if (!string.IsNullOrWhiteSpace(redirectURL) && !redirectURL.Equals(requestURI.AbsoluteUri))
@@ -5094,20 +5095,23 @@ namespace net.vieapps.Services.Portals
 					results.Item1.Where(@object => contents.Find(obj => obj.ID == @object.ID) == null).ForEach(@object => contents.Add(@object));
 					(results.Item4 as JObject)?.ForEach(kvp => thumbnails[kvp.Key] = kvp.Value);
 				}, true, false).ConfigureAwait(false);
+				contents = contents.OrderByDescending(content => content.StartDate).ThenByDescending(content => content.PublishedTime).Take(20).ToList();
 
 				// generate feed
-				contents = contents.OrderByDescending(content => content.StartDate).ThenByDescending(content => content.PublishedTime).Take(20).ToList();
-				var useAlias = (requestInfo.GetParameter("x-url") ?? "").IsContains($"/~{organization.Alias}/");
+				var useAlias = (url ?? "").IsContains($"/~{organization.Alias}/");
 				if (!useAlias)
-					host = requestInfo.GetHeaderParameter("x-srp-host") ?? requestInfo.GetHeaderParameter("x-host") ?? site.Host;
-				var href = site.GetURL(host, requestInfo.GetParameter("x-url"));
+					host = requestInfo.GetHeaderParameter("x-srp-host") ?? host ?? site.Host;
+				var href = site.GetURL(host, url);
 				var baseHref = useAlias ? $"/~{organization.Alias}/" : "/";
+				var lastModified = contents.Any()
+					? contents.OrderByDescending(content => content.LastModified).First().LastModified
+					: site.LastModified;
 
 				var feed = new XElement
 				(
 					"feed",
-					new XElement("id", $"tag:{host},site-{site.ID}{(category != null ? $",category-{category.ID}" : "")}"),
-					new XElement("updated", (contents.Any() ? contents.OrderByDescending(content => content.LastModified).First().LastModified : site.LastModified).ToIsoString()),
+					new XElement("id", $"tag:{host},{lastModified:yyyy-MM-dd}:site/{site.ID}{(category != null ? $"/category/{category.ID}" : "")}"),
+					new XElement("updated", lastModified.ToIsoString()),
 					new XElement("title", (category != null ? $"{category.Title} :: " : "") + site.Title),
 					new XElement("link", new XAttribute("rel", "alternate"), new XAttribute("type", "text/html"), new XAttribute("href", $"{href}{category?.GetURL().Replace("~/", baseHref) ?? baseHref}"))
 				);
@@ -5117,11 +5121,12 @@ namespace net.vieapps.Services.Portals
 					var entry = new XElement
 					(
 						"entry",
-						new XElement("id", $"tag:{host},content-{content.ID}"),
+						new XElement("id", $"tag:{host},{content.LastModified:yyyy-MM-dd}:content/{content.ID}"),
 						new XElement("published", content.PublishedTime.Value.ToIsoString()),
 						new XElement("updated", content.LastModified.ToIsoString()),
 						new XElement("title", content.Title),
 						new XElement("summary", $"{content.Summary?.RemoveTags().Replace("\t", "").Replace("\r", "").Replace("\n", " ") ?? ""}", new XAttribute("type", "text")),
+						new XElement("author", new XElement("name", content.Author ?? "N/A")),
 						new XElement("link", new XAttribute("rel", "alternate"), new XAttribute("type", "text/html"), new XAttribute("href", $"{href}{content.GetURL().Replace("~/", baseHref)}"))
 					);
 					feed.Add(entry);
@@ -5156,17 +5161,19 @@ namespace net.vieapps.Services.Portals
 				var body = asJson
 					? feed.ToJson(json => json.Get<JObject>("feed").Get<JArray>("entry").Where(entry => entry["category"] is JObject).ForEach(entry =>
 						{
-							var id = entry.Get<string>("id").ToList("-").Last();
+							var id = entry.Get<string>("id").ToList("/").Last();
 							var primaryCategory = contents.FirstOrDefault(obj => obj.ID == id)?.Category;
 							if (primaryCategory != null)
 								entry["category"] = new[] { new JObject { ["@label"] = primaryCategory.Title, ["@term"] = primaryCategory.ID, ["@scheme"] = $"{href}{primaryCategory.GetURL().Replace("~/", baseHref)}" } }.ToJArray();
-						})).Get<JObject>("feed").ToString()
+						})).Get<JObject>("feed").ToString(Newtonsoft.Json.Formatting.None)
 					: null;
 				if (body == null)
 				{
-					body = $"{new XDeclaration("1.0", "utf-8", "yes")}\r\n{feed.CleanInvalidCharacters()}";
+					body = $"{new XDeclaration("1.0", "utf-8", "yes")}\r\n{feed.CleanInvalidCharacters()}".RemoveWhitespaces();
+					body = body.Insert(body.IndexOf("<entry>"), $"{new XElement("link", new XAttribute("rel", "self"), new XAttribute("type", "application/atom+xml"), new XAttribute("href", url ?? $"{href}{baseHref}feed"))}");
 					body = body.Replace("<feed", $"<feed xmlns=\"http://www.w3.org/2005/Atom\" xmlns:media=\"http://search.yahoo.com/mrss/\"");
-					body = body.Replace("<media", "<media:thumbnail").Replace("></media>", "/>").Replace("></link>", "/>").Replace("></category>", "/>").Replace("></summary>", "/>").Replace(" />", "/>");
+					body = body.Replace("<media", "<media:thumbnail").Replace("></media>", "/>").Replace("></link>", "/>").Replace("></category>", "/>");
+					body = body.Replace("></summary>", "/>").Replace(" />", "/>").Replace("<summary type=\"text\"/>", "");
 				}
 
 				stopwatch.Stop();
