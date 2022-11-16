@@ -154,7 +154,7 @@ namespace net.vieapps.Services.Portals
 			else if ("Filter".IsEquals(name))
 				this.FilterBy = this.Filter?.ToJson().ToString(Formatting.None);
 			else if ("SortBy".IsEquals(name))
-				this.Sorts = string.IsNullOrWhiteSpace(this.SortBy) ? null : JArray.Parse(this.SortBy).Select(sort => new SortBy(sort  as JObject)).ToList();
+				this.Sorts = string.IsNullOrWhiteSpace(this.SortBy) ? null : JArray.Parse(this.SortBy).Select(sort => new SortBy(sort as JObject)).ToList();
 			else if ("Sorts".IsEquals(name))
 				this.SortBy = this.Sorts?.Select(sort => sort.ToJson()).ToJArray().ToString(Formatting.None);
 		}

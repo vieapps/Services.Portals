@@ -11,6 +11,8 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using net.vieapps.Services.Portals.Crawlers;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -141,6 +143,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ClearRelatedCacheAsync(this ContentType contentType, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
+			// tasks for updating sets
+			var setTasks = new List<Task>();
+
 			// data cache keys
 			var sort = Sorts<ContentType>.Ascending("Title");
 			var dataCacheKeys = clearDataCache
@@ -149,11 +154,19 @@ namespace net.vieapps.Services.Portals
 					.Concat(Extensions.GetRelatedCacheKeys(ContentTypeProcessor.GetContentTypesFilter(contentType.SystemID, contentType.RepositoryID, contentType.ContentTypeDefinitionID), sort))
 					.Concat(Extensions.GetRelatedCacheKeys(ContentTypeProcessor.GetContentTypesFilter(contentType.SystemID, contentType.RepositoryID, null), sort))
 					.Concat(Extensions.GetRelatedCacheKeys(ContentTypeProcessor.GetContentTypesFilter(contentType.SystemID, null, contentType.ContentTypeDefinitionID), sort))
-					.Concat(await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false))
-					.Concat(new[] { contentType.GetSetCacheKey() })
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
 				: new List<string>();
+
+			if (clearDataCache)
+			{
+				var cacheKeys = await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
+				if (cacheKeys != null && cacheKeys.Any())
+				{
+					setTasks.Add(Utility.Cache.RemoveSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationToken));
+					dataCacheKeys = dataCacheKeys.Concat(cacheKeys).ToList();
+				}
+			}
 
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = new List<string>();
@@ -168,16 +181,20 @@ namespace net.vieapps.Services.Portals
 					.ForEachAsync(async desktopSetCacheKey =>
 					{
 						var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
-						if (cacheKeys != null && cacheKeys.Count > 0)
-							htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
+						if (cacheKeys != null && cacheKeys.Any())
+						{
+							setTasks.Add(Utility.Cache.RemoveSetMembersAsync(desktopSetCacheKey, cacheKeys, cancellationToken));
+							htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).ToList();
+						}
 					}, true, false).ConfigureAwait(false);
 			}
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// clear related cache
-			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
+				Task.WhenAll(setTasks),
+				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{contentType.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a content-type was clean [{contentType.Title} - ID: {contentType.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
@@ -195,8 +212,11 @@ namespace net.vieapps.Services.Portals
 			if (clearObjectsCache)
 			{
 				var objectKeys = await Utility.Cache.GetSetMembersAsync(contentType.ObjectCacheKeys, cancellationToken).ConfigureAwait(false);
-				if (objectKeys.Count > 0)
-					tasks.Add(Utility.Cache.RemoveAsync(new[] { contentType.ObjectCacheKeys }.Concat(objectKeys), cancellationToken));
+				if (objectKeys != null && objectKeys.Any())
+				{
+					tasks.Add(Utility.Cache.RemoveSetMembersAsync(contentType.ObjectCacheKeys, objectKeys, cancellationToken));
+					tasks.Add(Utility.Cache.RemoveAsync(objectKeys, cancellationToken));
+				}
 			}
 
 			// clear object cache

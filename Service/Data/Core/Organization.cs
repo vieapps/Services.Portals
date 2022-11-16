@@ -399,7 +399,7 @@ namespace net.vieapps.Services.Portals
 				if (this.Trackings != null && this.Trackings.Any())
 				{
 					if (this.Trackings.TryGetValue("GoogleAnalytics", out var googleAnalytics) && !string.IsNullOrWhiteSpace(googleAnalytics))
-						googleAnalytics.ToArray(";").ForEach(googleAnalyticsID => scripts += "<script src=\"https://www.googletagmanager.com/gtag/js?id=" + googleAnalyticsID + "\" async></script>");
+						scripts += "<script src=\"https://www.googletagmanager.com/gtag/js?id=" + googleAnalytics.ToArray(";", true).First() + "\" async></script>";
 					if (this.Trackings.TryGetValue("FacebookPixel", out var facebookPixels) && !string.IsNullOrWhiteSpace(facebookPixels))
 						scripts += $"<script src=\"https://connect.facebook.net/en_US/fbevents.js\" async></script>";
 				}
@@ -426,8 +426,8 @@ namespace net.vieapps.Services.Portals
 									dataLayer.push(arguments);
 								};
 								gtag(""js"", new Date());
-							})();";
-						googleAnalytics.ToArray(";", true).ForEach(googleAnalyticsID => scripts += "gtag(\"config\", \"" + googleAnalyticsID + "\");");
+							})();".Replace("\r\n\t\t\t\t\t\t\t", "\r\n") + "\r\n";
+						googleAnalytics.ToArray(";", true).ForEach((googleAnalyticsID, index) => scripts += "gtag(\"config\", \"" + googleAnalyticsID + "\", { \"transport_type\": !!navigator.sendBeacon ? \"beacon\" : \"xhr\"" + (index == 0 ? "" : ", \"groups\": \"agency\"") + " });\r\n");
 					}
 					if (this.Trackings.TryGetValue("FacebookPixel", out var facebookPixels) && !string.IsNullOrWhiteSpace(facebookPixels))
 					{
@@ -445,12 +445,12 @@ namespace net.vieapps.Services.Portals
 								func.loaded = true;
 								func.version = '2.0';
 								func.queue = [];
-							})();";
-						facebookPixels.ToArray(";", true).ForEach(facebookPixelID => scripts += "fbq(\"init\", \"" + facebookPixelID + "\");fbq(\"track\", \"PageView\");");
+							})();".Replace("\r\n\t\t\t\t\t\t\t", "\r\n") + "\r\n";
+						facebookPixels.ToArray(";", true).ForEach(facebookPixelID => scripts += "fbq(\"init\", \"" + facebookPixelID + "\");\r\n");
+						scripts += "fbq(\"track\", \"PageView\");\r\n";
 					}
 				}
-				scripts += string.IsNullOrWhiteSpace(this.Scripts) ? "" : this.Scripts;
-				return scripts.MinifyJs();
+				return scripts + (string.IsNullOrWhiteSpace(this.Scripts) ? "" : this.Scripts);
 			}
 		}
 

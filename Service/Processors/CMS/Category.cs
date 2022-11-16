@@ -12,6 +12,8 @@ using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Exceptions;
+using net.vieapps.Services.Portals.Crawlers;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -168,10 +170,26 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ClearRelatedCacheAsync(this Category category, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
+			// tasks for updating sets
+			var setTasks = new List<Task>();
+
 			// data cache keys
 			var dataCacheKeys = clearDataCache && category != null
 				? Extensions.GetRelatedCacheKeys(category.GetCacheKey())
 				: new List<string>();
+
+			var childrenContentTypes = clearDataCache && category != null
+				? category.ContentType?.GetChildren() ?? new List<ContentType>()
+				: new List<ContentType>();
+			await childrenContentTypes.ForEachAsync(async contentType =>
+			{
+				var cacheKeys = await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
+				if (cacheKeys != null && cacheKeys.Any())
+				{
+					setTasks.Add(Utility.Cache.RemoveSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationToken));
+					dataCacheKeys = dataCacheKeys.Concat(cacheKeys).ToList();
+				}
+			}).ConfigureAwait(false);
 
 			var linkContentTypes = new Dictionary<string, ContentType>();
 			if (clearDataCache)
@@ -184,8 +202,11 @@ namespace net.vieapps.Services.Portals
 				if (category?.ContentType != null)
 				{
 					var cacheKeys = await Utility.Cache.GetSetMembersAsync(category.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
-					if (cacheKeys != null && cacheKeys.Count > 0)
-						dataCacheKeys = dataCacheKeys.Concat(cacheKeys).Concat(new[] { category.ContentType.GetSetCacheKey() }).ToList();
+					if (cacheKeys != null && cacheKeys.Any())
+					{
+						setTasks.Add(Utility.Cache.RemoveSetMembersAsync(category.ContentType.GetSetCacheKey(), cacheKeys, cancellationToken));
+						dataCacheKeys = dataCacheKeys.Concat(cacheKeys).ToList();
+					}
 				}
 
 				// data cache keys of the related links
@@ -197,8 +218,11 @@ namespace net.vieapps.Services.Portals
 					{
 						linkContentTypes.Add(link.ContentType.ID, link.ContentType);
 						var cacheKeys = await Utility.Cache.GetSetMembersAsync(link.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
-						if (cacheKeys != null && cacheKeys.Count > 0)
-							dataCacheKeys = dataCacheKeys.Concat(cacheKeys).Concat(new[] { link.ContentType.GetSetCacheKey() }).ToList();
+						if (cacheKeys != null && cacheKeys.Any())
+						{
+							setTasks.Add(Utility.Cache.RemoveSetMembersAsync(link.ContentType.GetSetCacheKey(), cacheKeys, cancellationToken));
+							dataCacheKeys = dataCacheKeys.Concat(cacheKeys).ToList();
+						}
 					}
 				}, true, false).ConfigureAwait(false);
 			}
@@ -215,21 +239,29 @@ namespace net.vieapps.Services.Portals
 					await desktopSetCacheKeys.ForEachAsync(async desktopSetCacheKey =>
 					 {
 						 var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
-						 if (cacheKeys != null && cacheKeys.Count > 0)
-							 htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
+						 if (cacheKeys != null && cacheKeys.Any())
+						 {
+							 setTasks.Add(Utility.Cache.RemoveSetMembersAsync(desktopSetCacheKey, cacheKeys, cancellationToken));
+							 htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).ToList();
+						 }
 					 }, true, false).ConfigureAwait(false);
 				}, true, false).ConfigureAwait(false);
 			}
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// remove related cache
-			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
+				Task.WhenAll(setTasks),
+				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
 				Utility.IsCacheLogEnabled && category != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS category [{category.Title} - ID: {category.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh && category != null ? category.GetURL().Replace("~/", $"{category.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS category was clean [{category.Title} - ID: {category.ID}]") : Task.CompletedTask,
-				doRefresh && category != null ? $"{category.Organization?.URL}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS category was clean [{category.Title} - ID: {category.ID}]") : Task.CompletedTask
-			).ConfigureAwait(false);
+				doRefresh && category != null
+					? Task.WhenAll
+					(
+						category.GetURL().Replace("~/", $"{category.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS category was clean [{category.Title} - ID: {category.ID}]"),
+						$"{category.Organization?.URL}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS category was clean [{category.Title} - ID: {category.ID}]")
+					) : Task.CompletedTask
+				).ConfigureAwait(false);
 		}
 
 		static async Task<Tuple<long, List<Category>, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Category> filter, SortBy<Category> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false)
@@ -1180,7 +1212,7 @@ namespace net.vieapps.Services.Portals
 
 				// generate children
 				var children = category.Children;
-				if (children.Count > 0)
+				if (children.Any())
 				{
 					var thumbnails = children.Count == 1
 						? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
@@ -1190,7 +1222,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// update children
-				if (subMenu != null && subMenu.Count > 0)
+				if (subMenu != null && subMenu.Any())
 					menu["SubMenu"] = new JObject
 					{
 						{ "Menu", subMenu }

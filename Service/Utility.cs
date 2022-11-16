@@ -167,6 +167,19 @@ namespace net.vieapps.Services.Portals
 		}
 
 		/// <summary>
+		/// Gets the children content-type of this content-type
+		/// </summary>
+		/// <param name="contentType"></param>
+		/// <returns></returns>
+		public static List<ContentType> GetChildren(this ContentType contentType)
+		{
+			var entityDefinition = contentType?.EntityDefinition;
+			return entityDefinition != null
+				? contentType?.Module?.ContentTypes?.Where(cntType => entityDefinition.ID.Equals(RepositoryMediator.GetEntityDefinition(cntType?.EntityDefinition?.ParentType)?.ID)).ToList()
+				: null;
+		}
+
+		/// <summary>
 		/// Gets the object name for working with real-time update messages
 		/// </summary>
 		/// <param name="definition"></param>
@@ -825,7 +838,7 @@ namespace net.vieapps.Services.Portals
 			var html = data;
 			try
 			{
-				html = UtilityService.RemoveWhitespaces(data);
+				html = UtilityService.RemoveWhitespaces(data.Replace(" ", " "));
 			}
 			catch { }
 			return html;

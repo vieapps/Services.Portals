@@ -96,6 +96,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ClearRelatedCacheAsync(this Content content, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
+			// tasks for updating sets
+			var setTasks = new List<Task>();
+
 			// data cache keys
 			var dataCacheKeys = clearDataCache && content != null
 				? Extensions.GetRelatedCacheKeys(content.GetCacheKey()).Concat(new[] { content.GetCacheKeyOfAliasedContent() }).Where(key => key != null).ToList()
@@ -103,8 +106,11 @@ namespace net.vieapps.Services.Portals
 			if (clearDataCache && content?.ContentType != null)
 			{
 				var cacheKeys = await Utility.Cache.GetSetMembersAsync(content.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
-				if (cacheKeys != null && cacheKeys.Count > 0)
-					dataCacheKeys = dataCacheKeys.Concat(cacheKeys).Concat(new[] { content.ContentType.GetSetCacheKey() }).ToList();
+				if (cacheKeys != null && cacheKeys.Any())
+				{
+					setTasks.Add(Utility.Cache.RemoveSetMembersAsync(content.ContentType.GetSetCacheKey(), cacheKeys, cancellationToken));
+					dataCacheKeys = dataCacheKeys.Concat(cacheKeys).ToList();
+				}
 			}
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
@@ -121,8 +127,11 @@ namespace net.vieapps.Services.Portals
 					.ForEachAsync(async desktopSetCacheKey =>
 					{
 						var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
-						if (cacheKeys != null && cacheKeys.Count > 0)
-							htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).Concat(new[] { desktopSetCacheKey }).ToList();
+						if (cacheKeys != null && cacheKeys.Any())
+						{
+							setTasks.Add(Utility.Cache.RemoveSetMembersAsync(desktopSetCacheKey, cacheKeys, cancellationToken));
+							htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).ToList();
+						}
 					}, true, false).ConfigureAwait(false);
 			}
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -130,6 +139,7 @@ namespace net.vieapps.Services.Portals
 			// remove related cache & refresh
 			await Task.WhenAll
 			(
+				Task.WhenAll(setTasks),
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
 				Utility.IsCacheLogEnabled && content != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh && content != null
@@ -246,9 +256,9 @@ namespace net.vieapps.Services.Portals
 			filter.Prepare(requestInfo);
 
 			// other parameters
-			var showAttachments = requestInfo.GetParameter("x-object-attachments") != null || requestInfo.GetParameter("ShowAttachments") != null;
-			var showURLs = requestInfo.GetParameter("x-object-urls") != null || requestInfo.GetParameter("ShowURLs") != null;
-			var showDetails = !"false".IsEquals(requestInfo.GetParameter("x-object-details")) || requestInfo.GetParameter("NoDetails") == null;
+			var showAttachments = "true".IsEquals(requestInfo.GetParameter("x-object-attachments")) || requestInfo.GetParameter("ShowAttachments") != null;
+			var showURLs = "true".IsEquals(requestInfo.GetParameter("x-object-urls")) || requestInfo.GetParameter("ShowURLs") != null;
+			var showDetails = "false".IsEquals(requestInfo.GetParameter("x-object-details")) || requestInfo.GetParameter("NoDetails") != null ? false: true;
 
 			// process cache
 			var suffix = string.IsNullOrWhiteSpace(query) ? (showAttachments ? ":a" : "") + (showURLs ? ":u" : "") + (showDetails ? "" : ":d") : null;
@@ -302,6 +312,8 @@ namespace net.vieapps.Services.Portals
 
 						if (showDetails)
 							json["Details"] = organization.NormalizeURLs(@object.Details);
+						else
+							json.Remove("Details");
 
 						if (showAttachments || showURLs)
 						{
@@ -436,7 +448,7 @@ namespace net.vieapps.Services.Portals
 				Data = response
 			}.Send();
 
-			// last actions: clear cache, send notification, store object cache key to clear related cached
+			// clear related cache & send notification
 			Task.WhenAll
 			(
 				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
@@ -545,7 +557,8 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
-				content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken)
+				content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken),
+				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken)
 			).Run();
 
 			// response
@@ -664,8 +677,8 @@ namespace net.vieapps.Services.Portals
 			// clear cache and send notification
 			Task.WhenAll
 			(
-				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false),
 				Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
+				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false),
 				content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo, Utility.CancellationToken)
 			).Run();
 
@@ -890,6 +903,9 @@ namespace net.vieapps.Services.Portals
 
 					if (category != null)
 					{
+						parentCategory = category.ParentCategory;
+						while (parentCategory?.ParentCategory != null)
+							parentCategory = parentCategory.ParentCategory;
 						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
 						categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 						var thumbnailURL = categoryThumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
@@ -899,7 +915,8 @@ namespace net.vieapps.Services.Portals
 							new XElement("Description", category.Description?.NormalizeHTMLBreaks()),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks()),
 							new XElement("URL", category.GetURL(desktop)),
-							new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+							new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")),
+							new XElement("Root", parentCategory?.Title ?? category.Title, new XAttribute("URL", parentCategory?.GetURL(desktop) ?? category.GetURL(desktop)))
 						));
 					}
 
@@ -1054,6 +1071,17 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll(relatedsTask, othersTask, thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 
 					var relateds = new List<Content>();
+					JToken relatedThumbnails = null;
+					if (showRelateds)
+					{
+						relateds = relatedsTask.Result.Where(related => related != null && related.ID != null && related.ID != @object.ID && related.Status.Equals(ApprovalStatus.Published) && related.PublishedTime != null && related.PublishedTime.Value <= DateTime.Now).ToList();
+						relatedThumbnails = relateds.Count < 1
+							? null
+							: relateds.Count == 1
+								? await requestInfo.GetThumbnailsAsync(relateds[0].ID, relateds[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
+								: await requestInfo.GetThumbnailsAsync(relateds.Select(obj => obj.ID).Join(","), relateds.ToJObject("ID", obj => new JValue(obj.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+					}
+
 					var others = new List<Content>();
 					JToken otherThumbnails = null;
 					if (showOthers)
@@ -1117,13 +1145,17 @@ namespace net.vieapps.Services.Portals
 					if (showRelateds)
 					{
 						var relatedsXml = new XElement("Relateds");
-						relateds = relatedsTask.Result.Where(related => related != null && related.ID != null && related.ID != @object.ID && related.Status.Equals(ApprovalStatus.Published) && related.PublishedTime != null && related.PublishedTime.Value <= DateTime.Now).ToList();
 						relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
 						{
 							var relatedXml = new XElement("Content", new XElement("ID", related.ID));
 							relatedXml.Add(new XElement("Title", related.Title), new XElement("Author", related.Author ?? ""), new XElement("Summary", related.Summary?.NormalizeHTMLBreaks() ?? ""));
 							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime != null ? related.PublishedTime.Value : DateTime.Now).UpdateDateTime(cultureInfo, customDateTimeFormat));
-							relatedXml.Add(new XElement("URL", related.GetURL(desktop) ?? ""), new XElement("Category", related.Category?.Title ?? "", new XAttribute("URL", related.Category?.GetURL(desktop) ?? "")));
+							relatedXml.Add(new XElement("Category", related.Category?.Title ?? "", new XAttribute("URL", related.Category?.GetURL(desktop) ?? "")));
+							relatedXml.Add(new XElement("URL", related.GetURL(desktop) ?? ""));
+							var thumbnailURL = relatedThumbnails?.GetThumbnailURL(related.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+							relatedXml.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+							if (!string.IsNullOrWhiteSpace(related.Summary))
+								relatedXml.Element("Summary").Value = related.Summary.NormalizeHTMLBreaks();
 							relatedsXml.Add(relatedXml);
 						});
 						dataXml.Add(relatedsXml);
@@ -1159,6 +1191,9 @@ namespace net.vieapps.Services.Portals
 					// main category
 					if (category != null)
 					{
+						parentCategory = category.ParentCategory;
+						while (parentCategory?.ParentCategory != null)
+							parentCategory = parentCategory.ParentCategory;
 						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
 						var categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 						var thumbnailURL = categoryThumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
@@ -1168,7 +1203,8 @@ namespace net.vieapps.Services.Portals
 							new XElement("Description", category.Description?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", category.GetURL(desktop) ?? ""),
-							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")),
+							new XElement("Root", parentCategory?.Title ?? category.Title, new XAttribute("URL", parentCategory?.GetURL(desktop) ?? category.GetURL(desktop)))
 						));
 					}
 

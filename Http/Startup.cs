@@ -41,12 +41,12 @@ namespace net.vieapps.Services.Portals
 				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
 				.AddSession(options => Global.PrepareSessionOptions(options, 30))
 				.Configure<FormOptions>(options => Global.PrepareFormOptions(options))
-				.Configure<CookiePolicyOptions>(options => Global.PrepareCookiePolicyOptions(options, SameSiteMode.Lax));
+				.Configure<CookiePolicyOptions>(options => Global.PrepareCookiePolicyOptions(options));
 
 			// authentication
 			services
 				.AddAuthentication(options => Global.PrepareAuthenticationOptions(options, _ => options.RequireAuthenticatedSignIn = false))
-				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options, 30));
+				.AddCookie(options => Global.PrepareCookieAuthenticationOptions(options, 45));
 
 			// config authentication with proxy/load balancer
 			if (Global.UseIISIntegration)
@@ -80,7 +80,7 @@ namespace net.vieapps.Services.Portals
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
 			if ("true".IsEquals(UtilityService.GetAppSetting("Logs:WriteFiles", "true")) && !string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
 			{
-				logPath = Path.Combine(logPath, "{Hour}" + $"_{Global.ServiceName.ToLower()}.http.txt");
+				logPath = Path.Combine(logPath, "{Hour}" + $"_{Global.ServiceName.ToLower()}.http.pid-{Environment.ProcessId}.txt");
 				loggerFactory.AddFile(logPath, this.LogLevel);
 			}
 			else

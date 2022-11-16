@@ -129,7 +129,7 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static async Task<List<string>> GetSetCacheKeysAsync(this Site site, CancellationToken cancellationToken = default)
 		{
-			var theme = site.Theme ?? site.Organization?.Theme ?? "defaut";
+			var theme = site.WorkingTheme ?? "defaut";
 			return new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }
 				.Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time" })
 				.Concat(await Utility.Cache.GetSetMembersAsync($"statics:{theme}", cancellationToken).ConfigureAwait(false) ?? new HashSet<string>())
@@ -155,16 +155,6 @@ namespace net.vieapps.Services.Portals
 				.ToList();
 		}
 
-		internal static string GetRequestPath(this Organization organization, Uri requestURI)
-		{
-			var path = requestURI.AbsolutePath.ToLower();
-			while (path.EndsWith("/") || path.EndsWith("."))
-				path = path.Left(path.Length - 1).Trim();
-			path = path.IsStartsWith($"/~{organization.Alias}") ? path.Right(path.Length - organization.Alias.Length - 2) : path;
-			path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
-			return path;
-		}
-
 		/// <summary>
 		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
 		/// </summary>
@@ -174,7 +164,11 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string GetDesktopCacheKey(this Organization organization, Uri requestURI, string desktopAlias)
 		{
-			var path = organization.GetRequestPath(requestURI);
+			var path = requestURI.AbsolutePath.ToLower();
+			while (path.EndsWith("/") || path.EndsWith("."))
+				path = path.Left(path.Length - 1).Trim();
+			path = path.IsStartsWith($"/~{organization.Alias}") ? path.Right(path.Length - organization.Alias.Length - 2) : path;
+			path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
 			path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
 			return $"{organization.ID}:" + (desktopAlias.IsEquals("-default") || desktopAlias.IsEquals(organization.HomeDesktop?.Alias) ? "-default" : path).GenerateUUID();
 		}

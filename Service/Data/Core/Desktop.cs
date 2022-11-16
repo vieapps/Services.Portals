@@ -140,9 +140,6 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override Privileges OriginalPrivileges { get; set; }
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public override Privileges WorkingPrivileges => this.Organization?.WorkingPrivileges;
-
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public int OrderIndex { get; set; }
 
@@ -163,6 +160,9 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		INestedObject INestedObject.Parent => this.ParentDesktop;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public override Privileges WorkingPrivileges => this.Organization?.WorkingPrivileges;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string WorkingTheme => this.Theme ?? this.Organization?.DefaultSite?.Theme ?? this.Organization?.Theme ?? "default";

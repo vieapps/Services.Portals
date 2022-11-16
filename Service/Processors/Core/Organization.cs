@@ -118,7 +118,7 @@ namespace net.vieapps.Services.Portals
 		internal static List<string> GetRefreshingURLs(this Organization organization, IEnumerable<string> addresses = null, string rootURL = null)
 			=> (addresses ?? organization.RefreshUrls?.Addresses ?? new List<string>()).Select(address =>
 			{
-				var urls = new List<string>();
+				var urls = new[] { "~/rss" }.ToList();
 				address.Replace("\r", "").ToArray("\n").ForEach(url =>
 				{
 					if (url.IsStartsWith("@desktop("))
@@ -126,6 +126,12 @@ namespace net.vieapps.Services.Portals
 						var parameters = url.Replace(StringComparison.OrdinalIgnoreCase, "@desktop(", "").Replace(")", "").ToList();
 						var desktops = new[] { parameters.First().GetDesktopByID() }.ToList();
 						desktops.Concat(desktops.FirstOrDefault()?.Children).Where(desktop => desktop != null).ToList().ForEach(desktop => urls.Add($"~/{desktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}"));
+					}
+					else if (url.IsStartsWith("@link("))
+					{
+						var parameters = url.Replace(StringComparison.OrdinalIgnoreCase, "@link(", "").Replace(")", "").ToList();
+						var links = new[] { Link.Get<Link>(parameters.First()) }.ToList();
+						links.Concat(links.FirstOrDefault()?.Children).Where(link => link != null).ToList().ForEach(link => urls.Add(link.GetURL()));
 					}
 					else if (url.IsStartsWith("@category("))
 					{
@@ -150,7 +156,9 @@ namespace net.vieapps.Services.Portals
 				return urls;
 			})
 			.SelectMany(urls => urls)
-			.Where(url => !string.IsNullOrWhiteSpace(url))
+			.Where(url => !string.IsNullOrWhiteSpace(url) && !url.IsEquals("#"))
+			.Select(url => url.IsEquals("~/default.aspx") || url.IsEquals("~/index.html") ? "~/" : url)
+			.Where(url => !url.IsEquals("~/"))
 			.Distinct(StringComparer.OrdinalIgnoreCase)
 			.ToList();
 
@@ -169,7 +177,11 @@ namespace net.vieapps.Services.Portals
 				return;
 			}
 
-			var refreshURLs = new[] { "~/" }.Concat((organization.Sites ?? new List<Site>()).Select(site => site.GetURL())).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var refreshURLs = new[] { "~/" }.ToList();
+			var sites = organization.Sites ?? new List<Site>();
+			if (sites.Count > 1)
+				refreshURLs = refreshURLs.Concat(sites.Select(site => site.GetURL())).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
 			var schedulingTasks = new[] { new SchedulingTask(3)
 			{
 				ID = $"{organization.ID}:URLs:Home".GenerateUUID(),
@@ -318,9 +330,9 @@ namespace net.vieapps.Services.Portals
 				: new List<string>();
 
 			// clear related cache
-			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
+				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh ? $"{organization.URL}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
@@ -350,7 +362,7 @@ namespace net.vieapps.Services.Portals
 
 				// clear cache of desktops
 				var desktops = await Desktop.FindAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				tasks = tasks.Concat(desktops.Select(desktop => desktop.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh))).ToList();
+				tasks = tasks.Concat(desktops.Select(desktop => desktop.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, false, doRefresh))).ToList();
 
 				// clear cache of sites
 				tasks = tasks.Concat(organization.Sites.Select(site => site.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh))).ToList();

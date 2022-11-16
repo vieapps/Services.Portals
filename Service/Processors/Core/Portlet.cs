@@ -10,6 +10,8 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using System.Security.AccessControl;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -361,7 +363,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetPortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var portlet = await Portlet.GetAsync<Portlet>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			var portlet = await Portlet.GetAsync<Portlet>(requestInfo.GetObjectIdentity(true, true) ?? "", cancellationToken).ConfigureAwait(false);
 			if (portlet == null)
 				throw new InformationNotFoundException();
 			else if (portlet.Organization == null)
@@ -372,22 +374,46 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+			{
+				await portlet.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				portlet = await Portlet.GetAsync<Portlet>(portlet.ID, cancellationToken).ConfigureAwait(false);
+			}
+
 			// prepare the response
 			var response = portlet.ToJson();
-			if (string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
+			var objectName = portlet.GetTypeName(true);
+			if (isRefresh)
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+
+			// send the update messages and response
+			if (!string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = response,
+					DeviceID = "*",
+					ExcludedDeviceID = requestInfo.Session.DeviceID
+				}.Send();
+			else if (!"false".IsEquals(requestInfo.GetParameter("x-other-desktops")))
 			{
 				var mappingPortlets = await portlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? new List<Portlet>();
 				response["OtherDesktops"] = mappingPortlets.Where(mappingPortlet => mappingPortlet != null).Select(mappingPortlet => mappingPortlet.DesktopID).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToJArray();
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = response,
+					DeviceID = "*",
+					ExcludedDeviceID = requestInfo.Session.DeviceID
+				}.Send();
 			}
 
-			// send the update messages and response
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{portlet.GetTypeName(true)}#Update",
-				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
-			}.Send();
 			return response;
 		}
 

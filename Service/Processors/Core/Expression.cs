@@ -11,6 +11,8 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using System.Security.AccessControl;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -95,10 +97,16 @@ namespace net.vieapps.Services.Portals
 			return expressions;
 		}
 
-		internal static Task ProcessInterCommunicateMessageOfExpressionAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
+		internal static async Task ProcessInterCommunicateMessageOfExpressionAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				message.Data.ToExpandoObject().CreateExpression().Set();
+			{
+				var expression = message.Data.ToExpandoObject().CreateExpression();
+				if (expression.Filter == null || expression.Filter.Children == null || !expression.Filter.Children.Any())
+					await expression.ID.GetExpressionByIDAsync(cancellationToken, true).ConfigureAwait(false);
+				else
+					expression.Set();
+			}
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
@@ -106,13 +114,14 @@ namespace net.vieapps.Services.Portals
 				expression = expression == null
 					? message.Data.ToExpandoObject().CreateExpression()
 					: expression.Update(message.Data.ToExpandoObject());
-				expression.Set();
+				if (expression.Filter == null || expression.Filter.Children == null || !expression.Filter.Children.Any())
+					await expression.ID.GetExpressionByIDAsync(cancellationToken, true).ConfigureAwait(false);
+				else
+					expression.Set();
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateExpression().Remove();
-
-			return Task.CompletedTask;
 		}
 
 		internal static async Task ClearRelatedCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
@@ -297,7 +306,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetExpressionAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var expression = await (requestInfo.GetObjectIdentity() ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			var expression = await (requestInfo.GetObjectIdentity(true, true) ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (expression == null)
 				throw new InformationNotFoundException();
 			else if (expression.Organization == null)
@@ -308,15 +317,30 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+			{
+				await Utility.Cache.RemoveAsync(expression, cancellationToken).ConfigureAwait(false);
+				expression = await expression.Remove().ID.GetExpressionByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			}
+
 			// send the update message to update to all other connected clients
 			var response = expression.ToJson();
+			var objectName = expression.GetTypeName(true);
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{expression.GetTypeName(true)}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*",
-				ExcludedDeviceID = requestInfo.Session.DeviceID
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
+			if (isRefresh)
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
 
 			// response
 			return response;

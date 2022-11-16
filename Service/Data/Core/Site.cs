@@ -10,6 +10,8 @@ using Newtonsoft.Json.Converters;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
+using System.Security.Policy;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -167,6 +169,9 @@ namespace net.vieapps.Services.Portals
 		public override Privileges WorkingPrivileges => this.Organization?.WorkingPrivileges;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		public string WorkingTheme => this.Theme ?? this.Organization?.Theme ?? "default";
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
@@ -188,7 +193,10 @@ namespace net.vieapps.Services.Portals
 		public string Host => $"{this.SubDomain}.{this.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www.").Replace("*", "");
 
 		public string GetURL(string host = null, string requestedURL = null)
-			=> $"http{(this.AlwaysUseHTTPs || this.AlwaysReturnHTTPs || (requestedURL ?? "").IsStartsWith("https://") ? "s" : "")}://{host ?? this.Host}";
+		{
+			var url = $"http{(this.AlwaysUseHTTPs || this.AlwaysReturnHTTPs || (requestedURL ?? "").IsStartsWith("https://") ? "s" : "")}://{host ?? this.Host}";
+			return this.RedirectToNoneWWW ? url.Replace("://www.", "://") : url;
+		}
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>

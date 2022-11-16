@@ -4,6 +4,8 @@ using System.Text;
 using System.Linq;
 using System.Collections.Generic;
 using net.vieapps.Components.Utility;
+using System;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -156,6 +158,12 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string MinifyJs(string data)
 		{
+			data = (data ?? "").Replace(" ", " ");
+			data = data.IsContains("/*<![CDATA[*/") && data.IsContains("/*]]>*/")
+				? data.Replace(StringComparison.OrdinalIgnoreCase, "/*<![CDATA[*/", "").Replace("/*]]>*/", "")
+				: data.IsContains("//<![CDATA[") && data.IsContains("//]]>")
+					? data.Replace(StringComparison.OrdinalIgnoreCase, "//<![CDATA[", "").Replace("//]]>", "")
+					: data;
 			var blocks = new List<string>();
 			while (data.Length > 0)
 			{
@@ -287,6 +295,10 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string MinifyCss(string data)
 		{
+			data = (data ?? "").Replace(" ", " ");
+			data = data.IsContains("/*<![CDATA[*/") && data.IsContains("/*]]>*/")
+				? data.Replace(StringComparison.OrdinalIgnoreCase, "/*<![CDATA[*/", "").Replace("/*]]>*/", "")
+				: data;
 			var blocks = new List<string>();
 			while (data.Length > 0)
 			{
