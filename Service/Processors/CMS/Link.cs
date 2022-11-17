@@ -916,7 +916,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// prepare filtering expression
-			if (!(expressionJson.Get<JObject>("FilterBy")?.ToFilter<Link>() is FilterBys<Link> filter) || filter.Children == null || filter.Children.Count < 1)
+			if (!(expressionJson.Get<JObject>("FilterBy")?.ToFilter<Link>() is FilterBys<Link> filter) || filter.Children == null || !filter.Children.Any())
 				filter = Filters<Link>.And
 				(
 					Filters<Link>.Equals("SystemID", "@request.Body(Organization.ID)"),
@@ -957,12 +957,26 @@ namespace net.vieapps.Services.Portals
 			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 			var showAttachments = options.Get("ShowAttachments", true);
-			var forceCache = requestInfo.GetParameter("x-force-cache") != null || requestInfo.GetParameter("x-no-cache") != null;
 
 			var level = options.Get("Level", 1);
 			var maxLevel = options.Get("MaxLevel", 0);
 			var addChildren = options.Get("ShowChildrens", options.Get("ShowChildren", options.Get("AddChildrens", options.Get("AddChildren", false))));
+
+			var forceCache = requestInfo.GetParameter("x-force-cache") != null || requestInfo.GetParameter("x-no-cache") != null;
 			string data = null;
+
+			var requestedURL = requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri");
+			var requestedURI = new Uri(requestedURL);
+			requestedURL = requestedURL.Replace(StringComparison.OrdinalIgnoreCase, $"{requestedURI.Scheme}://{requestedURI.Host}/", "~/").Replace(StringComparison.OrdinalIgnoreCase, $"/~{requestInfo.GetParameter("x-system")}", "/").Replace("//", "/");
+			var position = requestedURL.IndexOf(".html");
+			if (position > 0)
+				requestedURL = requestedURL.Left(position);
+			position = requestedURL.IndexOf(".aspx");
+			if (position > 0)
+				requestedURL = requestedURL.Left(position);
+			position = requestedURL.IndexOf(".php");
+			if (position > 0)
+				requestedURL = requestedURL.Left(position);
 
 			// get parent
 			var parentIdentity = filter.GetChild("ParentID") is FilterBy<Link> parentFilter && parentFilter.Operator.Equals(CompareOperator.Equals) && parentFilter.Value != null
@@ -977,7 +991,7 @@ namespace net.vieapps.Services.Portals
 				: null;
 
 			// as lookup
-			if (parent != null && options.Get("AsLookup", false))
+			if (parent != null && parent.ChildrenMode.Equals(ChildrenMode.Lookup) && !string.IsNullOrWhiteSpace(parent.LookupRepositoryID) && !string.IsNullOrWhiteSpace(parent.LookupRepositoryEntityID) && !string.IsNullOrWhiteSpace(parent.LookupRepositoryObjectID))
 			{
 				// prepare cache
 				var cacheKey = $"{parent.GetCacheKey()}:xml:o#{optionsJson.ToString(Formatting.None).GenerateUUID()}:p#{paginationJson.ToString(Formatting.None).GenerateUUID()}";
@@ -990,58 +1004,112 @@ namespace net.vieapps.Services.Portals
 				// process if has no cache
 				if (string.IsNullOrWhiteSpace(data))
 				{
-					// prepare parent info
-					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
-					var thumbnails = await requestInfo.GetThumbnailsAsync(parent.ID, parent.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-					var thumbnailURL = thumbnails?.GetThumbnailURL(parent.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
-
-					// generate links (as lookup)
-					var linkJson = await requestInfo.GenerateLinkAsync(parent, thumbnailURL, addChildren, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false);
-
-					// generate xml
-					var dataXml = linkJson.Get<JObject>("Children").ToXml("Data", xml =>
+					// generate as menu with look-up data
+					if (asMenu)
 					{
-						var element = xml?.Element("ThumbnailURL");
-						if (element != null)
-							element.Add(new XAttribute("Alternative", element.Value?.GetWebpImageURL(pngThumbnails)));
-					});
-					dataXml.Add(new XElement(
-						"Parent",
-						new XElement("Title", parent.Title),
-						new XElement("Description", parent.Summary?.NormalizeHTMLBreaks()),
-						new XElement("URL", parent.GetURL(desktop)),
-						new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
-					));
+						// generate menus
+						var lookupContentType = await parent.LookupRepositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+						var menu = lookupContentType == null ? null : await lookupContentType.GetService().GenerateMenuAsync(new RequestInfo(requestInfo)
+						{
+							Header = new Dictionary<string, string>(requestInfo.Header, StringComparer.OrdinalIgnoreCase)
+							{
+								{ "x-menu-repository-id", parent.LookupRepositoryID },
+								{ "x-menu-repository-entity-id", parent.LookupRepositoryEntityID },
+								{ "x-menu-repository-object-id", parent.LookupRepositoryObjectID },
+								{ "x-menu-level", $"{level}" },
+								{ "x-menu-max-level", $"{maxLevel}" }
+							}
+						}, cancellationToken).ConfigureAwait(false);
 
-					// get xml data
-					data = dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting);
+						// generate xml
+						var dataXml = new JObject
+						{
+							{ "Menu", menu }
+						}.ToXml("Data");
 
-					// update cache
-					await Task.WhenAll
-					(
-						Utility.Cache.SetAsync(cacheKey, data, cancellationToken),
-						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, new[] { parent.GetCacheKey() }.Concat((parent.Children ?? new List<Link>()).Where(obj => obj != null && obj.ID != null && obj.ID.IsValidUUID()).Select(obj => obj.GetCacheKey())), cancellationToken) : Task.CompletedTask,
-						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), new[] { cacheKey }, cancellationToken) : Task.CompletedTask,
-						Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", "Caches") : Task.CompletedTask
-					).ConfigureAwait(false);
+						// prepare parent info
+						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+						var thumbnails = await requestInfo.GetThumbnailsAsync(parent.ID, parent.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+						var thumbnailURL = thumbnails?.GetThumbnailURL(parent.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
+						dataXml.Add(new XElement(
+							"Parent",
+							new XElement("Title", parent.Title),
+							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks()),
+							new XElement("URL", parent.GetURL(desktop)),
+							new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+						));
+
+						// update cache
+						await Task.WhenAll
+						(
+							Utility.Cache.SetAsync(cacheKey, dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting), cancellationToken),
+							contentType != null
+								? Task.WhenAll
+								(
+									Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, cancellationToken),
+									Utility.Cache.AddSetMemberAsync(contentType.ObjectCacheKeys, parent.GetCacheKey(), cancellationToken)
+								) : Task.CompletedTask,
+							Utility.IsDebugLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Generate menu from look-up data [{parent.LookupRepositoryID}/{parent.LookupRepositoryEntityID}/{parent.LookupRepositoryObjectID}]\r\n- Content-Type: {lookupContentType?.Title}\r\n- JSON: {menu}\r\n- XML: {dataXml}", "Menus") : Task.CompletedTask
+						).ConfigureAwait(false);
+
+						// update 'Selected' states and get data
+						dataXml.Elements("Menu").ForEach(element => element.SetSelected(requestedURL));
+
+						// get xml data
+						data = dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting);
+					}
+					else
+					{
+						// prepare parent info
+						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+						var thumbnails = await requestInfo.GetThumbnailsAsync(parent.ID, parent.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+						var thumbnailURL = thumbnails?.GetThumbnailURL(parent.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
+
+						// generate links
+						var linkJson = await requestInfo.GenerateLinkAsync(parent, thumbnailURL, addChildren, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false);
+
+						// generate xml
+						var dataXml = linkJson.Get<JObject>("Children").ToXml("Data", xml =>
+						{
+							var element = xml?.Element("ThumbnailURL");
+							element?.Add(new XAttribute("Alternative", element.Value?.GetWebpImageURL(pngThumbnails)));
+						});
+						dataXml.Add(new XElement(
+							"Parent",
+							new XElement("Title", parent.Title),
+							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks()),
+							new XElement("URL", parent.GetURL(desktop)),
+							new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+						));
+
+						// get xml data
+						data = dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting);
+
+						// update cache
+						await Task.WhenAll
+						(
+							Utility.Cache.SetAsync(cacheKey, data, cancellationToken),
+							contentType != null
+								? Task.WhenAll
+								(
+									Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, cancellationToken),
+									Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, new[] { parent.GetCacheKey() }.Concat((parent.Children ?? new List<Link>()).Where(obj => obj != null && obj.ID != null && obj.ID.IsValidUUID()).Select(obj => obj.GetCacheKey())), cancellationToken)
+								) : Task.CompletedTask,
+							Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", "Caches") : Task.CompletedTask
+						).ConfigureAwait(false);
+					}
+				}
+
+				// update 'Selected' states
+				else if (asMenu)
+				{
+					var dataXml = XElement.Parse(data);
+					dataXml.Elements("Menu").ForEach(element => element.SetSelected(requestedURL));
+					data = dataXml.ToString(SaveOptions.DisableFormatting);
 				}
 			}
 			else
 			{
-				// prepare requested URL
-				var requestedURL = requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri");
-				var requestedURI = new Uri(requestedURL);
-				requestedURL = requestedURL.Replace(StringComparison.OrdinalIgnoreCase, $"{requestedURI.Scheme}://{requestedURI.Host}/", "~/").Replace(StringComparison.OrdinalIgnoreCase, $"/~{requestInfo.GetParameter("x-system")}", "/").Replace("//", "/");
-				var position = requestedURL.IndexOf(".html");
-				if (position > 0)
-					requestedURL = requestedURL.Left(position);
-				position = requestedURL.IndexOf(".aspx");
-				if (position > 0)
-					requestedURL = requestedURL.Left(position);
-				position = requestedURL.IndexOf(".php");
-				if (position > 0)
-					requestedURL = requestedURL.Left(position);
-
 				// prepare cache
 				var cacheKey = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
 				if (forceCache)
@@ -1085,8 +1153,7 @@ namespace net.vieapps.Services.Portals
 								: (await requestInfo.GenerateLinkAsync(@object, thumbnailURL, addChildren, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false)).ToXml("Link", xml =>
 								{
 									var element = xml.Element("ThumbnailURL");
-									if (element != null)
-										element.Add(new XAttribute("Alternative", element.Value?.GetWebpImageURL(pngThumbnails)));
+									element?.Add(new XAttribute("Alternative", element.Value?.GetWebpImageURL(pngThumbnails)));
 								});
 
 							// get and generate attachments
@@ -1289,7 +1356,7 @@ namespace net.vieapps.Services.Portals
 						await link.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 
 					var children = link.Children;
-					if (children.Count > 0)
+					if (children.Any())
 					{
 						var thumbnails = children.Count == 1
 							? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
@@ -1302,8 +1369,8 @@ namespace net.vieapps.Services.Portals
 				// children that looked-up from other module/content-type
 				else if (!string.IsNullOrWhiteSpace(link.LookupRepositoryID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) && !string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
 				{
-					var contentType = await link.LookupRepositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-					subMenu = contentType == null ? null : await contentType.GetService().GenerateMenuAsync(new RequestInfo(requestInfo)
+					var lookupContentType = await link.LookupRepositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+					subMenu = lookupContentType == null ? null : await lookupContentType.GetService().GenerateMenuAsync(new RequestInfo(requestInfo)
 					{
 						Header = new Dictionary<string, string>(requestInfo.Header, StringComparer.OrdinalIgnoreCase)
 						{
@@ -1317,7 +1384,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// update children
-				if (subMenu != null && subMenu.Count > 0)
+				if (subMenu != null && subMenu.Any())
 					menu["SubMenu"] = new JObject
 					{
 						{ "Menu", subMenu }

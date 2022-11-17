@@ -3557,7 +3557,7 @@ namespace net.vieapps.Services.Portals
 
 			// check the children
 			var children = (@object as INestedObject).Children;
-			if (children == null || children.Count < 1)
+			if (children == null || !children.Any())
 				return null;
 
 			// get thumbnails
@@ -3601,7 +3601,7 @@ namespace net.vieapps.Services.Portals
 
 			stopwatch.Stop();
 			if (requestInfo.IsWriteDesktopLogs())
-				await this.WriteLogsAsync(requestInfo, $"Data of a CMS Portals object [{@object.GetObjectName()}] was generated/prepared as menu - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {menu?.ToString(this.JsonFormat)}").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo, $"Data of a CMS Portals object [{@object.GetObjectName()} => {@object.Title}] was generated/prepared as menu - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {menu?.ToString(this.JsonFormat)}").ConfigureAwait(false);
 
 			return menu;
 		}

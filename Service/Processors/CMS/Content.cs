@@ -1449,17 +1449,20 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var json = content.ToJson();
 			var objectName = content.GetObjectName();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
-				Data = json,
-				DeviceID = "*"
-			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#{@event}",
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
+			}.Send();
+
+			json["Summary"] = content.Summary?.NormalizeHTMLBreaks();
+			json["Details"] = content.Organization.NormalizeURLs(content.Details);
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
+				Data = json,
+				DeviceID = "*"
 			}.Send();
 
 			// return the response
