@@ -564,6 +564,7 @@ namespace net.vieapps.Services.Portals
 
 			// send notification
 			await category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			category.Organization.SendRefreshingTasks();
 
 			// store object cache key to clear related cached
 			await Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
@@ -773,6 +774,7 @@ namespace net.vieapps.Services.Portals
 
 			// send notification
 			await category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			category.Organization.SendRefreshingTasks();
 
 			// response
 			return response;
@@ -881,6 +883,7 @@ namespace net.vieapps.Services.Portals
 
 			// send notification
 			await Task.WhenAll(notificationTasks).ConfigureAwait(false);
+			organization.SendRefreshingTasks();
 
 			// response
 			return new JObject();
@@ -978,6 +981,7 @@ namespace net.vieapps.Services.Portals
 
 			// send notification
 			await category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			category.Organization.SendRefreshingTasks();
 
 			// response
 			return response;

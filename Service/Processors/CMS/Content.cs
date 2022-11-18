@@ -258,10 +258,11 @@ namespace net.vieapps.Services.Portals
 			// other parameters
 			var showAttachments = "true".IsEquals(requestInfo.GetParameter("x-object-attachments")) || requestInfo.GetParameter("ShowAttachments") != null;
 			var showURLs = "true".IsEquals(requestInfo.GetParameter("x-object-urls")) || requestInfo.GetParameter("ShowURLs") != null;
+			var showCategories = "true".IsEquals(requestInfo.GetParameter("x-object-categories")) || requestInfo.GetParameter("ShowCategories") != null;
 			var showDetails = "false".IsEquals(requestInfo.GetParameter("x-object-details")) || requestInfo.GetParameter("NoDetails") != null ? false: true;
 
 			// process cache
-			var suffix = string.IsNullOrWhiteSpace(query) ? (showAttachments ? ":a" : "") + (showURLs ? ":u" : "") + (showDetails ? "" : ":d") : null;
+			var suffix = string.IsNullOrWhiteSpace(query) ? (showAttachments ? ":a" : "") + (showURLs ? ":u" : "") + (showCategories ? ":c" : "") + (showDetails ? "" : ":d") : null;
 			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber, string.IsNullOrWhiteSpace(suffix) ? null : suffix) : null;
 			if (requestInfo.GetParameter("x-force-cache") != null || requestInfo.GetParameter("x-no-cache") != null)
 				await Utility.Cache.RemoveAsync(new[] { cacheKeyOfObjectsJson, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), Extensions.GetCacheKeyOfTotalObjects(filter, sort) }, cancellationToken).ConfigureAwait(false);
@@ -296,9 +297,7 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{
-					"Objects",
-					objects.Select(@object => @object.ToJson(false, json =>
+				{ "Objects", objects.Select(@object => @object.ToJson(false, json =>
 					{
 						json["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID)?.NormalizeURIs(organization.FakeFilesHttpURI);
 						if (showAttachments)
@@ -310,16 +309,20 @@ namespace net.vieapps.Services.Portals
 							json["Summary"] = @object.Summary?.NormalizeHTMLBreaks();
 						}
 
+						if (showCategories)
+							json["Category"] = new JObject
+							{
+								["Title"] = @object.Category.Title,
+								["URL"] = organization.NormalizeURLs(@object.Category.GetURL(), true, siteURL)
+							};
+
 						if (showDetails)
 							json["Details"] = organization.NormalizeURLs(@object.Details);
 						else
 							json.Remove("Details");
 
-						if (showAttachments || showURLs)
-						{
-							json.Remove("Privileges");
-							json.Remove("OriginalPrivileges");
-						}
+						if (showURLs || showCategories || !showDetails)
+							new[] { "Privileges", "OriginalPrivileges", "Relateds", "ExternalRelateds", "OtherCategories", "InlineScripts", "SystemID", "RepositoryID", "RepositoryEntityID" }.ForEach(name => json.Remove(name));
 					})).ToJArray()
 				}
 			};

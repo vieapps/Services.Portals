@@ -420,6 +420,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			updateMessages.Send();
 			communicateMessages.Send();
+			link.Organization.SendRefreshingTasks();
 
 			// send notification
 			await link.SendNotificationAsync("Create", link.ContentType.Notifications, ApprovalStatus.Draft, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
@@ -583,6 +584,7 @@ namespace net.vieapps.Services.Portals
 			// send messages
 			updateMessages.Send();
 			communicateMessages.Send();
+			link.Organization.SendRefreshingTasks();
 
 			// send notification
 			await link.SendNotificationAsync("Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
@@ -731,6 +733,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			updateMessages.Send();
 			communicateMessages.Send();
+			link.Organization.SendRefreshingTasks();
 
 			// send notifications
 			await Task.WhenAll(notificationTasks).ConfigureAwait(false);
@@ -819,6 +822,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			updateMessages.Send();
 			communicateMessages.Send();
+			link.Organization.SendRefreshingTasks();
 
 			// send notification
 			await link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);

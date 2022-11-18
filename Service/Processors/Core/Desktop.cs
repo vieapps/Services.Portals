@@ -106,7 +106,7 @@ namespace net.vieapps.Services.Portals
 					});
 
 				if (updateCache)
-					Utility.Cache.Set(desktop);
+					Utility.Cache.SetAsync(desktop).Run();
 			}
 			return desktop;
 		}
@@ -448,8 +448,6 @@ namespace net.vieapps.Services.Portals
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = desktop.GetTypeName(true);
 
 			// update parent
@@ -462,41 +460,37 @@ namespace net.vieapps.Services.Portals
 				await parentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
 				var json = parentDesktop.ToJson(true, false);
-				updateMessages.Add(new UpdateMessage
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
-				});
-				communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Create",
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
-				});
+				}.Send();
 			}
 
 			// message to update to all other connected clients
 			var response = desktop.ToJson();
 			if (desktop.ParentDesktop == null)
-				updateMessages.Add(new UpdateMessage
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 					DeviceID = "*",
 					Data = response
-				});
+				}.Send();
 
 			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Create",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
-			});
-
-			// send update messages
-			updateMessages.Send();
-			communicateMessages.Send();
+			}.Send();
 
 			// send notification
 			await desktop.SendNotificationAsync("Create", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
@@ -612,8 +606,6 @@ namespace net.vieapps.Services.Portals
 			await Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await desktop.Set(existing != null, false, oldAliases).ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = desktop.GetTypeName(true);
 
 			// update parent
@@ -626,18 +618,18 @@ namespace net.vieapps.Services.Portals
 				await parentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
 				var json = parentDesktop.ToJson(true, false);
-				updateMessages.Add(new UpdateMessage
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
-				});
-				communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
-				});
+				}.Send();
 			}
 
 			// update old parent
@@ -651,41 +643,37 @@ namespace net.vieapps.Services.Portals
 					await parentDesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
 					var json = parentDesktop.ToJson(true, false);
-					updateMessages.Add(new UpdateMessage
+					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 						Data = json,
 						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+					}.Send();
+					new CommunicateMessage(requestInfo.ServiceName)
 					{
 						Type = $"{objectName}#Update",
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
-					});
+					}.Send();
 				}
 			}
 
 			// message to update to all other connected clients
 			var response = desktop.ToJson(true, false);
-			updateMessages.Add(new UpdateMessage
+			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*"
-			});
+			}.Send();
 
 			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
-			});
-
-			// send update messages
-			updateMessages.Send();
-			communicateMessages.Send();
+			}.Send();
 
 			// send notification
 			await desktop.SendNotificationAsync("Update", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
@@ -763,8 +751,6 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = desktop.GetTypeName(true);
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
@@ -786,27 +772,23 @@ namespace net.vieapps.Services.Portals
 					).ConfigureAwait(false);
 
 					var json = child.ToJson(true, false);
-					updateMessages.Add(new UpdateMessage
+					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 						Data = json,
 						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+					}.Send();
+					new CommunicateMessage(requestInfo.ServiceName)
 					{
 						Type = $"{objectName}#Update",
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
-					});
+					}.Send();
 				}
 
 				// delete children
 				else
-				{
-					var messages = await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-					updateMessages = updateMessages.Concat(messages.Item1).ToList();
-					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-				}
+					await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			}, true, false).ConfigureAwait(false);
 
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
@@ -814,24 +796,20 @@ namespace net.vieapps.Services.Portals
 
 			// message to update to all other connected clients
 			var response = desktop.ToJson();
-			updateMessages.Add(new UpdateMessage
+			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 				Data = response,
 				DeviceID = "*"
-			});
+			}.Send();
 
 			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Delete",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
-			});
-
-			// send update messages
-			updateMessages.Send();
-			communicateMessages.Send();
+			}.Send();
 
 			// send notification
 			await desktop.SendNotificationAsync("Delete", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
@@ -840,21 +818,14 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Desktop desktop, RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		static async Task DeleteChildrenAsync(this Desktop desktop, RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = desktop.GetTypeName(true);
 
 			// delete childrenn
 			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Desktop>();
-			await children.ForEachAsync(async child =>
-			{
-				var messages = await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-				updateMessages = updateMessages.Concat(messages.Item1).ToList();
-				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-			}, true, false).ConfigureAwait(false);
+			await children.ForEachAsync(async child => await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
 
 			// delete
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
@@ -865,19 +836,18 @@ namespace net.vieapps.Services.Portals
 
 			// prepare update messages
 			var json = desktop.ToJson();
-			updateMessages.Add(new UpdateMessage
+			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 				Data = json,
 				DeviceID = "*"
-			});
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Delete",
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
-			});
-			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
+			}.Send();
 		}
 
 		internal static async Task<JObject> SyncDesktopAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)

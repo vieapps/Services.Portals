@@ -30,7 +30,7 @@ namespace net.vieapps.Services.Portals
 			=> Organization.CreateInstance(data, excluded?.ToHashSet(), organization =>
 			{
 				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
-				organization.Alias = organization.Alias?.ToLower().Trim();
+				organization.Alias = organization.Alias?.NormalizeAlias(false);
 				organization.Theme = string.IsNullOrWhiteSpace(organization.Theme) ? "default" : organization.Theme;
 				onCompleted?.Invoke(organization);
 			});
@@ -39,7 +39,7 @@ namespace net.vieapps.Services.Portals
 			=> organization.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
-				organization.Alias = organization.Alias?.ToLower().Trim();
+				organization.Alias = organization.Alias?.NormalizeAlias(false);
 				organization.Theme = string.IsNullOrWhiteSpace(organization.Theme) ? "default" : organization.Theme;
 				onCompleted?.Invoke(organization);
 			});
@@ -506,7 +506,7 @@ namespace net.vieapps.Services.Portals
 			var organization = request.CreateOrganization("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? $"{obj.Title}{UtilityService.GetRandomNumber()}".NormalizeAlias(false) : obj.Alias.NormalizeAlias(false);
+				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? $"{obj.Title}{UtilityService.GetRandomNumber()}".NormalizeAlias(false) : obj.Alias;
 				obj.OwnerID = string.IsNullOrWhiteSpace(obj.OwnerID) || !obj.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : obj.OwnerID;
 				obj.Status = isSystemAdministrator
 					? request.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
@@ -657,7 +657,7 @@ namespace net.vieapps.Services.Portals
 			{
 				organization.OwnerID = isSystemAdministrator ? request.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
 				organization.Status = isSystemAdministrator ? request.Get("Status", organization.Status.ToString()).ToEnum<ApprovalStatus>() : organization.Status;
-				organization.Alias = (string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias).NormalizeAlias(false);
+				organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias;
 				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
 				organization.LastModified = DateTime.Now;
 				organization.LastModifiedID = requestInfo.Session.User.ID;

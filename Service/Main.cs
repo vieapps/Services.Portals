@@ -5268,6 +5268,7 @@ namespace net.vieapps.Services.Portals
 								entry["category"] = new[] { new JObject { ["@label"] = primaryCategory.Title, ["@term"] = primaryCategory.ID, ["@scheme"] = $"{href}{primaryCategory.GetURL().Replace("~/", baseHref)}" } }.ToJArray();
 						})).Get<JObject>("feed").ToString(Newtonsoft.Json.Formatting.None)
 					: null;
+
 				if (body == null)
 				{
 					body = $"{new XDeclaration("1.0", "utf-8", "yes")}\r\n{feed.CleanInvalidCharacters()}".RemoveWhitespaces();
