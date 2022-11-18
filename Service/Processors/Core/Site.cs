@@ -28,7 +28,7 @@ namespace net.vieapps.Services.Portals
 			{
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
-				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToList(";", true, true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
+				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToArray(";", true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
 				site.NormalizeExtras();
 				onCompleted?.Invoke(site);
 			});
@@ -38,7 +38,7 @@ namespace net.vieapps.Services.Portals
 			{
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
-				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToList(";", true, true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
+				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToArray(";", true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
 				site.NormalizeExtras();
 				onCompleted?.Invoke(site);
 			});
@@ -71,12 +71,12 @@ namespace net.vieapps.Services.Portals
 					site.Remove();
 
 				if (updateCache)
-					Utility.Cache.Set(site);
+					Utility.Cache.SetAsync(site).Run();
 
 				SiteProcessor.Sites[site.ID] = site;
 
 				var newDomains = new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }
-					.Concat(site.OtherDomains.ToList(";"))
+					.Concat((site.OtherDomains ?? "").ToArray(";", true))
 					.Where(domain => !string.IsNullOrWhiteSpace(domain))
 					.Select(domain => domain.NormalizeDomain().Replace("*.", "").ToLower())
 					.Distinct(StringComparer.OrdinalIgnoreCase)
@@ -107,9 +107,9 @@ namespace net.vieapps.Services.Portals
 			return site;
 		}
 
-		internal static async Task<Site> SetAsync(this Site site, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<Site> SetAsync(this Site site, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default, IEnumerable<string> oldDomains = null)
 		{
-			site?.Set(clear);
+			site?.Set(clear, false, oldDomains);
 			await (updateCache && site != null && !string.IsNullOrWhiteSpace(site.ID) && !string.IsNullOrWhiteSpace(site.Title) ? Utility.Cache.SetAsync(site, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return site;
 		}
@@ -123,7 +123,7 @@ namespace net.vieapps.Services.Portals
 			{
 				SiteProcessor.Sites.Remove(site.ID);
 				new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }
-					.Concat(site.OtherDomains.ToList(";"))
+					.Concat((site.OtherDomains ?? "").ToArray(";", true))
 					.Where(domain => !string.IsNullOrWhiteSpace(domain))
 					.Select(domain => domain.NormalizeDomain().Replace("*.", "").ToLower())
 					.Distinct(StringComparer.OrdinalIgnoreCase)
@@ -170,12 +170,13 @@ namespace net.vieapps.Services.Portals
 
 		public static Site GetSiteByDomain(this string domain, bool fetchRepository = true)
 		{
-			if (string.IsNullOrWhiteSpace(domain) || Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
+			var name = (domain ?? "").NormalizeDomain().Replace("*.", "");
+			if (string.IsNullOrWhiteSpace(name) || Utility.NotRecognizedAliases.Contains($"Site:{name}"))
 				return null;
 
-			if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{domain}", out var site) || site == null)
+			if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{name}", out var site) || site == null)
 			{
-				var host = domain;
+				var host = name;
 				var dotOffset = host.IndexOf(".");
 				while (site == null && dotOffset > 0)
 					if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{host}", out site) || site == null)
@@ -185,13 +186,13 @@ namespace net.vieapps.Services.Portals
 					}
 			}
 
-			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
+			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains($"Site:{name}"))
 			{
 				site = Site.Find(domain.GetFilterBy(), null, 0, 1, null).GetSiteByDomain(domain);
 				if (site != null)
-					site = site.Prepare(domain)?.Set();
+					site = site.Prepare(name)?.Set();
 				else if (Utility.DefaultSite == null)
-					Utility.NotRecognizedAliases.Add($"Site:{domain}");
+					Utility.NotRecognizedAliases.Add($"Site:{name}");
 			}
 
 			return site;
@@ -199,14 +200,15 @@ namespace net.vieapps.Services.Portals
 
 		public static async Task<Site> GetSiteByDomainAsync(this string domain, CancellationToken cancellationToken = default, bool fetchRepository = true)
 		{
-			var site = (domain ?? "").GetSiteByDomain(false);
-			if (site == null && fetchRepository && !string.IsNullOrWhiteSpace(domain) && !Utility.NotRecognizedAliases.Contains($"Site:{domain}"))
+			var name = (domain ?? "").NormalizeDomain().Replace("*.", "");
+			var site = name.GetSiteByDomain(false);
+			if (site == null && fetchRepository && !string.IsNullOrWhiteSpace(name) && !Utility.NotRecognizedAliases.Contains($"Site:{name}"))
 			{
-				site = (await Site.FindAsync(domain.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(domain);
+				site = (await Site.FindAsync(domain.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(name);
 				if (site != null)
-					site = site.Prepare(domain)?.Set();
+					site = site.Prepare(name)?.Set();
 				else if (Utility.DefaultSite == null)
-					Utility.NotRecognizedAliases.Add($"Site:{domain}");
+					Utility.NotRecognizedAliases.Add($"Site:{name}");
 			}
 			return site;
 		}
@@ -258,16 +260,16 @@ namespace net.vieapps.Services.Portals
 		internal static Task ProcessInterCommunicateMessageOfSiteAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			if (message.Type.IsEndsWith("#Create"))
-				message.Data.ToExpandoObject().CreateSite().Set();
+				message.Data.ToExpandoObject().CreateSite().Set(true);
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var site = message.Data.Get("ID", "").GetSiteByID(false, false);
-				var oldDomains = site != null ? new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }.Concat(site.OtherDomains.ToList(";")).ToList() : new List<string>();
+				var oldDomains = site != null ? new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }.Concat((site.OtherDomains ?? "").ToArray(";", true)).ToList() : new List<string>();
 				site = site == null
 					? message.Data.ToExpandoObject().CreateSite()
 					: site.Update(message.Data.ToExpandoObject());
-				site.Set(false, false, oldDomains);
+				site.Set(true, false, oldDomains);
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
@@ -405,7 +407,7 @@ namespace net.vieapps.Services.Portals
 			// check domain
 			var domain = $"{request.Get<string>("SubDomain")}.{request.Get<string>("PrimaryDomain")}";
 			var existing = await domain.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
-			if (existing != null)
+			if (existing != null && domain.NormalizeDomain().IsEquals($"{existing.SubDomain}.{existing.PrimaryDomain}"))
 				throw new InformationExistedException($"The domain ({domain.NormalizeDomain()}) was used by another site");
 
 			// validate meta-tags
@@ -422,7 +424,7 @@ namespace net.vieapps.Services.Portals
 			await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 
 			// update cache
-			await site.Set().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			await site.Set(existing != null).ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// update organization
 			if (organization._siteIDs == null)
@@ -501,7 +503,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> UpdateAsync(this Site site, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken, IEnumerable<string> oldDomains = null)
 		{
 			// update
-			await Site.UpdateAsync(site.Set(false, false, oldDomains), requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Site.UpdateAsync(site.Set(true, false, oldDomains), requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
 			var response = site.ToJson();
@@ -548,27 +550,27 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// check domain
-			var oldDomains = new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }.Concat(site.OtherDomains.ToList(";")).ToList();
+			var oldDomains = new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }.Concat((site.OtherDomains ?? "").ToArray(";", true)).ToList();
 			var oldStatus = site.Status;
 
 			var request = requestInfo.GetBodyExpando();
 			var domain = $"{request.Get<string>("SubDomain")}.{request.Get<string>("PrimaryDomain")}";
 			var existing = await domain.GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false);
-			if (existing != null && !existing.ID.IsEquals(site.ID))
+			if (existing != null && !existing.ID.IsEquals(site.ID) && domain.NormalizeDomain().IsEquals($"{existing.SubDomain}.{existing.PrimaryDomain}"))
 				throw new InformationExistedException($"The domain '{domain.NormalizeDomain()}' was used by another site");
 
 			// validate meta-tags
 			request.Get("MetaTags", "").ValidateTags();
 
 			// gathering information
-			site.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			site.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
+				site.LastModified = DateTime.Now;
+				site.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
 			// update
-			return await site.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+			return await site.UpdateAsync(requestInfo, oldStatus, cancellationToken, oldDomains).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> DeleteSiteAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)

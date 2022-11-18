@@ -63,9 +63,9 @@ namespace net.vieapps.Services.Portals
 			return organization;
 		}
 
-		internal static async Task<Organization> SetAsync(this Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<Organization> SetAsync(this Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default, string oldAlias = null)
 		{
-			organization?.Set(clear);
+			organization?.Set(clear, false, oldAlias);
 			await (updateCache && organization != null && !string.IsNullOrWhiteSpace(organization.ID) && !string.IsNullOrWhiteSpace(organization.Title) ? Utility.Cache.SetAsync(organization, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return organization;
 		}
@@ -77,6 +77,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (string.IsNullOrWhiteSpace(id) || !OrganizationProcessor.Organizations.TryRemove(id, out var organization) || organization == null)
 				return null;
+
 			OrganizationProcessor.OrganizationsByAlias.Remove(organization.Alias);
 			Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
 			return organization;
@@ -90,7 +91,7 @@ namespace net.vieapps.Services.Portals
 				organization.FindSitesAsync(cancellationToken, false),
 				organization.FindModulesAsync(cancellationToken, false)
 			).ConfigureAwait(false);
-			return set ? organization.Set() : organization;
+			return set ? organization.Set(true) : organization;
 		}
 
 		internal static async Task<Organization> RefreshAsync(this Organization organization, CancellationToken cancellationToken)
@@ -307,7 +308,7 @@ namespace net.vieapps.Services.Portals
 				organization = organization == null
 					? message.Data.ToExpandoObject().CreateOrganization()
 					: organization.Update(message.Data.ToExpandoObject());
-				(await organization.ReloadAsync(cancellationToken, false).ConfigureAwait(false)).Set(false, false, oldAlias);
+				(await organization.ReloadAsync(cancellationToken, false).ConfigureAwait(false)).Set(!organization.Alias.IsEquals(oldAlias), false, oldAlias);
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
@@ -491,11 +492,11 @@ namespace net.vieapps.Services.Portals
 			// check the exising the the alias
 			var request = requestInfo.GetBodyExpando();
 			var alias = request.Get<string>("Alias");
-			if (!string.IsNullOrWhiteSpace(alias) && OrganizationProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
-				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
-
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
+				if (OrganizationProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
+
 				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
 				if (existing != null)
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
@@ -505,7 +506,7 @@ namespace net.vieapps.Services.Portals
 			var organization = request.CreateOrganization("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? obj.Title.NormalizeAlias(false) + "-" + UtilityService.GetUUID(obj.ID, null, true).ToLower() : obj.Alias.NormalizeAlias(false);
+				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? $"{obj.Title}{UtilityService.GetRandomNumber()}".NormalizeAlias(false) : obj.Alias.NormalizeAlias(false);
 				obj.OwnerID = string.IsNullOrWhiteSpace(obj.OwnerID) || !obj.OwnerID.IsValidUUID() ? requestInfo.Session.User.ID : obj.OwnerID;
 				obj.Status = isSystemAdministrator
 					? request.Get("Status", "Pending").TryToEnum(out ApprovalStatus statusByAdmin) ? statusByAdmin : ApprovalStatus.Pending
@@ -587,7 +588,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateAsync(this Organization organization, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken, bool clearObjectsCache = false)
+		internal static async Task<JObject> UpdateAsync(this Organization organization, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken, bool clearObjectsCache = false, string oldAlias = null)
 		{
 			// update
 			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
@@ -596,7 +597,7 @@ namespace net.vieapps.Services.Portals
 			await organization.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, clearObjectsCache, true, false, false).ConfigureAwait(false);
 
 			// send update messages
-			await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			await organization.SetAsync(!organization.Alias.IsEquals(oldAlias), true, cancellationToken, oldAlias).ConfigureAwait(false);
 			var response = organization.ToJson();
 			var objectName = organization.GetTypeName(true);
 			new UpdateMessage
@@ -644,8 +645,9 @@ namespace net.vieapps.Services.Portals
 			{
 				if (OrganizationProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
+
 				var existing = await alias.NormalizeAlias(false).GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
-				if (existing != null && !existing.ID.Equals(organization.ID))
+				if (existing != null && !existing.ID.IsEquals(organization.ID))
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 			}
 
@@ -663,7 +665,7 @@ namespace net.vieapps.Services.Portals
 			}).Remove();
 
 			var privilegesWereChanged = !organization.OriginalPrivileges.IsEquals(privileges);
-			var response = await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken, privilegesWereChanged).ConfigureAwait(false);
+			var response = await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken, privilegesWereChanged, oldAlias).ConfigureAwait(false);
 
 			// broadcast update when the privileges were changed
 			// ...

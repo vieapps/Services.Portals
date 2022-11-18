@@ -12,6 +12,8 @@ using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Exceptions;
+using System.Security.Policy;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -30,7 +32,7 @@ namespace net.vieapps.Services.Portals
 			=> Desktop.CreateInstance(data, excluded?.ToHashSet(), desktop =>
 			{
 				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
-				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToList(";", true, true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
+				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToArray(";", true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
 				desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
 				"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
 				{
@@ -46,7 +48,7 @@ namespace net.vieapps.Services.Portals
 			=> desktop.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
-				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToList(";", true, true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
+				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToArray(";", true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
 				desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
 				"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
 				{
@@ -58,7 +60,7 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(desktop);
 			});
 
-		internal static Desktop Set(this Desktop desktop, bool clear = false, bool updateCache = false)
+		internal static Desktop Set(this Desktop desktop, bool clear = false, bool updateCache = false, IEnumerable<string> oldAliases = null)
 		{
 			if (desktop != null && !string.IsNullOrWhiteSpace(desktop.ID) && !string.IsNullOrWhiteSpace(desktop.Title))
 			{
@@ -78,11 +80,29 @@ namespace net.vieapps.Services.Portals
 				DesktopProcessor.DesktopsByAlias[$"{desktop.SystemID}:{desktop.Alias}"] = desktop;
 				Utility.NotRecognizedAliases.Remove($"Desktop:{desktop.SystemID}:{desktop.Alias}");
 
-				if (!string.IsNullOrWhiteSpace(desktop.Aliases))
-					desktop.Aliases.ToList(";").ForEach(alias =>
+				var newAliases = (desktop.Aliases ?? "").ToArray(";")
+					.Where(alias => !string.IsNullOrWhiteSpace(alias))
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToList();
+
+				newAliases.ForEach(alias =>
+				{
+					var success = DesktopProcessor.DesktopsByAlias.TryAdd($"{desktop.SystemID}:{alias}", desktop);
+					if (!success && DesktopProcessor.DesktopsByAlias.TryGetValue($"{desktop.SystemID}:{alias}", out var old))
+						success = DesktopProcessor.DesktopsByAlias.TryUpdate($"{desktop.SystemID}:{alias}", desktop, old);
+					if (success)
+						Utility.NotRecognizedAliases.Remove($"Desktop:{desktop.SystemID}:{alias}");
+				});
+
+				(oldAliases ?? new List<string>())
+					.Where(alias => !string.IsNullOrWhiteSpace(alias))
+					.Except(newAliases.Concat(new[] { desktop.Alias }))
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToList()
+					.ForEach(alias =>
 					{
-						if (DesktopProcessor.DesktopsByAlias.TryAdd($"{desktop.SystemID}:{alias}", desktop))
-							Utility.NotRecognizedAliases.Remove($"Desktop:{desktop.SystemID}:{alias}");
+						DesktopProcessor.DesktopsByAlias.Remove($"{desktop.SystemID}:{alias}");
+						Utility.NotRecognizedAliases.Remove($"Desktop:{desktop.SystemID}:{alias}");
 					});
 
 				if (updateCache)
@@ -91,9 +111,9 @@ namespace net.vieapps.Services.Portals
 			return desktop;
 		}
 
-		internal static async Task<Desktop> SetAsync(this Desktop desktop, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<Desktop> SetAsync(this Desktop desktop, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default, IEnumerable<string> oldAliases = null)
 		{
-			desktop?.Set(clear);
+			desktop?.Set(clear, false, oldAliases);
 			await (updateCache && desktop != null && !string.IsNullOrWhiteSpace(desktop.ID) && !string.IsNullOrWhiteSpace(desktop.Title) ? Utility.Cache.SetAsync(desktop, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return desktop;
 		}
@@ -107,8 +127,7 @@ namespace net.vieapps.Services.Portals
 			{
 				DesktopProcessor.Desktops.Remove(desktop.ID);
 				DesktopProcessor.DesktopsByAlias.Remove($"{desktop.SystemID}:{desktop.Alias}");
-				if (!string.IsNullOrWhiteSpace(desktop.Aliases))
-					desktop.Aliases.ToList(";").ForEach(alias => DesktopProcessor.DesktopsByAlias.Remove($"{desktop.SystemID}:{alias}"));
+				(desktop.Aliases ?? "").ToArray(";").ForEach(alias => DesktopProcessor.DesktopsByAlias.Remove($"{desktop.SystemID}:{alias}"));
 				return desktop;
 			}
 			return null;
@@ -129,10 +148,7 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Desktop:{systemID}:{alias}"))
 				return null;
 
-			var desktop = !force && DesktopProcessor.DesktopsByAlias.ContainsKey($"{systemID}:{alias}")
-				? DesktopProcessor.DesktopsByAlias[$"{systemID}:{alias}"]
-				: null;
-
+			var desktop = !force && DesktopProcessor.DesktopsByAlias.TryGetValue($"{systemID}:{alias}", out var dvalue) ? dvalue : null;
 			if (desktop == null && fetchRepository)
 			{
 				desktop = Desktop.Get<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null)?.Set();
@@ -192,12 +208,13 @@ namespace net.vieapps.Services.Portals
 					desktop.FindChildrenAsync(cancellationToken, false)
 				).ConfigureAwait(false);
 				await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async portlet => portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
-				desktop.Set();
+				desktop.Set(true);
 			}
 
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var desktop = message.Data.Get("ID", "").GetDesktopByID(false, false);
+				var oldAliases = desktop == null ? null :  (desktop.Aliases ?? "").ToArray(";", true).ToList();
 				desktop = desktop == null
 					? message.Data.ToExpandoObject().CreateDesktop()
 					: desktop.Update(message.Data.ToExpandoObject());
@@ -210,7 +227,7 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 				if (desktop.Portlets != null)
 					await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async portlet => portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
-				desktop.Set();
+				desktop.Set(true, false, oldAliases);
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
@@ -370,14 +387,12 @@ namespace net.vieapps.Services.Portals
 
 			// check alias
 			var alias = request.Get("Alias", "");
-			if (!string.IsNullOrWhiteSpace(alias))
-			{
-				if (DesktopProcessor.ExcludedAliases.Contains(alias.NormalizeAlias()))
-					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
-				var existing = await organization.ID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
-				if (existing != null)
-					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
-			}
+			if (!string.IsNullOrWhiteSpace(alias) && DesktopProcessor.ExcludedAliases.Contains(alias.NormalizeAlias()))
+				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
+
+			var existing = string.IsNullOrWhiteSpace(alias) ? null : await organization.ID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+			if (existing != null && existing.Alias.IsEquals(alias))
+				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
 
 			// source to copy from
 			var source = await request.Get("CopyFromID", "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -391,12 +406,11 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			var desktop = source != null
-				? source.Copy("ID,Title,Alias,Created,CreatedID,LastModified,LastModifiedID,Portlets".ToHashSet(), obj =>
+				? source.Copy("ID,Title,Alias,Aliases,Created,CreatedID,LastModified,LastModifiedID,Portlets".ToHashSet(), obj =>
 				{
 					obj.ID = UtilityService.NewUUID;
 					obj.ParentID = request.Get<string>("ParentID");
-					obj.Title = request.Get("Title", $"{source.Title} (Duplicated)");
-					obj.Aliases = null;
+					obj.Title = request.Get("Title", $"{source.Title} (Copied)");
 					obj._childrenIDs = new List<string>();
 				})
 				: request.CreateDesktop("SystemID,Privileges,OriginalPrivileges,Alias,Created,CreatedID,LastModified,LastModifiedID", obj =>
@@ -412,7 +426,7 @@ namespace net.vieapps.Services.Portals
 			desktop.CreatedID = desktop.LastModifiedID = requestInfo.Session.User.ID;
 
 			await Desktop.CreateAsync(desktop, cancellationToken).ConfigureAwait(false);
-			await desktop.Set().ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, false, false).ConfigureAwait(false);
+			await desktop.Set(existing != null).ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, false, false).ConfigureAwait(false);
 
 			// copy portlets
 			if (source != null)
@@ -576,20 +590,19 @@ namespace net.vieapps.Services.Portals
 
 			var oldAlias = desktop.Alias;
 			var alias = request.Get("Alias", "");
-			if (!string.IsNullOrWhiteSpace(alias) && !oldAlias.IsEquals(alias))
-			{
-				if (DesktopProcessor.ExcludedAliases.Contains(alias.NormalizeAlias()))
-					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another purpose");
-				var existing = await desktop.SystemID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
-				if (existing != null && !existing.ID.Equals(desktop.ID))
-					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
-			}
+			if (!string.IsNullOrWhiteSpace(alias) && !oldAlias.IsEquals(alias) && DesktopProcessor.ExcludedAliases.Contains(alias.NormalizeAlias()))
+				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another purpose");
+
+			var existing = string.IsNullOrWhiteSpace(alias) || oldAlias.IsEquals(alias) ? null : await desktop.SystemID.GetDesktopByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+			if (existing != null && !existing.ID.Equals(desktop.ID) && existing.Alias.IsEquals(alias))
+				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another desktop");
 
 			// validate template & meta-tags
 			request.Get("Template", "").ValidateTemplate();
 			request.Get("MetaTags", "").ValidateTags();
 
 			// update
+			var oldAliases = (desktop.Aliases ?? "").ToArray(";", true).Concat(new[] { oldAlias }).ToList();
 			desktop.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async _ =>
 			{
 				desktop.LastModified = DateTime.Now;
@@ -597,7 +610,7 @@ namespace net.vieapps.Services.Portals
 				await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			});
 			await Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await desktop.Set().ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			await desktop.Set(existing != null, false, oldAliases).ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
