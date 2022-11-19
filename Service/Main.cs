@@ -2197,7 +2197,7 @@ namespace net.vieapps.Services.Portals
 
 				// final scripts
 				additionalScripts += string.IsNullOrWhiteSpace(jqueryScripts) ? "" : "$(()=>{" + jqueryScripts.Replace(";;", ";") + "});";
-				scripts = "<script>__vieapps={ids:{" + (mainPortlet?.Get<string>("IDs") ?? $"system:\"{organization.ID}\",service:\"{this.ServiceName.ToLower()}\"") + $",parent:\"{parentIdentity}\",content:\"{contentIdentity}\"" + "},URLs:{root:\"~/\",portals:\"" + (organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) + "\",files:\"" + (organization.FakeFilesHttpURI ?? Utility.FilesHttpURI) + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}},current:{" + $"alias:\"{desktop.Alias}\",id:\"{desktop.ID}\"" + "}},language:{{language}},isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>"
+				scripts = "<script>__vieapps={ids:{" + (mainPortlet?.Get<string>("IDs") ?? $"system:\"{organization.ID}\",service:\"{this.ServiceName.ToLower()}\"") + $",parent:\"{parentIdentity}\",content:\"{contentIdentity}\"" + "},URLs:{root:\"~/\",portals:\"" + (organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) + "\",files:\"" + (organization.FakeFilesHttpURI ?? Utility.FilesHttpURI) + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}},current:{" + $"alias:\"{desktop.Alias}\",id:\"{desktop.ID}\"" + "}},language:\"{{language}}\",isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>"
 					+ scripts
 					+ additionalScriptLibraries
 					+ (string.IsNullOrWhiteSpace(additionalScripts) ? "" : $"<script>{additionalScripts}</script>");
@@ -3122,7 +3122,7 @@ namespace net.vieapps.Services.Portals
 
 			// social network meta tags
 			metaTags += $"<meta name=\"twitter:title\" property=\"og:title\" content=\"{title}\"/>";
-			metaTags += $"<meta property=\"og:locale\" content=\"{(desktop.WorkingLanguage ?? site.Language ?? "en-US").Replace("-", "_")}\"/>";
+			metaTags += "<meta property=\"og:locale\" content=\"{{locale}}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(coverURI) ? "" : $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{coverURI}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(desktop.CoverURI) ? "" : $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{desktop.CoverURI}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(site.CoverURI) ? "" : $"<meta name=\"twitter:image\" property=\"og:image\" content=\"{site.CoverURI}\"/>";
@@ -3136,7 +3136,7 @@ namespace net.vieapps.Services.Portals
 			metaTags += string.IsNullOrWhiteSpace(desktop.MetaTags) ? "" : desktop.MetaTags;
 
 			// the required stylesheet libraries
-			var version = organization.LastModified.AddDays(-13).GetTimeQuarter().ToUnixTimestamp();
+			var version = organization.LastModified.GetTimeQuarter().ToUnixTimestamp();
 			var stylesheets = site.UseInlineStylesheets
 				? this.MinifyCss(await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false)) + await this.GetThemeResourcesAsync("default", "css", cancellationToken).ConfigureAwait(false)
 				: $"<link rel=\"stylesheet\" href=\"~#/_assets/default.css?v={version}\"/><link rel=\"stylesheet\" href=\"~#/_themes/default/css/all.css?v={version}\"/>";
@@ -3314,8 +3314,8 @@ namespace net.vieapps.Services.Portals
 						var cssAttribute = parent.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("class"));
 						if (cssAttribute == null)
 							parent.Add(new XAttribute("class", "empty"));
-						else if (!cssAttribute.Value.IsContains("empty"))
-							cssAttribute.Value = $"{cssAttribute.Value.Trim()} empty";
+						else
+							cssAttribute.Value = cssAttribute.Value.IsContains("no-empty") ? cssAttribute.Value.Trim() : $"{cssAttribute.Value.Trim()} empty".Trim();
 					}
 				}
 				else
@@ -3329,14 +3329,14 @@ namespace net.vieapps.Services.Portals
 			if (writeLogs)
 				await this.WriteLogsAsync(correlationID, $"Remove empty zone(s) of {desktopInfo} => {removedZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
-			// add css class '.full' to a zone that the parent only got this zone
+			// add css class 'full' to a zone that the parent only got this zone
 			desktopZones.Where(zone => zone.Parent.Elements().Count() == 1).Where(zone => zone.Parent.Attribute("class") == null || !zone.Parent.Attribute("class").Value.IsContains("fixed")).ForEach(zone =>
 			{
 				var cssAttribute = zone.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName.IsEquals("class"));
 				if (cssAttribute == null)
 					zone.Add(new XAttribute("class", "full"));
 				else
-					cssAttribute.Value = $"{cssAttribute.Value.Trim()} full";
+					cssAttribute.Value = cssAttribute.Value.IsContains("no-full") ? cssAttribute.Value.Trim() : $"{cssAttribute.Value.Trim()} full".Trim();
 			});
 
 			// prepare main portlet for generating
@@ -3364,7 +3364,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// get the desktop body
-			var language = desktop.WorkingLanguage ?? site.Language ?? "vi-VN";
+			var language = desktop.WorkingLanguage ?? site.Language ?? "en-US";
 			var body = desktopContainer.ToString(SaveOptions.DisableFormatting).Format(new Dictionary<string, object>
 			{
 				["theme"] = desktopTheme,
@@ -3404,7 +3404,7 @@ namespace net.vieapps.Services.Portals
 		{
 			var homeDesktop = site.HomeDesktop != null ? $"\"{site.HomeDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}\"" : "undefined";
 			var searchDesktop = site.SearchDesktop != null ? $"\"{site.SearchDesktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}\"" : "undefined";
-			var language = "\"" + (desktop.WorkingLanguage ?? site.Language ?? "vi-VN") + "\"";
+			var language = desktop.WorkingLanguage ?? site.Language ?? "en-US";
 			return html.Format(new Dictionary<string, object>
 			{
 				["home"] = homeDesktop,
@@ -4497,25 +4497,43 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					// prepare
-					var organization = await (requestInfo.GetHeaderParameter("SystemID") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false);
+					var organization = await (requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false);
 					if (organization == null)
 						throw new InformationInvalidException("Invalid (no system)");
 
-					var settings = organization.WebHookSettings ?? new Settings.WebHook();
-					var signAlgorithm = settings.SignAlgorithm;
-					var signKey = settings.SignKey ?? requestInfo.Session.AppID ?? organization.ID;
-					var signatureName = settings.SignatureName;
-					var signatureAsHex = settings.SignatureAsHex;
-					var signatureInQuery = settings.SignatureInQuery;
-					var query = new Dictionary<string, string>();
-					if (!string.IsNullOrWhiteSpace(settings.AdditionalQuery))
-						(settings.AdditionalQuery.ToJson() as JObject).ForEach(kvp => query[kvp.Key] = kvp.Value.ToString());
-					var header = new Dictionary<string, string>();
-					if (!string.IsNullOrWhiteSpace(settings.AdditionalHeader))
-						(settings.AdditionalHeader.ToJson() as JObject).ForEach(kvp => header[kvp.Key] = kvp.Value.ToString());
-
 					// validate
-					requestInfo.ValidateWebHookMessage(signAlgorithm, signKey, signatureName, signatureAsHex, signatureInQuery, query, header);
+					var settings = organization.WebHookSettings ?? new Settings.WebHook();
+					var secretToken = requestInfo.GetParameter("WebHookSecretToken") ?? requestInfo.GetParameter("x-webhook-secret-token");
+
+					if (string.IsNullOrWhiteSpace(secretToken))
+					{
+						var signAlgorithm = settings.SignAlgorithm;
+						var signKey = settings.SignKey ?? requestInfo.Session.AppID ?? organization.ID;
+						var signatureName = settings.SignatureName;
+						var signatureAsHex = settings.SignatureAsHex;
+						var signatureInQuery = settings.SignatureInQuery;
+						var query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+						if (!string.IsNullOrWhiteSpace(settings.AdditionalQuery))
+							(settings.AdditionalQuery.ToJson() as JObject).ForEach(kvp => query[kvp.Key] = kvp.Value.ToString());
+						var header = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+						if (!string.IsNullOrWhiteSpace(settings.AdditionalHeader))
+							(settings.AdditionalHeader.ToJson() as JObject).ForEach(kvp => header[kvp.Key] = kvp.Value.ToString());
+						requestInfo.ValidateWebHookMessage(signAlgorithm, signKey, signatureName, signatureAsHex, signatureInQuery, query, header);
+					}
+					else if (!secretToken.IsEquals(settings.SecretToken))
+						throw new InformationInvalidException("Invalid (secret token)");
+
+					// prepare body
+					if (!string.IsNullOrWhiteSpace(settings.PrepareBodyScript))
+						requestInfo.Body = $"@[{settings.PrepareBodyScript}]".Evaluate(
+							null,
+							requestInfo,
+							new Dictionary<string, object>
+							{
+								["Organization"] = organization,
+								["Settings"] = settings
+							}.ToExpandoObject()
+						)?.ToString() ?? requestInfo.Body;
 
 					// sync object
 					await this.SyncObjectAsync(requestInfo, cts.Token, false).ConfigureAwait(false);

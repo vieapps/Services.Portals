@@ -245,6 +245,11 @@ namespace net.vieapps.Services.Portals.Settings
 		[FormControl(ControlType = "TextArea")]
 		public string AdditionalHeader { get; set; }
 
+		public string SecretToken { get; set; }
+
+		[FormControl(ControlType = "TextArea")]
+		public string PrepareBodyScript { get; set; }
+
 		public virtual void Normalize()
 		{
 			if (string.IsNullOrWhiteSpace(this.AdditionalQuery))
