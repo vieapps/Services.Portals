@@ -29,7 +29,11 @@ namespace net.vieapps.Services.Portals
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,EmailSettings".ToHashSet();
 
 		public static Category CreateCategory(this ExpandoObject data, string excluded = null, Action<Category> onCompleted = null)
-			=> Category.CreateInstance(data, excluded?.ToHashSet(), onCompleted);
+			=> Category.CreateInstance(data, excluded?.ToHashSet(), category =>
+			{
+				category.Alias = string.IsNullOrWhiteSpace(category.Alias) ? category.Title.NormalizeAlias() : category.Alias.NormalizeAlias();
+				onCompleted?.Invoke(category);
+			});
 
 		public static Category Update(this Category category, ExpandoObject data, string excluded = null, Action<Category> onCompleted = null)
 			=> category.Fill(data, excluded?.ToHashSet(), onCompleted);
@@ -39,7 +43,7 @@ namespace net.vieapps.Services.Portals
 				? $"{contentTypeID}:{alias.NormalizeAlias()}"
 				: null;
 
-		internal static Category Set(this Category category, bool clear = false, bool updateCache = false)
+		internal static Category Set(this Category category, bool clear = false, bool updateCache = false, string oldAlias = null)
 		{
 			if (category != null && !string.IsNullOrWhiteSpace(category.ID) && !string.IsNullOrWhiteSpace(category.Title))
 			{
@@ -47,17 +51,20 @@ namespace net.vieapps.Services.Portals
 					category.Remove();
 
 				if (updateCache)
-					Utility.Cache.Set(category);
+					Utility.Cache.SetAsync(category).Run();
 
 				CategoryProcessor.Categories[category.ID] = category;
 				CategoryProcessor.CategoriesByAlias[category.RepositoryEntityID.GetCacheKeyOfAliasedCategory(category.Alias)] = category;
+
+				if (!string.IsNullOrWhiteSpace(oldAlias) && !oldAlias.IsEquals(category.Alias))
+					CategoryProcessor.CategoriesByAlias.Remove(category.RepositoryEntityID.GetCacheKeyOfAliasedCategory(oldAlias));
 			}
 			return category;
 		}
 
-		internal static async Task<Category> SetAsync(this Category category, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default)
+		internal static async Task<Category> SetAsync(this Category category, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default, string oldAlias = null)
 		{
-			category?.Set(clear);
+			category?.Set(clear, false, oldAlias);
 			await (updateCache && category != null && !string.IsNullOrWhiteSpace(category.ID) && !string.IsNullOrWhiteSpace(category.Title) ? Utility.Cache.SetAsync(category, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return category;
 		}
@@ -69,7 +76,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (!string.IsNullOrWhiteSpace(id) && CategoryProcessor.Categories.TryRemove(id, out var category) && category != null)
 			{
-				CategoryProcessor.CategoriesByAlias.Remove($"{category.RepositoryEntityID}:{category.Alias}");
+				CategoryProcessor.CategoriesByAlias.Remove(category.RepositoryEntityID.GetCacheKeyOfAliasedCategory(category.Alias));
 				return category;
 			}
 			return null;
@@ -156,12 +163,13 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var category = message.Data.Get("ID", "").GetCategoryByID(false, false);
+				var oldAlias = category?.Alias;
 				category = category == null
 					? message.Data.ToExpandoObject().CreateCategory()
 					: category.Update(message.Data.ToExpandoObject());
 				category._childrenIDs = null;
 				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				category.Set();
+				category.Set(false, false, oldAlias);
 			}
 
 			else if (message.Type.IsEndsWith("#Delete"))
@@ -503,7 +511,7 @@ namespace net.vieapps.Services.Portals
 				obj._childrenIDs = new List<string>();
 			});
 
-			category.Alias = string.IsNullOrWhiteSpace(alias) ? category.Title.NormalizeAlias() : alias.NormalizeAlias();
+			// prepare order index
 			category.OrderIndex = (await CategoryProcessor.GetLastOrderIndexAsync(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
 
 			// create new
@@ -692,7 +700,7 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			await Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await category.Set().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			await category.Set(false, false, oldAlias).ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -1245,6 +1253,7 @@ namespace net.vieapps.Services.Portals
 
 			var data = requestInfo.GetBodyExpando();
 			var category = await data.Get<string>("ID").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+			var oldAlias = category?.Alias;
 
 			if (!@event.IsEquals("Delete"))
 			{
@@ -1257,8 +1266,7 @@ namespace net.vieapps.Services.Portals
 				}
 				else
 				{
-					category.Fill(data);
-					category.NormalizeExtras();
+					category.Fill(data).NormalizeExtras();
 					category.Extras = data.Get<string>("Extras") ?? category.Extras;
 					await Category.UpdateAsync(category, true, cancellationToken).ConfigureAwait(false);
 				}
@@ -1280,7 +1288,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var json = @event.IsEquals("Delete")
 				? category.Remove().ToJson()
-				: category.Set().ToJson();
+				: category.Set(false, false, oldAlias).ToJson();
 			var objectName = category.GetObjectName();
 			new UpdateMessage
 			{

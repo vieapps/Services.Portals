@@ -214,7 +214,7 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEndsWith("#Update"))
 			{
 				var desktop = message.Data.Get("ID", "").GetDesktopByID(false, false);
-				var oldAliases = desktop == null ? null :  (desktop.Aliases ?? "").ToArray(";", true).ToList();
+				var oldAliases = (desktop?.Aliases ?? "").ToArray(";", true).Concat(new[] { desktop?.Alias }).ToList();
 				desktop = desktop == null
 					? message.Data.ToExpandoObject().CreateDesktop()
 					: desktop.Update(message.Data.ToExpandoObject());
@@ -858,6 +858,7 @@ namespace net.vieapps.Services.Portals
 
 			var data = requestInfo.GetBodyExpando();
 			var desktop = await data.Get<string>("ID").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+			var oldAliases = (desktop?.Aliases ?? "").ToArray(";", true).Concat(new[] { desktop?.Alias }).ToList();
 
 			if (!@event.IsEquals("Delete"))
 			{
@@ -885,7 +886,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var json = @event.IsEquals("Delete")
 				? desktop.Remove().ToJson()
-				: desktop.Set().ToJson();
+				: desktop.Set(false, false, oldAliases).ToJson();
 			var objectName = desktop.GetTypeName(true);
 			new UpdateMessage
 			{
