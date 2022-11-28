@@ -60,6 +60,8 @@ namespace net.vieapps.Services.Portals
 
 		public static List<string> LegacyParameters { get; } = UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop,catName,contId,page").ToList();
 
+		public static HashSet<string> BlackIPs { get; } = UtilityService.GetAppSetting("Portals:BlackIPs", "").ToHashSet();
+
 		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 			=> Task.CompletedTask;
 		#endregion
@@ -98,7 +100,12 @@ namespace net.vieapps.Services.Portals
 
 				// process portals' requests
 				else
-					await this.ProcessHttpRequestAsync(context).ConfigureAwait(false);
+				{
+					if (Handler.BlackIPs.Contains($"{context.GetRemoteIPAddress()}"))
+						context.SetResponseHeaders((int)HttpStatusCode.Forbidden);
+					else
+						await this.ProcessHttpRequestAsync(context).ConfigureAwait(false);
+				}
 			}
 		}
 
