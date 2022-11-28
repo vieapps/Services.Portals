@@ -467,7 +467,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetSiteAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var identity = requestInfo.GetObjectIdentity() ?? "";
+			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
 			var site = await (identity.IsValidUUID() ? identity.GetSiteByIDAsync(cancellationToken) : identity.GetSiteByDomainAsync(cancellationToken)).ConfigureAwait(false);
 			if (site == null)
 				throw new InformationNotFoundException();
@@ -479,22 +479,30 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			if (!identity.IsValidUUID())
-				return new JObject
-				{
-					{ "ID", site.ID },
-					{ "Title", site.Title },
-					{ "Domain", $"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.") }
-				};
+			// refresh (clear cached and reload)
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
+			{
+				await Utility.Cache.RemoveAsync(site, cancellationToken).ConfigureAwait(false);
+				site = await site.Remove().ID.GetSiteByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			}
 
 			// send update message
 			var response = site.ToJson();
+			var objectName = site.GetObjectName();
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{site.GetTypeName(true)}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*"
 			}.Send();
+			if (isRefresh)
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
 
 			// response
 			return response;
@@ -647,9 +655,9 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> SyncSiteAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncSiteAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -665,7 +673,7 @@ namespace net.vieapps.Services.Portals
 					await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 				}
 				else
-					await Site.UpdateAsync(site.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), true, cancellationToken).ConfigureAwait(false);
+					await Site.UpdateAsync(site.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (site != null)
 				await Site.DeleteAsync<Site>(site.ID, site.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -699,13 +707,49 @@ namespace net.vieapps.Services.Portals
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+			return json;
+		}
 
-			// return the response
-			return new JObject
+		internal static async Task<JObject> RollbackSiteAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		{
+			// prepare
+			var site = await (requestInfo.GetObjectIdentity() ?? "").GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (site == null)
+				throw new InformationNotFoundException();
+			else if (site.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, site.Organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			var oldDomains = new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }.Concat((site.OtherDomains ?? "").ToArray(";", true)).ToList();
+			var oldStatus = site.Status;
+			site = await RepositoryMediator.RollbackAsync<Site>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				site.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+				site.SendNotificationAsync("Rollback", site.Organization.Notifications, oldStatus, site.Status, requestInfo, cancellationToken)
+			).ConfigureAwait(false);
+
+			// send update messages
+			var json = site.Set(true, true, oldDomains).ToJson();
+			var objectName = site.GetTypeName(true);
+			new UpdateMessage
 			{
-				{ "ID", site.ID },
-				{ "Type", objectName }
-			};
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Update",
+				Data = json,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+			return json;
 		}
 	}
 }

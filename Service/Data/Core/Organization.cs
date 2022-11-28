@@ -124,7 +124,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string RepositoryEntityID { get; set; }
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string OrganizationID => this.ID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
@@ -179,7 +179,7 @@ namespace net.vieapps.Services.Portals
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
 		[Ignore, BsonIgnore, XmlIgnore]
-		public Settings.WebHook WebHookSettings { get; set; } = new Settings.WebHook();
+		public Settings.WebHookSetting WebHookSettings { get; set; } = new Settings.WebHookSetting();
 
 		[Ignore, BsonIgnore, XmlIgnore]
 		public List<Settings.HttpIndicator> HttpIndicators { get; set; }
@@ -270,35 +270,25 @@ namespace net.vieapps.Services.Portals
 
 		internal void NormalizeExtras()
 		{
-			this.Notifications?.Normalize();
-			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.EmailsByApprovalStatus == null && this.Notifications.EmailsWhenPublish == null && this.Notifications.WebHooks == null ? null : this.Notifications;
-			this.Instructions = this.Instructions ?? new Dictionary<string, Dictionary<string, Settings.Instruction>>();
-			this.Instructions.Keys.ToList().ForEach(key =>
+			this.Notifications = this.Notifications?.Normalize();
+			this.Instructions = this.Instructions?.Select(kvp => KeyValuePair.Create(kvp.Key, kvp.Value)).Select(kvp =>
 			{
-				var instructions = this.Instructions[key];
-				instructions.Values.ForEach(instruction => instruction.Normalize());
-				instructions.Keys.ToList().ForEach(ikey => instructions[ikey] = string.IsNullOrWhiteSpace(instructions[ikey].Subject) && string.IsNullOrWhiteSpace(instructions[ikey].Body) ? null : instructions[ikey]);
-				instructions = instructions.Where(kvp => kvp.Value != null).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-				this.Instructions[key] = instructions.Any() ? instructions : null;
-			});
-			this.Instructions = this.Instructions.Where(kvp => kvp.Value != null).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-			this.Instructions = this.Instructions.Any() ? this.Instructions : null;
+				var instructions = kvp.Value?.Select(pair => KeyValuePair.Create(pair.Key, pair.Value?.Normalize())).Where(pair => pair.Value != null).ToDictionary();
+				return KeyValuePair.Create(kvp.Key, instructions);
+			}).Where(kvp => kvp.Value != null).ToDictionary();
+			this.Instructions = this.Instructions != null && this.Instructions.Any() ? this.Instructions : null;
 			this.Socials = this.Socials != null && this.Socials.Any() ? this.Socials : null;
-			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary();
 			this.Trackings = this.Trackings.Any() ? this.Trackings : null;
 			this.MetaTags = string.IsNullOrWhiteSpace(this.MetaTags) ? null : this.MetaTags.Trim();
 			this.ScriptLibraries = string.IsNullOrWhiteSpace(this.ScriptLibraries) ? null : this.ScriptLibraries.Trim();
 			this.Scripts = string.IsNullOrWhiteSpace(this.Scripts) ? null : this.Scripts.Trim();
-			this.RefreshUrls?.Normalize();
-			this.RefreshUrls = this.RefreshUrls != null && this.RefreshUrls.Addresses == null ? null : this.RefreshUrls;
-			this.RedirectUrls?.Normalize();
-			this.RedirectUrls = this.RedirectUrls != null && this.RedirectUrls.Addresses == null && !this.RedirectUrls.AllHttp404 ? null : this.RedirectUrls;
-			this.EmailSettings?.Normalize();
-			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
-			this.WebHookSettings?.Normalize();
-			this.HttpIndicators?.ForEach(indicator => indicator?.Normalize());
-			this.HttpIndicators = this.HttpIndicators?.Where(indicator => indicator != null && !string.IsNullOrWhiteSpace(indicator.Name) && !string.IsNullOrWhiteSpace(indicator.Content)).ToList();
-			this.HttpIndicators = this.HttpIndicators == null || this.HttpIndicators.Count < 1 ? null : this.HttpIndicators;
+			this.RefreshUrls = this.RefreshUrls?.Normalize();
+			this.RedirectUrls = this.RedirectUrls?.Normalize();
+			this.EmailSettings = this.EmailSettings?.Normalize();
+			this.WebHookSettings = this.WebHookSettings?.Normalize();
+			this.HttpIndicators = this.HttpIndicators?.Select(indicator => indicator.Normalize()).Where(indicator => indicator != null).ToList();
+			this.HttpIndicators = this.HttpIndicators != null && this.HttpIndicators.Any() ? this.HttpIndicators : null;
 			try
 			{
 				var uri = new Uri(this.FakeFilesHttpURI);
@@ -343,7 +333,7 @@ namespace net.vieapps.Services.Portals
 				this.RefreshUrls = this._json["RefreshUrls"]?.As<Settings.RefreshUrls>();
 				this.RedirectUrls = this._json["RedirectUrls"]?.As<Settings.RedirectUrls>();
 				this.EmailSettings = this._json["EmailSettings"]?.As<Settings.Email>();
-				this.WebHookSettings = this._json["WebHookSettings"]?.As<Settings.WebHook>();
+				this.WebHookSettings = this._json["WebHookSettings"]?.As<Settings.WebHookSetting>();
 				this.HttpIndicators = this._json["HttpIndicators"]?.As<List<Settings.HttpIndicator>>();
 				this.FakeFilesHttpURI = this._json["FakeFilesHttpURI"]?.As<string>();
 				this.FakePortalsHttpURI = this._json["FakePortalsHttpURI"]?.As<string>();
@@ -408,7 +398,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public bool IsHasJavascripts => (this.Socials != null && this.Socials.Any()) || (this.Trackings != null && this.Trackings.Any()) || !string.IsNullOrWhiteSpace(this.Scripts);
+		public bool IsHasJavascripts => (this.Trackings != null && this.Trackings.Any()) || !string.IsNullOrWhiteSpace(this.Scripts);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string Javascripts

@@ -11,7 +11,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Logging;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
@@ -280,8 +279,6 @@ namespace net.vieapps.Services.Portals
 		public static string Transform(this XDocument xml, string xslt, bool enableDocumentFunctionAndInlineScript = false, XsltArgumentList xsltArguments = null, XmlResolver stylesheetResolver = null)
 			=> xml?.ToXmlDocument().Transform(xslt, enableDocumentFunctionAndInlineScript, xsltArguments, stylesheetResolver);
 
-		static Regex InvalidXmlCharacters { get; } = new Regex("[\x00-\x08\x0B\x0C\x0E-\x1F]", RegexOptions.Compiled);
-
 		/// <summary>
 		/// Cleans invalid characters that not allowed in XML
 		/// </summary>
@@ -292,9 +289,12 @@ namespace net.vieapps.Services.Portals
 			if (xml.HasElements)
 				xml.Elements().ForEach(element => element.CleanInvalidCharacters());
 			else
-				xml.Value = Utility.InvalidXmlCharacters.Replace(xml.Value ?? "", string.Empty);
+				xml.Value = Utility.InvalidCharactersRegex().Replace(xml.Value ?? "", string.Empty);
 			return xml;
 		}
+
+		[GeneratedRegex("[\0-\b\v\f\u000e-\u001f]", RegexOptions.Compiled)]
+		private static partial Regex InvalidCharactersRegex();
 	}
 
 	//  --------------------------------------------------------------------------------------------

@@ -468,9 +468,9 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		internal static async Task<JObject> SyncFormAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncFormAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -488,7 +488,7 @@ namespace net.vieapps.Services.Portals
 				else
 				{
 					form.Fill(data);
-					await Form.UpdateAsync(form, true, cancellationToken).ConfigureAwait(false);
+					await Form.UpdateAsync(form, dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 				}
 			}
 			else if (form != null)

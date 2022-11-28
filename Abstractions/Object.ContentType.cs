@@ -36,7 +36,7 @@ namespace net.vieapps.Services.Portals
 		string ContentTypeDefinitionID { get; }
 
 		/// <summary>
-		/// Gets the module definition
+		/// Gets the content-type definition
 		/// </summary>
 		ContentTypeDefinition ContentTypeDefinition { get; }
 
@@ -59,11 +59,6 @@ namespace net.vieapps.Services.Portals
 		/// Gets the collection of standard controls
 		/// </summary>
 		List<StandardControlDefinition> StandardControlDefinitions { get; }
-
-		/// <summary>
-		/// Gets the formula for computing the  sub-title
-		/// </summary>
-		string SubTitleFormula { get; }
 	}
 
 	public static partial class ObjectExtensions

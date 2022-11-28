@@ -13,8 +13,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
-using net.vieapps.Services.Portals.Crawlers;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -25,6 +23,7 @@ namespace net.vieapps.Services.Portals
 			=> Item.CreateInstance(data, excluded?.ToHashSet(), item =>
 			{
 				item.NormalizeHTMLs();
+				item.Alias = (string.IsNullOrWhiteSpace(item.Alias) ? item.Title : item.Alias).NormalizeAlias();
 				item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				item.Tags = string.IsNullOrWhiteSpace(item.Tags) ? null : item.Tags;
 				onCompleted?.Invoke(item);
@@ -34,18 +33,19 @@ namespace net.vieapps.Services.Portals
 			=> item.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				item.NormalizeHTMLs();
+				item.Alias = (string.IsNullOrWhiteSpace(item.Alias) ? item.Title : item.Alias).NormalizeAlias();
 				item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				item.Tags = string.IsNullOrWhiteSpace(item.Tags) ? null : item.Tags;
 				onCompleted?.Invoke(item);
 			});
 
 		internal static string GetCacheKeyOfAliasedItem(this string contentTypeID, string alias)
-			=> !string.IsNullOrWhiteSpace(alias)
+			=> !string.IsNullOrWhiteSpace(contentTypeID) && !string.IsNullOrWhiteSpace(alias)
 				? $"e:{contentTypeID}#a:{alias.NormalizeAlias().GenerateUUID()}".GetCacheKey<Item>()
 				: null;
 
 		internal static string GetCacheKeyOfAliasedItem(this Item item)
-			=> item?.ContentType?.ID.GetCacheKeyOfAliasedItem(item.Alias);
+			=> item?.ContentType?.ID?.GetCacheKeyOfAliasedItem(item?.Alias);
 
 		public static IFilterBy<Item> GetItemsFilter(string systemID, string repositoryID = null, string repositoryEntityID = null)
 		{
@@ -303,18 +303,17 @@ namespace net.vieapps.Services.Portals
 			// get data
 			var item = request.CreateItem("Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
+				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
 				obj.RepositoryID = module.ID;
 				obj.RepositoryEntityID = contentType.ID;
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
-			item.Alias = string.IsNullOrWhiteSpace(item.Alias) ? item.Title.NormalizeAlias() : item.Alias.NormalizeAlias();
-			var existing = await Item.GetItemByAliasAsync(contentType, item.Alias, cancellationToken).ConfigureAwait(false);
-			if (existing != null)
-				item.Alias += $"-{DateTime.Now.ToUnixTimestamp()}";
+			var existing = await Item.GetItemByAliasAsync(item.ContentType, item.Alias, cancellationToken).ConfigureAwait(false);
+			if (existing != null && !existing.ID.IsEquals(item.ID))
+				item.Alias = $"{item.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
 
 			// create new
 			await Item.CreateAsync(item, cancellationToken).ConfigureAwait(false);
@@ -450,16 +449,16 @@ namespace net.vieapps.Services.Portals
 			// prepare data
 			var oldAlias = item.Alias;
 			var oldStatus = item.Status;
-			item.Update(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			item.Update(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
+				item.Alias = (string.IsNullOrWhiteSpace(item.Alias) ? oldAlias : item.Alias).NormalizeAlias();
+				item.LastModified = DateTime.Now;
+				item.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
-			item.Alias = string.IsNullOrWhiteSpace(item.Alias) ? oldAlias : item.Alias.NormalizeAlias();
-			var existing = await Item.GetItemByAliasAsync(item.RepositoryEntityID, item.Alias, cancellationToken).ConfigureAwait(false);
+			var existing = await Item.GetItemByAliasAsync(item.ContentType, item.Alias, cancellationToken).ConfigureAwait(false);
 			if (existing != null && !existing.ID.IsEquals(item.ID))
-				item.Alias += $"-{DateTime.Now.ToUnixTimestamp()}";
+				item.Alias = $"{item.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
 
 			// update
 			return await item.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
@@ -893,9 +892,9 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		internal static async Task<JObject> SyncItemAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncItemAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -908,10 +907,19 @@ namespace net.vieapps.Services.Portals
 				if (item == null)
 				{
 					item = data.CreateItem();
+					var existing = await Item.GetItemByAliasAsync(item.ContentType, item.Alias, cancellationToken).ConfigureAwait(false);
+					if (existing != null)
+						item.Alias = $"{item.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
 					await Item.CreateAsync(item, cancellationToken).ConfigureAwait(false);
 				}
 				else
-					await Item.UpdateAsync(item.Update(data), true, cancellationToken).ConfigureAwait(false);
+				{
+					item.Update(data);
+					var existing = await Item.GetItemByAliasAsync(item.ContentType, item.Alias, cancellationToken).ConfigureAwait(false);
+					if (existing != null && !existing.ID.IsEquals(item.ID))
+						item.Alias = $"{item.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
+					await Item.UpdateAsync(item, dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
+				}
 			}
 			else if (item != null)
 				await Item.DeleteAsync<Item>(item.ID, item.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -936,11 +944,47 @@ namespace net.vieapps.Services.Portals
 				Data = json,
 				DeviceID = "*"
 			}.Send();
-			return new JObject
+			return json;
+		}
+
+		internal static async Task<JToken> RollbackItemAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
+		{
+			// prepare
+			var item = await Item.GetAsync<Item>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			if (item == null)
+				throw new InformationNotFoundException();
+			else if (item.Organization == null || item.Module == null || item.ContentType == null)
+				throw new InformationInvalidException("The organization/module/item-type is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsEditor(item.WorkingPrivileges, item.ContentType.WorkingPrivileges, item.Organization);
+			if (!gotRights)
+				gotRights = item.Status.Equals(ApprovalStatus.Draft) || item.Status.Equals(ApprovalStatus.Pending) || item.Status.Equals(ApprovalStatus.Rejected)
+					? requestInfo.Session.User.ID.IsEquals(item.CreatedID)
+					: requestInfo.Session.User.IsEditor(item.WorkingPrivileges, item.ContentType.WorkingPrivileges, item.Organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			var oldStatus = item.Status;
+			item = await RepositoryMediator.RollbackAsync<Item>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				item.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+				item.SendNotificationAsync("Rollback", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, cancellationToken),
+				Utility.Cache.SetAsync(item, cancellationToken)
+			).ConfigureAwait(false);
+
+			// send update message
+			var json = item.ToJson();
+			var objectName = item.GetObjectName();
+			new UpdateMessage
 			{
-				{ "ID", item.ID },
-				{ "Type", objectName }
-			};
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			return json;
 		}
 	}
 }

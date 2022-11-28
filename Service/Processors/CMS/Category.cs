@@ -13,7 +13,6 @@ using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Exceptions;
 using net.vieapps.Services.Portals.Crawlers;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -31,15 +30,21 @@ namespace net.vieapps.Services.Portals
 		public static Category CreateCategory(this ExpandoObject data, string excluded = null, Action<Category> onCompleted = null)
 			=> Category.CreateInstance(data, excluded?.ToHashSet(), category =>
 			{
-				category.Alias = string.IsNullOrWhiteSpace(category.Alias) ? category.Title.NormalizeAlias() : category.Alias.NormalizeAlias();
+				category.Alias = (string.IsNullOrWhiteSpace(category.Alias) ? category.Title : category.Alias).NormalizeAlias();
+				category.NormalizeExtras();
 				onCompleted?.Invoke(category);
 			});
 
 		public static Category Update(this Category category, ExpandoObject data, string excluded = null, Action<Category> onCompleted = null)
-			=> category.Fill(data, excluded?.ToHashSet(), onCompleted);
+			=> category.Fill(data, excluded?.ToHashSet(), _ =>
+			{
+				category.Alias = category.Alias?.NormalizeAlias();
+				category.NormalizeExtras();
+				onCompleted?.Invoke(category);
+			});
 
 		internal static string GetCacheKeyOfAliasedCategory(this string contentTypeID, string alias)
-			=> !string.IsNullOrWhiteSpace(alias)
+			=> !string.IsNullOrWhiteSpace(contentTypeID) && !string.IsNullOrWhiteSpace(alias)
 				? $"{contentTypeID}:{alias.NormalizeAlias()}"
 				: null;
 
@@ -316,7 +321,7 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<long, List<Category>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
 		}
 
-		internal static async Task<JObject> SearchCategoriesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SearchCategoriesAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
@@ -460,7 +465,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> CreateCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> CreateCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetBodyExpando();
@@ -487,29 +492,29 @@ namespace net.vieapps.Services.Portals
 
 			// check the exising the the alias
 			var alias = request.Get<string>("Alias");
-			if (!string.IsNullOrWhiteSpace(alias) && CategoryProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
-				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another category");
+			if (!string.IsNullOrWhiteSpace(alias) && CategoryProcessor.ExcludedAliases.Contains(alias.NormalizeAlias()))
+				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another category");
 
 			if (!string.IsNullOrWhiteSpace(alias))
 			{
 				var existing = await contentType.ID.GetCategoryByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
 				if (existing != null)
-					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another category");
+					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another category");
 			}
 
 			// gathering information
 			var category = request.CreateCategory("SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
+				obj._childrenIDs = new List<string>();
+				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
 				obj.RepositoryID = module.ID;
 				obj.RepositoryEntityID = contentType.ID;
 				obj.ParentID = obj.ParentCategory != null ? obj.ParentID : null;
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
-				obj._childrenIDs = new List<string>();
 			});
+			category.Notifications?.WebHooks?.Validate(requestInfo, category.Organization, category.Module, category.ContentType, category);
 
 			// prepare order index
 			category.OrderIndex = (await CategoryProcessor.GetLastOrderIndexAsync(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
@@ -581,7 +586,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> GetCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GetCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
@@ -654,7 +659,63 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		static async Task UpdateRelatedOnUpdatedAsync(this RequestInfo requestInfo, Category category, string oldParentID, CancellationToken cancellationToken)
+		{
+			// update parent
+			var objectName = category.GetObjectName();
+			var parentCategory = category.ParentCategory;
+			if (parentCategory != null && !category.ParentID.IsEquals(oldParentID))
+			{
+				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
+				await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				parentCategory._children = null;
+				if (parentCategory._childrenIDs.IndexOf(category.ID) < 0)
+					parentCategory._childrenIDs.Add(category.ID);
+
+				var json = parentCategory.Set(false, true).ToJson(true, false);
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*"
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = json,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
+
+			// update old parent
+			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(category.ParentID))
+			{
+				parentCategory = await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (parentCategory != null)
+				{
+					await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, parentCategory.ID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
+					await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+					parentCategory._children = null;
+					parentCategory._childrenIDs.Remove(category.ID);
+
+					var json = parentCategory.Set(false, true).ToJson(true, false);
+					new UpdateMessage
+					{
+						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+						Data = json,
+						DeviceID = "*"
+					}.Send();
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{objectName}#Update",
+						Data = json,
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
+				}
+			}
+		}
+
+		internal static async Task<JObject> UpdateCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var category = await (requestInfo.GetObjectIdentity() ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -674,13 +735,13 @@ namespace net.vieapps.Services.Portals
 			var oldStatus = category.Status;
 
 			var alias = request.Get<string>("Alias");
-			if (!string.IsNullOrWhiteSpace(alias) && CategoryProcessor.ExcludedAliases.Contains(alias.NormalizeAlias(false)))
-				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another category");
+			if (!string.IsNullOrWhiteSpace(alias) && CategoryProcessor.ExcludedAliases.Contains(alias.NormalizeAlias()))
+				throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias()}) is used by another category");
 
 			if (!string.IsNullOrWhiteSpace(alias) && !alias.IsEquals(oldAlias))
 			{
 				var existing = await category.RepositoryEntityID.GetCategoryByAliasAsync(alias.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
-				if (existing != null && !existing.ID.Equals(category.ID))
+				if (existing != null && !existing.ID.IsEquals(category.ID))
 					throw new InformationExistedException($"The alias ({category.Alias}) was used by another category");
 			}
 
@@ -689,8 +750,8 @@ namespace net.vieapps.Services.Portals
 				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? oldAlias : obj.Alias.NormalizeAlias();
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
-				obj.NormalizeExtras();
 			});
+			category.Notifications?.WebHooks?.Validate(requestInfo, category.Organization, category.Module, category.ContentType, category);
 
 			if (category.ParentCategory != null && !category.ParentID.IsEquals(oldParentID))
 			{
@@ -702,93 +763,35 @@ namespace net.vieapps.Services.Portals
 			await Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await category.Set(false, false, oldAlias).ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = category.GetObjectName();
-
 			// update parent
-			var parentCategory = category.ParentCategory;
-			if (parentCategory != null && !category.ParentID.IsEquals(oldParentID))
-			{
-				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
-				await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				parentCategory._children = null;
-				if (parentCategory._childrenIDs.IndexOf(category.ID) < 0)
-					parentCategory._childrenIDs.Add(category.ID);
-
-				var json = parentCategory.Set(false, true).ToJson(true, false);
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = json,
-					DeviceID = "*"
-				});
-				communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = json,
-					ExcludedNodeID = Utility.NodeID
-				});
-			}
-
-			// update old parent
-			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(category.ParentID))
-			{
-				parentCategory = await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (parentCategory != null)
-				{
-					await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, parentCategory.ID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
-					await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-					parentCategory._children = null;
-					parentCategory._childrenIDs.Remove(category.ID);
-
-					var json = parentCategory.Set(false, true).ToJson(true, false);
-					updateMessages.Add(new UpdateMessage
-					{
-						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-						Data = json,
-						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{objectName}#Update",
-						Data = json,
-						ExcludedNodeID = Utility.NodeID
-					});
-				}
-			}
-
-			// message to update to all other connected clients
-			var response = category.ToJson(true, false);
-			if (category.ParentCategory == null)
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*"
-				});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Update",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			});
-
-			// send update messages
-			updateMessages.Send();
-			communicateMessages.Send();
+			await requestInfo.UpdateRelatedOnUpdatedAsync(category, oldParentID, cancellationToken).ConfigureAwait(false);
 
 			// send notification
 			await category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 			category.Organization.SendRefreshingTasks();
 
+			// send update messages
+			var objectName = category.GetObjectName();
+			var response = category.ToJson(true, false);
+			if (category.ParentCategory == null)
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = response,
+					DeviceID = "*"
+				}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Update",
+				Data = response,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+
 			// response
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateCategoriesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateCategoriesAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetBodyJson();
@@ -897,7 +900,7 @@ namespace net.vieapps.Services.Portals
 			return new JObject();
 		}
 
-		internal static async Task<JObject> DeleteCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var category = await (requestInfo.GetObjectIdentity() ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -1057,7 +1060,7 @@ namespace net.vieapps.Services.Portals
 			}).ToJArray();
 		}
 
-		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var requestJson = requestInfo.BodyAsJson;
@@ -1245,9 +1248,9 @@ namespace net.vieapps.Services.Portals
 			return menu;
 		}
 
-		internal static async Task<JObject> SyncCategoryAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncCategoryAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -1260,15 +1263,14 @@ namespace net.vieapps.Services.Portals
 				if (category == null)
 				{
 					category = Category.CreateInstance(data);
-					category.NormalizeExtras();
 					category.Extras = data.Get<string>("Extras") ?? category.Extras;
 					await Category.CreateAsync(category, cancellationToken).ConfigureAwait(false);
 				}
 				else
 				{
-					category.Fill(data).NormalizeExtras();
+					category.Fill(data);
 					category.Extras = data.Get<string>("Extras") ?? category.Extras;
-					await Category.UpdateAsync(category, true, cancellationToken).ConfigureAwait(false);
+					await Category.UpdateAsync(category, dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 				}
 			}
 			else if (category != null)
@@ -1302,13 +1304,54 @@ namespace net.vieapps.Services.Portals
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+			return json;
+		}
 
-			// return the response
-			return new JObject
+		internal static async Task<JObject> RollbackCategoryAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
+		{
+			// prepare
+			var category = await (requestInfo.GetObjectIdentity() ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (category == null)
+				throw new InformationNotFoundException();
+			else if (category.Organization == null || category.Module == null)
+				throw new InformationInvalidException("The organization/module is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(category.Module.WorkingPrivileges, null, category.Organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			var oldParentID = category.ParentID;
+			var oldAlias = category.Alias;
+			var oldStatus = category.Status;
+			category = await RepositoryMediator.RollbackAsync<Category>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
+			// update related
+			await category.Set(true, true, oldAlias).ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			await requestInfo.UpdateRelatedOnUpdatedAsync(category, oldParentID, cancellationToken).ConfigureAwait(false);
+
+			// send notification
+			await category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			category.Organization.SendRefreshingTasks();
+
+			// send update messages
+			var objectName = category.GetObjectName();
+			var json = category.ToJson(true, false);
+			if (category.ParentCategory == null)
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*"
+				}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
-				{ "ID", category.ID },
-				{ "Type", objectName }
-			};
+				Type = $"{objectName}#Update",
+				Data = json,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+			return json;
 		}
 	}
 }

@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Xml.Linq;
 using System.Dynamic;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -180,29 +179,12 @@ namespace net.vieapps.Services.Portals
 		}
 
 		/// <summary>
-		/// Gets the object name for working with real-time update messages
-		/// </summary>
-		/// <param name="definition"></param>
-		/// <returns></returns>
-		public static string GetObjectName(this EntityDefinition definition)
-			=> $"{(string.IsNullOrWhiteSpace(definition.ObjectNamePrefix) ? "" : definition.ObjectNamePrefix)}{definition.ObjectName}{(string.IsNullOrWhiteSpace(definition.ObjectNameSuffix) ? "" : definition.ObjectNameSuffix)}";
-
-		/// <summary>
-		/// Gets the object name for working with real-time update messages
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="object"></param>
-		/// <returns></returns>
-		public static string GetObjectName(this RepositoryBase @object)
-			=> (@object != null ? RepositoryMediator.GetEntityDefinition(@object.GetType()) : null)?.GetObjectName() ?? @object?.GetTypeName(true);
-
-		/// <summary>
-		/// Gets the object name for working with real-time update messages
+		/// Gets the entity object name for working with real-time update messages
 		/// </summary>
 		/// <param name="definition"></param>
 		/// <returns></returns>
 		public static string GetObjectName(this ContentTypeDefinition definition)
-			=> $"{(string.IsNullOrWhiteSpace(definition.ObjectNamePrefix) ? "" : definition.ObjectNamePrefix)}{definition.ObjectName}{(string.IsNullOrWhiteSpace(definition.ObjectNameSuffix) ? "" : definition.ObjectNameSuffix)}";
+			=> definition.EntityDefinition?.GetObjectName();
 
 		static FileExtensionContentTypeProvider MimeTypeProvider { get; } = new FileExtensionContentTypeProvider();
 
@@ -867,4 +849,15 @@ namespace net.vieapps.Services.Portals
 
 	[Repository(ServiceName = "Portals", ID = "A0000000000000000000000000000001", Title = "CMS", Description = "Services of the CMS Portals", Directory = "cms", ExtendedPropertiesTableName = "T_Portals_Extended_Properties")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
+
+	[EventHandlers]
+	public class FindObjectVersions : IPostUpdateHandler
+	{
+		public void OnPostUpdate<T>(RepositoryContext context, T @object, HashSet<string> changed, bool isRollback) where T : class
+			=> (@object as RepositoryBase).FindVersionsAsync().Run();
+
+		public Task OnPostUpdateAsync<T>(RepositoryContext context, T @object, HashSet<string> changed, bool isRollback, CancellationToken cancellationToken) where T : class
+			=> (@object as RepositoryBase).FindVersionsAsync(cancellationToken);
+	}
+
 }

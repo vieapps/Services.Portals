@@ -1,18 +1,18 @@
 ﻿#region Related components
+using System;
 using System.IO;
 using System.Text;
 using System.Linq;
 using System.Collections.Generic;
 using net.vieapps.Components.Utility;
-using System;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
 {
 	public static class Minifier
 	{
-		static bool IsDelimiter(int c) => c == '(' || c == ',' || c == '=' || c == ':' || c == '[' || c == '!' || c == '&' || c == '|' || c == '?' || c == '+' || c == '-' || c == '~' || c == '*' || c == '/' || c == '{' || c == '\n' || c == ',';
+		static bool IsDelimiter(int c)
+			=> c == '(' || c == ',' || c == '=' || c == ':' || c == '[' || c == '!' || c == '&' || c == '|' || c == '?' || c == '+' || c == '-' || c == '~' || c == '*' || c == '/' || c == '{' || c == '\n' || c == ',';
 
 		static bool IsEOF(this int @char)
 			=> @char == -1;

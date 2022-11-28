@@ -12,8 +12,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
-using net.vieapps.Services.Portals.Crawlers;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -196,7 +194,7 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<long, List<Link>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
 		}
 
-		internal static async Task<JObject> SearchLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SearchLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
@@ -315,7 +313,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> CreateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> CreateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetBodyExpando();
@@ -432,7 +430,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> GetLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GetLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
@@ -498,17 +496,9 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateAsync(this Link link, RequestInfo requestInfo, ApprovalStatus oldStatus, string oldParentID, CancellationToken cancellationToken)
+		static async Task UpdateRelatedOnUpdatedAsync(this Link link, RequestInfo requestInfo, string oldParentID, CancellationToken cancellationToken)
 		{
-			// update
-			await Link.UpdateAsync(link, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = link.GetObjectName();
-
-			// update parent
 			var parentLink = link.ParentLink;
 			while (parentLink != null)
 			{
@@ -519,22 +509,20 @@ namespace net.vieapps.Services.Portals
 				await Utility.Cache.SetAsync(parentLink, cancellationToken).ConfigureAwait(false);
 
 				var json = parentLink.ToJson(true, false);
-				updateMessages.Add(new UpdateMessage
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
-				});
-				communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
-				});
+				}.Send();
 				parentLink = parentLink.ParentLink;
 			}
-
-			// update old parent
 			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(link.ParentID))
 			{
 				parentLink = await Link.GetAsync<Link>(oldParentID, cancellationToken).ConfigureAwait(false);
@@ -547,53 +535,54 @@ namespace net.vieapps.Services.Portals
 					await Utility.Cache.SetAsync(parentLink, cancellationToken).ConfigureAwait(false);
 
 					var json = parentLink.ToJson(true, false);
-					updateMessages.Add(new UpdateMessage
+					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 						Data = json,
 						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+					}.Send();
+					new CommunicateMessage(requestInfo.ServiceName)
 					{
 						Type = $"{objectName}#Update",
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
-					});
+					}.Send();
 					parentLink = parentLink.ParentLink;
 				}
 			}
+		}
 
-			// message to update to all other connected clients
+		internal static async Task<JObject> UpdateAsync(this Link link, RequestInfo requestInfo, ApprovalStatus oldStatus, string oldParentID, CancellationToken cancellationToken)
+		{
+			// update
+			await Link.UpdateAsync(link, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			await link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken).ConfigureAwait(false);
+
+			// send notification
+			await link.SendNotificationAsync("Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			link.Organization.SendRefreshingTasks();
+
+			// send updates messages
+			var objectName = link.GetObjectName();
 			var response = link.ToJson(true, false);
 			if (link.ParentLink == null)
-				updateMessages.Add(new UpdateMessage
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response,
 					DeviceID = "*"
-				});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+				}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
-			});
-
-			// send messages
-			updateMessages.Send();
-			communicateMessages.Send();
-			link.Organization.SendRefreshingTasks();
-
-			// send notification
-			await link.SendNotificationAsync("Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
+			}.Send();
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
@@ -633,7 +622,7 @@ namespace net.vieapps.Services.Portals
 			return await link.UpdateAsync(requestInfo, oldStatus, oldParentID, cancellationToken).ConfigureAwait(false);
 		}
 
-		internal static async Task<JObject> UpdateLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetBodyJson();
@@ -742,7 +731,7 @@ namespace net.vieapps.Services.Portals
 			return new JObject();
 		}
 
-		internal static async Task<JObject> DeleteLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
@@ -872,7 +861,95 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
-		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SyncLinkAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
+		{
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
+			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
+				@event = "Update";
+
+			var data = requestInfo.GetBodyExpando();
+			var link = await Link.GetAsync<Link>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+			var oldStatus = link != null ? link.Status : ApprovalStatus.Pending;
+			var oldParentID = link?.ParentID;
+
+			if (!@event.IsEquals("Delete"))
+			{
+				if (link == null)
+				{
+					link = data.CreateLink();
+					await Link.CreateAsync(link, cancellationToken).ConfigureAwait(false);
+				}
+				else
+					await Link.UpdateAsync(link.Update(data), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
+			}
+			else if (link != null)
+				await Link.DeleteAsync<Link>(link.ID, link.LastModifiedID, cancellationToken).ConfigureAwait(false);
+
+			// update cache
+			await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			if (@event.IsEquals("Delete"))
+				await Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+			else
+			{
+				await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+				await link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken).ConfigureAwait(false);
+			}
+
+			// send notifications
+			if (sendNotifications)
+				await link.SendNotificationAsync(@event, link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+
+			// send update messages
+			var json = link.ToJson();
+			var objectName = link.GetObjectName();
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			return json;
+		}
+
+		internal static async Task<JObject> RollbackLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
+		{
+			// prepare
+			var link = await Link.GetAsync<Link>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			if (link == null)
+				throw new InformationNotFoundException();
+			else if (link.Organization == null || link.Module == null || link.ContentType == null)
+				throw new InformationInvalidException("The organization/module/content-type is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsEditor(link.WorkingPrivileges, link.ContentType.WorkingPrivileges, link.Organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			var oldParentID = link.ParentID;
+			var oldStatus = link.Status;
+			link = await RepositoryMediator.RollbackAsync<Link>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
+			// send notifications
+			await Task.WhenAll
+			(
+				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken),
+				link.SendNotificationAsync("Rollback", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken)
+			).ConfigureAwait(false);
+
+			// send update messages
+			var json = link.ToJson();
+			var objectName = link.GetObjectName();
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			return json;
+		}
+
+		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var requestJson = requestInfo.BodyAsJson;
@@ -1285,23 +1362,15 @@ namespace net.vieapps.Services.Portals
 					{
 						var requestJson = requestInfo.BodyAsJson;
 						requestJson["ContentTypeDefinition"] = contentType.ContentTypeDefinition?.ToJson();
-						requestJson["ModuleDefinition"] = contentType.ContentTypeDefinition?.ModuleDefinition?.ToJson(json =>
-						{
-							(json as JObject).Remove("ContentTypeDefinitions");
-							(json as JObject).Remove("ObjectDefinitions");
-						});
+						requestJson["ModuleDefinition"] = contentType.ContentTypeDefinition?.ModuleDefinition?.ToJson(json => new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions" }.ForEach(name => (json as JObject).Remove(name)));
 						requestJson["Module"] = contentType.Module?.ToJson(json =>
 						{
-							ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-							json.Remove("Privileges");
-							json.Remove("OriginalPrivileges");
+							new[] { "Privileges", "OriginalPrivileges" }.Concat(ModuleProcessor.ExtraProperties).ForEach(name => json.Remove(name));
 							json["Description"] = contentType.Module.Description?.NormalizeHTMLBreaks();
 						});
 						requestJson["ContentType"] = contentType.ToJson(json =>
 						{
-							ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-							json.Remove("Privileges");
-							json.Remove("OriginalPrivileges");
+							new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name));
 							json["Description"] = contentType.Description?.NormalizeHTMLBreaks();
 						});
 
@@ -1322,7 +1391,7 @@ namespace net.vieapps.Services.Portals
 						}
 						catch (Exception ex)
 						{
-							await request.WriteErrorAsync(ex, "Error occurred while fetching links from other module/content-type", "Links", $"> Parent: {link.ToJson()}\r\n> Request: {request.ToJson()}").ConfigureAwait(false);
+							await request.WriteErrorAsync(ex, "Error occurred while fetching links from other module/content-type", "Link", $"> Parent: {link.ToJson()}\r\n> Request: {request.ToJson()}").ConfigureAwait(false);
 							linkJson["Children"] = new JObject();
 						}
 					}
@@ -1419,64 +1488,6 @@ namespace net.vieapps.Services.Portals
 
 			xml.Element("Selected").Value = $"{isSelected}".ToLower();
 			return xml;
-		}
-
-		internal static async Task<JObject> SyncLinkAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
-		{
-			var @event = requestInfo.GetHeaderParameter("Event");
-			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
-				@event = "Update";
-
-			var data = requestInfo.GetBodyExpando();
-			var link = await Link.GetAsync<Link>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
-			var oldStatus = link != null ? link.Status : ApprovalStatus.Pending;
-
-			if (!@event.IsEquals("Delete"))
-			{
-				if (link == null)
-				{
-					link = data.CreateLink();
-					await Link.CreateAsync(link, cancellationToken).ConfigureAwait(false);
-				}
-				else
-					await Link.UpdateAsync(link.Update(data), true, cancellationToken).ConfigureAwait(false);
-			}
-			else if (link != null)
-				await Link.DeleteAsync<Link>(link.ID, link.LastModifiedID, cancellationToken).ConfigureAwait(false);
-
-			// update cache
-			await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			if (@event.IsEquals("Delete"))
-				await Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-			else
-				await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-
-			// send notifications
-			if (sendNotifications)
-				await link.SendNotificationAsync(@event, link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// send update messages
-			var json = link.ToJson();
-			var objectName = link.GetObjectName();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
-				Data = json,
-				DeviceID = "*"
-			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#{@event}",
-				Data = json,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-
-			// return the response
-			return new JObject
-			{
-				{ "ID", link.ID },
-				{ "Type", objectName }
-			};
 		}
 	}
 }

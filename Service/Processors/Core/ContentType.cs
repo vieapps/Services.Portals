@@ -11,8 +11,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
-using net.vieapps.Services.Portals.Crawlers;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -20,6 +18,8 @@ namespace net.vieapps.Services.Portals
 	public static class ContentTypeProcessor
 	{
 		internal static ConcurrentDictionary<string, ContentType> ContentTypes { get; } = new ConcurrentDictionary<string, ContentType>(StringComparer.OrdinalIgnoreCase);
+
+		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Trackings,EmailSettings,WebHookNotifications,WebHookAdapters,SubTitleFormula".ToHashSet();
 
 		public static ContentType CreateContentType(this ExpandoObject data, string excluded = null, Action<ContentType> onCompleted = null)
 			=> ContentType.CreateInstance(data, excluded?.ToHashSet(), contentType =>
@@ -235,7 +235,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll(tasks).ConfigureAwait(false);
 		}
 
-		internal static async Task<JObject> SearchContentTypesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SearchContentTypesAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
@@ -307,6 +307,59 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
+		static void Validate(this ContentType contentType, RequestInfo requestInfo = null)
+		{
+			contentType.Notifications?.WebHooks?.Validate(requestInfo, contentType);
+			contentType.EntityDefinition?.ValidateExtendedPropertyDefinitions(contentType.ID);
+			if (!string.IsNullOrWhiteSpace(contentType.SubTitleFormula) && contentType.SubTitleFormula.StartsWith("@"))
+				try
+				{
+					contentType.SubTitleFormula.Evaluate(new JObject
+					{
+						["ID"] = "ID",
+						["Title"] = "Title",
+						["Body"] = new JObject { ["ID"] = "ID", ["Title"] = "Title" }
+					}.ToExpandoObject());
+				}
+				catch (Exception ex)
+				{
+					throw new InformationInvalidException($"SubTitle => {ex.Message}", ex);
+				}
+
+			if (contentType.WebHookNotifications != null && contentType.WebHookNotifications.Any())
+			{
+				foreach (var webhook in contentType.WebHookNotifications)
+					webhook?.Normalize().Validate(requestInfo, contentType);
+				contentType.WebHookNotifications = contentType.WebHookNotifications.Normalize();
+			}
+			else
+				contentType.WebHookNotifications = null;
+
+			if (contentType.WebHookAdapters != null && contentType.WebHookAdapters.Any())
+			{
+				foreach (var kvp in contentType.WebHookAdapters)
+					kvp.Value?.Validate(requestInfo, contentType);
+				contentType.WebHookAdapters = contentType.WebHookAdapters.Normalize();
+			}
+			else
+				contentType.WebHookAdapters = null;
+		}
+
+		internal static List<Settings.WebHookNotification> Normalize(this List<Settings.WebHookNotification> webhooks)
+		{
+			webhooks = webhooks.Where(webhook => webhook != null && webhook.EndpointURLs != null && webhook.EndpointURLs.Any()).ToList();
+			return webhooks.Any() ? webhooks : null;
+		}
+
+		internal static Dictionary<string, Settings.WebHookSetting> Normalize(this Dictionary<string, Settings.WebHookSetting> webhooks)
+		{
+			webhooks = webhooks.Where(kvp => kvp.Key.IsEquals("default"))
+				.Concat(webhooks.Where(kvp => !kvp.Key.IsEquals("default")).OrderBy(kvp => kvp.Key))
+				.Where(kvp => kvp.Value?.Normalize() != null)
+				.ToDictionary(kvp => kvp.Key.NormalizeAlias(false), kvp => kvp.Value);
+			return webhooks.Any() ? webhooks : null;
+		}
+
 		internal static async Task<ContentType> CreateContentTypeAsync(this ExpandoObject data, string systemID, string userID, string excludedProperties = null, string serviceName = null, CancellationToken cancellationToken = default, string correlationID = null)
 		{
 			// prepare
@@ -318,8 +371,8 @@ namespace net.vieapps.Services.Portals
 				obj.CreatedID = obj.LastModifiedID = userID;
 			});
 
-			// validate extended properties
-			contentType.EntityDefinition?.ValidateExtendedPropertyDefinitions(contentType.ID);
+			// validate
+			contentType.Validate();
 
 			// create new
 			await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
@@ -370,7 +423,7 @@ namespace net.vieapps.Services.Portals
 		internal static Task<ContentType> CreateContentTypeAsync(this JObject data, string systemID, string userID, string excludedProperties = null, string serviceName = null, CancellationToken cancellationToken = default, string correlationID = null)
 			=> data.ToExpandoObject().CreateContentTypeAsync(systemID, userID, excludedProperties, serviceName, cancellationToken, correlationID);
 
-		internal static async Task<JObject> CreateContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> CreateContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var requestBody = requestInfo.GetBodyExpando();
@@ -397,7 +450,7 @@ namespace net.vieapps.Services.Portals
 			return contentType.ToJson();
 		}
 
-		internal static async Task<JObject> GetContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GetContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
@@ -421,14 +474,13 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send the update message to update to all other connected clients
-			var objectName = contentType.GetObjectName();
 			var response = contentType.ToJson();
+			var objectName = contentType.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
+				DeviceID = "*"
 			}.Send();
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
@@ -473,7 +525,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -495,8 +547,8 @@ namespace net.vieapps.Services.Portals
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
-			// validate extended properties
-			contentType.EntityDefinition?.ValidateExtendedPropertyDefinitions(contentType.ID);
+			// validate
+			contentType.Validate(requestInfo);
 
 			// update
 			var clearObjectsCache = !(contentType.OriginalPrivileges ?? new Privileges()).IsEquals(privileges);
@@ -508,7 +560,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> DeleteContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -572,9 +624,9 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> SyncContentTypeAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncContentTypeAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -589,7 +641,7 @@ namespace net.vieapps.Services.Portals
 					await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
 				}
 				else
-					await ContentType.UpdateAsync(contentType.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), true, cancellationToken).ConfigureAwait(false);
+					await ContentType.UpdateAsync(contentType.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (contentType != null)
 				await ContentType.DeleteAsync<ContentType>(contentType.ID, contentType.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -621,13 +673,47 @@ namespace net.vieapps.Services.Portals
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+			return json;
+		}
 
-			// return the response
-			return new JObject
+		internal static async Task<JObject> RollbackContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
+		{
+			// prepare
+			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (contentType == null)
+				throw new InformationNotFoundException();
+			else if (contentType.Organization == null || contentType.Module == null)
+				throw new InformationInvalidException("The organization or module is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(contentType.Module.WorkingPrivileges, null, contentType.Organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			contentType = await RepositoryMediator.RollbackAsync<ContentType>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				contentType.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false, false),
+				contentType.SendNotificationAsync("Rollback", contentType.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken)
+			).ConfigureAwait(false);
+
+			// send update messages
+			var json = contentType.Set(true).ToJson();
+			var objectName = contentType.GetTypeName(true);
+			new UpdateMessage
 			{
-				{ "ID", contentType.ID },
-				{ "Type", objectName }
-			};
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Update",
+				Data = json,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+			return json;
 		}
 	}
 }

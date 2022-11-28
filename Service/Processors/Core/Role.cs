@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Portals
 			{
 				RoleProcessor.Roles[role.ID] = role;
 				if (updateCache)
-					Utility.Cache.Set(role);
+					Utility.Cache.SetAsync(role).Run();
 			}
 			return role;
 		}
@@ -143,7 +143,7 @@ namespace net.vieapps.Services.Portals
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a role [{role.Title} - ID: {role.ID}]", "Caches") : Task.CompletedTask
 			});
 
-		internal static async Task<JObject> SearchRolesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SearchRolesAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
@@ -224,7 +224,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> CreateRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> CreateRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator, Func<RequestInfo, CancellationToken, Task> serviceCaller, Action<RequestInfo, string, Exception> onServiceCallerGotError, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetBodyExpando();
@@ -350,7 +350,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> GetRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GetRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var role = await (requestInfo.GetObjectIdentity(true, true) ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -403,7 +403,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator, Func<RequestInfo, CancellationToken, Task> serviceCaller, Action<RequestInfo, string, Exception> onServiceCallerGotError, CancellationToken cancellationToken)
 		{
 			// prepare
 			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -586,7 +586,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> DeleteRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator, Func<RequestInfo, CancellationToken, Task> serviceCaller, Action<RequestInfo, string, Exception> onServiceCallerGotError, CancellationToken cancellationToken)
 		{
 			// prepare
 			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -718,7 +718,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Role role, RequestInfo requestInfo, Func<RequestInfo, CancellationToken, Task> serviceCaller = null, Action<RequestInfo, string, Exception> onServiceCallerGotError = null, CancellationToken cancellationToken = default)
+		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Role role, RequestInfo requestInfo, Func<RequestInfo, CancellationToken, Task> serviceCaller, Action<RequestInfo, string, Exception> onServiceCallerGotError, CancellationToken cancellationToken)
 		{
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -795,9 +795,9 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
 		}
 
-		internal static async Task<JObject> SyncRoleAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncRoleAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -812,7 +812,7 @@ namespace net.vieapps.Services.Portals
 					await Role.CreateAsync(role, cancellationToken).ConfigureAwait(false);
 				}
 				else
-					await Role.UpdateAsync(role.Update(data), true, cancellationToken).ConfigureAwait(false);
+					await Role.UpdateAsync(role.Update(data), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (role != null)
 				await Role.DeleteAsync<Role>(role.ID, role.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -842,13 +842,47 @@ namespace net.vieapps.Services.Portals
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+			return json;
+		}
 
-			// return the response
-			return new JObject
+		internal static async Task<JObject> RollbackRoleAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
+		{
+			var role = await (requestInfo.GetObjectIdentity() ?? "").GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (role == null)
+				throw new InformationNotFoundException();
+			else if (role.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, role.Organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			var oldParentID = role.ParentID;
+			role = await RepositoryMediator.RollbackAsync<Role>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				role.ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID),
+				role.SendNotificationAsync("Rollback", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken)
+			).ConfigureAwait(false);
+
+			// send update messages
+			var json = role.Set(true).ToJson();
+			var objectName = role.GetTypeName(true);
+			new UpdateMessage
 			{
-				{ "ID", role.ID },
-				{ "Type", objectName }
-			};
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Update",
+				Data = json,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+			return json;
 		}
 	}
 }

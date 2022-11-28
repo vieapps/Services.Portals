@@ -97,7 +97,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string RepositoryEntityID { get; set; }
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
@@ -180,12 +180,10 @@ namespace net.vieapps.Services.Portals
 
 		internal void NormalizeExtras()
 		{
-			this.Notifications?.Normalize();
-			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.EmailsByApprovalStatus == null && this.Notifications.EmailsWhenPublish == null && this.Notifications.WebHooks == null ? null : this.Notifications;
-			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-			this.Trackings = this.Trackings.Count < 1 ? null : this.Trackings;
-			this.EmailSettings?.Normalize();
-			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
+			this.Notifications = this.Notifications?.Normalize();
+			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary();
+			this.Trackings = this.Trackings.Any() ? this.Trackings : null;
+			this.EmailSettings = this.EmailSettings?.Normalize();
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			ModuleProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._exras = this._json.ToString(Formatting.None);
@@ -207,7 +205,7 @@ namespace net.vieapps.Services.Portals
 			}
 			else if (name.IsEquals("ContentTypes") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
 			{
-				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(this.ServiceName)
 				{
 					Type = $"{this.GetObjectName()}#Update",
 					Data = this.ToJson(false, false),

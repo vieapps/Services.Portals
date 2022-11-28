@@ -502,7 +502,7 @@ namespace net.vieapps.Services.Portals
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 			}
 
-			// create new
+			// gathering information
 			var organization = request.CreateOrganization("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
@@ -518,6 +518,10 @@ namespace net.vieapps.Services.Portals
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 				obj.NormalizeExtras();
 			});
+			organization.Notifications?.WebHooks?.Validate(requestInfo, organization);
+			organization.WebHookSettings?.Validate(requestInfo, organization);
+
+			// create new
 			await Organization.CreateAsync(organization, cancellationToken).ConfigureAwait(false);
 
 			// update cache
@@ -651,7 +655,7 @@ namespace net.vieapps.Services.Portals
 					throw new AliasIsExistedException($"The alias ({alias.NormalizeAlias(false)}) is used by another organization");
 			}
 
-			// update
+			// gathering information
 			var privileges = organization.OriginalPrivileges?.Copy();
 			organization.Update(request, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
@@ -663,7 +667,10 @@ namespace net.vieapps.Services.Portals
 				organization.LastModifiedID = requestInfo.Session.User.ID;
 				organization.NormalizeExtras();
 			}).Remove();
+			organization.Notifications?.WebHooks?.Validate(requestInfo, organization);
+			organization.WebHookSettings?.Validate(requestInfo, organization);
 
+			// update
 			var privilegesWereChanged = !organization.OriginalPrivileges.IsEquals(privileges);
 			var response = await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken, privilegesWereChanged, oldAlias).ConfigureAwait(false);
 
@@ -676,9 +683,9 @@ namespace net.vieapps.Services.Portals
 		internal static Task<JObject> DeleteOrganizationAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 			=> Task.FromException<JObject>(new MethodNotAllowedException(requestInfo.Verb));
 
-		internal static async Task<JObject> SyncOrganizationAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncOrganizationAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -700,7 +707,7 @@ namespace net.vieapps.Services.Portals
 					organization.Fill(data);
 					organization.NormalizeExtras();
 					organization.Extras = data.Get<string>("Extras") ?? organization.Extras;
-					await Organization.UpdateAsync(organization, true, cancellationToken).ConfigureAwait(false);
+					await Organization.UpdateAsync(organization, dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 				}
 			}
 			else if (organization != null)
@@ -736,13 +743,48 @@ namespace net.vieapps.Services.Portals
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+			return json;
+		}
 
-			// return the response
-			return new JObject
+		internal static async Task<JObject> RollbackOrganizationAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		{
+			// get the organization
+			var organization = await (requestInfo.GetObjectIdentity() ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (organization == null)
+				throw new InformationNotFoundException();
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(null, null, organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			var oldStatus = organization.Status;
+			var oldAlias = organization.Alias;
+			organization = await RepositoryMediator.RollbackAsync<Organization>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				organization.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+				organization.SendNotificationAsync("Rollback", organization.Notifications, oldStatus, organization.Status, requestInfo, cancellationToken)
+			).ConfigureAwait(false);
+			organization.SendRefreshingTasks();
+
+			// send update messages
+			var json = organization.Set(true, true, oldAlias).ToJson();
+			var objectName = organization.GetTypeName(true);
+			new UpdateMessage
 			{
-				{ "ID", organization.ID },
-				{ "Type", objectName }
-			};
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Update",
+				Data = json,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+			return json;
 		}
 	}
 }

@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Portals
 			{
 				SchedulingTaskProcessor.SchedulingTasks[schedulingTask.ID] = schedulingTask;
 				if (updateCache)
-					Utility.Cache.Set(schedulingTask);
+					Utility.Cache.SetAsync(schedulingTask).Run();
 			}
 			return schedulingTask;
 		}
@@ -140,7 +140,7 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<long, List<SchedulingTask>, List<string>>(totalRecords, objects, cacheKeys);
 		}
 
-		internal static async Task<JObject> SearchSchedulingTasksAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SearchSchedulingTasksAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
@@ -202,7 +202,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> CreateSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> CreateSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var requestBody = requestInfo.GetBodyExpando();
@@ -239,7 +239,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> GetSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GetSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
@@ -273,7 +273,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> UpdateSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var schedulingTask = await (requestInfo.GetObjectIdentity() ?? "").GetSchedulingTaskByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -309,7 +309,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> DeleteSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var schedulingTask = await (requestInfo.GetObjectIdentity() ?? "").GetSchedulingTaskByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -338,9 +338,9 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> SyncSchedulingTaskAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncSchedulingTaskAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -357,7 +357,7 @@ namespace net.vieapps.Services.Portals
 				else
 				{
 					schedulingTask.Fill(data);
-					await SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).ConfigureAwait(false);
+					await SchedulingTask.UpdateAsync(schedulingTask, dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 				}
 			}
 			else if (schedulingTask != null)
@@ -371,13 +371,34 @@ namespace net.vieapps.Services.Portals
 				await schedulingTask.SendNotificationAsync(@event, schedulingTask.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
-			schedulingTask.SendMessages(@event, @event.IsEquals("Delete") ? schedulingTask.Remove().ToJson() : schedulingTask.Set().ToJson(), Utility.NodeID);
+			var json = @event.IsEquals("Delete") ? schedulingTask.Remove().ToJson() : schedulingTask.Set().ToJson();
+			schedulingTask.SendMessages(@event, json, Utility.NodeID);
+			return json;
+		}
 
-			// return the response
-			return new JObject
-			{
-				{ "ID", schedulingTask.ID }
-			};
+		internal static async Task<JObject> RollbackSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
+		{
+			// prepare
+			var schedulingTask = await (requestInfo.GetObjectIdentity() ?? "").GetSchedulingTaskByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (schedulingTask == null)
+				throw new InformationNotFoundException();
+			else if (schedulingTask.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, schedulingTask.Organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			schedulingTask = await RepositoryMediator.RollbackAsync<SchedulingTask>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await schedulingTask.Set(true).ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
+			await schedulingTask.SendNotificationAsync("Update", schedulingTask.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+
+			// send update messages
+			var json = schedulingTask.ToJson();
+			schedulingTask.SendMessages("Update", json, Utility.NodeID);
+			return json;
 		}
 
 		internal static async Task<JObject> FetchSchedulingTaskAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
@@ -393,7 +414,7 @@ namespace net.vieapps.Services.Portals
 			return new JObject();
 		}
 
-		internal static async Task<JObject> RunSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> RunSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var schedulingTask = await (requestInfo.GetObjectIdentity(true, true) ?? "").GetSchedulingTaskByIDAsync(cancellationToken).ConfigureAwait(false);

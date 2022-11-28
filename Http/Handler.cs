@@ -328,6 +328,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var correlationID = context.GetCorrelationID();
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.GetParameter("x-logs") != null;
 
 			var session = context.Session.Get<Session>("Session") ?? context.GetSession();
 			Handler.NormalizeSession(session, context.GetParameter("x-app-name"), context.GetParameter("x-app-platform"), context.GetParameter("x-device-id"));
@@ -352,7 +353,7 @@ namespace net.vieapps.Services.Portals
 					context.User = new UserPrincipal(session.User);
 				}
 
-				if (Global.IsDebugLogEnabled)
+				if (isDebugLogEnabled)
 					await context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully update an user with authenticate ticket {session.ToJson()}").ConfigureAwait(false);
 			}
 
@@ -373,7 +374,7 @@ namespace net.vieapps.Services.Portals
 					{
 						// authenticate
 						await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Http.Authentications", correlationID).ConfigureAwait(false);
-						if (Global.IsDebugLogEnabled)
+						if (isDebugLogEnabled)
 							await context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully authenticate an user with authenticate token {session.ToJson().ToString(Formatting.Indented)}").ConfigureAwait(false);
 
 						// assign user information
@@ -606,7 +607,7 @@ namespace net.vieapps.Services.Portals
 
 			// process the request
 			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
-			if (Global.IsDebugLogEnabled)
+			if (isDebugLogEnabled)
 				await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
 					$"Process a request of CMS Portals {httpVerb} {requestURI}" + " \r\n" +
 					$"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
@@ -791,7 +792,7 @@ namespace net.vieapps.Services.Portals
 
 							// process cache
 							var watch = Stopwatch.StartNew();
-							if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
+							if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 								await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Attempt to process the CMS Portals service cache => {requestURI} ({cacheKey})").ConfigureAwait(false);
 
 							// last modified
@@ -809,7 +810,7 @@ namespace net.vieapps.Services.Portals
 									{ "Last-Modified", lastModified }
 								});
 
-								if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
+								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag} - {lastModified}) - Excution times: {watch.GetElapsedTimes()}").ConfigureAwait(false);
 
 								return;
@@ -856,7 +857,7 @@ namespace net.vieapps.Services.Portals
 								}
 
 								await context.WriteAsync(contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") ? cached.Base64ToBytes() : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL).ToBytes(), cts.Token).ConfigureAwait(false);
-								if (Global.IsDebugLogEnabled || Global.IsVisitLogEnabled)
+								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Excution times: {watch.GetElapsedTimes()}").ConfigureAwait(false);
 
 								return;
@@ -880,13 +881,13 @@ namespace net.vieapps.Services.Portals
 					{
 						var wampDetails = wampException.GetDetails(requestInfo);
 						statusCode = wampDetails.Item3 == "SiteNotRecognizedException" ? (int)HttpStatusCode.NotFound : wampDetails.Item1;
-						context.ShowError(statusCode, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
+						context.ShowError(statusCode, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
 					}
 					else
 					{
 						var type = ex.GetTypeName(true);
 						statusCode = type == "SiteNotRecognizedException" ? (int)HttpStatusCode.NotFound : ex.GetHttpStatusCode();
-						context.ShowError(statusCode, ex.Message, type, correlationID, ex, Global.IsDebugLogEnabled);
+						context.ShowError(statusCode, ex.Message, type, correlationID, ex, isDebugLogEnabled);
 					}
 					await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred ({statusCode}) => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 				}
@@ -927,10 +928,10 @@ namespace net.vieapps.Services.Portals
 							if (ex is WampException wampException)
 							{
 								var wampDetails = wampException.GetDetails(requestInfo);
-								context.ShowError(wampDetails.Item1, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
+								context.ShowError(wampDetails.Item1, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
 							}
 							else
-								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, Global.IsDebugLogEnabled);
+								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, isDebugLogEnabled);
 							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while redirecting to CMS Portals => {ex.Message}", ex).ConfigureAwait(false);
 						}
 						break;
@@ -953,10 +954,10 @@ namespace net.vieapps.Services.Portals
 							if (ex is WampException wampException)
 							{
 								var wampDetails = wampException.GetDetails(requestInfo);
-								context.ShowError(wampDetails.Item1, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, Global.IsDebugLogEnabled);
+								context.ShowError(wampDetails.Item1, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
 							}
 							else
-								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, Global.IsDebugLogEnabled);
+								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, isDebugLogEnabled);
 							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing feeds => {ex.Message}", ex).ConfigureAwait(false);
 						}
 						break;
@@ -982,7 +983,7 @@ namespace net.vieapps.Services.Portals
 							await Task.WhenAll
 							(
 								context.WriteAsync(response, cts.Token),
-								Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Services", $"Successfully process request of a service {response}") : Task.CompletedTask
+								isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Services", $"Successfully process request of a service {response}") : Task.CompletedTask
 							).ConfigureAwait(false);
 						}
 						catch (Exception ex)
@@ -993,7 +994,7 @@ namespace net.vieapps.Services.Portals
 
 					default:
 						var invalidException = new InvalidRequestException();
-						context.ShowError(invalidException.GetHttpStatusCode(), invalidException.Message, invalidException.GetType().GetTypeName(true), correlationID, invalidException, Global.IsDebugLogEnabled);
+						context.ShowError(invalidException.GetHttpStatusCode(), invalidException.Message, invalidException.GetType().GetTypeName(true), correlationID, invalidException, isDebugLogEnabled);
 						break;
 				}
 		}

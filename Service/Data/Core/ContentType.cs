@@ -12,6 +12,8 @@ using Newtonsoft.Json.Converters;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using System.Reactive;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -70,6 +72,12 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
+		[Ignore, BsonIgnore, XmlIgnore]
+		public List<Settings.WebHookNotification> WebHookNotifications { get; set; }
+
+		[Ignore, BsonIgnore, XmlIgnore]
+		public Dictionary<string, Settings.WebHookSetting> WebHookAdapters { get; set; }
+
 		[AsJson]
 		[FormControl(Excluded = true)]
 		public List<ExtendedPropertyDefinition> ExtendedPropertyDefinitions { get; set; }
@@ -82,7 +90,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Excluded = true)]
 		public List<StandardControlDefinition> StandardControlDefinitions { get; set; }
 
-		[FormControl(Excluded = true)]
+		[Ignore, BsonIgnore, XmlIgnore]
 		public string SubTitleFormula { get; set; }
 
 		JObject _json;
@@ -126,7 +134,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public override string RepositoryEntityID { get; set; }
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
@@ -135,7 +143,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IPortalContentType.Organization => this.Organization;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string ModuleID => this.RepositoryID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
@@ -177,14 +185,15 @@ namespace net.vieapps.Services.Portals
 
 		internal void NormalizeExtras()
 		{
-			this.Notifications?.Normalize();
-			this.Notifications = this.Notifications != null && this.Notifications.Events == null && this.Notifications.Methods == null && this.Notifications.Emails == null && this.Notifications.EmailsByApprovalStatus == null && this.Notifications.EmailsWhenPublish == null && this.Notifications.WebHooks == null ? null : this.Notifications;
-			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-			this.Trackings = this.Trackings.Count < 1 ? null : this.Trackings;
-			this.EmailSettings?.Normalize();
-			this.EmailSettings = this.EmailSettings != null && this.EmailSettings.Sender == null && this.EmailSettings.Signature == null && this.EmailSettings.Smtp == null ? null : this.EmailSettings;
+			this.Notifications = this.Notifications?.Normalize();
+			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary();
+			this.Trackings = this.Trackings.Any() ? this.Trackings : null;
+			this.EmailSettings = this.EmailSettings?.Normalize();
+			this.WebHookNotifications = this.WebHookNotifications?.Normalize();
+			this.WebHookAdapters = this.WebHookAdapters?.Normalize();
+			this.SubTitleFormula = string.IsNullOrWhiteSpace(this.SubTitleFormula) ? null : this.SubTitleFormula;
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-			ModuleProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
+			ContentTypeProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
 		}
 
@@ -196,8 +205,11 @@ namespace net.vieapps.Services.Portals
 				this.Notifications = this._json["Notifications"]?.As<Settings.Notifications>();
 				this.Trackings = this._json["Trackings"]?.As<Dictionary<string, string>>();
 				this.EmailSettings = this._json["EmailSettings"]?.As<Settings.Email>();
+				this.WebHookNotifications = this._json["WebHookNotifications"]?.As<List<Settings.WebHookNotification>>();
+				this.WebHookAdapters = this._json["WebHookAdapters"]?.As<Dictionary<string, Settings.WebHookSetting>>();
+				this.SubTitleFormula  = this._json["SubTitleFormula"]?.As<string>();
 			}
-			else if (ModuleProcessor.ExtraProperties.Contains(name))
+			else if (ContentTypeProcessor.ExtraProperties.Contains(name))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this._json[name] = this.GetProperty(name)?.ToJson();

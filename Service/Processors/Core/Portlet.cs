@@ -10,8 +10,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
-using System.Security.AccessControl;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -111,13 +109,13 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		internal static async Task<int> GetLastOrderIndexAsync(string desktopID, string zone, CancellationToken cancellationToken = default)
+		internal static async Task<int> GetLastOrderIndexAsync(string desktopID, string zone, CancellationToken cancellationToken)
 		{
 			var portlets = await Portlet.FindAsync(Filters<Portlet>.And(Filters<Portlet>.Equals("DesktopID", desktopID), Filters<Portlet>.Equals("Zone", zone)), Sorts<Portlet>.Ascending("Zone").ThenByAscending("OrderIndex"), 0, 1, null, cancellationToken).ConfigureAwait(false);
 			return portlets != null && portlets.Count > 0 ? portlets.Last().OrderIndex : -1;
 		}
 
-		internal static async Task<List<Desktop>> GetDesktopsAsync(this Portlet portlet, CancellationToken cancellationToken = default)
+		internal static async Task<List<Desktop>> GetDesktopsAsync(this Portlet portlet, CancellationToken cancellationToken)
 		{
 			var originalPortlet = await portlet.GetOriginalPortletAsync(cancellationToken).ConfigureAwait(false);
 			var mappingPortlets = await portlet.GetMappingPortletsAsync(cancellationToken).ConfigureAwait(false);
@@ -158,7 +156,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 		}
 
-		internal static Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
+		internal static Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
 			=> portlet.ClearRelatedCacheAsync(cancellationToken, correlationID, clearDataCache, clearHtmlCache, false, doRefresh);
 
 		internal static Task ClearCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = false)
@@ -169,7 +167,7 @@ namespace net.vieapps.Services.Portals
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", "Caches") : Task.CompletedTask
 			});
 
-		internal static async Task<JObject> SearchPortletsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> SearchPortletsAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
@@ -240,7 +238,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> CreatePortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> CreatePortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var request = requestInfo.GetBodyExpando();
@@ -360,7 +358,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> GetPortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GetPortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var portlet = await Portlet.GetAsync<Portlet>(requestInfo.GetObjectIdentity(true, true) ?? "", cancellationToken).ConfigureAwait(false);
@@ -417,7 +415,207 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdatePortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		static async Task UpdateRelatedOnUpdatedAsync(this Portlet portlet, RequestInfo requestInfo, string oldDesktopID, List<string> otherDesktops, CancellationToken cancellationToken)
+		{
+			var json = portlet.ToJson();
+			var objectName = portlet.GetTypeName(true);
+
+			// update desktop
+			var desktop = portlet.Desktop;
+			if (desktop != null && desktop._portlets != null)
+			{
+				var index = desktop._portlets.FindIndex(p => p.ID.IsEquals(portlet.ID));
+				if (index < 0)
+					desktop._portlets.Add(portlet);
+				else
+					desktop._portlets[index] = portlet;
+				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			}
+
+			// update old desktop
+			if (oldDesktopID != null && !portlet.DesktopID.IsEquals(oldDesktopID))
+			{
+				desktop = await oldDesktopID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (desktop != null)
+				{
+					if (desktop._portlets == null)
+					{
+						var index = desktop._portlets.FindIndex(p => p.ID.IsEquals(portlet.ID));
+						if (index > -1)
+						{
+							desktop._portlets.RemoveAt(index);
+							await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+						}
+					}
+					await Utility.Cache.RemoveAsync(await desktop.GetSetCacheKeysAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
+					new UpdateMessage
+					{
+						Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+						Data = json,
+						DeviceID = "*"
+					}.Send();
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{objectName}#Delete",
+						Data = json,
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
+				}
+			}
+
+			// update mapping portlets
+			var mappingPortlets = await portlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? new List<Portlet>();
+			var mappingDesktops = mappingPortlets.Select(mappingPortlet => mappingPortlet.DesktopID).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+			// add new
+			var beAdded = (otherDesktops ?? new List<string>()).Except(mappingDesktops).ToList();
+			await beAdded.Select(desktopID => new Portlet
+			{
+				ID = UtilityService.NewUUID,
+				Title = portlet.Title,
+				SystemID = portlet.SystemID,
+				DesktopID = desktopID,
+				Zone = portlet.Zone,
+				OriginalPortletID = portlet.ID,
+				Created = DateTime.Now,
+				CreatedID = requestInfo.Session.User.ID,
+				LastModified = DateTime.Now,
+				LastModifiedID = requestInfo.Session.User.ID,
+				_originalPortlet = portlet
+			})
+			.ForEachAsync(async mappingPortlet =>
+			{
+				// create portlet
+				mappingPortlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(mappingPortlet.DesktopID, mappingPortlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
+				await Portlet.CreateAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
+				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
+
+				var mappingJson = mappingPortlet.ToJson();
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
+					Data = mappingJson,
+					DeviceID = "*"
+				}.Send();
+
+				// update desktop
+				desktop = mappingPortlet.Desktop;
+				if (desktop != null)
+				{
+					if (desktop._portlets != null)
+					{
+						desktop._portlets.Add(mappingPortlet);
+						await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+					}
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{objectName}#Update",
+						Data = mappingJson,
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
+				}
+			}, true, false).ConfigureAwait(false);
+
+			// delete
+			var beDeleted = mappingDesktops.Except(otherDesktops).ToHashSet();
+			await mappingPortlets.Where(mappingPortlet => beDeleted.Contains(mappingPortlet.DesktopID)).ForEachAsync(async mappingPortlet =>
+			{
+				// delete portlet
+				await Portlet.DeleteAsync<Portlet>(mappingPortlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
+
+				var mappingJson = mappingPortlet.ToJson();
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+					Data = mappingJson,
+					DeviceID = "*"
+				}.Send();
+
+				// update desktop
+				desktop = mappingPortlet.Desktop;
+				if (desktop != null)
+				{
+					if (desktop._portlets != null)
+					{
+						var index = desktop._portlets.FindIndex(p => p.ID.IsEquals(mappingPortlet.ID));
+						if (index > -1)
+						{
+							desktop._portlets.RemoveAt(index);
+							await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+						}
+					}
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{objectName}#Delete",
+						Data = mappingJson,
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
+				}
+			}, true, false).ConfigureAwait(false);
+
+			// update
+			var beUpdated = otherDesktops.Except(beDeleted).Except(beAdded).ToHashSet();
+			await mappingPortlets.Where(mappingPortlet => beUpdated.Contains(mappingPortlet.DesktopID)).ForEachAsync(async mappingPortlet =>
+			{
+				// update portlet
+				mappingPortlet._originalPortlet = portlet;
+				if (!mappingPortlet.Title.IsEquals(portlet.Title) || !mappingPortlet.Zone.IsEquals(portlet.Zone))
+				{
+					mappingPortlet.Title = portlet.Title;
+					if (!mappingPortlet.Zone.IsEquals(portlet.Zone))
+					{
+						mappingPortlet.Zone = portlet.Zone;
+						mappingPortlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(mappingPortlet.DesktopID, mappingPortlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
+					}
+					mappingPortlet.LastModified = DateTime.Now;
+					mappingPortlet.LastModifiedID = requestInfo.Session.User.ID;
+					await Portlet.UpdateAsync(mappingPortlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
+				}
+				else
+					await Utility.Cache.SetAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
+
+				var json = mappingPortlet.ToJson();
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*"
+				}.Send();
+
+				// update desktop
+				desktop = mappingPortlet.Desktop;
+				if (desktop != null)
+				{
+					if (desktop._portlets != null)
+					{
+						var index = desktop._portlets.FindIndex(p => p.ID.IsEquals(mappingPortlet.ID));
+						if (index < 0)
+							desktop._portlets.Add(mappingPortlet);
+						else
+							desktop._portlets[index] = mappingPortlet;
+						await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+					}
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{objectName}#Update",
+						Data = json,
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
+				}
+			}, true, false).ConfigureAwait(false);
+
+			// send messages and response
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+		}
+
+		internal static async Task<JObject> UpdatePortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var portlet = await Portlet.GetAsync<Portlet>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
@@ -457,224 +655,21 @@ namespace net.vieapps.Services.Portals
 			await Portlet.UpdateAsync(portlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
-			var response = portlet.ToJson();
-			var objectName = portlet.GetTypeName(true);
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>
-			{
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}
-			};
-
-			// update desktop
-			var desktop = portlet.Desktop;
-			if (desktop != null && desktop._portlets != null)
-			{
-				var index = desktop._portlets.FindIndex(p => p.ID.IsEquals(portlet.ID));
-				if (index < 0)
-					desktop._portlets.Add(portlet);
-				else
-					desktop._portlets[index] = portlet;
-				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-			}
-
-			// update old desktop
-			if (!portlet.DesktopID.IsEquals(oldDesktopID))
-			{
-				desktop = await oldDesktopID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (desktop != null)
-				{
-					if (desktop._portlets == null)
-					{
-						var index = desktop._portlets.FindIndex(p => p.ID.IsEquals(portlet.ID));
-						if (index > -1)
-						{
-							desktop._portlets.RemoveAt(index);
-							await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-						}
-					}
-					await Utility.Cache.RemoveAsync(await desktop.GetSetCacheKeysAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
-					updateMessages.Add(new UpdateMessage
-					{
-						Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-						Data = response,
-						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{objectName}#Delete",
-						Data = response,
-						ExcludedNodeID = Utility.NodeID
-					});
-				}
-			}
-
-			// update mapping portlets
-			var mappingPortlets = await portlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? new List<Portlet>();
-			var mappingDesktops = mappingPortlets.Select(mappingPortlet => mappingPortlet.DesktopID).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var otherDesktops = request.Get<List<string>>("OtherDesktops").Except(new[] { portlet.DesktopID }).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
+			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, otherDesktops, cancellationToken).ConfigureAwait(false);
 
-			// add new
-			var beAdded = otherDesktops.Except(mappingDesktops).ToList();
-			await beAdded.Select(desktopID => new Portlet
+			// send update messages
+			var json = portlet.ToJson(j => j["OtherDesktops"] = otherDesktops.ToJArray());
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
-				ID = UtilityService.NewUUID,
-				Title = portlet.Title,
-				SystemID = portlet.SystemID,
-				DesktopID = desktopID,
-				Zone = portlet.Zone,
-				OriginalPortletID = portlet.ID,
-				Created = DateTime.Now,
-				CreatedID = requestInfo.Session.User.ID,
-				LastModified = DateTime.Now,
-				LastModifiedID = requestInfo.Session.User.ID,
-				_originalPortlet = portlet
-			})
-			.ForEachAsync(async mappingPortlet =>
-			{
-				// create portlet
-				mappingPortlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(mappingPortlet.DesktopID, mappingPortlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
-				await Portlet.CreateAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
-				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
-
-				var json = mappingPortlet.ToJson();
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
-					Data = json,
-					DeviceID = "*"
-				});
-
-				// update desktop
-				desktop = mappingPortlet.Desktop;
-				if (desktop != null)
-				{
-					if (desktop._portlets != null)
-					{
-						desktop._portlets.Add(mappingPortlet);
-						await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-					}
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{objectName}#Update",
-						Data = json,
-						ExcludedNodeID = Utility.NodeID
-					});
-				}
-			}, true, false).ConfigureAwait(false);
-
-			// delete
-			var beDeleted = mappingDesktops.Except(otherDesktops).ToHashSet();
-			await mappingPortlets.Where(mappingPortlet => beDeleted.Contains(mappingPortlet.DesktopID)).ForEachAsync(async mappingPortlet =>
-			{
-				// delete portlet
-				await Portlet.DeleteAsync<Portlet>(mappingPortlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
-
-				var json = mappingPortlet.ToJson();
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-					Data = json,
-					DeviceID = "*"
-				});
-
-				// update desktop
-				desktop = mappingPortlet.Desktop;
-				if (desktop != null)
-				{
-					if (desktop._portlets != null)
-					{
-						var index = desktop._portlets.FindIndex(p => p.ID.IsEquals(mappingPortlet.ID));
-						if (index > -1)
-						{
-							desktop._portlets.RemoveAt(index);
-							await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-						}
-					}
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{objectName}#Delete",
-						Data = json,
-						ExcludedNodeID = Utility.NodeID
-					});
-				}
-			}, true, false).ConfigureAwait(false);
-
-			// update
-			var beUpdated = otherDesktops.Except(beDeleted).Except(beAdded).ToHashSet();
-			await mappingPortlets.Where(mappingPortlet => beUpdated.Contains(mappingPortlet.DesktopID)).ForEachAsync(async mappingPortlet =>
-			{
-				// update portlet
-				mappingPortlet._originalPortlet = portlet;
-				if (!mappingPortlet.Title.IsEquals(portlet.Title) || !mappingPortlet.Zone.IsEquals(portlet.Zone))
-				{
-					mappingPortlet.Title = portlet.Title;
-					if (!mappingPortlet.Zone.IsEquals(portlet.Zone))
-					{
-						mappingPortlet.Zone = portlet.Zone;
-						mappingPortlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(mappingPortlet.DesktopID, mappingPortlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
-					}
-					mappingPortlet.LastModified = DateTime.Now;
-					mappingPortlet.LastModifiedID = requestInfo.Session.User.ID;
-					await Portlet.UpdateAsync(mappingPortlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
-				}
-				else
-					await Utility.Cache.SetAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
-
-				var json = mappingPortlet.ToJson();
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = json,
-					DeviceID = "*"
-				});
-
-				// update desktop
-				desktop = mappingPortlet.Desktop;
-				if (desktop != null)
-				{
-					if (desktop._portlets != null)
-					{
-						var index = desktop._portlets.FindIndex(p => p.ID.IsEquals(mappingPortlet.ID));
-						if (index < 0)
-							desktop._portlets.Add(mappingPortlet);
-						else
-							desktop._portlets[index] = mappingPortlet;
-						await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-					}
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{objectName}#Update",
-						Data = json,
-						ExcludedNodeID = Utility.NodeID
-					});
-				}
-			}, true, false).ConfigureAwait(false);
-
-			// update response JSON with other desktops
-			response["OtherDesktops"] = otherDesktops.ToJArray();
-
-			// send messages and response
-			updateMessages.Add(new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
-				DeviceID = "*"
-			});
-
-			updateMessages.Send();
-			communicateMessages.Send();
-
-			return response;
+				Type = $"{portlet.GetTypeName(true)}#Update",
+				Data = portlet.ToJson(j => j["OtherDesktops"] = otherDesktops.ToJArray()),
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+			return json;
 		}
 
-		internal static async Task<JObject> DeletePortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeletePortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
 			var portlet = await Portlet.GetAsync<Portlet>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
@@ -792,14 +787,15 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> SyncPortletAsync(this RequestInfo requestInfo, CancellationToken cancellationToken)
+		internal static async Task<JObject> SyncPortletAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
 			var data = requestInfo.GetBodyExpando();
 			var portlet = await Portlet.GetAsync<Portlet>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+			var oldDesktopID = portlet?.DesktopID;
 
 			if (!@event.IsEquals("Delete"))
 			{
@@ -809,7 +805,7 @@ namespace net.vieapps.Services.Portals
 					await Portlet.CreateAsync(portlet, cancellationToken).ConfigureAwait(false);
 				}
 				else
-					await Portlet.UpdateAsync(portlet.Update(data), true, cancellationToken).ConfigureAwait(false);
+					await Portlet.UpdateAsync(portlet.Update(data), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (portlet != null)
 				await Portlet.DeleteAsync<Portlet>(portlet.ID, portlet.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -819,6 +815,9 @@ namespace net.vieapps.Services.Portals
 				await portlet.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 			else
 				await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+
+			if (!@event.IsEquals("Delete"))
+				await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, null, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
 			var json = portlet.ToJson();
@@ -835,13 +834,52 @@ namespace net.vieapps.Services.Portals
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+			return json;
+		}
 
-			// return the response
-			return new JObject
+		internal static async Task<JObject> RollbackPortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
+		{
+			// prepare
+			var portlet = await Portlet.GetAsync<Portlet>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			if (portlet == null)
+				throw new InformationNotFoundException();
+
+			// is mapping portlet => then get the original portlet
+			if (!string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
+				portlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false);
+			if (portlet == null)
+				throw new InformationNotFoundException();
+
+			// validate check permission
+			if (portlet.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, portlet.Organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			var oldDesktopID = portlet.DesktopID;
+			portlet = await RepositoryMediator.RollbackAsync<Portlet>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, null, null, cancellationToken).ConfigureAwait(false);
+
+			// send update messages
+			var json = portlet.ToJson();
+			var objectName = portlet.GetTypeName(true);
+			new UpdateMessage
 			{
-				{ "ID", portlet.ID },
-				{ "Type", objectName }
-			};
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Update",
+				Data = json,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+			return json;
 		}
 	}
 }

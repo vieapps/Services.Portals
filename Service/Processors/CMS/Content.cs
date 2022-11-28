@@ -24,6 +24,7 @@ namespace net.vieapps.Services.Portals
 			=> Content.CreateInstance(data, excluded?.ToHashSet(), content =>
 			{
 				content.NormalizeHTMLs();
+				content.Alias = (string.IsNullOrWhiteSpace(content.Alias) ? content.Title : content.Alias).NormalizeAlias();
 				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
 				onCompleted?.Invoke(content);
@@ -33,6 +34,7 @@ namespace net.vieapps.Services.Portals
 			=> content.Fill(data, excluded?.ToHashSet(), _ =>
 			{
 				content.NormalizeHTMLs();
+				content.Alias = (string.IsNullOrWhiteSpace(content.Alias) ? content.Title : content.Alias).NormalizeAlias();
 				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
 				onCompleted?.Invoke(content);
@@ -44,10 +46,10 @@ namespace net.vieapps.Services.Portals
 				: null;
 
 		internal static string GetCacheKeyOfAliasedContent(this ContentType contentType, Category category, string alias)
-			=> contentType?.ID.GetCacheKeyOfAliasedContent(category.ID, alias);
+			=> contentType?.ID?.GetCacheKeyOfAliasedContent(category?.ID, alias);
 
 		internal static string GetCacheKeyOfAliasedContent(this Content content)
-			=> content?.ContentType?.GetCacheKeyOfAliasedContent(content.Category, content.Alias);
+			=> content?.ContentType?.GetCacheKeyOfAliasedContent(content?.Category, content?.Alias);
 
 		public static IFilterBy<Content> GetContentsFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, string categoryID = null, Action<FilterBys<Content>> onCompleted = null)
 		{
@@ -259,7 +261,7 @@ namespace net.vieapps.Services.Portals
 			var showAttachments = "true".IsEquals(requestInfo.GetParameter("x-object-attachments")) || requestInfo.GetParameter("ShowAttachments") != null;
 			var showURLs = "true".IsEquals(requestInfo.GetParameter("x-object-urls")) || requestInfo.GetParameter("ShowURLs") != null;
 			var showCategories = "true".IsEquals(requestInfo.GetParameter("x-object-categories")) || requestInfo.GetParameter("ShowCategories") != null;
-			var showDetails = "false".IsEquals(requestInfo.GetParameter("x-object-details")) || requestInfo.GetParameter("NoDetails") != null ? false: true;
+			var showDetails = "false".IsEquals(requestInfo.GetParameter("x-object-details")) || requestInfo.GetParameter("NoDetails") != null ? false : true;
 
 			// process cache
 			var suffix = string.IsNullOrWhiteSpace(query) ? (showAttachments ? ":a" : "") + (showURLs ? ":u" : "") + (showCategories ? ":c" : "") + (showDetails ? "" : ":d") : null;
@@ -376,18 +378,17 @@ namespace net.vieapps.Services.Portals
 			// get data
 			var content = request.CreateContent("Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
+				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
 				obj.RepositoryID = module.ID;
 				obj.RepositoryEntityID = contentType.ID;
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
-			content.Alias = string.IsNullOrWhiteSpace(content.Alias) ? content.Title.NormalizeAlias() : content.Alias.NormalizeAlias();
 			var existing = await Content.GetContentByAliasAsync(contentType, content.Alias, category.ID, cancellationToken).ConfigureAwait(false);
 			if (existing != null)
-				content.Alias += $"-{DateTime.Now.ToUnixTimestamp()}";
+				content.Alias = $"{content.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
 
 			var dateString = request.Get<string>("StartDate");
 			content.StartDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out var date)
@@ -592,17 +593,16 @@ namespace net.vieapps.Services.Portals
 			var oldOtherCategories = content.OtherCategories?.Select(id => id).ToList();
 			var oldAlias = content.Alias;
 			var oldStatus = content.Status;
-			
+
 			content.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
-			content.Alias = string.IsNullOrWhiteSpace(content.Alias) ? oldAlias : content.Alias.NormalizeAlias();
 			var existing = await Content.GetContentByAliasAsync(content.RepositoryEntityID, content.Alias, content.CategoryID, cancellationToken).ConfigureAwait(false);
 			if (existing != null && !existing.ID.IsEquals(content.ID))
-				content.Alias += $"-{DateTime.Now.ToUnixTimestamp()}";
+				content.Alias = $"{content.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
 
 			var dateString = request.Get<string>("StartDate");
 			content.StartDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out var date)
@@ -1399,9 +1399,9 @@ namespace net.vieapps.Services.Portals
 				await Utility.WriteLogAsync(correlationID, $"Complete pre-load collection of CMS.Content - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 		}
 
-		internal static async Task<JObject> SyncContentAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncContentAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -1425,15 +1425,29 @@ namespace net.vieapps.Services.Portals
 						obj.CreatedID = string.IsNullOrWhiteSpace(obj.CreatedID) ? requestInfo.Session.User.ID : obj.CreatedID;
 						obj.LastModifiedID = string.IsNullOrWhiteSpace(obj.LastModifiedID) ? requestInfo.Session.User.ID : obj.LastModifiedID;
 					});
+					var existing = await Content.GetContentByAliasAsync(content.RepositoryEntityID, content.Alias, content.CategoryID, cancellationToken).ConfigureAwait(false);
+					if (existing != null && !existing.ID.IsEquals(content.ID))
+						content.Alias = $"{content.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
 					await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
 				}
 				else
-					await Content.UpdateAsync(content.Update(data, null, obj =>
+				{
+					content.Update(data, null, obj =>
 					{
-						obj.Details = obj.Organization.NormalizeURLs(obj.Details, false);
+						obj.StartDate = string.IsNullOrWhiteSpace(obj.StartDate)
+							? obj.PublishedTime != null
+								? obj.PublishedTime.Value.ToDTString(false, false)
+								: DateTime.Now.ToDTString(false, false)
+							: obj.StartDate;
 						obj.EndDate = string.IsNullOrWhiteSpace(obj.EndDate) || obj.EndDate.Equals("-") ? null : obj.EndDate;
+						obj.Details = obj.Organization.NormalizeURLs(obj.Details, false);
 						obj.LastModifiedID = string.IsNullOrWhiteSpace(obj.LastModifiedID) ? requestInfo.Session.User.ID : obj.LastModifiedID;
-					}), true, cancellationToken).ConfigureAwait(false);
+					});
+					var existing = await Content.GetContentByAliasAsync(content.RepositoryEntityID, content.Alias, content.CategoryID, cancellationToken).ConfigureAwait(false);
+					if (existing != null && !existing.ID.IsEquals(content.ID))
+						content.Alias = $"{content.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
+					await Content.UpdateAsync(content, dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
+				}
 			}
 			else if (content != null)
 				await Content.DeleteAsync<Content>(content.ID, content.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -1451,29 +1465,78 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var json = content.ToJson();
-			var objectName = content.GetObjectName();
-			new CommunicateMessage(requestInfo.ServiceName)
+			if (!@event.IsEquals("Delete"))
 			{
-				Type = $"{objectName}#{@event}",
-				Data = json,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-
+				var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+				var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+				await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+			}
 			json["Summary"] = content.Summary?.NormalizeHTMLBreaks();
 			json["Details"] = content.Organization.NormalizeURLs(content.Details);
+			var objectName = content.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
 				Data = json,
 				DeviceID = "*"
 			}.Send();
+			return json;
+		}
 
-			// return the response
-			return new JObject
+		internal static async Task<JObject> RollbackContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		{
+			// prepare
+			var content = await Content.GetAsync<Content>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			if (content == null)
+				throw new InformationNotFoundException();
+			else if (content.Organization == null || content.Module == null || content.ContentType == null)
+				throw new InformationInvalidException("The organization/module/content-type is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.Category.WorkingPrivileges, content.Organization);
+			if (!gotRights)
+				gotRights = content.Status.Equals(ApprovalStatus.Draft) || content.Status.Equals(ApprovalStatus.Pending) || content.Status.Equals(ApprovalStatus.Rejected)
+					? requestInfo.Session.User.ID.IsEquals(content.CreatedID)
+					: requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.Category.WorkingPrivileges, content.Organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			var oldStatus = content.Status;
+			content = await RepositoryMediator.RollbackAsync<Content>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
+			// clear related cache & send notification
+			Task.WhenAll
+			(
+				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				content.SendNotificationAsync("Rollback", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken)
+			).Run();
+
+			// send update messages
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+			var json = content.ToJson();
+			json["Thumbnails"] = thumbnailsTask.Result;
+			json["Attachments"] = attachmentsTask.Result;
+			json["Summary"] = content.Summary?.NormalizeHTMLBreaks();
+			json["Details"] = content.Organization.NormalizeURLs(content.Details);
+			var objectName = content.GetObjectName();
+			new UpdateMessage
 			{
-				{ "ID", content.ID },
-				{ "Type", objectName }
-			};
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = content.ToJson(json =>
+				{
+					json["Thumbnails"] = thumbnailsTask.Result;
+					json["Attachments"] = attachmentsTask.Result;
+					json["Summary"] = content.Summary?.NormalizeHTMLBreaks();
+					json["Details"] = content.Organization.NormalizeURLs(content.Details);
+				}),
+				DeviceID = "*"
+			}.Send();
+			return json;
 		}
 	}
 }

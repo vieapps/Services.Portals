@@ -488,9 +488,9 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> SyncCrawlerAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncCrawlerAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -507,7 +507,7 @@ namespace net.vieapps.Services.Portals
 				else
 				{
 					crawler.Fill(data);
-					await Crawler.UpdateAsync(crawler, true, cancellationToken).ConfigureAwait(false);
+					await Crawler.UpdateAsync(crawler, dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 				}
 			}
 			else if (crawler != null)

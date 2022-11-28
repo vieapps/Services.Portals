@@ -149,7 +149,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Hidden = true)]
 		public override string RepositoryEntityID { get; set; }
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
@@ -158,7 +158,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalObject IBusinessObject.Organization => this.Organization;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string ModuleID => this.RepositoryID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
@@ -167,7 +167,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		IPortalModule IBusinessObject.Module => this.Module;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string ContentTypeID => this.RepositoryEntityID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
@@ -218,7 +218,11 @@ namespace net.vieapps.Services.Portals
 
 			var content = Content.Get<Content>(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID);
 			if (content != null)
-				Utility.Cache.Set(cacheKey, content.ID);
+				Task.WhenAll
+				(
+					Utility.Cache.SetAsync(cacheKey, content.ID),
+					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey)
+				).Run();
 			return content;
 		}
 
@@ -240,7 +244,11 @@ namespace net.vieapps.Services.Portals
 
 			var content = await Content.GetAsync<Content>(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID, cancellationToken).ConfigureAwait(false);
 			if (content != null)
-				await Utility.Cache.SetAsync(cacheKey, content.ID, cancellationToken).ConfigureAwait(false);
+				await Task.WhenAll
+				(
+					Utility.Cache.SetAsync(cacheKey, content.ID, cancellationToken),
+					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, cancellationToken)
+				).ConfigureAwait(false);
 			return content;
 		}
 

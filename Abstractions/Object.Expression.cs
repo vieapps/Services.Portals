@@ -1,7 +1,4 @@
-﻿using System;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using net.vieapps.Components.Repository;
 namespace net.vieapps.Services.Portals
 {

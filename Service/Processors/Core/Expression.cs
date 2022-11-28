@@ -11,8 +11,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
-using System.Security.AccessControl;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -33,7 +31,7 @@ namespace net.vieapps.Services.Portals
 			{
 				ExpressionProcessor.Expressions[expression.ID] = expression;
 				if (updateCache)
-					Utility.Cache.Set(expression);
+					Utility.Cache.SetAsync(expression).Run();
 			}
 			return expression;
 		}
@@ -436,9 +434,9 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> SyncExpressionAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false)
+		internal static async Task<JObject> SyncExpressionAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
-			var @event = requestInfo.GetHeaderParameter("Event");
+			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
@@ -453,7 +451,7 @@ namespace net.vieapps.Services.Portals
 					await Expression.CreateAsync(expression, cancellationToken).ConfigureAwait(false);
 				}
 				else
-					await Expression.UpdateAsync(expression.Update(data), true, cancellationToken).ConfigureAwait(false);
+					await Expression.UpdateAsync(expression.Update(data), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (expression != null)
 				await Expression.DeleteAsync<Expression>(expression.ID, expression.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -485,13 +483,47 @@ namespace net.vieapps.Services.Portals
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+			return json;
+		}
 
-			// return the response
-			return new JObject
+		internal static async Task<JObject> RollbackExpressionAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		{
+			// prepare
+			var expression = await (requestInfo.GetObjectIdentity() ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (expression == null)
+				throw new InformationNotFoundException();
+			else if (expression.Organization == null)
+				throw new InformationInvalidException("The organization is invalid");
+
+			// check permission
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, expression.Organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			// rollback
+			expression = await RepositoryMediator.RollbackAsync<Expression>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				expression.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+				expression.SendNotificationAsync("Rollback", expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken)
+			).ConfigureAwait(false);
+
+			// send update messages
+			var json = expression.Set(true).ToJson();
+			var objectName = expression.GetTypeName(true);
+			new UpdateMessage
 			{
-				{ "ID", expression.ID },
-				{ "Type", objectName }
-			};
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Update",
+				Data = json,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+			return json;
 		}
 	}
 }

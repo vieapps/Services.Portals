@@ -97,6 +97,13 @@ namespace net.vieapps.Services.Portals
 				onError
 			);
 
+		protected override Task InitializeHelperServicesAsync(Action<IService> onSuccess = null, Action<Exception> onError = null)
+			=> base.InitializeHelperServicesAsync(_ =>
+			{
+				Utility.MessagingService = this.MessagingService;
+				onSuccess?.Invoke(this);
+			}, onError);
+
 		public override Task StartAsync(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
 			=> base.StartAsync(args, initializeRepository, _ =>
 			{
@@ -119,9 +126,7 @@ namespace net.vieapps.Services.Portals
 				while (Utility.CmsPortalsHttpURI.EndsWith("/"))
 					Utility.CmsPortalsHttpURI = Utility.CmsPortalsHttpURI.Left(Utility.CmsPortalsHttpURI.Length - 1);
 
-				Utility.MessagingService = this.MessagingService;
 				Utility.Logger = this.Logger;
-
 				Utility.EncryptionKey = this.EncryptionKey;
 				Utility.ValidationKey = this.ValidationKey;
 				Utility.NotificationsKey = UtilityService.GetAppSetting("Keys:Notifications");
@@ -565,7 +570,7 @@ namespace net.vieapps.Services.Portals
 						break;
 
 					case "instructions":
-						var mode = requestInfo.Extra != null && requestInfo.Extra.ContainsKey("mode") ? requestInfo.Extra["mode"].GetCapitalizedFirstLetter() : null;
+						var mode = requestInfo.Extra != null && requestInfo.Extra.TryGetValue("mode", out var mvalue) ? mvalue.GetCapitalizedFirstLetter() : null;
 						var organization = mode != null ? await (requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("active-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false) : null;
 						json = new JObject
 							{
@@ -591,6 +596,11 @@ namespace net.vieapps.Services.Portals
 						json = await this.ClearCacheAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
 
+					case "version":
+					case "versions":
+						json = await this.FindVersionsAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
+
 					case "approve":
 					case "approval":
 						json = await this.ApproveAsync(requestInfo, cts.Token).ConfigureAwait(false);
@@ -609,7 +619,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}"),
-					this.IsDebugResultsEnabled ? this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}") : Task.CompletedTask
+					this.IsDebugResultsEnabled ? this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}\r\n- Response: {json?.ToString(this.JsonFormat)}") : Task.CompletedTask
 				).ConfigureAwait(false);
 				return json;
 			}
@@ -2419,25 +2429,19 @@ namespace net.vieapps.Services.Portals
 				{ "Organization", organizationJson },
 				{ "Module", contentType.Module?.ToJson(json =>
 					{
-						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-						json.Remove("Privileges");
-						json.Remove("OriginalPrivileges");
+						new[] { "Privileges", "OriginalPrivileges" }.Concat(ModuleProcessor.ExtraProperties).ForEach(name => json.Remove(name));
 						json["Description"] = contentType.Module.Description?.NormalizeHTMLBreaks();
 					})
 				},
 				{ "ContentType", contentType.ToJson(json =>
 					{
-						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-						json.Remove("Privileges");
-						json.Remove("OriginalPrivileges");
+						new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name));
 						json["Description"] = contentType.Description?.NormalizeHTMLBreaks();
 					})
 				},
 				{ "ParentContentType", parentContentType?.ToJson(json =>
 					{
-						ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-						json.Remove("Privileges");
-						json.Remove("OriginalPrivileges");
+						new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name));
 						json["Description"] = parentContentType.Description?.NormalizeHTMLBreaks();
 					})
 				}
@@ -2688,13 +2692,8 @@ namespace net.vieapps.Services.Portals
 								{ "Site", siteJson },
 								{ "ContentType", contentType.ToJson(json =>
 									{
+										new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name));
 										json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
-										ModuleProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-										json.Remove("Privileges");
-										json.Remove("OriginalPrivileges");
-										json.Remove("ExtendedPropertyDefinitions");
-										json.Remove("ExtendedControlDefinitions");
-										json.Remove("StandardControlDefinitions");
 										if (contentType.ExtendedPropertyDefinitions != null)
 										{
 											json["ExtendedPropertyDefinitions"] = new JObject
@@ -2887,9 +2886,12 @@ namespace net.vieapps.Services.Portals
 			{
 				html = portletContainer.ToString();
 				var tokens = "id,name,title,action,object,object-type,object-name,ansi-title,title-ansi,portlet-title,portlet-url".ToList();
-				tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{" + token + "}}", $"[[{token}]]"));
-				html = html.Format(html.PrepareDoubleBracesParameters(portlet, requestInfo, new JObject { ["Site"] = siteJson, ["Desktop"] = desktopsJson, ["Language"] = language }.ToExpandoObject()));
-				tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, $"[[{token}]]", "{{" + token + "}}"));
+				if (html.GetDoubleBracesTokens().Select(token => token.Item2).Except(tokens).Any())
+				{
+					tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{" + token + "}}", $"[[{token}]]"));
+					html = html.Format(html.PrepareDoubleBracesParameters(portlet, requestInfo, new JObject { ["Site"] = siteJson, ["Desktop"] = desktopsJson, ["Language"] = language }.ToExpandoObject()));
+					tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, $"[[{token}]]", "{{" + token + "}}"));
+				}
 			}
 
 			title = portlet.Title.GetANSIUri();
@@ -3510,104 +3512,109 @@ namespace net.vieapps.Services.Portals
 				}
 				stopwatch.Stop();
 				if (requestInfo.IsWriteDesktopLogs())
-					await this.WriteLogsAsync(requestInfo, $"Data of a CMS Portals object [{requestInfo.ObjectName}] was generated/prepared - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo, $"Data of a CMS Portals object [{requestInfo.ObjectName}] was generated/prepared - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request: {requestInfo.ToString(this.JsonFormat)}\r\n- Response: {json?.ToString(this.JsonFormat)}").ConfigureAwait(false);
 				return json;
 			}
 			catch (Exception ex)
 			{
-				throw this.GetRuntimeException(requestInfo, ex);
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch, $"Error occurred while generating data of CMS Portals => {ex.Message}");
 			}
 		}
 
 		public async Task<JArray> GenerateMenuAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
-
-			// get the module
-			var repositoryID = requestInfo.GetParameter("x-menu-repository-id");
-			var module = await (repositoryID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (module == null)
-				throw new InformationNotFoundException($"The module of the requested menu is not found [ID: {repositoryID}]");
-
-			// get the content-type
-			var repositoryEntityID = requestInfo.GetParameter("x-menu-repository-entity-id");
-			var contentType = await (repositoryEntityID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null)
-				throw new InformationNotFoundException($"The content-type of the requested menu is not found [ID: {repositoryEntityID}]");
-
-			// get the object
-			var repositoryObjectID = requestInfo.GetParameter("x-menu-repository-object-id");
-			var @object = await this.GetBusinessObjectAsync(repositoryEntityID, repositoryObjectID, cancellationToken).ConfigureAwait(false);
-			if (@object == null)
-				throw new InformationNotFoundException($"The requested menu is not found [Content-Type ID: {contentType.ID} - Menu ID: {repositoryObjectID}]");
-			if (!(@object is INestedObject))
-				throw new InformationInvalidException($"The requested menu is invalid (its not nested object) [Content-Type ID: {contentType.ID} - Menu ID: {repositoryObjectID}]");
-
-			// check permission
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.IsViewer(@object.WorkingPrivileges);
-			if (!gotRights)
+			try
 			{
-				var organization = @object is IPortalObject
-					? await ((@object as IPortalObject).OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false)
-					: module.Organization;
-				gotRights = requestInfo.Session.User.ID.IsEquals(organization?.OwnerID);
+				// get the module
+				var repositoryID = requestInfo.GetParameter("x-menu-repository-id");
+				var module = await (repositoryID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (module == null)
+					throw new InformationNotFoundException($"The module of the requested menu is not found [ID: {repositoryID}]");
+
+				// get the content-type
+				var repositoryEntityID = requestInfo.GetParameter("x-menu-repository-entity-id");
+				var contentType = await (repositoryEntityID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (contentType == null)
+					throw new InformationNotFoundException($"The content-type of the requested menu is not found [ID: {repositoryEntityID}]");
+
+				// get the object
+				var repositoryObjectID = requestInfo.GetParameter("x-menu-repository-object-id");
+				var @object = await this.GetBusinessObjectAsync(repositoryEntityID, repositoryObjectID, cancellationToken).ConfigureAwait(false);
+				if (@object == null)
+					throw new InformationNotFoundException($"The requested menu is not found [Content-Type ID: {contentType.ID} - Menu ID: {repositoryObjectID}]");
+				if (!(@object is INestedObject))
+					throw new InformationInvalidException($"The requested menu is invalid (its not nested object) [Content-Type ID: {contentType.ID} - Menu ID: {repositoryObjectID}]");
+
+				// check permission
+				var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.IsViewer(@object.WorkingPrivileges);
+				if (!gotRights)
+				{
+					var organization = @object is IPortalObject
+						? await ((@object as IPortalObject).OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false)
+						: module.Organization;
+					gotRights = requestInfo.Session.User.ID.IsEquals(organization?.OwnerID);
+				}
+				if (!gotRights)
+					return null;
+
+				// check the children
+				var children = (@object as INestedObject).Children;
+				if (children == null || !children.Any())
+					return null;
+
+				// get thumbnails
+				var options = requestInfo.BodyAsJson.Get("Options", new JObject()).ToExpandoObject();
+				requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+				var thumbnails = children.Count == 1
+					? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), this.ValidationKey, cancellationToken).ConfigureAwait(false)
+					: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Newtonsoft.Json.Formatting.None), this.ValidationKey, cancellationToken).ConfigureAwait(false);
+
+				// generate and return the menu
+				var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
+				var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
+				var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
+				var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
+
+				if (!Int32.TryParse(requestInfo.GetParameter("x-menu-level") ?? "1", out var level))
+					level = 1;
+				if (!Int32.TryParse(requestInfo.GetParameter("x-menu-max-level") ?? "1", out var maxLevel))
+					maxLevel = 0;
+
+				var menu = new JArray();
+				Exception exception = null;
+				await children.Where(child => child != null).OrderBy(child => child.OrderIndex).ForEachAsync(async child =>
+				{
+					if (exception == null)
+						try
+						{
+							if (child is Category category)
+								menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false));
+							else if (child is Link link)
+								menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false));
+						}
+						catch (Exception ex)
+						{
+							exception = ex;
+						}
+				}, true, false).ConfigureAwait(false);
+
+				if (exception != null)
+					throw requestInfo.GetRuntimeException(exception, null, async (msg, ex) => await requestInfo.WriteErrorAsync(ex, $"Error occurred while generating a child menu => {msg} : {@object.ToJson()}", "Menus").ConfigureAwait(false));
+
+				stopwatch.Stop();
+				if (requestInfo.IsWriteDesktopLogs())
+					await this.WriteLogsAsync(requestInfo, $"Data of a CMS Portals object [{@object.GetObjectName()} => {@object.Title}] was generated/prepared (as menu) - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request: {requestInfo.ToString(this.JsonFormat)}\r\n- Response: {menu?.ToString(this.JsonFormat)}").ConfigureAwait(false);
+				return menu;
 			}
-			if (!gotRights)
-				return null;
-
-			// check the children
-			var children = (@object as INestedObject).Children;
-			if (children == null || !children.Any())
-				return null;
-
-			// get thumbnails
-			var options = requestInfo.BodyAsJson.Get("Options", new JObject()).ToExpandoObject();
-			requestInfo.Header["x-thumbnails-as-attachments"] = "true";
-			var thumbnails = children.Count == 1
-				? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), this.ValidationKey, cancellationToken).ConfigureAwait(false)
-				: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Newtonsoft.Json.Formatting.None), this.ValidationKey, cancellationToken).ConfigureAwait(false);
-
-			// generate and return the menu
-			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
-			var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
-			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
-			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
-
-			if (!Int32.TryParse(requestInfo.GetParameter("x-menu-level") ?? "1", out var level))
-				level = 1;
-			if (!Int32.TryParse(requestInfo.GetParameter("x-menu-max-level") ?? "1", out var maxLevel))
-				maxLevel = 0;
-
-			var menu = new JArray();
-			Exception exception = null;
-			await children.Where(child => child != null).OrderBy(child => child.OrderIndex).ForEachAsync(async child =>
+			catch (Exception ex)
 			{
-				if (exception == null)
-					try
-					{
-						if (child is Category category)
-							menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false));
-						else if (child is Link link)
-							menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false));
-					}
-					catch (Exception ex)
-					{
-						exception = ex;
-					}
-			}, true, false).ConfigureAwait(false);
-
-			if (exception != null)
-				throw requestInfo.GetRuntimeException(exception, null, async (msg, ex) => await requestInfo.WriteErrorAsync(ex, $"Error occurred while generating a child menu => {msg} : {@object.ToJson()}", "Links").ConfigureAwait(false));
-
-			stopwatch.Stop();
-			if (requestInfo.IsWriteDesktopLogs())
-				await this.WriteLogsAsync(requestInfo, $"Data of a CMS Portals object [{@object.GetObjectName()} => {@object.Title}] was generated/prepared as menu - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {menu?.ToString(this.JsonFormat)}").ConfigureAwait(false);
-
-			return menu;
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch, $"Error occurred while generating data of CMS Portals (as menu) => {ex.Message}");
+			}
 		}
 		#endregion
 
-		#region Export/Import objects (Working with Excel files)
+		#region Export/Import objects (working with Excel files)
 		async Task<JToken> DoExcelActionAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			var requestJson = requestInfo.GetRequestJson();
@@ -3894,11 +3901,11 @@ namespace net.vieapps.Services.Portals
 							@object.Set();
 							new UpdateMessage
 							{
-								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+								Type = $"{this.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
 							}.Send();
-							new CommunicateMessage(requestInfo.ServiceName)
+							new CommunicateMessage(this.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
@@ -3914,11 +3921,11 @@ namespace net.vieapps.Services.Portals
 							@object.Set();
 							new UpdateMessage
 							{
-								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+								Type = $"{this.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
 							}.Send();
-							new CommunicateMessage(requestInfo.ServiceName)
+							new CommunicateMessage(this.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
@@ -3934,11 +3941,11 @@ namespace net.vieapps.Services.Portals
 							@object.Set();
 							new UpdateMessage
 							{
-								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+								Type = $"{this.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
 							}.Send();
-							new CommunicateMessage(requestInfo.ServiceName)
+							new CommunicateMessage(this.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
@@ -3954,11 +3961,11 @@ namespace net.vieapps.Services.Portals
 							@object.Set();
 							new UpdateMessage
 							{
-								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+								Type = $"{this.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
 							}.Send();
-							new CommunicateMessage(requestInfo.ServiceName)
+							new CommunicateMessage(this.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
@@ -3979,11 +3986,11 @@ namespace net.vieapps.Services.Portals
 							@object.Set();
 							new UpdateMessage
 							{
-								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+								Type = $"{this.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
 							}.Send();
-							new CommunicateMessage(requestInfo.ServiceName)
+							new CommunicateMessage(this.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
@@ -4002,11 +4009,11 @@ namespace net.vieapps.Services.Portals
 							@object.Set();
 							new UpdateMessage
 							{
-								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+								Type = $"{this.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
 							}.Send();
-							new CommunicateMessage(requestInfo.ServiceName)
+							new CommunicateMessage(this.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
@@ -4022,11 +4029,11 @@ namespace net.vieapps.Services.Portals
 							@object.Set();
 							new UpdateMessage
 							{
-								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+								Type = $"{this.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
 							}.Send();
-							new CommunicateMessage(requestInfo.ServiceName)
+							new CommunicateMessage(this.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
@@ -4048,11 +4055,11 @@ namespace net.vieapps.Services.Portals
 							@object.Set();
 							new UpdateMessage
 							{
-								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+								Type = $"{this.ServiceName}#{objectName}#Update",
 								Data = @object.ToJson(),
 								DeviceID = "*"
 							}.Send();
-							new CommunicateMessage(requestInfo.ServiceName)
+							new CommunicateMessage(this.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
@@ -4063,43 +4070,36 @@ namespace net.vieapps.Services.Portals
 
 					case "category":
 					case "cms.category":
-						this.Import<Category>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, async objects => await objects.ForEachAsync(async @object =>
+						this.Import<Category>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object =>
 						{
-							@object.Set();
-							await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false);
-							new UpdateMessage
-							{
-								Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-								Data = @object.ToJson(),
-								DeviceID = "*"
-							}.Send();
-							new CommunicateMessage(requestInfo.ServiceName)
+							@object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Run();
+							new CommunicateMessage(this.ServiceName)
 							{
 								Type = $"{objectName}#Update",
 								Data = @object.ToJson(),
 								ExcludedNodeID = Utility.NodeID
 							}.Send();
-						}).ConfigureAwait(false));
+						}));
 						break;
 
 					case "content":
 					case "cms.content":
-						this.Import<Content>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
+						this.Import<Content>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.Category.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Run()));
 						break;
 
 					case "item":
 					case "cms.item":
-						this.Import<Item>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
+						this.Import<Item>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Run()));
 						break;
 
 					case "link":
 					case "cms.link":
-						this.Import<Link>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
+						this.Import<Link>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Run()));
 						break;
 
 					case "form":
 					case "cms.form":
-						this.Import<Form>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, async objects => await objects.ForEachAsync(async @object => await @object.ClearRelatedCacheAsync(this.CancellationToken).ConfigureAwait(false)).ConfigureAwait(false));
+						this.Import<Form>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Run()));
 						break;
 				}
 			}
@@ -4457,133 +4457,66 @@ namespace net.vieapps.Services.Portals
 			}, this.CancellationToken).ConfigureAwait(false);
 		#endregion
 
-		#region Sync objects (via sync requests or web-hook messages)
+		#region Sync objects
 		public override async Task<JToken> SyncAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
-			await this.WriteLogsAsync(requestInfo, $"Start sync ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
-				try
-				{
-					// validate & sync
-					var json = await base.SyncAsync(requestInfo, cts.Token).ConfigureAwait(false);
-					json = await this.SyncObjectAsync(requestInfo, cts.Token, requestInfo.GetHeaderParameter("x-converter") == null).ConfigureAwait(false);
-
-					// write logs
-					stopwatch.Stop();
-					await this.WriteLogsAsync(requestInfo, $"Sync success - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
-					if (this.IsDebugResultsEnabled)
-						this.WriteLogs(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}" + "\r\n" + $"- Response: {json?.ToString(this.JsonFormat)}");
-
-					// return info
-					return json;
-				}
-				catch (Exception ex)
-				{
-					throw this.GetRuntimeException(requestInfo, ex, stopwatch);
-				}
+			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start sync an object ({requestInfo.Verb} {requestInfo.GetURI()})", null, this.ServiceName, "Sync").ConfigureAwait(false);
+			try
+			{
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
+				var json = await base.SyncAsync(requestInfo, cts.Token).ConfigureAwait(false);
+				json = await this.SyncObjectAsync(requestInfo, cts.Token, requestInfo.GetHeaderParameter("x-converter") == null, true).ConfigureAwait(false);
+				stopwatch.Stop();
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Sync an object successful - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled ? $"\r\nRequest: {requestInfo.ToString(this.JsonFormat)}\r\nResponse: {json.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "Sync").ConfigureAwait(false);
+				return json;
+			}
+			catch (Exception ex)
+			{
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch, "Error occurred while synchronizing an object");
+			}
 		}
 
 		protected override Task SendSyncRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 			=> base.SendSyncRequestAsync(requestInfo, cancellationToken);
 
-		public override async Task ProcessWebHookMessageAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
-		{
-			var stopwatch = Stopwatch.StartNew();
-			if (this.IsDebugLogEnabled)
-				await this.WriteLogsAsync(requestInfo, $"Start process a web-hook message").ConfigureAwait(false);
-
-			using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken))
-				try
-				{
-					// prepare
-					var organization = await (requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false);
-					if (organization == null)
-						throw new InformationInvalidException("Invalid (no system)");
-
-					// validate
-					var settings = organization.WebHookSettings ?? new Settings.WebHook();
-					var secretToken = requestInfo.GetParameter("WebHookSecretToken") ?? requestInfo.GetParameter("x-webhook-secret-token");
-
-					if (string.IsNullOrWhiteSpace(secretToken))
-					{
-						var signAlgorithm = settings.SignAlgorithm;
-						var signKey = settings.SignKey ?? requestInfo.Session.AppID ?? organization.ID;
-						var signatureName = settings.SignatureName;
-						var signatureAsHex = settings.SignatureAsHex;
-						var signatureInQuery = settings.SignatureInQuery;
-						var query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-						if (!string.IsNullOrWhiteSpace(settings.AdditionalQuery))
-							(settings.AdditionalQuery.ToJson() as JObject).ForEach(kvp => query[kvp.Key] = kvp.Value.ToString());
-						var header = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-						if (!string.IsNullOrWhiteSpace(settings.AdditionalHeader))
-							(settings.AdditionalHeader.ToJson() as JObject).ForEach(kvp => header[kvp.Key] = kvp.Value.ToString());
-						requestInfo.ValidateWebHookMessage(signAlgorithm, signKey, signatureName, signatureAsHex, signatureInQuery, query, header);
-					}
-					else if (!secretToken.IsEquals(settings.SecretToken))
-						throw new InformationInvalidException("Invalid (secret token)");
-
-					// prepare body
-					if (!string.IsNullOrWhiteSpace(settings.PrepareBodyScript))
-						requestInfo.Body = $"@[{settings.PrepareBodyScript}]".Evaluate(
-							null,
-							requestInfo,
-							new Dictionary<string, object>
-							{
-								["Organization"] = organization,
-								["Settings"] = settings
-							}.ToExpandoObject()
-						)?.ToString() ?? requestInfo.Body;
-
-					// sync object
-					await this.SyncObjectAsync(requestInfo, cts.Token, false).ConfigureAwait(false);
-					stopwatch.Stop();
-					if (this.IsDebugLogEnabled)
-						await this.WriteLogsAsync(requestInfo, $"Process a web-hook message successful - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled ? $"\r\nMessage: {requestInfo.ToString(this.JsonFormat)}" : "")).ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					throw this.GetRuntimeException(requestInfo, ex, stopwatch, "Error occurred while processing a web-hook message");
-				}
-		}
-
-		Task<JObject> SyncObjectAsync(RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications)
+		Task<JObject> SyncObjectAsync(RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = true, bool dontCreateNewVersion = false)
 		{
 			switch (requestInfo.ObjectName.ToLower())
 			{
 				case "organization":
 				case "core.organization":
-					return requestInfo.SyncOrganizationAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncOrganizationAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "role":
 				case "core.role":
-					return requestInfo.SyncRoleAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncRoleAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "module":
 				case "core.module":
-					return requestInfo.SyncModuleAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncModuleAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "contenttype":
 				case "content.type":
 				case "core.contenttype":
 				case "core.content.type":
-					return requestInfo.SyncContentTypeAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncContentTypeAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "expression":
 				case "core.expression":
-					return requestInfo.SyncExpressionAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncExpressionAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "site":
 				case "core.site":
-					return requestInfo.SyncSiteAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncSiteAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "desktop":
 				case "core.desktop":
-					return requestInfo.SyncDesktopAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncDesktopAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "portlet":
 				case "core.portlet":
-					return requestInfo.SyncPortletAsync(cancellationToken);
+					return requestInfo.SyncPortletAsync(cancellationToken, dontCreateNewVersion);
 
 				case "task":
 				case "schedulingtask":
@@ -4593,33 +4526,33 @@ namespace net.vieapps.Services.Portals
 				case "core.schedulingtask":
 				case "core.scheduling.task":
 				case "core.scheduling-task":
-					return requestInfo.SyncSchedulingTaskAsync(cancellationToken);
+					return requestInfo.SyncSchedulingTaskAsync(cancellationToken, dontCreateNewVersion);
 
 				case "category":
 				case "cms.category":
-					return requestInfo.SyncCategoryAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncCategoryAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "content":
 				case "cms.content":
-					return requestInfo.SyncContentAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncContentAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "item":
 				case "cms.item":
-					return requestInfo.SyncItemAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncItemAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "link":
 				case "cms.link":
-					return requestInfo.SyncLinkAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncLinkAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "form":
 				case "cms.form":
-					return requestInfo.SyncFormAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncFormAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "crawler":
 				case "crawlers":
 				case "cms.crawler":
 				case "cms.crawlers":
-					return requestInfo.SyncCrawlerAsync(cancellationToken, sendNotifications);
+					return requestInfo.SyncCrawlerAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				default:
 					return Task.FromException<JObject>(new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})"));
@@ -4627,7 +4560,303 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		#region Process communicate message of Portals service
+		#region Process rollback versions requests
+		public override async Task<JToken> ProcessRollbackRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			JToken json = null;
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+			switch (requestInfo.ObjectName.ToLower())
+			{
+				case "organization":
+				case "core.organization":
+					json = await requestInfo.RollbackOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "role":
+				case "core.role":
+					json = await requestInfo.RollbackRoleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "module":
+				case "core.module":
+					json = await requestInfo.RollbackModuleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "contenttype":
+				case "content.type":
+				case "core.contenttype":
+				case "core.content.type":
+					json = await requestInfo.RollbackContentTypeAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "expression":
+				case "core.expression":
+					json = await requestInfo.RollbackExpressionAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "site":
+				case "core.site":
+					json = await requestInfo.RollbackSiteAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "desktop":
+				case "core.desktop":
+					json = await requestInfo.RollbackDesktopAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "portlet":
+				case "core.portlet":
+					json = await requestInfo.RollbackPortletAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "task":
+				case "schedulingtask":
+				case "scheduling.task":
+				case "scheduling-task":
+				case "core.task":
+				case "core.schedulingtask":
+				case "core.scheduling.task":
+				case "core.scheduling-task":
+					json = await requestInfo.RollbackSchedulingTaskAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "category":
+				case "cms.category":
+					json = await requestInfo.RollbackCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "content":
+				case "cms.content":
+					json = await requestInfo.RollbackContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "link":
+				case "cms.link":
+					json = await requestInfo.RollbackLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				case "item":
+				case "cms.item":
+					json = await requestInfo.RollbackItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					break;
+
+				default:
+					throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
+			}
+			return json;
+		}
+
+		async Task<JToken> FindVersionsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			// validate
+			if (!requestInfo.Verb.IsEquals("GET"))
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
+			if (string.IsNullOrWhiteSpace(identity))
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			// check permissions
+			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+			var gotRights = false;
+			RepositoryBase @object = null;
+
+			switch (requestInfo.GetObjectIdentity().ToLower())
+			{
+				case "organization":
+				case "core.organization":
+					@object = await identity.GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, @object as Organization);
+					break;
+
+				case "role":
+				case "core.role":
+					@object = await identity.GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, (@object as Role)?.Organization);
+					break;
+
+				case "module":
+				case "core.module":
+					@object = await identity.GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(@object?.WorkingPrivileges, null, (@object as Module)?.Organization);
+					break;
+
+				case "contenttype":
+				case "content.type":
+				case "core.contenttype":
+				case "core.content.type":
+					@object = await identity.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(@object?.WorkingPrivileges, (@object as ContentType)?.Module?.WorkingPrivileges, (@object as ContentType)?.Organization);
+					break;
+
+				case "expression":
+				case "core.expression":
+					@object = await identity.GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, (@object as Expression)?.Organization);
+					break;
+
+				case "site":
+				case "core.site":
+					@object = await identity.GetSiteByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, (@object as Site)?.Organization);
+					break;
+
+				case "desktop":
+				case "core.desktop":
+					@object = await identity.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, (@object as Desktop)?.Organization);
+					break;
+
+				case "portlet":
+				case "core.portlet":
+					@object = await Portlet.GetAsync<Portlet>(identity, cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, (@object as Portlet)?.Organization);
+					break;
+
+				case "task":
+				case "schedulingtask":
+				case "scheduling.task":
+				case "scheduling-task":
+				case "core.task":
+				case "core.schedulingtask":
+				case "core.scheduling.task":
+				case "core.scheduling-task":
+					@object = await identity.GetSchedulingTaskByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, (@object as SchedulingTask)?.Organization);
+					break;
+
+				case "category":
+				case "cms.category":
+					@object = await identity.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(@object?.WorkingPrivileges, null, (@object as Category)?.Organization);
+					break;
+
+				case "content":
+				case "cms.content":
+					@object = await Content.GetAsync<Content>(identity, cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(@object?.WorkingPrivileges, null, (@object as Content)?.Organization);
+					break;
+
+				case "link":
+				case "cms.link":
+					@object = await Link.GetAsync<Link>(identity, cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(@object?.WorkingPrivileges, null, (@object as Link)?.Organization);
+					break;
+
+				case "item":
+				case "cms.item":
+					@object = await Item.GetAsync<Item>(identity, cancellationToken).ConfigureAwait(false);
+					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(@object?.WorkingPrivileges, null, (@object as Item)?.Organization);
+					break;
+
+				default:
+					throw new InvalidRequestException($"The request is invalid ({requestInfo.Verb} {requestInfo.GetURI()})");
+			}
+
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			if (@object == null)
+				throw new InformationNotFoundException($"Not Found [{requestInfo.GetObjectIdentity()}#{identity}]");
+
+			var versions = await @object.FindVersionsAsync(cancellationToken).ConfigureAwait(false);
+			return new JObject
+			{
+				["ID"] = @object.ID,
+				["SystemID"] = @object.SystemID,
+				["TotalVersions"] = versions != null ? versions.Count : 0,
+				["Versions"] = versions?.Select(obj => obj.ToJson(json => (json as JObject).Remove("Data"))).ToJArray()
+			};
+		}
+		#endregion
+
+		#region Process web-hook messages
+		public override async Task ProcessWebHookMessageAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			var stopwatch = Stopwatch.StartNew();
+			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start process a web-hook message", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
+			try
+			{
+				// prepare
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
+
+				var organization = await (requestInfo.GetParameter("x-webhook-system") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false);
+				if (organization == null)
+					throw new InformationInvalidException("Invalid (system)");
+
+				var contentType = await (requestInfo.GetParameter("x-webhook-entity") ?? "").GetContentTypeByIDAsync(cts.Token).ConfigureAwait(false);
+				if (contentType != null && !organization.ID.IsEquals(contentType.SystemID))
+					throw new InformationInvalidException("Invalid (entity)");
+
+				// prepare web-hook settings
+				var settings = organization.WebHookSettings ?? new Settings.WebHookSetting();
+				var adapterName = requestInfo.GetParameter("x-webhook-adapter") ?? "";
+				if (contentType != null && contentType.WebHookAdapters != null && contentType.WebHookAdapters.Any())
+				{
+					if (contentType.WebHookAdapters.TryGetValue(adapterName, out var webhookAdapter))
+						settings = webhookAdapter;
+					else if (contentType.WebHookAdapters.TryGetValue("default", out webhookAdapter))
+						settings = webhookAdapter;
+					else if (adapterName != "")
+						settings = null;
+				}
+
+				if (settings == null)
+				{
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Stop process a web-hook message because no suitable web-hook adapter was found [{adapterName}]", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
+					return;
+				}
+
+				requestInfo.Verb = "SYNC";
+				requestInfo.ObjectName = contentType != null
+					? contentType.ContentTypeDefinition.GetObjectName()
+					: requestInfo.GetParameter("x-webhook-object") ?? requestInfo.GetParameter("x-original-object-name") ?? requestInfo.ObjectName;
+
+				// prepare message
+				var message = requestInfo.ToWebHookMessage(settings.SecretToken, "x-webhook-secret-token", settings.SignAlgorithm, settings.SignKey ?? requestInfo.Session.AppID ?? organization.ID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, settings.QueryAsJson, settings.HeaderAsJson, settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes());
+				var bodyJson = message.AsJson.Get<JObject>("Body");
+					bodyJson["SystemID"] = organization.ID;
+				if (contentType != null)
+				{
+					bodyJson["RepositoryID"] = contentType.RepositoryID;
+					bodyJson["RepositoryEntityID"] = contentType.ID;
+				}
+				var requestInfoJson = requestInfo.AsJson;
+				var paramsJson = new JObject
+				{
+					["Organization"] = organization.ToJson(false, false, json => new[] { "Privileges", "OriginalPrivileges" }.Concat(OrganizationProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
+					["Module"] = contentType?.Module?.ToJson(json => new[] { "Privileges", "OriginalPrivileges" }.Concat(ModuleProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
+					["ContentType"] = contentType?.ToJson(json => new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name)))
+				};
+				if (string.IsNullOrWhiteSpace(settings.PrepareBodyScript))
+				{
+					if (settings.GenerateIdentity && bodyJson.Get<string>("ID") is string id && !string.IsNullOrWhiteSpace(id))
+						bodyJson["ID"] = id.GenerateUUID();
+					requestInfo.Body = bodyJson.ToString(Newtonsoft.Json.Formatting.None);
+				}
+				else
+				{
+					if (settings.GenerateIdentity && bodyJson.Get<string>("ID") is string id && !string.IsNullOrWhiteSpace(id))
+						bodyJson["ID"] = id.GenerateUUID();
+					requestInfo.Body = settings.PrepareBodyScript.JsEvaluate(bodyJson, requestInfoJson, paramsJson)?.ToString() ?? bodyJson.ToString(Newtonsoft.Json.Formatting.None);
+				}
+				var doubleBracesTokens = requestInfo.Body.GetDoubleBracesTokens();
+				if (doubleBracesTokens.Any())
+					requestInfo.Body = requestInfo.Body.Format(doubleBracesTokens.PrepareDoubleBracesParameters(bodyJson.ToExpandoObject(), requestInfoJson.ToExpandoObject(), paramsJson.ToExpandoObject()));
+
+				// sync with the message
+				var result = await this.SyncObjectAsync(requestInfo, cts.Token).ConfigureAwait(false);
+				stopwatch.Stop();
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process a web-hook message successful - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled ? $"\r\nMessage: {requestInfo.ToString(this.JsonFormat)}\r\nResult: {result.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "WebHooks").ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				await requestInfo.WriteErrorAsync(ex, $"Error occurred while processing a web-hook message => {ex.Message}", "WebHooks").ConfigureAwait(false);
+			}
+		}
+		#endregion
+
+		#region Process communicate messages
 		protected override async Task ProcessInterCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			// check
@@ -4689,9 +4918,7 @@ namespace net.vieapps.Services.Portals
 			if (Utility.IsWriteMessageLogs(null))
 				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", "Updates").ConfigureAwait(false);
 		}
-		#endregion
 
-		#region Process communicate message of CMS Portals service
 		async Task ProcessCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			var correlationID = UtilityService.NewUUID;
@@ -4844,7 +5071,7 @@ namespace net.vieapps.Services.Portals
 			else if (expression != null)
 			{
 				await Utility.Cache.RemoveAsync(expression.Remove(), cancellationToken).ConfigureAwait(false);
-				new CommunicateMessage(requestInfo.ServiceName)
+				new CommunicateMessage(this.ServiceName)
 				{
 					Type = $"{expression.GetObjectName()}#Delete",
 					Data = expression.ToJson(),
@@ -5065,7 +5292,7 @@ namespace net.vieapps.Services.Portals
 						await Item.UpdateAsync(item, false, cancellationToken).ConfigureAwait(false);
 						new UpdateMessage
 						{
-							Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+							Type = $"{this.ServiceName}#{objectName}#Update",
 							Data = item.ToJson(),
 							DeviceID = "*"
 						}.Send();
@@ -5089,7 +5316,7 @@ namespace net.vieapps.Services.Portals
 						await Link.UpdateAsync(link, false, cancellationToken).ConfigureAwait(false);
 						new UpdateMessage
 						{
-							Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+							Type = $"{this.ServiceName}#{objectName}#Update",
 							Data = link.ToJson(),
 							DeviceID = "*"
 						}.Send();
@@ -5121,7 +5348,7 @@ namespace net.vieapps.Services.Portals
 					await Content.UpdateAsync(content, false, cancellationToken).ConfigureAwait(false);
 					new UpdateMessage
 					{
-						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+						Type = $"{this.ServiceName}#{objectName}#Update",
 						Data = content.ToJson(),
 						DeviceID = "*"
 					}.Send();

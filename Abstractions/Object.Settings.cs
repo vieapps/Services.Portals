@@ -11,13 +11,16 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
+using MsgPack.Serialization;
+using System.Xml.Serialization;
+
 #endregion
 
 namespace net.vieapps.Services.Portals.Settings
 {
-	public class EmailNotifications
+	public class EmailNotification
 	{
-		public EmailNotifications() { }
+		public EmailNotification() { }
 
 		public string ToAddresses { get; set; }
 
@@ -29,36 +32,56 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public string Body { get; set; }
 
-		public void Normalize()
+		public EmailNotification Normalize()
 		{
 			this.ToAddresses = string.IsNullOrWhiteSpace(this.ToAddresses) ? null : this.ToAddresses.ToList(";", true).Where(emailAddress => emailAddress.GetMailAddress() != null).Join(";");
 			this.CcAddresses = string.IsNullOrWhiteSpace(this.CcAddresses) ? null : this.CcAddresses.ToList(";", true).Where(emailAddress => emailAddress.GetMailAddress() != null).Join(";");
 			this.BccAddresses = string.IsNullOrWhiteSpace(this.BccAddresses) ? null : this.BccAddresses.ToList(";", true).Where(emailAddress => emailAddress.GetMailAddress() != null).Join(";");
 			this.Subject = string.IsNullOrWhiteSpace(this.Subject) ? null : this.Subject.Trim();
 			this.Body = string.IsNullOrWhiteSpace(this.Body) ? null : this.Body.Trim();
+			return string.IsNullOrWhiteSpace(this.ToAddresses) && string.IsNullOrWhiteSpace(this.CcAddresses) && string.IsNullOrWhiteSpace(this.BccAddresses) && string.IsNullOrWhiteSpace(this.Subject) && string.IsNullOrWhiteSpace(this.Body) ? null : this;
 		}
 	}
 
 	// ---------------------------------------------------------------
 
-	public class WebHookNotifications : WebHook
+	public class WebHookNotification : WebHook
 	{
-		public WebHookNotifications() : base() { }
+		public WebHookNotification() : base() { }
 
 		public List<string> EndpointURLs { get; set; } = new List<string>();
 
-		public bool GenerateIdentity { get; set; } = false;
+		public bool SignatureInQuery { get; set; } = false;
 
-		public override void Normalize()
+		public override WebHookNotification Normalize(Action onCompleted = null)
 		{
+			base.Normalize();
 			this.EndpointURLs = (this.EndpointURLs ?? new List<string>())
 				.Where(url => !string.IsNullOrWhiteSpace(url))
 				.Select(url => url.Replace("\t", "").Replace("\r", "").ToList("\n"))
 				.SelectMany(urls => urls)
 				.Where(url => !string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("http://") || url.IsStartsWith("https://")))
 				.ToList();
-			this.EndpointURLs = this.EndpointURLs.Count < 1 ? null : this.EndpointURLs;
+			this.EndpointURLs = this.EndpointURLs.Any() ? this.EndpointURLs : null;
+			onCompleted?.Invoke();
+			return this.EndpointURLs != null ? this : null;
+		}
+	}
+
+	// ---------------------------------------------------------------
+
+	public class WebHookSetting : WebHook
+	{
+		public WebHookSetting() : base() { }
+
+		public string SecretToken { get; set; }
+
+		public override WebHookSetting Normalize(Action onCompleted = null)
+		{
 			base.Normalize();
+			this.SecretToken = string.IsNullOrWhiteSpace(this.SecretToken) ? null : this.SecretToken.Trim();
+			onCompleted?.Invoke();
+			return this;
 		}
 	}
 
@@ -72,33 +95,24 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public List<string> Methods { get; set; } = new List<string>();
 
-		public EmailNotifications Emails { get; set; } = new EmailNotifications();
+		public EmailNotification Emails { get; set; } = new EmailNotification();
 
-		public Dictionary<string, EmailNotifications> EmailsByApprovalStatus { get; set; } = new Dictionary<string, EmailNotifications>();
+		public Dictionary<string, EmailNotification> EmailsByApprovalStatus { get; set; } = new Dictionary<string, EmailNotification>();
 
-		public EmailNotifications EmailsWhenPublish { get; set; } = new EmailNotifications();
+		public EmailNotification EmailsWhenPublish { get; set; } = new EmailNotification();
 
-		public WebHookNotifications WebHooks { get; set; } = new WebHookNotifications();
+		public WebHookNotification WebHooks { get; set; } = new WebHookNotification();
 
-		public void Normalize()
+		public Notifications Normalize()
 		{
-			this.Events = this.Events == null || this.Events.Count < 1 ? null : this.Events;
-			this.Methods = this.Methods == null || this.Methods.Count < 1 ? null : this.Methods;
-			this.Emails?.Normalize();
-			this.Emails = this.Emails != null && string.IsNullOrWhiteSpace(this.Emails.ToAddresses) && string.IsNullOrWhiteSpace(this.Emails.CcAddresses) && string.IsNullOrWhiteSpace(this.Emails.BccAddresses) && string.IsNullOrWhiteSpace(this.Emails.Subject) && string.IsNullOrWhiteSpace(this.Emails.Body) ? null : this.Emails;
-			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus ?? new Dictionary<string, EmailNotifications>();
-			this.EmailsByApprovalStatus.Keys.ToList().ForEach(key =>
-			{
-				var notification = this.EmailsByApprovalStatus[key];
-				notification?.Normalize();
-				this.EmailsByApprovalStatus[key] = notification != null && string.IsNullOrWhiteSpace(notification.ToAddresses) && string.IsNullOrWhiteSpace(notification.CcAddresses) && string.IsNullOrWhiteSpace(notification.BccAddresses) && string.IsNullOrWhiteSpace(notification.Subject) && string.IsNullOrWhiteSpace(notification.Body) ? null : notification;
-			});
-			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus.Where(kvp => kvp.Value != null).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus.Count < 1 ? null : this.EmailsByApprovalStatus;
-			this.EmailsWhenPublish?.Normalize();
-			this.EmailsWhenPublish = this.EmailsWhenPublish != null && string.IsNullOrWhiteSpace(this.EmailsWhenPublish.ToAddresses) && string.IsNullOrWhiteSpace(this.EmailsWhenPublish.CcAddresses) && string.IsNullOrWhiteSpace(this.EmailsWhenPublish.BccAddresses) && string.IsNullOrWhiteSpace(this.EmailsWhenPublish.Subject) && string.IsNullOrWhiteSpace(this.EmailsWhenPublish.Body) ? null : this.EmailsWhenPublish;
-			this.WebHooks?.Normalize();
-			this.WebHooks = this.WebHooks != null && this.WebHooks.EndpointURLs == null ? null : this.WebHooks;
+			this.Events = this.Events != null && this.Events.Any() ? this.Events : null;
+			this.Methods = this.Methods != null && this.Methods.Any() ? this.Methods : null;
+			this.Emails = this.Emails?.Normalize();
+			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus?.Select(kvp => KeyValuePair.Create(kvp.Key, kvp.Value?.Normalize())).Where(kvp => kvp.Value != null).ToDictionary();
+			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus != null && this.EmailsByApprovalStatus.Any() ? this.EmailsByApprovalStatus : null;
+			this.EmailsWhenPublish = this.EmailsWhenPublish?.Normalize();
+			this.WebHooks = this.WebHooks?.Normalize();
+			return this.Events == null && this.Methods == null && this.Emails == null && this.EmailsByApprovalStatus == null && this.EmailsWhenPublish == null && this.WebHooks == null ? null : this;
 		}
 	}
 
@@ -113,10 +127,11 @@ namespace net.vieapps.Services.Portals.Settings
 		[FormControl(ControlType = "TextArea")]
 		public string Body { get; set; }
 
-		public void Normalize()
+		public Instruction Normalize()
 		{
 			this.Subject = string.IsNullOrWhiteSpace(this.Subject) ? null : this.Subject.Trim();
 			this.Body = string.IsNullOrWhiteSpace(this.Body) ? null : this.Body.Trim();
+			return string.IsNullOrWhiteSpace(this.Subject) && string.IsNullOrWhiteSpace(this.Body) ? null : this;
 		}
 
 		public static Dictionary<string, Dictionary<string, Instruction>> Parse(ExpandoObject rawInstructions)
@@ -146,7 +161,7 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public int Interval { get; set; } = 15;
 
-		public void Normalize()
+		public RefreshUrls Normalize()
 		{
 			this.Addresses = (this.Addresses ?? new List<string>())
 				.Where(address => !string.IsNullOrWhiteSpace(address))
@@ -154,8 +169,9 @@ namespace net.vieapps.Services.Portals.Settings
 				.SelectMany(addresses => addresses)
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
-			this.Addresses = this.Addresses.Count < 1 ? null : this.Addresses;
+			this.Addresses = this.Addresses.Any() ? this.Addresses : null;
 			this.Interval = this.Interval < 1 ? 15 : this.Interval;
+			return this.Addresses != null ? this : null;
 		}
 	}
 
@@ -169,7 +185,7 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public bool AllHttp404 { get; set; } = false;
 
-		public void Normalize()
+		public RedirectUrls Normalize()
 		{
 			this.Addresses = (this.Addresses ?? new List<string>())
 				.Where(address => !string.IsNullOrWhiteSpace(address))
@@ -177,7 +193,8 @@ namespace net.vieapps.Services.Portals.Settings
 				.SelectMany(addresses => addresses)
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
-			this.Addresses = this.Addresses.Count < 1 ? null : this.Addresses;
+			this.Addresses = this.Addresses.Any() ? this.Addresses : null;
+			return this.Addresses != null ? this : null;
 		}
 	}
 
@@ -197,12 +214,13 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public string UserPassword { get; set; }
 
-		public void Normalize()
+		public Smtp Normalize()
 		{
 			this.Host = string.IsNullOrWhiteSpace(this.Host) ? null : this.Host.Trim();
 			this.Port = this.Port > IPEndPoint.MinPort && this.Port < IPEndPoint.MaxPort ? this.Port : 25;
 			this.User = string.IsNullOrWhiteSpace(this.User) ? null : this.User.Trim();
 			this.UserPassword = string.IsNullOrWhiteSpace(this.UserPassword) ? null : this.UserPassword.Trim();
+			return string.IsNullOrWhiteSpace(this.Host) ? null : this;
 		}
 	}
 
@@ -216,12 +234,12 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public Smtp Smtp { get; set; } = new Smtp();
 
-		public void Normalize()
+		public Email Normalize()
 		{
 			this.Sender = string.IsNullOrWhiteSpace(this.Sender) || this.Sender.GetMailAddress() == null ? null : this.Sender.Trim();
 			this.Signature = string.IsNullOrWhiteSpace(this.Signature) ? null : this.Signature.Trim();
-			this.Smtp?.Normalize();
-			this.Smtp = string.IsNullOrWhiteSpace(this.Smtp?.Host) ? null : this.Smtp;
+			this.Smtp = this.Smtp?.Normalize();
+			return this.Sender == null && this.Signature == null && this.Smtp == null ? null : this;
 		}
 	}
 
@@ -233,52 +251,141 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public string SignKey { get; set; }
 
+		public bool SignKeyIsHex { get; set; } = false;
+
 		public string SignatureName { get; set; }
 
 		public bool SignatureAsHex { get; set; } = true;
 
-		public bool SignatureInQuery { get; set; } = false;
+		[FormControl(ControlType = "TextArea")]
+		public string Query { get; set; }
 
 		[FormControl(ControlType = "TextArea")]
-		public string AdditionalQuery { get; set; }
+		public string Header { get; set; }
 
-		[FormControl(ControlType = "TextArea")]
-		public string AdditionalHeader { get; set; }
+		public string EncryptionKey { get; set; }
 
-		public string SecretToken { get; set; }
+		public string EncryptionIV { get; set; }
+
+		public bool GenerateIdentity { get; set; } = false;
 
 		[FormControl(ControlType = "TextArea")]
 		public string PrepareBodyScript { get; set; }
 
-		public virtual void Normalize()
+		[JsonIgnore, MessagePackIgnore]
+		public JObject QueryAsJson => string.IsNullOrWhiteSpace(this.Query) ? null : JObject.Parse(this.Query);
+
+		[JsonIgnore, MessagePackIgnore]
+		public JObject HeaderAsJson => string.IsNullOrWhiteSpace(this.Header) ? null : JObject.Parse(this.Header);
+
+		public virtual WebHook Normalize(Action onCompleted = null)
 		{
-			if (string.IsNullOrWhiteSpace(this.AdditionalQuery))
-				this.AdditionalQuery = null;
-			else
+			this.SignAlgorithm = string.IsNullOrWhiteSpace(this.SignAlgorithm) ? null : this.SignAlgorithm.Trim();
+			this.SignKey = string.IsNullOrWhiteSpace(this.SignKey) ? null : this.SignKey.Trim();
+			this.SignatureName = string.IsNullOrWhiteSpace(this.SignatureName) ? null : this.SignatureName.Trim();
+			this.Query = string.IsNullOrWhiteSpace(this.Query) ? null : this.Query.Trim();
+			this.Header = string.IsNullOrWhiteSpace(this.Header) ? null : this.Header.Trim();
+			this.EncryptionKey = string.IsNullOrWhiteSpace(this.EncryptionKey) ? null : this.EncryptionKey.Trim();
+			this.EncryptionIV = string.IsNullOrWhiteSpace(this.EncryptionIV) ? null : this.EncryptionIV.Trim();
+			if (string.IsNullOrWhiteSpace(this.EncryptionKey) || string.IsNullOrWhiteSpace(this.EncryptionIV))
+				this.EncryptionKey = this.EncryptionIV = null;
+			this.PrepareBodyScript = string.IsNullOrWhiteSpace(this.PrepareBodyScript) ? null : this.PrepareBodyScript.Trim();
+			onCompleted?.Invoke();
+			return this;
+		}
+
+		public void Validate(JObject bodyJson, JObject requestInfoJson, JObject paramsJson)
+		{
+			if (this.SignKeyIsHex && !string.IsNullOrWhiteSpace(this.SignKey))
 				try
 				{
-					this.AdditionalQuery = JObject.Parse(this.AdditionalQuery) != null
-						? this.AdditionalQuery = this.AdditionalQuery.Trim()
-						: null;
+					this.SignKey = this.SignKey.HexToBytes().ToHex();
 				}
-				catch
+				catch (Exception ex)
 				{
-					this.AdditionalQuery = null;
+					throw new InformationInvalidException($"SignKey => {ex.Message}", ex);
 				}
-			if (string.IsNullOrWhiteSpace(this.AdditionalHeader))
-				this.AdditionalHeader = null;
-			else
+
+			if (!string.IsNullOrWhiteSpace(this.Query))
 				try
 				{
-					this.AdditionalHeader = JObject.Parse(this.AdditionalHeader) != null
-						? this.AdditionalHeader = this.AdditionalHeader.Trim()
-						: null;
+					this.Query = this.QueryAsJson != null ? this.Query.Trim() : null;
 				}
-				catch
+				catch (Exception ex)
 				{
-					this.AdditionalHeader = null;
+					throw new InformationInvalidException($"Query => {ex.Message}", ex);
+				}
+
+			if (!string.IsNullOrWhiteSpace(this.Header))
+				try
+				{
+					this.Header = this.HeaderAsJson != null ? this.Header.Trim() : null;
+				}
+				catch (Exception ex)
+				{
+					throw new InformationInvalidException($"Header => {ex.Message}", ex);
+				}
+
+			if (!string.IsNullOrWhiteSpace(this.EncryptionKey) || !string.IsNullOrWhiteSpace(this.EncryptionIV))
+				try
+				{
+					this.EncryptionKey = this.EncryptionKey.HexToBytes().ToHex();
+				}
+				catch (Exception ex)
+				{
+					throw new InformationInvalidException($"EncryptionKey => {ex.Message}", ex);
+				}
+
+			if (!string.IsNullOrWhiteSpace(this.EncryptionIV))
+				try
+				{
+					this.EncryptionIV = this.EncryptionIV.HexToBytes().ToHex();
+				}
+				catch (Exception ex)
+				{
+					throw new InformationInvalidException($"EncryptionIV => {ex.Message}", ex);
+				}
+
+			if (!string.IsNullOrWhiteSpace(this.PrepareBodyScript))
+				try
+				{
+					this.PrepareBodyScript.JsEvaluate(bodyJson, requestInfoJson, paramsJson);
+				}
+				catch (Exception ex)
+				{
+					throw new InformationInvalidException($"Script => {ex.Message}", ex);
 				}
 		}
+
+		public void Validate(RequestInfo requestInfo, IPortalObject organization, IPortalModule module = null, IPortalContentType contentType = null, IBusinessObject @object = null)
+			=> this.Validate(
+				@object?.ToJson(null) as JObject ?? new JObject
+				{
+					["ID"] = "ID",
+					["Title"] = "Title",
+					["Body"] = new JObject { ["ID"] = "ID", ["Title"] = "Title" }
+				},
+				requestInfo?.AsJson as JObject ?? new JObject
+				{
+					["Session"] = new JObject(),
+					["Verb"] = "GET",
+					["Query"] = new JObject(),
+					["Header"] = new JObject(),
+					["Body"] = new JObject { ["ID"] = "ID", ["Title"] = "Title" }
+				},
+				new JObject
+				{
+					["Organization"] = organization?.ToJson(null),
+					["Module"] = module?.ToJson(null),
+					["ContentType"] = contentType?.ToJson(null)
+				}
+			);
+
+		public void Validate(RequestInfo requestInfo, IPortalContentType contentType)
+			=> this.Validate(requestInfo, contentType?.Organization, contentType?.Module, contentType);
+
+		public void Validate(RequestInfo requestInfo, IBusinessObject @object)
+			=> this.Validate(requestInfo, @object?.Organization, @object?.Module, @object?.ContentType, @object);
 	}
 
 	// ---------------------------------------------------------------
@@ -293,10 +400,11 @@ namespace net.vieapps.Services.Portals.Settings
 		[FormControl(ControlType = "TextArea", MaxLength = 4000)]
 		public string Content { get; set; }
 
-		public void Normalize()
+		public HttpIndicator Normalize()
 		{
 			this.Name = string.IsNullOrWhiteSpace(this.Name) ? null : this.Name.Trim();
 			this.Content = string.IsNullOrWhiteSpace(this.Content) ? null : this.Content.Trim();
+			return string.IsNullOrWhiteSpace(this.Name) && string.IsNullOrWhiteSpace(this.Content) ? null : this;
 		}
 	}
 
@@ -333,7 +441,7 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public string Style { get; set; }
 
-		public void Normalize(Action<UI> onCompleted = null)
+		public UI Normalize(Action<UI> onCompleted = null)
 		{
 			this.Padding = string.IsNullOrWhiteSpace(this.Padding) ? null : this.Padding.Trim();
 			this.Margin = string.IsNullOrWhiteSpace(this.Margin) ? null : this.Margin.Trim();
@@ -348,6 +456,7 @@ namespace net.vieapps.Services.Portals.Settings
 			this.Css = string.IsNullOrWhiteSpace(this.Css) ? null : this.Css.Trim();
 			this.Style = string.IsNullOrWhiteSpace(this.Style) ? null : this.Style.Trim();
 			onCompleted?.Invoke(this);
+			return string.IsNullOrWhiteSpace(this.Padding) && string.IsNullOrWhiteSpace(this.Margin) && string.IsNullOrWhiteSpace(this.Width) && string.IsNullOrWhiteSpace(this.Height) && string.IsNullOrWhiteSpace(this.Color) && string.IsNullOrWhiteSpace(this.BackgroundColor) && string.IsNullOrWhiteSpace(this.BackgroundImageURI) && string.IsNullOrWhiteSpace(this.BackgroundImageRepeat) && string.IsNullOrWhiteSpace(this.BackgroundImagePosition) && string.IsNullOrWhiteSpace(this.BackgroundImageSize) && string.IsNullOrWhiteSpace(this.Css) && string.IsNullOrWhiteSpace(this.Style) ? null : this;
 		}
 
 		public string GetStyle()
@@ -409,11 +518,12 @@ namespace net.vieapps.Services.Portals.Settings
 		[FormControl(ControlType = "TextArea")]
 		public string Keywords { get; set; }
 
-		public void Normalize()
+		public SEOInfo Normalize()
 		{
 			this.Title = string.IsNullOrWhiteSpace(this.Title) ? null : this.Title.Trim();
 			this.Description = string.IsNullOrWhiteSpace(this.Description) ? null : this.Description.Trim();
 			this.Keywords = string.IsNullOrWhiteSpace(this.Keywords) ? null : this.Keywords.Trim();
+			return string.IsNullOrWhiteSpace(this.Title) && string.IsNullOrWhiteSpace(this.Description) && string.IsNullOrWhiteSpace(this.Keywords) ? null : this;
 		}
 	}
 
@@ -437,10 +547,10 @@ namespace net.vieapps.Services.Portals.Settings
 		[FormControl(ControlType = "Select", SelectInterface = "popover", SelectValues = "PortletAndDesktopAndSite#;SiteAndDesktopAndPortlet#;PortletAndDesktop#;DesktopAndPortlet#;PortletAndSite#;SiteAndPortlet#;DesktopAndSite#;SiteAndDesktop#;Portlet#;Desktop")]
 		public SEOMode? KeywordsMode { get; set; }
 
-		public void Normalize()
+		public SEO Normalize()
 		{
-			this.SEOInfo?.Normalize();
-			this.SEOInfo = this.SEOInfo != null && string.IsNullOrWhiteSpace(this.SEOInfo.Title) && string.IsNullOrWhiteSpace(this.SEOInfo.Description) && string.IsNullOrWhiteSpace(this.SEOInfo.Keywords) ? null : this.SEOInfo;
+			this.SEOInfo = this.SEOInfo?.Normalize();
+			return this.SEOInfo == null && this.TitleMode == null && this.DescriptionMode == null && this.KeywordsMode == null ? null : this;
 		}
 	}
 }
