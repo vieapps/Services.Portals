@@ -1385,7 +1385,11 @@ namespace net.vieapps.Services.Portals
 					}
 				}
 				else if (isThemeResource)
-					lastModified = this.GetThemeResourcesLastModified(identity, type).ToHttpString();
+				{
+					var timeOfLastModified = this.GetThemeResourcesLastModified(identity, type);
+					timeOfLastModified = timeOfLastModified == DateTimeService.CheckingDateTime ? DateTime.Parse("1977/04/24 00:30:31") : timeOfLastModified;
+					lastModified = timeOfLastModified.ToHttpString();
+				}
 
 				if (lastModified != null)
 					await Task.WhenAll
@@ -1568,7 +1572,10 @@ namespace net.vieapps.Services.Portals
 					else
 					{
 						resources = await this.GetThemeResourcesAsync(identity, "css", cancellationToken).ConfigureAwait(false);
-						lastModified = this.GetThemeResourcesLastModified(identity, type).ToHttpString();
+						resources += resources != "" ? "" : "/**/";
+						var timeOfLastModified = this.GetThemeResourcesLastModified(identity, type);
+						timeOfLastModified = timeOfLastModified == DateTimeService.CheckingDateTime ? DateTime.Parse("1977/04/24 00:30:31") : timeOfLastModified;
+						lastModified = timeOfLastModified.ToHttpString();
 					}
 				}
 
@@ -1668,7 +1675,10 @@ namespace net.vieapps.Services.Portals
 					else
 					{
 						resources = await this.GetThemeResourcesAsync(identity, "js", cancellationToken).ConfigureAwait(false);
-						lastModified = this.GetThemeResourcesLastModified(identity, type).ToHttpString();
+						resources += resources != "" ? "" : "/**/";
+						var timeOfLastModified = this.GetThemeResourcesLastModified(identity, type);
+						timeOfLastModified = timeOfLastModified == DateTimeService.CheckingDateTime ? DateTime.Parse("1977/04/24 00:30:31") : timeOfLastModified;
+						lastModified = timeOfLastModified.ToHttpString();
 					}
 				}
 
@@ -4815,7 +4825,7 @@ namespace net.vieapps.Services.Portals
 				// prepare message
 				var message = requestInfo.ToWebHookMessage(settings.SecretToken, "x-webhook-secret-token", settings.SignAlgorithm, settings.SignKey ?? requestInfo.Session.AppID ?? organization.ID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, settings.QueryAsJson, settings.HeaderAsJson, settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes());
 				var bodyJson = message.AsJson.Get<JObject>("Body");
-					bodyJson["SystemID"] = organization.ID;
+				bodyJson["SystemID"] = organization.ID;
 				if (contentType != null)
 				{
 					bodyJson["RepositoryID"] = contentType.RepositoryID;
