@@ -862,7 +862,7 @@ namespace net.vieapps.Services.Portals
 			var oldDesktopID = portlet.DesktopID;
 			portlet = await RepositoryMediator.RollbackAsync<Portlet>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, null, null, cancellationToken).ConfigureAwait(false);
+			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, null, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
 			var json = portlet.ToJson();
