@@ -249,7 +249,7 @@ namespace net.vieapps.Services.Portals
 			}
 			else if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
 			{
-				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{this.GetObjectName()}#Update",
 					Data = this.ToJson(false, false),

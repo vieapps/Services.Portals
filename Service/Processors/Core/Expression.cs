@@ -171,7 +171,7 @@ namespace net.vieapps.Services.Portals
 			{
 				expression.ClearRelatedCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),
 				Utility.Cache.RemoveAsync(expression.Remove(), cancellationToken),
-				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{expression.GetObjectName()}#Delete",
 					Data = expression.ToJson(),

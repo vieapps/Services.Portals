@@ -223,7 +223,7 @@ namespace net.vieapps.Services.Portals
 			tasks = tasks.Concat(new[]
 			{
 				Utility.Cache.RemoveAsync(contentType.Remove(), cancellationToken),
-				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{contentType.GetObjectName()}#Delete",
 					Data = contentType.ToJson(),

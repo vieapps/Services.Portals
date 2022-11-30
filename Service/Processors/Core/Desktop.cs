@@ -267,7 +267,7 @@ namespace net.vieapps.Services.Portals
 			{
 				desktop.ClearRelatedCacheAsync(null, cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),
 				Utility.Cache.RemoveAsync(desktop.Remove(), cancellationToken),
-				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{desktop.GetObjectName()}#Delete",
 					Data = desktop.ToJson(),

@@ -310,7 +310,7 @@ namespace net.vieapps.Services.Portals
 			(
 				site.ClearRelatedCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),
 				Utility.Cache.RemoveAsync(site.Remove(), cancellationToken),
-				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{site.GetObjectName()}#Delete",
 					Data = site.ToJson(),

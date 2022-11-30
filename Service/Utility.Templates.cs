@@ -158,13 +158,11 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(xslt))
 				try
 				{
-					using (var stream = xslt.ToBytes().ToMemoryStream())
-					using (var reader = XmlReader.Create(stream))
-					{
-						var xslTransform = new XslCompiledTransform(Utility.IsDebugLogEnabled);
-						xslTransform.Load(reader, enableDocumentFunctionAndInlineScript ? new XsltSettings(true, true) : null, stylesheetResolver ?? new XmlUrlResolver());
-						return xslTransform;
-					}
+					using var stream = xslt.ToBytes().ToMemoryStream();
+					using var reader = XmlReader.Create(stream);
+					var xslTransform = new XslCompiledTransform(Utility.IsDebugLogEnabled);
+					xslTransform.Load(reader, enableDocumentFunctionAndInlineScript ? new XsltSettings(true, true) : null, stylesheetResolver ?? new XmlUrlResolver());
+					return xslTransform;
 				}
 				catch (Exception ex)
 				{
@@ -210,16 +208,12 @@ namespace net.vieapps.Services.Portals
 			if (xml != null && xslt != null)
 				try
 				{
-					using (var stringWriter = new StringWriter())
-					{
-						using (var xmlWriter = XmlWriter.Create(stringWriter, xslt.OutputSettings))
-						{
-							xsltArguments = xsltArguments ?? new XsltArgumentList();
-							xsltArguments.AddExtensionObject("urn:schemas-vieapps-net:xslt", new XslTransfromExtensions());
-							xslt.Transform(xml, xsltArguments, xmlWriter, stylesheetResolver ?? new XmlUrlResolver());
-						}
-						results = stringWriter.ToString();
-					}
+					using var stringWriter = new StringWriter();
+					using var xmlWriter = XmlWriter.Create(stringWriter, xslt.OutputSettings);
+					xsltArguments = xsltArguments ?? new XsltArgumentList();
+					xsltArguments.AddExtensionObject("urn:schemas-vieapps-net:xslt", new XslTransfromExtensions());
+					xslt.Transform(xml, xsltArguments, xmlWriter, stylesheetResolver ?? new XmlUrlResolver());
+					results = stringWriter.ToString();
 
 					results = results.Replace(StringComparison.OrdinalIgnoreCase, "&#xD;", "").Replace(StringComparison.OrdinalIgnoreCase, "&#xA;", "");
 					results = results.Replace(StringComparison.OrdinalIgnoreCase, "&#x9;", "").Replace(StringComparison.OrdinalIgnoreCase, "\t", "");

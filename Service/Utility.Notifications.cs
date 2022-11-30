@@ -36,7 +36,7 @@ namespace net.vieapps.Services.Portals
 		{
 			requestInfo = requestInfo ?? new RequestInfo
 			{
-				ServiceName = ServiceBase.ServiceComponent.ServiceName,
+				ServiceName = Utility.ServiceName,
 				ObjectName = @object.GetTypeName(true),
 				Verb = @event
 			};

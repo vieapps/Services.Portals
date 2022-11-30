@@ -4364,7 +4364,7 @@ namespace net.vieapps.Services.Portals
 							objectName = objectName ?? (@object as RepositoryBase)?.GetObjectName();
 							new UpdateMessage
 							{
-								Type = $"{ServiceBase.ServiceComponent.ServiceName}#{objectName}#Update",
+								Type = $"{Utility.ServiceName}#{objectName}#Update",
 								DeviceID = "*",
 								Data = (@object as RepositoryBase)?.ToJson()
 							}.Send();

@@ -134,7 +134,7 @@ namespace net.vieapps.Services.Portals
 			{
 				clearRelatedDataCache ? role.ClearRelatedCacheAsync(null, cancellationToken, correlationID) : Task.CompletedTask,
 				Utility.Cache.RemoveAsync(role.Remove(), cancellationToken),
-				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{role.GetObjectName()}#Delete",
 					Data = role.ToJson(),

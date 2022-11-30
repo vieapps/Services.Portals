@@ -374,7 +374,7 @@ namespace net.vieapps.Services.Portals
 			{
 				Utility.Cache.RemoveAsync(organization.Remove(), cancellationToken),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of an organization [{organization.Title} - ID: {organization.ID}]", "Caches") : Task.CompletedTask,
-				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{organization.GetObjectName()}#Delete",
 					Data = organization.ToJson(),
