@@ -386,7 +386,7 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
 			// send update message
-			var versions = isRefresh ? await item.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var versions = await item.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
@@ -412,15 +412,16 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.SetAsync(item.GetCacheKeyOfAliasedItem(), item.ID, cancellationToken).ConfigureAwait(false);
 
 			// send update message
-			var response = item.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			new UpdateMessage
+			var versions = await item.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+			var response = item.ToJson(json =>
 			{
-				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
-				DeviceID = "*",
-				Data = response
-			}.Send();
+				json.UpdateVersions(versions);
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+			});
 
 			// clear related cache & send notification
 			Task.WhenAll

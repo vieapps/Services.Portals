@@ -512,7 +512,7 @@ namespace net.vieapps.Services.Portals
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
-			var versions = isRefresh ? await content.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var versions = await content.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = content.ToJson(json =>
 			{
 				json.UpdateVersions(versions);
@@ -540,19 +540,18 @@ namespace net.vieapps.Services.Portals
 			await Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, cancellationToken).ConfigureAwait(false);
 
-			// prepare the response
+			// send update message
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
-
+			var versions = await content.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = content.ToJson(json =>
 			{
+				json.UpdateVersions(versions);
 				json["Thumbnails"] = thumbnailsTask.Result;
 				json["Attachments"] = attachmentsTask.Result;
 				json["Details"] = content.Organization.NormalizeURLs(content.Details);
 			});
-
-			// send update message
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",

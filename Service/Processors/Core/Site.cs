@@ -489,12 +489,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update message
 			var objectName = site.GetObjectName();
-			var versions = isRefresh ? await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
-			var response = site.ToJson(json => json.UpdateVersions(versions));
+			var versions = await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = site.ToJson();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			if (isRefresh)
@@ -517,10 +517,11 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var response = site.ToJson();
 			var objectName = site.GetTypeName(true);
+			var versions = await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
@@ -737,12 +738,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var versions = await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var response = site.Set(true, true, oldDomains).ToJson(json => json.UpdateVersions(versions));
+			var response = site.Set(true, true, oldDomains).ToJson();
 			var objectName = site.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)

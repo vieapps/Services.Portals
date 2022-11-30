@@ -380,8 +380,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// prepare the response
-			var versions = isRefresh ? await portlet.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
-			var response = portlet.ToJson(json => json.UpdateVersions(versions));
+			var versions = await portlet.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = portlet.ToJson();
 			var objectName = portlet.GetTypeName(true);
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
@@ -396,7 +396,7 @@ namespace net.vieapps.Services.Portals
 				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response,
+					Data = response.UpdateVersions(versions),
 					DeviceID = "*",
 					ExcludedDeviceID = requestInfo.Session.DeviceID
 				}.Send();
@@ -407,13 +407,13 @@ namespace net.vieapps.Services.Portals
 				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response,
+					Data = response.UpdateVersions(versions),
 					DeviceID = "*",
 					ExcludedDeviceID = requestInfo.Session.DeviceID
 				}.Send();
 			}
 
-			return response;
+			return response.UpdateVersions(versions);
 		}
 
 		static async Task UpdateRelatedOnUpdatedAsync(this Portlet portlet, RequestInfo requestInfo, string oldDesktopID, List<string> otherDesktops, CancellationToken cancellationToken)
@@ -660,14 +660,19 @@ namespace net.vieapps.Services.Portals
 			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, otherDesktops, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
-			var json = portlet.ToJson(j => j["OtherDesktops"] = otherDesktops.ToJArray());
+			var versions = await portlet.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = portlet.ToJson(json =>
+			{
+				json.UpdateVersions(versions);
+				json["OtherDesktops"] = otherDesktops.ToJArray();
+			});
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{portlet.GetTypeName(true)}#Update",
-				Data = portlet.ToJson(j => j["OtherDesktops"] = otherDesktops.ToJArray()),
+				Data = portlet.ToJson(json => json["OtherDesktops"] = otherDesktops.ToJArray()),
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
-			return json;
+			return response;
 		}
 
 		internal static async Task<JObject> DeletePortletAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
@@ -867,12 +872,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var versions = await portlet.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var response = portlet.ToJson(json => json.UpdateVersions(versions));
+			var response = portlet.ToJson();
 			var objectName = portlet.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)

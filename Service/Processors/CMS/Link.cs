@@ -474,7 +474,7 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
 			// send update messages
-			var versions = isRefresh ? await link.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var versions = await link.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
@@ -562,7 +562,16 @@ namespace net.vieapps.Services.Portals
 
 			// send updates messages
 			var objectName = link.GetObjectName();
-			var response = link.ToJson(true, false);
+			var versions = await link.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+			var response = link.ToJson(true, false, json =>
+			{
+				json.UpdateVersions(versions);
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+			});
 			if (link.ParentLink == null)
 				new UpdateMessage
 				{

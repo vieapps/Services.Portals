@@ -637,12 +637,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update message
 			var objectName = category.GetObjectName();
-			var versions = isRefresh ? await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
-			var response = category.ToJson(true, false, json => json.UpdateVersions(versions));
+			var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = category.ToJson(true, false);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			if (isRefresh)
@@ -774,11 +774,12 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var objectName = category.GetObjectName();
 			var response = category.ToJson(true, false);
+			var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			if (category.ParentCategory == null)
 				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response,
+					Data = response.UpdateVersions(versions),
 					DeviceID = "*"
 				}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
@@ -787,8 +788,6 @@ namespace net.vieapps.Services.Portals
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
-
-			// response
 			return response;
 		}
 
@@ -1339,12 +1338,12 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var objectName = category.GetObjectName();
 			var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var response = category.ToJson(true, false, json => json.UpdateVersions(versions));
+			var response = category.ToJson(true, false);
 			if (category.ParentCategory == null)
 				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response,
+					Data = response.UpdateVersions(versions),
 					DeviceID = "*"
 				}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)

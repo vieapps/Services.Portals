@@ -263,7 +263,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send the update message to update to all other connected clients
-			var versions = isRefresh ? await schedulingTask.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var versions = await schedulingTask.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = schedulingTask.ToJson(json => json.UpdateVersions(versions));
 			if (isRefresh)
 				schedulingTask.SendMessages("Update", response, Utility.NodeID, null, "");
@@ -300,7 +300,8 @@ namespace net.vieapps.Services.Portals
 			await schedulingTask.Set().ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
 
 			// send update messages
-			var response = schedulingTask.ToJson();
+			var versions = await schedulingTask.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = schedulingTask.ToJson(json => json.UpdateVersions(versions));
 			schedulingTask.SendMessages("Update", response, Utility.NodeID);
 
 			// send notification

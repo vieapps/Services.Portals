@@ -542,13 +542,13 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send update message
-			var versions = isRefresh ? await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
-			var response = desktop.ToJson(true, false, json => json.UpdateVersions(versions));
+			var versions = await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = desktop.ToJson(true, false);
 			var objectName = desktop.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			if (isRefresh)
@@ -658,10 +658,11 @@ namespace net.vieapps.Services.Portals
 
 			// message to update to all other connected clients
 			var response = desktop.ToJson(true, false);
+			var versions = await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 
@@ -928,11 +929,11 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var objectName = desktop.GetTypeName(true);
 			var versions = await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var response = desktop.Set(true, true, oldAliases).ToJson(true, false, json => json.UpdateVersions(versions));
+			var response = desktop.Set(true, true, oldAliases).ToJson(true, false);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)

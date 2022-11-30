@@ -581,12 +581,12 @@ namespace net.vieapps.Services.Portals
 				: organization;
 
 			// response
-			var versions = isRefresh ? await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
-			var response = organization.ToJson(true, false, json => json.UpdateVersions(versions));
+			var versions = await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = organization.ToJson(true, false);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{organization.GetObjectName()}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			return response;
@@ -602,12 +602,13 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			await organization.SetAsync(!organization.Alias.IsEquals(oldAlias), true, cancellationToken, oldAlias).ConfigureAwait(false);
+			var versions = await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = organization.ToJson();
 			var objectName = organization.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
@@ -771,12 +772,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var versions = await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var response = organization.Set(true, true, oldAlias).ToJson(true, false, json => json.UpdateVersions(versions));
+			var response = organization.Set(true, true, oldAlias).ToJson(true, false);
 			var objectName = organization.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)

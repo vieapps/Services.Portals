@@ -399,13 +399,13 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send the update message to update to all other connected clients
-			var versions = isRefresh ? await module.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
-			var response = module.ToJson(true, false, json => json.UpdateVersions(versions));
+			var versions = await module.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = module.ToJson(true, false);
 			var objectName = module.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			if (isRefresh)
@@ -454,10 +454,11 @@ namespace net.vieapps.Services.Portals
 			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			var response = module.ToJson();
 			var objectName = module.GetTypeName(true);
+			var versions = await module.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
@@ -617,12 +618,12 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var versions = await module.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var response = module.Set(true).ToJson(true, false, json => json.UpdateVersions(versions));
+			var response = module.Set(true).ToJson(true, false);
 			var objectName = module.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
+				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
