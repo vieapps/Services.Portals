@@ -399,14 +399,14 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send the update message to update to all other connected clients
+			var versions = isRefresh ? await module.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var response = module.ToJson(true, false, json => json.UpdateVersions(versions));
 			var objectName = module.GetObjectName();
-			var response = module.ToJson(true, false);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
+				DeviceID = "*"
 			}.Send();
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
@@ -616,21 +616,22 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send update messages
-			var json = module.Set(true).ToJson();
+			var versions = await module.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = module.Set(true).ToJson(true, false, json => json.UpdateVersions(versions));
 			var objectName = module.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = json,
+				Data = response,
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
-				Data = json,
+				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
-			return json;
+			return response;
 		}
 	}
 }

@@ -13,6 +13,8 @@ using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Exceptions;
 using net.vieapps.Services.Portals.Crawlers;
+using System.Security.Policy;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -635,14 +637,13 @@ namespace net.vieapps.Services.Portals
 
 			// send update message
 			var objectName = category.GetObjectName();
-			var response = category.ToJson(true, false);
-
+			var versions = isRefresh ? await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var response = category.ToJson(true, false, json => json.UpdateVersions(versions));
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
+				DeviceID = "*"
 			}.Send();
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
@@ -1337,21 +1338,22 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var objectName = category.GetObjectName();
-			var json = category.ToJson(true, false);
+			var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = category.ToJson(true, false, json => json.UpdateVersions(versions));
 			if (category.ParentCategory == null)
 				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = json,
+					Data = response,
 					DeviceID = "*"
 				}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
-				Data = json,
+				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
-			return json;
+			return response;
 		}
 	}
 }

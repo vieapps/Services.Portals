@@ -14,6 +14,8 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
+using System.Security.Policy;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -494,31 +496,32 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// refresh (reload and force cache of HTMLs)
-			if ("refresh".IsEquals(requestInfo.GetObjectIdentity()))
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
 				await Task.WhenAll
 				(
 					Utility.IsDebugLogEnabled ? requestInfo.WriteLogAsync($"Refresh the CMS content by a request [{content.Title} - ID: {content.ID}]", "Caches") : Task.CompletedTask,
 					content.RefreshAsync(cancellationToken, requestInfo.CorrelationID, "Refresh the CMS content by a request", true, false)
 				).ConfigureAwait(false);
 
-			// prepare the response
-			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
-
-			var objectName = content.GetObjectName();
-			var response = content.ToJson(json =>
-			{
-				json["Thumbnails"] = thumbnailsTask.Result;
-				json["Attachments"] = attachmentsTask.Result;
-				json["Details"] = content.Organization.NormalizeURLs(content.Details);
-				json["URL"] = content.GetURL();
-			});
-
 			// store object cache key to clear related cached
 			await Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
 			// send update message and return
+			var objectName = content.GetObjectName();
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+			var versions = isRefresh ? await content.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var response = content.ToJson(json =>
+			{
+				json.UpdateVersions(versions);
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+				json["Summary"] = content.Summary?.NormalizeHTMLBreaks();
+				json["Details"] = content.Organization.NormalizeURLs(content.Details);
+				json["URL"] = content.GetURL();
+			});
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -1515,28 +1518,27 @@ namespace net.vieapps.Services.Portals
 			).Run();
 
 			// send update messages
+			var objectName = content.GetObjectName();
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
-			var json = content.ToJson();
-			json["Thumbnails"] = thumbnailsTask.Result;
-			json["Attachments"] = attachmentsTask.Result;
-			json["Summary"] = content.Summary?.NormalizeHTMLBreaks();
-			json["Details"] = content.Organization.NormalizeURLs(content.Details);
-			var objectName = content.GetObjectName();
+			var versions = await content.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = content.ToJson(json =>
+			{
+				json.UpdateVersions(versions);
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+				json["Summary"] = content.Summary?.NormalizeHTMLBreaks();
+				json["Details"] = content.Organization.NormalizeURLs(content.Details);
+				json["URL"] = content.GetURL();
+			});
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = content.ToJson(json =>
-				{
-					json["Thumbnails"] = thumbnailsTask.Result;
-					json["Attachments"] = attachmentsTask.Result;
-					json["Summary"] = content.Summary?.NormalizeHTMLBreaks();
-					json["Details"] = content.Organization.NormalizeURLs(content.Details);
-				}),
+				Data = response,
 				DeviceID = "*"
 			}.Send();
-			return json;
+			return response;
 		}
 	}
 }

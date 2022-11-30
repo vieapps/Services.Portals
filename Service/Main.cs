@@ -4769,14 +4769,8 @@ namespace net.vieapps.Services.Portals
 			if (@object == null)
 				throw new InformationNotFoundException($"Not Found [{requestInfo.GetObjectIdentity()}#{identity}]");
 
-			var versions = await @object.FindVersionsAsync(cancellationToken).ConfigureAwait(false);
-			return new JObject
-			{
-				["ID"] = @object.ID,
-				["SystemID"] = @object.SystemID,
-				["TotalVersions"] = versions != null ? versions.Count : 0,
-				["Versions"] = versions?.Select(obj => obj.ToJson(json => (json as JObject).Remove("Data"))).ToJArray()
-			};
+			await @object.FindVersionsAsync(cancellationToken).ConfigureAwait(false);
+			return new JObject();
 		}
 		#endregion
 

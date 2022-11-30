@@ -699,21 +699,22 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send update messages
-			var json = contentType.Set(true).ToJson();
+			var versions = await contentType.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = contentType.Set(true).ToJson(json => json.UpdateVersions(versions));
 			var objectName = contentType.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = json,
+				Data = response,
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
-				Data = json,
+				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
-			return json;
+			return response;
 		}
 	}
 }

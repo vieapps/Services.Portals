@@ -542,14 +542,14 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send update message
+			var versions = isRefresh ? await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var response = desktop.ToJson(true, false, json => json.UpdateVersions(versions));
 			var objectName = desktop.GetTypeName(true);
-			var response = desktop.ToJson(true, false);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
+				DeviceID = "*"
 			}.Send();
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
@@ -927,20 +927,21 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var objectName = desktop.GetTypeName(true);
-			var json = desktop.Set(true, true, oldAliases).ToJson(true, false);
+			var versions = await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = desktop.Set(true, true, oldAliases).ToJson(true, false, json => json.UpdateVersions(versions));
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = json,
+				Data = response,
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
-				Data = json,
+				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
-			return json;
+			return response;
 		}
 	}
 }

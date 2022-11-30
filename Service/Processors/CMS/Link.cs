@@ -470,29 +470,26 @@ namespace net.vieapps.Services.Portals
 				await Utility.Cache.SetAsync(link, cancellationToken).ConfigureAwait(false);
 			}
 
-			// prepare the response
-			var response = link.ToJson(true, false);
-
-			// send update messages
-			var objectName = link.GetObjectName();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
-				DeviceID = "*"
-			}.Send();
-			if (isRefresh)
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
-
 			// store object cache key to clear related cached
 			await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
-			// response
+			// send update messages
+			var versions = isRefresh ? await link.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+			var response = link.ToJson(true, false, json =>
+			{
+				json.UpdateVersions(versions);
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+			});
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{link.GetObjectName()}#Update",
+				Data = response,
+				DeviceID = "*"
+			}.Send();
 			return response;
 		}
 
@@ -937,16 +934,23 @@ namespace net.vieapps.Services.Portals
 				link.SendNotificationAsync("Rollback", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken)
 			).ConfigureAwait(false);
 
-			// send update messages
-			var json = link.ToJson();
-			var objectName = link.GetObjectName();
+			var versions = await link.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+			var response = link.ToJson(true, false, json =>
+			{
+				json.UpdateVersions(versions);
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+			});
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = json,
+				Type = $"{requestInfo.ServiceName}#{link.GetObjectName()}#Update",
+				Data = response,
 				DeviceID = "*"
 			}.Send();
-			return json;
+			return response;
 		}
 
 		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)

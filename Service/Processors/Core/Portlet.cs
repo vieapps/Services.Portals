@@ -380,7 +380,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// prepare the response
-			var response = portlet.ToJson();
+			var versions = isRefresh ? await portlet.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var response = portlet.ToJson(json => json.UpdateVersions(versions));
 			var objectName = portlet.GetTypeName(true);
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
@@ -865,21 +866,22 @@ namespace net.vieapps.Services.Portals
 			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, null, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
-			var json = portlet.ToJson();
+			var versions = await portlet.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = portlet.ToJson(json => json.UpdateVersions(versions));
 			var objectName = portlet.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = json,
+				Data = response,
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
-				Data = json,
+				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
-			return json;
+			return response;
 		}
 	}
 }

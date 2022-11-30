@@ -488,8 +488,9 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send update message
-			var response = site.ToJson();
 			var objectName = site.GetObjectName();
+			var versions = isRefresh ? await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var response = site.ToJson(json => json.UpdateVersions(versions));
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -735,21 +736,22 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send update messages
-			var json = site.Set(true, true, oldDomains).ToJson();
+			var versions = await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = site.Set(true, true, oldDomains).ToJson(json => json.UpdateVersions(versions));
 			var objectName = site.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = json,
+				Data = response,
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
-				Data = json,
+				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
-			return json;
+			return response;
 		}
 	}
 }

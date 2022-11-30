@@ -843,6 +843,16 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool IsDownloader(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
 			=> user.ID.IsEquals(organization?.OwnerID) || user.IsDownloader(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+
+		internal static JObject UpdateVersions(this JObject json, List<VersionContent> versions)
+		{
+			if (versions != null)
+			{
+				json["Versions"] = versions.Select(version => version.ToJson(jtoken => (jtoken as JObject).Remove("Data"))).ToJArray();
+				json["TotalVersions"] = versions.Count;
+			}
+			return json;
+		}
 	}
 
 	//  --------------------------------------------------------------------------------------------

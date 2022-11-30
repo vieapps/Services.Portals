@@ -13,6 +13,8 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
+using net.vieapps.Services.Portals.Crawlers;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -371,31 +373,35 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", item.Alias }
 				};
 
-			// refresh (clear cache)
-			if ("refresh".IsEquals(requestInfo.GetObjectIdentity()))
+			// refresh
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			if (isRefresh)
 			{
 				await item.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 				await Utility.Cache.RemoveAsync(item, cancellationToken).ConfigureAwait(false);
 				item = await Item.GetAsync<Item>(item.ID, cancellationToken).ConfigureAwait(false);
 			}
 
-			// prepare the response
-			var response = item.ToJson();
-			response["Thumbnails"] = await requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			response["Attachments"] = await requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+			// store object cache key to clear related cached
+			await Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
 			// send update message
+			var versions = isRefresh ? await item.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+			var response = item.ToJson(json =>
+			{
+				json.UpdateVersions(versions);
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+			});
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
 				Data = response,
 				DeviceID = "*"
 			}.Send();
-
-			// store object cache key to clear related cached
-			await Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-
-			// response
 			return response;
 		}
 
@@ -976,15 +982,23 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send update message
-			var json = item.ToJson();
-			var objectName = item.GetObjectName();
+			var versions = await item.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+			var response = item.ToJson(json =>
+			{
+				json.UpdateVersions(versions);
+				json["Thumbnails"] = thumbnailsTask.Result;
+				json["Attachments"] = attachmentsTask.Result;
+			});
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = json,
+				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
+				Data = response,
 				DeviceID = "*"
 			}.Send();
-			return json;
+			return response;
 		}
 	}
 }

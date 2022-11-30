@@ -581,13 +581,13 @@ namespace net.vieapps.Services.Portals
 				: organization;
 
 			// response
-			var response = organization.ToJson(true, false);
+			var versions = isRefresh ? await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false) : null;
+			var response = organization.ToJson(true, false, json => json.UpdateVersions(versions));
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{organization.GetObjectName()}#Update",
 				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
+				DeviceID = "*"
 			}.Send();
 			return response;
 		}
@@ -770,21 +770,22 @@ namespace net.vieapps.Services.Portals
 			organization.SendRefreshingTasks();
 
 			// send update messages
-			var json = organization.Set(true, true, oldAlias).ToJson();
+			var versions = await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = organization.Set(true, true, oldAlias).ToJson(true, false, json => json.UpdateVersions(versions));
 			var objectName = organization.GetTypeName(true);
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = json,
+				Data = response,
 				DeviceID = "*"
 			}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
-				Data = json,
+				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
-			return json;
+			return response;
 		}
 	}
 }
