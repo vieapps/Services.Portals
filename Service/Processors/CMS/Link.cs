@@ -869,6 +869,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> SyncLinkAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
+			// prepare
 			var @event = requestInfo.GetParameter("event") ?? requestInfo.GetParameter("x-original-event");
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
@@ -878,6 +879,7 @@ namespace net.vieapps.Services.Portals
 			var oldStatus = link != null ? link.Status : ApprovalStatus.Pending;
 			var oldParentID = link?.ParentID;
 
+			// sync
 			if (!@event.IsEquals("Delete"))
 			{
 				if (link == null)
@@ -891,8 +893,7 @@ namespace net.vieapps.Services.Portals
 			else if (link != null)
 				await Link.DeleteAsync<Link>(link.ID, link.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
-			// update cache
-			await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			// update cache & send notifications
 			if (@event.IsEquals("Delete"))
 				await Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 			else
@@ -901,20 +902,31 @@ namespace net.vieapps.Services.Portals
 				await link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken).ConfigureAwait(false);
 			}
 
-			// send notifications
-			if (sendNotifications)
-				await link.SendNotificationAsync(@event, link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+				sendNotifications ? link.SendNotificationAsync(@event, link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken) : Task.CompletedTask
+			).ConfigureAwait(false);
 
 			// send update messages
-			var json = link.ToJson();
-			var objectName = link.GetObjectName();
+			var response = link.ToJson();
+			if (!@event.IsEquals("Delete"))
+			{
+				var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+				var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+				var versionsTask = link.FindVersionsAsync(cancellationToken, false);
+				await Task.WhenAll(thumbnailsTask, attachmentsTask, versionsTask).ConfigureAwait(false);
+				response.UpdateVersions(versionsTask.Result);
+				response["Thumbnails"] = thumbnailsTask.Result;
+				response["Attachments"] = attachmentsTask.Result;
+			}
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
-				Data = json,
+				Type = $"{requestInfo.ServiceName}#{link.GetObjectName()}#{@event}",
+				Data = response,
 				DeviceID = "*"
 			}.Send();
-			return json;
+			return response;
 		}
 
 		internal static async Task<JObject> RollbackLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
@@ -936,20 +948,21 @@ namespace net.vieapps.Services.Portals
 			var oldStatus = link.Status;
 			link = await RepositoryMediator.RollbackAsync<Link>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
-			// send notifications
+			// update cache & send notifications
 			await Task.WhenAll
 			(
 				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken),
 				link.SendNotificationAsync("Rollback", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken)
 			).ConfigureAwait(false);
 
-			var versions = await link.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			// send update messages
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+			var versionsTask = link.FindVersionsAsync(cancellationToken, false);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask, versionsTask).ConfigureAwait(false);
 			var response = link.ToJson(true, false, json =>
 			{
-				json.UpdateVersions(versions);
+				json.UpdateVersions(versionsTask.Result);
 				json["Thumbnails"] = thumbnailsTask.Result;
 				json["Attachments"] = attachmentsTask.Result;
 			});
