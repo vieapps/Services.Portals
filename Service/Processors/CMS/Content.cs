@@ -14,8 +14,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
-using System.Security.Policy;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -1455,6 +1453,10 @@ namespace net.vieapps.Services.Portals
 			}
 			else if (content != null)
 				await Content.DeleteAsync<Content>(content.ID, content.LastModifiedID, cancellationToken).ConfigureAwait(false);
+
+			// stop if has no info
+			if (content == null)
+				return new JObject();
 
 			// update cache & send notification
 			if (@event.IsEquals("Delete"))

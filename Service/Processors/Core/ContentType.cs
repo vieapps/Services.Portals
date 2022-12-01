@@ -498,12 +498,16 @@ namespace net.vieapps.Services.Portals
 		{
 			// update
 			await ContentType.UpdateAsync(contentType, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-
-			// clear cache
 			await contentType.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, clearObjectsCache, true, false, false).ConfigureAwait(false);
 
+			// send notification
+			await Task.WhenAll
+			(
+				contentType.SetAsync(true, cancellationToken),
+				contentType.SendNotificationAsync("Update", contentType.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo)
+			).ConfigureAwait(false);
+
 			// send update messages
-			await contentType.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			var versions = await contentType.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = contentType.ToJson();
 			var objectName = contentType.GetTypeName(true);
@@ -519,11 +523,6 @@ namespace net.vieapps.Services.Portals
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
-
-			// send notification
-			await contentType.SendNotificationAsync("Update", contentType.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo).ConfigureAwait(false);
-
-			// response
 			return response;
 		}
 

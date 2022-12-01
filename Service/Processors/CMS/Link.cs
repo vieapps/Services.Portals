@@ -12,6 +12,8 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using net.vieapps.Services.Portals.Crawlers;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -892,6 +894,10 @@ namespace net.vieapps.Services.Portals
 			}
 			else if (link != null)
 				await Link.DeleteAsync<Link>(link.ID, link.LastModifiedID, cancellationToken).ConfigureAwait(false);
+
+			// stop if has no info
+			if (link == null)
+				return new JObject();
 
 			// update cache & send notifications
 			if (@event.IsEquals("Delete"))
