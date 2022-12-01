@@ -5407,6 +5407,10 @@ namespace net.vieapps.Services.Portals
 						};
 				}
 
+				// normalize url
+				url = site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs ? url.Replace("http://", "https://") : url;
+
+				// prepare content-type
 				var contentTypes = organization.Modules.Select(module => module.ContentTypes.Where(cntType => cntType.ContentTypeDefinitionID == "B0000000000000000000000000000002")).SelectMany(cntType => cntType).ToList();
 				Category category = null;
 				var categoryAlias = requestInfo.GetParameter("x-feed-category")?.NormalizeAlias();
@@ -5474,7 +5478,6 @@ namespace net.vieapps.Services.Portals
 						new XElement("published", content.PublishedTime.Value.ToIsoString()),
 						new XElement("updated", content.LastModified.ToIsoString()),
 						new XElement("title", content.Title),
-						new XElement("subtitle", content.SubTitle ?? ""),
 						new XElement("summary", $"{content.Summary?.RemoveTags().Replace("\t", "").Replace("\r", "").Replace("\n", " ") ?? ""}", new XAttribute("type", "text")),
 						new XElement("author", new XElement("name", content.Author ?? "N/A")),
 						new XElement("link", new XAttribute("rel", "alternate"), new XAttribute("type", "text/html"), new XAttribute("href", $"{href}{content.GetURL().Replace("~/", baseHref)}"))
@@ -5521,7 +5524,7 @@ namespace net.vieapps.Services.Portals
 				if (body == null)
 				{
 					body = $"{new XDeclaration("1.0", "utf-8", "yes")}\r\n{feed.CleanInvalidCharacters()}".RemoveWhitespaces();
-					body = body.Insert(body.IndexOf("<link"), $"{new XElement("link", new XAttribute("rel", "self"), new XAttribute("type", "application/atom+xml"), new XAttribute("href", url ?? $"{href}{baseHref}feed"))}");
+					body = body.Insert(body.IndexOf("<link"), $"{new XElement("link", new XAttribute("rel", "self"), new XAttribute("type", "application/atom+xml"), new XAttribute("href", url))}");
 					body = body.Replace("<feed", $"<feed xmlns=\"http://www.w3.org/2005/Atom\" xmlns:media=\"http://search.yahoo.com/mrss/\"");
 					body = body.Replace("<media", "<media:thumbnail").Replace("></media>", "/>").Replace("></link>", "/>").Replace("></category>", "/>");
 					body = body.Replace("></summary>", "/>").Replace("></subtitle>", "/>").Replace(" />", "/>").Replace("<summary type=\"text\"/>", "").Replace("<subtitle/>", "");
