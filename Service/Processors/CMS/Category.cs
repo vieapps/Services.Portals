@@ -605,14 +605,6 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			if (!identity.IsValidUUID())
-				return new JObject
-				{
-					{ "ID", category.ID },
-					{ "Title", category.Title },
-					{ "Alias", category.Alias }
-				};
-
 			// refresh (clear cached and reload)
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
 			if (isRefresh)
@@ -627,12 +619,13 @@ namespace net.vieapps.Services.Portals
 			{
 				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await category.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{category.GetObjectName()}#Update",
-					Data = category.ToJson(false, false),
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
+				if (!isRefresh)
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{category.GetObjectName()}#Update",
+						Data = category.ToJson(false, false),
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
 			}
 
 			// send update message
@@ -660,7 +653,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		static async Task UpdateRelatedOnUpdatedAsync(this RequestInfo requestInfo, Category category, string oldParentID, CancellationToken cancellationToken)
+		static async Task UpdateRelatedOnUpdatedAsync(this Category category, RequestInfo requestInfo, string oldParentID, CancellationToken cancellationToken)
 		{
 			// update parent
 			var objectName = category.GetObjectName();
@@ -674,10 +667,11 @@ namespace net.vieapps.Services.Portals
 					parentCategory._childrenIDs.Add(category.ID);
 
 				var json = parentCategory.Set(false, true).ToJson(true, false);
+				var versions = await parentCategory.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = json,
+					Data = json.UpdateVersions(versions),
 					DeviceID = "*"
 				}.Send();
 				new CommunicateMessage(requestInfo.ServiceName)
@@ -699,11 +693,12 @@ namespace net.vieapps.Services.Portals
 					parentCategory._children = null;
 					parentCategory._childrenIDs.Remove(category.ID);
 
+					var versions = await parentCategory.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 					var json = parentCategory.Set(false, true).ToJson(true, false);
 					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-						Data = json,
+						Data = json.UpdateVersions(versions),
 						DeviceID = "*"
 					}.Send();
 					new CommunicateMessage(requestInfo.ServiceName)
@@ -762,32 +757,36 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			await Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await category.Set(false, false, oldAlias).ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			category.Set(false, false, oldAlias);
 
-			// update parent
-			await requestInfo.UpdateRelatedOnUpdatedAsync(category, oldParentID, cancellationToken).ConfigureAwait(false);
-
-			// send notification
-			await category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			// update cache & send notification
+			Task.WhenAll
+			(
+				category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+				category.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken),
+				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken)
+			).Run();
 			category.Organization.SendRefreshingTasks();
 
 			// send update messages
 			var objectName = category.GetObjectName();
 			var response = category.ToJson(true, false);
-			var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			if (category.ParentCategory == null)
-				new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response.UpdateVersions(versions),
-					DeviceID = "*"
-				}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+			if (category.ParentCategory == null)
+			{
+				var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = response.UpdateVersions(versions),
+					DeviceID = "*"
+				}.Send();
+			}
 			return response;
 		}
 
@@ -1326,32 +1325,36 @@ namespace net.vieapps.Services.Portals
 			var oldAlias = category.Alias;
 			var oldStatus = category.Status;
 			category = await RepositoryMediator.RollbackAsync<Category>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			category.Set(true, true, oldAlias);
 
-			// update related
-			await category.Set(true, true, oldAlias).ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			await requestInfo.UpdateRelatedOnUpdatedAsync(category, oldParentID, cancellationToken).ConfigureAwait(false);
-
-			// send notification
-			await category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			// update cache & send notification
+			Task.WhenAll
+			(
+				category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+				category.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken),
+				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken)
+			).Run();
 			category.Organization.SendRefreshingTasks();
 
 			// send update messages
 			var objectName = category.GetObjectName();
-			var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = category.ToJson(true, false);
-			if (category.ParentCategory == null)
-				new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response.UpdateVersions(versions),
-					DeviceID = "*"
-				}.Send();
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+			if (category.ParentCategory == null)
+			{
+				var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = response.UpdateVersions(versions),
+					DeviceID = "*"
+				}.Send();
+			}
 			return response;
 		}
 	}

@@ -538,14 +538,22 @@ namespace net.vieapps.Services.Portals
 			await Content.UpdateAsync(content, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, cancellationToken).ConfigureAwait(false);
 
+			// update cache & send notification
+			Task.WhenAll
+			(
+				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken),
+				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken)
+			).Run();
+
 			// send update message
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
-			var versions = await content.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var versionsTask = content.FindVersionsAsync(cancellationToken, false);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask, versionsTask).ConfigureAwait(false);
 			var response = content.ToJson(json =>
 			{
-				json.UpdateVersions(versions);
+				json.UpdateVersions(versionsTask.Result);
 				json["Thumbnails"] = thumbnailsTask.Result;
 				json["Attachments"] = attachmentsTask.Result;
 				json["Details"] = content.Organization.NormalizeURLs(content.Details);
@@ -556,16 +564,6 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*",
 				Data = response
 			}.Send();
-
-			// clear related cache & send notification
-			Task.WhenAll
-			(
-				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
-				content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken),
-				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken)
-			).Run();
-
-			// response
 			return response;
 		}
 

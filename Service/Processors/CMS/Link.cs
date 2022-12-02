@@ -507,11 +507,12 @@ namespace net.vieapps.Services.Portals
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await Utility.Cache.SetAsync(parentLink, cancellationToken).ConfigureAwait(false);
 
+				var versions = await parentLink.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 				var json = parentLink.ToJson(true, false);
 				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = json,
+					Data = json.UpdateVersions(versions),
 					DeviceID = "*"
 				}.Send();
 				new CommunicateMessage(requestInfo.ServiceName)
@@ -533,11 +534,12 @@ namespace net.vieapps.Services.Portals
 					await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 					await Utility.Cache.SetAsync(parentLink, cancellationToken).ConfigureAwait(false);
 
+					var versions = await parentLink.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 					var json = parentLink.ToJson(true, false);
 					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-						Data = json,
+						Data = json.UpdateVersions(versions),
 						DeviceID = "*"
 					}.Send();
 					new CommunicateMessage(requestInfo.ServiceName)
@@ -546,7 +548,6 @@ namespace net.vieapps.Services.Portals
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
 					}.Send();
-					parentLink = parentLink.ParentLink;
 				}
 			}
 		}
@@ -555,38 +556,41 @@ namespace net.vieapps.Services.Portals
 		{
 			// update
 			await Link.UpdateAsync(link, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			await link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken).ConfigureAwait(false);
 
-			// send notification
-			await link.SendNotificationAsync("Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			// update cache & send notification
+			Task.WhenAll
+			(
+				link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken),
+				link.SendNotificationAsync("Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken)
+			).Run();
 			link.Organization.SendRefreshingTasks();
 
 			// send updates messages
 			var objectName = link.GetObjectName();
-			var versions = await link.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
-			var response = link.ToJson(true, false, json =>
-			{
-				json.UpdateVersions(versions);
-				json["Thumbnails"] = thumbnailsTask.Result;
-				json["Attachments"] = attachmentsTask.Result;
-			});
-			if (link.ParentLink == null)
-				new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = response,
-					DeviceID = "*"
-				}.Send();
+			var response = link.ToJson(true, false);
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+			if (link.ParentLink == null)
+			{
+				var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+				var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+				var versionsTask = link.FindVersionsAsync(cancellationToken, false);
+				await Task.WhenAll(thumbnailsTask, attachmentsTask, versionsTask).ConfigureAwait(false);
+				response.UpdateVersions(versionsTask.Result);
+				response["Thumbnails"] = thumbnailsTask.Result;
+				response["Attachments"] = attachmentsTask.Result;
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = response,
+					DeviceID = "*"
+				}.Send();
+			}
 			return response;
 		}
 
