@@ -7,6 +7,7 @@ using System.Data;
 using System.Xml.Linq;
 using System.Diagnostics;
 using System.Dynamic;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -64,7 +65,17 @@ namespace net.vieapps.Services.Portals
 					this.ServiceCommunicator?.Dispose();
 					this.ServiceCommunicator = CmsPortalsServiceExtensions.RegisterServiceCommunicator
 					(
-						async message => await this.ProcessCommunicateMessageAsync(message).ConfigureAwait(false),
+						async message =>
+						{
+							try
+							{
+								await this.ProcessCommunicateMessageAsync(message).ConfigureAwait(false);
+							}
+							catch (Exception ex)
+							{
+								await this.WriteLogsAsync(UtilityService.NewUUID, this.Logger, $"Error occurred while processing a communicate message => {ex.Message}", ex, this.ServiceName, "Errors", LogLevel.Error).ConfigureAwait(false);
+							}
+						},
 						exception => this.Logger?.LogError($"Error occurred while fetching an communicate message of CMS Portals => {exception.Message}", this.State == ServiceState.Connected ? exception : null)
 					);
 					this.Logger?.LogDebug($"Successfully{(this.State == ServiceState.Disconnected ? " re-" : " ")}register the service with CMS Portals");
@@ -1387,7 +1398,7 @@ namespace net.vieapps.Services.Portals
 				else if (isThemeResource)
 				{
 					var timeOfLastModified = this.GetThemeResourcesLastModified(identity, type);
-					timeOfLastModified = timeOfLastModified == DateTimeService.CheckingDateTime ? DateTime.Parse("1977/04/24 00:30:31") : timeOfLastModified;
+					timeOfLastModified = timeOfLastModified == DateTimeService.CheckingDateTime ? new FileInfo(Assembly.GetExecutingAssembly().Location).LastWriteTime : timeOfLastModified;
 					lastModified = timeOfLastModified.ToHttpString();
 				}
 
@@ -1574,7 +1585,7 @@ namespace net.vieapps.Services.Portals
 						resources = await this.GetThemeResourcesAsync(identity, "css", cancellationToken).ConfigureAwait(false);
 						resources += resources != "" ? "" : "/**/";
 						var timeOfLastModified = this.GetThemeResourcesLastModified(identity, type);
-						timeOfLastModified = timeOfLastModified == DateTimeService.CheckingDateTime ? DateTime.Parse("1977/04/24 00:30:31") : timeOfLastModified;
+						timeOfLastModified = timeOfLastModified == DateTimeService.CheckingDateTime ? new FileInfo(Assembly.GetExecutingAssembly().Location).LastWriteTime : timeOfLastModified;
 						lastModified = timeOfLastModified.ToHttpString();
 					}
 				}
@@ -1677,7 +1688,7 @@ namespace net.vieapps.Services.Portals
 						resources = await this.GetThemeResourcesAsync(identity, "js", cancellationToken).ConfigureAwait(false);
 						resources += resources != "" ? "" : "/**/";
 						var timeOfLastModified = this.GetThemeResourcesLastModified(identity, type);
-						timeOfLastModified = timeOfLastModified == DateTimeService.CheckingDateTime ? DateTime.Parse("1977/04/24 00:30:31") : timeOfLastModified;
+						timeOfLastModified = timeOfLastModified == DateTimeService.CheckingDateTime ? new FileInfo(Assembly.GetExecutingAssembly().Location).LastWriteTime : timeOfLastModified;
 						lastModified = timeOfLastModified.ToHttpString();
 					}
 				}
@@ -4471,14 +4482,14 @@ namespace net.vieapps.Services.Portals
 		public override async Task<JToken> SyncAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
-			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start sync an object ({requestInfo.Verb} {requestInfo.GetURI()})", null, this.ServiceName, "Sync").ConfigureAwait(false);
+			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start synchronize an object ({requestInfo.Verb} {requestInfo.GetURI()})", null, this.ServiceName, "Sync").ConfigureAwait(false);
 			try
 			{
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
 				var json = await base.SyncAsync(requestInfo, cts.Token).ConfigureAwait(false);
 				json = await this.SyncObjectAsync(requestInfo, cts.Token, requestInfo.GetHeaderParameter("x-converter") == null, true).ConfigureAwait(false);
 				stopwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Sync an object successful - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled ? $"\r\nRequest: {requestInfo.ToString(this.JsonFormat)}\r\nResponse: {json.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "Sync").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Synchronize an object successful - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled ? $"\r\nRequest: {requestInfo.ToString(this.JsonFormat)}\r\nResponse: {json.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "Sync").ConfigureAwait(false);
 				return json;
 			}
 			catch (Exception ex)
@@ -4555,7 +4566,9 @@ namespace net.vieapps.Services.Portals
 					return requestInfo.SyncLinkAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "form":
+				case "contact":
 				case "cms.form":
+				case "cms.contact":
 					return requestInfo.SyncFormAsync(cancellationToken, sendNotifications, dontCreateNewVersion);
 
 				case "crawler":
@@ -4658,7 +4671,6 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JToken> FindVersionsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			// validate
 			if (!requestInfo.Verb.IsEquals("GET"))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
@@ -4666,7 +4678,6 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(identity))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
-			// check permissions
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			var gotRights = false;
 			RepositoryBase @object = null;
