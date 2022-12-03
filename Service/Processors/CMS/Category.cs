@@ -818,8 +818,6 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// update
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = category != null
 				? category.GetObjectName()
 				: typeof(Category).GetTypeName(true);
@@ -845,18 +843,19 @@ namespace net.vieapps.Services.Portals
 					notificationTasks.Add(item.Set().SendNotificationAsync("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo, cancellationToken));
 
 					var json = item.ToJson(true, false);
-					updateMessages.Add(new UpdateMessage
+					var versions = await item.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-						Data = json,
+						Data = json.UpdateVersions(versions),
 						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+					}.Send();
+					new CommunicateMessage(requestInfo.ServiceName)
 					{
 						Type = $"{objectName}#Update",
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
-					});
+					}.Send();
 
 					first = first ?? item;
 				}
@@ -871,31 +870,25 @@ namespace net.vieapps.Services.Portals
 				await category.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
 				var json = category.ToJson(true, false);
-				updateMessages.Add(new UpdateMessage
+				var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = json,
+					Data = json.UpdateVersions(versions),
 					DeviceID = "*"
-				});
-				communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
-				});
+				}.Send();
 			}
 			else if (first != null)
 				await first.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
-			// send update messages
-			updateMessages.Send();
-			communicateMessages.Send();
-
-			// send notification
 			await Task.WhenAll(notificationTasks).ConfigureAwait(false);
 			organization.SendRefreshingTasks();
-
-			// response
 			return new JObject();
 		}
 
@@ -913,16 +906,14 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
 			var objectName = category.GetObjectName();
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
-			// delete children
+			// children
 			var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			await children.ForEachAsync(async child =>
 			{
-				// update children to root
+				// update to root
 				if (updateChildren)
 				{
 					child.ParentID = null;
@@ -933,109 +924,85 @@ namespace net.vieapps.Services.Portals
 					await child.SendNotificationAsync("Update", child.ContentType.Notifications, child.Status, child.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
 					var json = child.Set().ToJson(true, false);
-					updateMessages.Add(new UpdateMessage
+					var versions = await child.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-						Data = json,
+						Data = json.UpdateVersions(versions),
 						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+					}.Send();
+					new CommunicateMessage(requestInfo.ServiceName)
 					{
 						Type = $"{objectName}#Update",
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
-					});
+					}.Send();
 				}
 
-				// delete children
+				// delete
 				else
-				{
-					// delete files
-					await requestInfo.DeleteFilesAsync(child.SystemID, child.RepositoryEntityID, child.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-
-					// delete objects
-					var messages = await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-					updateMessages = updateMessages.Concat(messages.Item1).ToList();
-					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-				}
+					await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			}, true, false).ConfigureAwait(false);
 
-			// delete files of category
+			// delete
 			await requestInfo.DeleteFilesAsync(category.SystemID, category.RepositoryEntityID, category.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-
-			// delete vs
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await category.Remove().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			await Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
-			// message to update to all other connected clients
+			// update cache & send notifications
+			Task.WhenAll
+			(
+				category.Remove().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+				Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken),
+				category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken)
+			).Run();
+			category.Organization.SendRefreshingTasks();
+
+			// send update messages
 			var response = category.ToJson();
-			updateMessages.Add(new UpdateMessage
+			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 				Data = response,
 				DeviceID = "*"
-			});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Delete",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
-			});
-
-			// send update messages
-			updateMessages.Send();
-			communicateMessages.Send();
-
-			// send notification
-			await category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-			category.Organization.SendRefreshingTasks();
-
-			// response
+			}.Send();
 			return response;
 		}
 
-		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Category category, RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		static async Task DeleteChildrenAsync(this Category category, RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var entityDefinition = RepositoryMediator.GetEntityDefinition<Category>();
-			var objectName = $"{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNamePrefix) ? "" : entityDefinition.ObjectNamePrefix)}{entityDefinition.ObjectName}{(string.IsNullOrWhiteSpace(entityDefinition.ObjectNameSuffix) ? "" : entityDefinition.ObjectNameSuffix)}";
-
 			var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-			await children.ForEachAsync(async child =>
-			{
-				var messages = await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-				updateMessages = updateMessages.Concat(messages.Item1).ToList();
-				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-			}, true, false).ConfigureAwait(false);
+			await children.ForEachAsync(async child => await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
 
+			await requestInfo.DeleteFilesAsync(category.SystemID, category.RepositoryEntityID, category.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll
+
+			Task.WhenAll
 			(
 				category.Remove().ClearRelatedCacheAsync(cancellationToken),
-				Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken)
-			).ConfigureAwait(false);
+				Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken),
+				category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken)
+			).Run();
 
 			var json = category.ToJson();
-			updateMessages.Add(new UpdateMessage
+			var objectName = category.GetObjectName();
+			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 				Data = json,
 				DeviceID = "*"
-			});
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Delete",
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
-			});
-
-			await category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
+			}.Send();
 		}
 
 		internal static JArray GenerateBreadcrumbs(this Category category, string desktop = null)

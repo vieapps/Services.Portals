@@ -600,22 +600,20 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = role.GetTypeName(true);
+			var objectName = role.GetObjectName();
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
 			// delete
 			var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 			await children.ForEachAsync(async child =>
 			{
-				// update children to root
 				if (updateChildren)
 				{
 					child.ParentID = null;
 					child.LastModified = DateTime.Now;
 					child.LastModifiedID = requestInfo.Session.User.ID;
 					await Role.UpdateAsync(child, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
 					await Task.WhenAll
 					(
 						child.Set().ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID),
@@ -623,32 +621,27 @@ namespace net.vieapps.Services.Portals
 					).ConfigureAwait(false);
 
 					var json = child.ToJson(true, false);
-					updateMessages.Add(new UpdateMessage
+					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 						Data = json,
 						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+					}.Send();
+					new CommunicateMessage(requestInfo.ServiceName)
 					{
 						ServiceName = requestInfo.ServiceName,
 						Type = $"{objectName}#Update",
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
-					});
+					}.Send();
 				}
-
-				// delete children
 				else
-				{
-					var messages = await child.DeleteChildrenAsync(requestInfo, serviceCaller, onServiceCallerGotError, cancellationToken).ConfigureAwait(false);
-					updateMessages = updateMessages.Concat(messages.Item1).ToList();
-					communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-				}
+					await child.DeleteChildrenAsync(requestInfo, serviceCaller, onServiceCallerGotError, cancellationToken).ConfigureAwait(false);
 			}, true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await role.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true).ConfigureAwait(false);
+			await role.Remove().ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true).ConfigureAwait(false);
+			await role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			// update users
 			var beRemovedUserIDs = role.UserIDs ?? new List<string>();
@@ -690,47 +683,27 @@ namespace net.vieapps.Services.Portals
 				}
 			}, true, false).ConfigureAwait(false);
 
-			// message to update to all other connected clients
+			// send update  messages
 			var response = role.ToJson();
-			updateMessages.Add(new UpdateMessage
+			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 				DeviceID = "*",
 				Data = response
-			});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Delete",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
-			});
-
-			// send update  messages
-			updateMessages.Send();
-			communicateMessages.Send();
-
-			// send notification
-			await role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
+			}.Send();
 			return response;
 		}
 
-		static async Task<Tuple<List<UpdateMessage>, List<CommunicateMessage>>> DeleteChildrenAsync(this Role role, RequestInfo requestInfo, Func<RequestInfo, CancellationToken, Task> serviceCaller, Action<RequestInfo, string, Exception> onServiceCallerGotError, CancellationToken cancellationToken)
+		static async Task DeleteChildrenAsync(this Role role, RequestInfo requestInfo, Func<RequestInfo, CancellationToken, Task> serviceCaller, Action<RequestInfo, string, Exception> onServiceCallerGotError, CancellationToken cancellationToken)
 		{
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = role.GetTypeName(true);
-
 			var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
-			await children.ForEachAsync(async child =>
-			{
-				var messages = await child.DeleteChildrenAsync(requestInfo, serviceCaller, onServiceCallerGotError, cancellationToken).ConfigureAwait(false);
-				updateMessages = updateMessages.Concat(messages.Item1).ToList();
-				communicateMessages = communicateMessages.Concat(messages.Item2).ToList();
-			}, true, false).ConfigureAwait(false);
+			await children.ForEachAsync(async child => await child.DeleteChildrenAsync(requestInfo, serviceCaller, onServiceCallerGotError, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
@@ -780,19 +753,19 @@ namespace net.vieapps.Services.Portals
 			}, true, false).ConfigureAwait(false);
 
 			var json = role.ToJson();
-			updateMessages.Add(new UpdateMessage
+			var objectName = role.GetObjectName();
+			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 				Data = json,
 				DeviceID = "*"
-			});
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+			}.Send();
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Delete",
 				Data = json,
 				ExcludedNodeID = Utility.NodeID
-			});
-			return new Tuple<List<UpdateMessage>, List<CommunicateMessage>>(updateMessages, communicateMessages);
+			}.Send();
 		}
 
 		internal static async Task<JObject> SyncRoleAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
