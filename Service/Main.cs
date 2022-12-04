@@ -4792,14 +4792,16 @@ namespace net.vieapps.Services.Portals
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start process a web-hook message", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
 			try
 			{
-				// prepare
+				// prepare required info
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
 
-				var organization = await (requestInfo.GetParameter("x-webhook-system") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false);
+				var identity = requestInfo.GetParameter("x-webhook-system") ?? "";
+				var organization = await (identity.IsValidUUID () ? identity.GetOrganizationByIDAsync(cts.Token) : identity.GetOrganizationByAliasAsync(cts.Token)).ConfigureAwait(false);
 				if (organization == null)
 					throw new InformationInvalidException("Invalid (system)");
 
-				var contentType = await (requestInfo.GetParameter("x-webhook-entity") ?? "").GetContentTypeByIDAsync(cts.Token).ConfigureAwait(false);
+				identity = requestInfo.GetParameter("x-webhook-entity") ?? "";
+				var contentType = await identity.GetContentTypeByIDAsync(cts.Token).ConfigureAwait(false);
 				if (contentType != null && !organization.ID.IsEquals(contentType.SystemID))
 					throw new InformationInvalidException("Invalid (entity)");
 
