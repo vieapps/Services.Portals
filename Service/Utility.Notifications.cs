@@ -299,8 +299,7 @@ namespace net.vieapps.Services.Portals
 				if (category != null)
 					@params["Category"] = category.ToJson(false, false, json =>
 					{
-						CategoryProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-						json.Remove("Privileges");
+						new[] { "Privileges", "OriginalPrivileges" }.Concat(CategoryProcessor.ExtraProperties).ForEach(name => json.Remove(name));
 						json["URL"] = $"{category.GetURL()}{(alwaysUseHtmlSuffix ? ".html" : "")}".GetWebURL(siteURL);
 					}).ToExpandoObject();
 

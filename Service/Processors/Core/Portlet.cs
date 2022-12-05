@@ -266,7 +266,7 @@ namespace net.vieapps.Services.Portals
 			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			var response = portlet.ToJson();
-			var objectName = portlet.GetTypeName(true);
+			var objectName = portlet.GetObjectName();
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>
 			{
@@ -382,7 +382,7 @@ namespace net.vieapps.Services.Portals
 			// prepare the response
 			var versions = await portlet.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = portlet.ToJson();
-			var objectName = portlet.GetTypeName(true);
+			var objectName = portlet.GetObjectName();
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
@@ -419,7 +419,7 @@ namespace net.vieapps.Services.Portals
 		static async Task UpdateRelatedOnUpdatedAsync(this Portlet portlet, RequestInfo requestInfo, string oldDesktopID, List<string> otherDesktops, CancellationToken cancellationToken)
 		{
 			var json = portlet.ToJson();
-			var objectName = portlet.GetTypeName(true);
+			var objectName = portlet.GetObjectName();
 
 			// update desktop
 			var desktop = portlet.Desktop;
@@ -668,7 +668,7 @@ namespace net.vieapps.Services.Portals
 			});
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
-				Type = $"{portlet.GetTypeName(true)}#Update",
+				Type = $"{portlet.GetObjectName()}#Update",
 				Data = portlet.ToJson(json => json["OtherDesktops"] = otherDesktops.ToJArray()),
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
@@ -694,7 +694,7 @@ namespace net.vieapps.Services.Portals
 			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			var response = portlet.ToJson();
-			var objectName = portlet.GetTypeName(true);
+			var objectName = portlet.GetObjectName();
 			var updateMessages = new List<UpdateMessage>
 			{
 				new UpdateMessage
@@ -827,7 +827,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var json = portlet.ToJson();
-			var objectName = portlet.GetTypeName(true);
+			var objectName = portlet.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
@@ -873,7 +873,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var versions = await portlet.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = portlet.ToJson();
-			var objectName = portlet.GetTypeName(true);
+			var objectName = portlet.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",

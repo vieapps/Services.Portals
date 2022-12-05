@@ -55,7 +55,7 @@ namespace net.vieapps.Services.Portals
 				Utility.NotRecognizedAliases.Remove($"Site:{domain}");
 				new CommunicateMessage(Utility.ServiceName)
 				{
-					Type = $"{site.GetTypeName(true)}#Update",
+					Type = $"{site.GetObjectName()}#Update",
 					Data = site.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
@@ -434,7 +434,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var response = site.ToJson();
-			var objectName = site.GetTypeName(true);
+			var objectName = site.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
@@ -516,7 +516,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var response = site.ToJson();
-			var objectName = site.GetTypeName(true);
+			var objectName = site.GetObjectName();
 			var versions = await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			new UpdateMessage
 			{
@@ -623,7 +623,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var response = site.ToJson();
-			var objectName = site.GetTypeName(true);
+			var objectName = site.GetObjectName();
 
 			new UpdateMessage
 			{
@@ -694,7 +694,7 @@ namespace net.vieapps.Services.Portals
 			var json = @event.IsEquals("Delete")
 				? site.Remove().ToJson()
 				: site.Set().ToJson();
-			var objectName = site.GetTypeName(true);
+			var objectName = site.GetObjectName();
 
 			new UpdateMessage
 			{
@@ -739,7 +739,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var versions = await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = site.Set(true, true, oldDomains).ToJson();
-			var objectName = site.GetTypeName(true);
+			var objectName = site.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",

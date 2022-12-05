@@ -295,7 +295,7 @@ namespace net.vieapps.Services.Portals
 			// update parent
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = role.GetTypeName(true);
+			var objectName = role.GetObjectName();
 
 			if (role.ParentRole != null)
 			{
@@ -381,7 +381,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send the update message to update to all other connected clients
-			var objectName = role.GetTypeName(true);
+			var objectName = role.GetObjectName();
 			var versions = await role.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = role.ToJson(true, false);
 			new UpdateMessage
@@ -500,7 +500,7 @@ namespace net.vieapps.Services.Portals
 			// update parent
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
-			var objectName = role.GetTypeName(true);
+			var objectName = role.GetObjectName();
 
 			if (role.ParentRole != null && !role.ParentID.IsEquals(oldParentID))
 			{
@@ -802,7 +802,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var json = role.Set().ToJson();
-			var objectName = role.GetTypeName(true);
+			var objectName = role.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
@@ -843,7 +843,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var versions = await role.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = role.Set(true).ToJson(true, false);
-			var objectName = role.GetTypeName(true);
+			var objectName = role.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",

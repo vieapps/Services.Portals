@@ -446,7 +446,7 @@ namespace net.vieapps.Services.Portals
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
-			var objectName = desktop.GetTypeName(true);
+			var objectName = desktop.GetObjectName();
 
 			// update parent
 			var parentDesktop = desktop.ParentDesktop;
@@ -544,7 +544,7 @@ namespace net.vieapps.Services.Portals
 			// send update message
 			var versions = await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = desktop.ToJson(true, false);
-			var objectName = desktop.GetTypeName(true);
+			var objectName = desktop.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -604,7 +604,7 @@ namespace net.vieapps.Services.Portals
 			await Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await desktop.Set(existing != null, false, oldAliases).ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
-			var objectName = desktop.GetTypeName(true);
+			var objectName = desktop.GetObjectName();
 
 			// update parent
 			var parentDesktop = desktop.ParentDesktop;
@@ -716,7 +716,7 @@ namespace net.vieapps.Services.Portals
 			await desktop.Set(false, true).ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, false, true, false).ConfigureAwait(false);
 
 			// send update messages
-			var objectName = desktop.GetTypeName(true);
+			var objectName = desktop.GetObjectName();
 			var response = desktop.ToJson(true, false);
 			new UpdateMessage
 			{
@@ -750,7 +750,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
-			var objectName = desktop.GetTypeName(true);
+			var objectName = desktop.GetObjectName();
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
 
 			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Desktop>();
@@ -820,7 +820,7 @@ namespace net.vieapps.Services.Portals
 		static async Task DeleteChildrenAsync(this Desktop desktop, RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
-			var objectName = desktop.GetTypeName(true);
+			var objectName = desktop.GetObjectName();
 
 			// delete childrenn
 			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Desktop>();
@@ -886,7 +886,7 @@ namespace net.vieapps.Services.Portals
 			var json = @event.IsEquals("Delete")
 				? desktop.Remove().ToJson()
 				: desktop.Set(false, false, oldAliases).ToJson();
-			var objectName = desktop.GetTypeName(true);
+			var objectName = desktop.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
@@ -927,7 +927,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// send update messages
-			var objectName = desktop.GetTypeName(true);
+			var objectName = desktop.GetObjectName();
 			var versions = await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = desktop.Set(true, true, oldAliases).ToJson(true, false);
 			new UpdateMessage

@@ -280,7 +280,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var response = expression.ToJson();
-			var objectName = expression.GetTypeName(true);
+			var objectName = expression.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
@@ -325,7 +325,7 @@ namespace net.vieapps.Services.Portals
 			// send the update message to update to all other connected clients
 			var versions = await expression.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = expression.ToJson();
-			var objectName = expression.GetTypeName(true);
+			var objectName = expression.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -372,7 +372,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var response = expression.ToJson();
-			var objectName = expression.GetTypeName(true);
+			var objectName = expression.GetObjectName();
 			var versions = await expression.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			new UpdateMessage
 			{
@@ -414,7 +414,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var response = expression.ToJson();
-			var objectName = expression.GetTypeName(true);
+			var objectName = expression.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
@@ -471,7 +471,7 @@ namespace net.vieapps.Services.Portals
 			var json = @event.IsEquals("Delete")
 				? expression.Remove().ToJson()
 				: expression.Set().ToJson();
-			var objectName = expression.GetTypeName(true);
+			var objectName = expression.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
@@ -512,7 +512,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var versions = await expression.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = expression.Set(true).ToJson();
-			var objectName = expression.GetTypeName(true);
+			var objectName = expression.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",

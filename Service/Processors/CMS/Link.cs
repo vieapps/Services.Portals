@@ -1108,9 +1108,9 @@ namespace net.vieapps.Services.Portals
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", parent.Title),
-							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks()),
-							new XElement("URL", parent.GetURL(desktop)),
-							new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks() ?? ""),
+							new XElement("URL", parent.GetURL(desktop) ?? ""),
+							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
 						));
 
 						// update cache
@@ -1151,9 +1151,9 @@ namespace net.vieapps.Services.Portals
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", parent.Title),
-							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks()),
-							new XElement("URL", parent.GetURL(desktop)),
-							new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks() ?? ""),
+							new XElement("URL", parent.GetURL(desktop) ?? ""),
+							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
 						));
 
 						// get xml data
@@ -1227,7 +1227,7 @@ namespace net.vieapps.Services.Portals
 								: (await requestInfo.GenerateLinkAsync(@object, thumbnailURL, addChildren, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false)).ToXml("Link", xml =>
 								{
 									var element = xml.Element("ThumbnailURL");
-									element?.Add(new XAttribute("Alternative", element.Value?.GetWebpImageURL(pngThumbnails)));
+									element?.Add(new XAttribute("Alternative", element.Value?.GetWebpImageURL(pngThumbnails) ?? ""));
 								});
 
 							// get and generate attachments
@@ -1268,9 +1268,9 @@ namespace net.vieapps.Services.Portals
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", parent.Title),
-							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks()),
-							new XElement("URL", parent.GetURL(desktop)),
-							new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks() ?? ""),
+							new XElement("URL", parent.GetURL(desktop) ?? ""),
+							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
 						));
 					}
 

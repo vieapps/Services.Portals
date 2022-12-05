@@ -246,7 +246,7 @@ namespace net.vieapps.Services.Portals
 				else
 					new CommunicateMessage(Utility.ServiceName)
 					{
-						Type = $"{organization.GetTypeName(true)}#Update",
+						Type = $"{organization.GetObjectName()}#Update",
 						Data = organization.ToJson(),
 						ExcludedNodeID = Utility.NodeID
 					}.Send();
@@ -266,7 +266,7 @@ namespace net.vieapps.Services.Portals
 			else
 				new CommunicateMessage(Utility.ServiceName)
 				{
-					Type = $"{organization.GetTypeName(true)}#Update",
+					Type = $"{organization.GetObjectName()}#Update",
 					Data = organization.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
@@ -529,7 +529,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var response = organization.ToJson();
-			var objectName = organization.GetTypeName(true);
+			var objectName = organization.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
@@ -604,7 +604,7 @@ namespace net.vieapps.Services.Portals
 			await organization.SetAsync(!organization.Alias.IsEquals(oldAlias), true, cancellationToken, oldAlias).ConfigureAwait(false);
 			var versions = await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = organization.ToJson();
-			var objectName = organization.GetTypeName(true);
+			var objectName = organization.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -731,7 +731,7 @@ namespace net.vieapps.Services.Portals
 			var json = @event.IsEquals("Delete")
 				? organization.Remove().ToJson()
 				: organization.Set().ToJson();
-			var objectName = organization.GetTypeName(true);
+			var objectName = organization.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
@@ -773,7 +773,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var versions = await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = organization.Set(true, true, oldAlias).ToJson(true, false);
-			var objectName = organization.GetTypeName(true);
+			var objectName = organization.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",

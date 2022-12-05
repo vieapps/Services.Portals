@@ -340,7 +340,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var response = module.ToJson(true, false);
-			var objectName = module.GetTypeName(true);
+			var objectName = module.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
@@ -453,7 +453,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			var response = module.ToJson();
-			var objectName = module.GetTypeName(true);
+			var objectName = module.GetObjectName();
 			var versions = await module.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			new UpdateMessage
 			{
@@ -521,7 +521,7 @@ namespace net.vieapps.Services.Portals
 
 			// send update messages
 			var response = module.ToJson();
-			var objectName = module.GetTypeName(true);
+			var objectName = module.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
@@ -578,7 +578,7 @@ namespace net.vieapps.Services.Portals
 			var json = @event.IsEquals("Delete")
 				? module.Remove().ToJson()
 				: module.Set().ToJson();
-			var objectName = module.GetTypeName(true);
+			var objectName = module.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
@@ -619,7 +619,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var versions = await module.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = module.Set(true).ToJson(true, false);
-			var objectName = module.GetTypeName(true);
+			var objectName = module.GetObjectName();
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",

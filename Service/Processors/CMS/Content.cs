@@ -878,10 +878,10 @@ namespace net.vieapps.Services.Portals
 									element.Element("PublishedTime")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
 									if (!string.IsNullOrWhiteSpace(@object.Summary))
 										element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
-									element.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
-									element.Add(new XElement("URL", @object.GetURL(desktop)));
+									element.Add(new XElement("Category", @object.Category?.Title ?? "", new XAttribute("URL", @object.Category?.GetURL(desktop) ?? "")));
+									element.Add(new XElement("URL", @object.GetURL(desktop) ?? ""));
 									var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-									element.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+									element.Add(new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
 								}));
 							}
 							catch (Exception ex)
@@ -913,10 +913,10 @@ namespace net.vieapps.Services.Portals
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", category.Title),
-							new XElement("Description", category.Description?.NormalizeHTMLBreaks()),
-							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks()),
-							new XElement("URL", category.GetURL(desktop)),
-							new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")),
+							new XElement("Description", category.Description?.NormalizeHTMLBreaks() ?? ""),
+							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
+							new XElement("URL", category.GetURL(desktop) ?? ""),
+							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")),
 							new XElement("Root", parentCategory?.Title ?? category.Title, new XAttribute("URL", parentCategory?.GetURL(desktop) ?? category.GetURL(desktop)))
 						));
 					}
@@ -1113,8 +1113,8 @@ namespace net.vieapps.Services.Portals
 						if (!string.IsNullOrWhiteSpace(@object.Summary))
 							xml.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
 
-						xml.Add(new XElement("Category", @object.Category?.Title, new XAttribute("URL", @object.Category?.GetURL(desktop))));
-						xml.Add(new XElement("URL", @object.GetURL(desktop)));
+						xml.Add(new XElement("Category", @object.Category?.Title ?? "", new XAttribute("URL", @object.Category?.GetURL(desktop) ?? "")));
+						xml.Add(new XElement("URL", @object.GetURL(desktop) ?? ""));
 
 						if (showThumbnails)
 						{
@@ -1122,7 +1122,7 @@ namespace net.vieapps.Services.Portals
 							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail =>
 							{
 								var thumbnailURL = thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-								thumbnails.Add(new XElement("Thumbnail", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+								thumbnails.Add(new XElement("Thumbnail", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
 							});
 							xml.Add(thumbnails);
 						}
@@ -1154,7 +1154,7 @@ namespace net.vieapps.Services.Portals
 							relatedXml.Add(new XElement("Category", related.Category?.Title ?? "", new XAttribute("URL", related.Category?.GetURL(desktop) ?? "")));
 							relatedXml.Add(new XElement("URL", related.GetURL(desktop) ?? ""));
 							var thumbnailURL = relatedThumbnails?.GetThumbnailURL(related.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-							relatedXml.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+							relatedXml.Add(new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
 							if (!string.IsNullOrWhiteSpace(related.Summary))
 								relatedXml.Element("Summary").Value = related.Summary.NormalizeHTMLBreaks();
 							relatedsXml.Add(relatedXml);
@@ -1182,7 +1182,7 @@ namespace net.vieapps.Services.Portals
 							otherXml.Add(new XElement("Category", other.Category?.Title ?? "", new XAttribute("URL", other.Category?.GetURL(desktop) ?? "")));
 							otherXml.Add(new XElement("URL", other.GetURL(desktop) ?? ""));
 							var thumbnailURL = otherThumbnails?.GetThumbnailURL(other.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-							otherXml.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+							otherXml.Add(new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
 							if (!string.IsNullOrWhiteSpace(other.Summary))
 								otherXml.Element("Summary").Value = other.Summary.NormalizeHTMLBreaks();
 						})));

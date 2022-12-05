@@ -653,9 +653,9 @@ namespace net.vieapps.Services.Portals
 							{
 								if (!string.IsNullOrWhiteSpace(@object.Summary))
 									element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
-								element.Add(new XElement("URL", @object.GetURL(desktop, false, parentIdentity)));
+								element.Add(new XElement("URL", @object.GetURL(desktop, false, parentIdentity) ?? ""));
 								var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-								element.Add(new XElement("ThumbnailURL", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+								element.Add(new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
 								if (showAttachments)
 								{
 									var xmlAttachments = new XElement("Attachments");
@@ -822,7 +822,7 @@ namespace net.vieapps.Services.Portals
 							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail =>
 							{
 								var thumbnailURL = thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-								thumbnails.Add(new XElement("Thumbnail", thumbnailURL, new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+								thumbnails.Add(new XElement("Thumbnail", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
 							});
 							element.Add(thumbnails);
 						}
@@ -848,8 +848,8 @@ namespace net.vieapps.Services.Portals
 						var othersXml = new XElement("Others");
 						others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
 						{
-							otherXml.Add(new XElement("URL", other.GetURL(desktop, false, parentIdentity)));
-							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID)));
+							otherXml.Add(new XElement("URL", other.GetURL(desktop, false, parentIdentity) ?? ""));
+							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID) ?? ""));
 						})));
 						dataXml.Add(othersXml);
 					}
