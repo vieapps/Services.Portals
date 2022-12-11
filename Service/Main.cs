@@ -3309,6 +3309,7 @@ namespace net.vieapps.Services.Portals
 			if (writeLogs)
 				await this.WriteLogsAsync(correlationID, $"Prepare the zone(s) of {desktopInfo} => {desktopZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
+			var zones = new List<string>();
 			var removedZones = new List<XElement>();
 			var desktopZonesGotPortlet = desktop.Portlets.Select(portlet => portlet.Zone).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			desktopZones.ForEach(zone =>
@@ -3336,6 +3337,7 @@ namespace net.vieapps.Services.Portals
 				}
 				else
 				{
+					zones.Add(idAttribute.Value);
 					zone.Value = "{{" + idAttribute.Value + "-holder}}";
 					idAttribute.Remove();
 				}
@@ -3382,8 +3384,9 @@ namespace net.vieapps.Services.Portals
 			// get the desktop body
 			var language = desktop.WorkingLanguage ?? site.Language ?? "en-US";
 			var body = desktopContainer.ToString(SaveOptions.DisableFormatting);
+			zones.ForEach(name => body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{" + name + "-holder}}", $"[[{name}-holder]]"));
 			var parameters = new Dictionary<string, object>();
-			var reservedTokens = "theme,skin,organization,organization-alias,organization-title,site,site-title,site-host,site-domain,home-title,home-url,alias,desktop,desktop-alias,desktop-title,desktop-url,parent-identity,content-identity,main-portlet-type,main-portlet-action,main-portlet-title,main-portlet-url,main-portlet-parent-title,main-portlet-parent-url,main-portlet-parent-root-title,main-portlet-parent-root-url,main-portlet-content-title,main-portlet-content-url".ToHashSet();
+			var reservedTokens = "theme,skin,organization,organization-alias,organization-title,site,site-title,site-host,site-domain,home-title,home-url,alias,desktop,desktop-alias,desktop-title,desktop-url,parent-identity,content-identity,main-portlet-type,main-portlet-action,main-portlet-title,main-portlet-url,main-portlet-parent-title,main-portlet-parent-url,main-portlet-parent-root-title,main-portlet-parent-root-url,main-portlet-content-title,main-portlet-content-url,home,homedesktop,home-desktop,search,searchdesktop,search-desktop,language,culture,locale,isMobile,is-mobile,osInfo,os-info,osPlatform,os-platform,osMode,os-mode,correlationID,correlation-id".ToHashSet();
 			var doubleBracesTokens = body.GetDoubleBracesTokens().Where(info => !reservedTokens.Contains(info.Item2)).ToList();
 			if (doubleBracesTokens.Any())
 			{
@@ -3433,8 +3436,10 @@ namespace net.vieapps.Services.Portals
 				["main-portlet-content-title"] = mainPortletContentTitle,
 				["main-portlet-content-url"] = mainPortletContentURL
 			};
+			body = body.Format(parameters);
+			zones.ForEach(name => body = body.Replace(StringComparison.OrdinalIgnoreCase, $"[[{name}-holder]]", "{{" + name + "-holder}}"));
 
-			return new Tuple<string, string, string, string, string>(title, metaTags, body.Format(parameters), stylesheets, scripts);
+			return new Tuple<string, string, string, string, string>(title, metaTags, body, stylesheets, scripts);
 		}
 
 		string NormalizeDesktopHtml(string html, Organization organization, Site site, Desktop desktop)
