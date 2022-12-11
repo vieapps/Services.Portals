@@ -14,6 +14,8 @@ using Newtonsoft.Json.Converters;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using System.Reflection.Emit;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -64,6 +66,9 @@ namespace net.vieapps.Services.Portals
 		[Sortable(IndexName = "Management")]
 		[FormControl(Segment = "basic", ReadOnly = true, Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public int OrderIndex { get; set; } = 0;
+
+		[Ignore, BsonIgnore, XmlIgnore]
+		public string PrimaryContentID { get; set; }
 
 		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
@@ -239,8 +244,9 @@ namespace net.vieapps.Services.Portals
 			if (name.IsEquals("Extras"))
 			{
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
-				this.Notifications = this._json["Notifications"]?.FromJson<Settings.Notifications>();
-				this.EmailSettings = this._json["EmailSettings"]?.FromJson<Settings.Email>();
+				this.PrimaryContentID = this._json["PrimaryContentID"]?.As<string>();
+				this.Notifications = this._json["Notifications"]?.As<Settings.Notifications>();
+				this.EmailSettings = this._json["EmailSettings"]?.As<Settings.Email>();
 			}
 			else if (CategoryProcessor.ExtraProperties.Contains(name))
 			{

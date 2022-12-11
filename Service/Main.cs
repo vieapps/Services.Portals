@@ -2029,18 +2029,14 @@ namespace net.vieapps.Services.Portals
 
 				var organizationJson = organization.ToJson(false, false, json =>
 				{
-					OrganizationProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-					json.Remove("Privileges");
-					json.Remove("OriginalPrivileges");
+					new[] { "Privileges", "OriginalPrivileges" }.Concat(OrganizationProcessor.ExtraProperties).ForEach(name => json.Remove(name));
 					json["Description"] = organization.Description?.NormalizeHTMLBreaks();
 					json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
 				});
 
 				var siteJson = site.ToJson(json =>
 				{
-					SiteProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-					json.Remove("Privileges");
-					json.Remove("OriginalPrivileges");
+					new[] { "Privileges", "OriginalPrivileges" }.Concat(SiteProcessor.ExtraProperties).ForEach(name => json.Remove(name));
 					json["Description"] = site.Description?.NormalizeHTMLBreaks();
 					json["Domain"] = site.Host;
 					json["Host"] = host;
@@ -2119,7 +2115,7 @@ namespace net.vieapps.Services.Portals
 				var mainPortlet = string.IsNullOrWhiteSpace(desktop.MainPortletID) || !portletData.TryGetValue(desktop.MainPortletID, out var value) ? null : value;
 				try
 				{
-					var desktopData = await this.GenerateDesktopAsync(desktop, organization, site, host, mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					var desktopData = await this.GenerateDesktopAsync(desktop, requestInfo, organization, site, host, mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					title = desktopData.Item1;
 					metaTags = (this.AllowPreconnect ? $"<link rel=\"preconnect\" href=\"{this.GetPortalsHttpURI(organization).Substring(6)}\"/>" + $"<link rel=\"preconnect\" href=\"{this.GetFilesHttpURI(organization).Substring(6)}\"/>" + "<link rel=\"preconnect\" href=\"//fonts.googleapis.com\"/><link rel=\"preconnect\" href=\"//fonts.gstatic.com\"/><link rel=\"preconnect\" href=\"//www.googletagmanager.com\"/><link rel=\"preconnect\" href=\"//unpkg.com\"/><link rel=\"preconnect\" href=\"//cdnjs.cloudflare.com\"/>" : "") + desktopData.Item2;
 					body = desktopData.Item3;
@@ -2591,10 +2587,11 @@ namespace net.vieapps.Services.Portals
 			var cacheExpiration = data != null && Int32.TryParse(data["CacheExpiration"]?.ToString(), out var expiration) && expiration > 0 ? expiration : 0;
 			var cacheExpirationTime = data != null && DateTime.TryParse(data["CacheExpiration"]?.ToString(), out var expirationTime) ? expirationTime as DateTime? : null;
 			var contentType = data != null ? await (portlet.RepositoryEntityID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) : null;
+			var parameters = new Dictionary<string, object>();
 
 			if (contentType != null)
 			{
-				objectType = contentType.ContentTypeDefinition?.GetObjectName() ?? "";
+				objectType = (contentType.ContentTypeDefinition?.GetObjectName() ?? "").ToLower().Replace(".", "-");
 				var xslFilename = "";
 				var xslTemplate = "";
 
@@ -2902,29 +2899,29 @@ namespace net.vieapps.Services.Portals
 			else
 			{
 				html = portletContainer.ToString();
-				var tokens = "id,name,title,action,object,object-type,object-name,ansi-title,title-ansi,portlet-title,portlet-url".ToList();
-				if (html.GetDoubleBracesTokens().Select(token => token.Item2).Except(tokens).Any())
-				{
-					tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, "{{" + token + "}}", $"[[{token}]]"));
-					html = html.Format(html.PrepareDoubleBracesParameters(portlet, requestInfo, new JObject { ["Site"] = siteJson, ["Desktop"] = desktopsJson, ["Language"] = language }.ToExpandoObject()));
-					tokens.ForEach(token => html = html.Replace(StringComparison.OrdinalIgnoreCase, $"[[{token}]]", "{{" + token + "}}"));
-				}
+				var reservedTokens = "id,name,title,action,object,object-type,object-name,ansi-title,title-ansi,portlet-title,portlet-url".ToHashSet();
+				var doubleBracesTokens = html.GetDoubleBracesTokens().Where(info => !reservedTokens.Contains(info.Item2)).ToList();
+				parameters = doubleBracesTokens.Any()
+					? doubleBracesTokens.PrepareDoubleBracesParameters(portlet, requestInfo, new JObject { ["Site"] = siteJson, ["Desktop"] = desktopsJson, ["Language"] = language }.ToExpandoObject()).ToDictionary()
+					: parameters;
 			}
 
 			title = portlet.Title.GetANSIUri();
-			html = html.Format(new Dictionary<string, object>
+			html = html.Format(new Dictionary<string, object>(parameters, StringComparer.OrdinalIgnoreCase)
 			{
 				["id"] = portlet.ID,
 				["name"] = title,
 				["title"] = title,
 				["action"] = isList ? "list" : "view",
+				["type"] = objectType,
 				["object"] = objectType,
 				["object-type"] = objectType,
 				["object-name"] = objectType,
 				["ansi-title"] = title,
 				["title-ansi"] = title,
 				["portlet-title"] = portlet.Title,
-				["portlet-url"] = portlet.CommonSettings?.TitleURL ?? ""
+				["portlet-url"] = portlet.CommonSettings?.TitleURL ?? "",
+				["language"] = language
 			});
 
 			stopwatch.Stop();
@@ -2934,7 +2931,7 @@ namespace net.vieapps.Services.Portals
 			return new Tuple<string, bool, string>(html, gotError, cacheExpiration > 0 ? cacheExpiration.ToString() : cacheExpirationTime?.ToDTString());
 		}
 
-		async Task<Tuple<string, string, string, string, string>> GenerateDesktopAsync(Desktop desktop, Organization organization, Site site, string siteHost, JObject mainPortletData, string parentIdentity, string contentIdentity, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
+		async Task<Tuple<string, string, string, string, string>> GenerateDesktopAsync(Desktop desktop, RequestInfo requestInfo, Organization organization, Site site, string siteHost, JObject mainPortletData, string parentIdentity, string contentIdentity, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
 		{
 			var desktopInfo = $"the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]";
 
@@ -3384,7 +3381,28 @@ namespace net.vieapps.Services.Portals
 
 			// get the desktop body
 			var language = desktop.WorkingLanguage ?? site.Language ?? "en-US";
-			var body = desktopContainer.ToString(SaveOptions.DisableFormatting).Format(new Dictionary<string, object>
+			var body = desktopContainer.ToString(SaveOptions.DisableFormatting);
+			var parameters = new Dictionary<string, object>();
+			var reservedTokens = "theme,skin,organization,organization-alias,organization-title,site,site-title,site-host,site-domain,home-title,home-url,alias,desktop,desktop-alias,desktop-title,desktop-url,parent-identity,content-identity,main-portlet-type,main-portlet-action,main-portlet-title,main-portlet-url,main-portlet-parent-title,main-portlet-parent-url,main-portlet-parent-root-title,main-portlet-parent-root-url,main-portlet-content-title,main-portlet-content-url".ToHashSet();
+			var doubleBracesTokens = body.GetDoubleBracesTokens().Where(info => !reservedTokens.Contains(info.Item2)).ToList();
+			if (doubleBracesTokens.Any())
+			{
+				var organizationJson = organization.ToJson(false, false, json =>
+				{
+					new[] { "Privileges", "OriginalPrivileges" }.Concat(OrganizationProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+					json["Description"] = organization.Description?.NormalizeHTMLBreaks();
+					json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
+				});
+				var siteJson = site.ToJson(json =>
+				{
+					new[] { "Privileges", "OriginalPrivileges" }.Concat(SiteProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+					json["Description"] = site.Description?.NormalizeHTMLBreaks();
+					json["Domain"] = site.Host;
+					json["Host"] = siteHost;
+				});
+				parameters = doubleBracesTokens.PrepareDoubleBracesParameters(desktop, requestInfo, new JObject { ["Organization"] = organizationJson, ["Site"] = siteJson, ["MainPortlet"] = mainPortletData, ["Language"] = language }.ToExpandoObject()).ToDictionary();
+			}
+			parameters = new Dictionary<string, object>(parameters, StringComparer.OrdinalIgnoreCase)
 			{
 				["theme"] = desktopTheme,
 				["skin"] = desktopTheme,
@@ -3414,9 +3432,9 @@ namespace net.vieapps.Services.Portals
 				["main-portlet-parent-root-url"] = mainPortletParentRootURL,
 				["main-portlet-content-title"] = mainPortletContentTitle,
 				["main-portlet-content-url"] = mainPortletContentURL
-			});
+			};
 
-			return new Tuple<string, string, string, string, string>(title, metaTags, body, stylesheets, scripts);
+			return new Tuple<string, string, string, string, string>(title, metaTags, body.Format(parameters), stylesheets, scripts);
 		}
 
 		string NormalizeDesktopHtml(string html, Organization organization, Site site, Desktop desktop)
@@ -3432,7 +3450,9 @@ namespace net.vieapps.Services.Portals
 				["search"] = searchDesktop,
 				["searchdesktop"] = searchDesktop,
 				["search-desktop"] = searchDesktop,
+				["organization"] = organization.Alias,
 				["organization-alias"] = organization.Alias,
+				["desktop"] = desktop.Alias,
 				["desktop-alias"] = desktop.Alias,
 				["language"] = language,
 				["culture"] = language,

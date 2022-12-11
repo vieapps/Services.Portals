@@ -860,14 +860,4 @@ namespace net.vieapps.Services.Portals
 	[Repository(ServiceName = "Portals", ID = "A0000000000000000000000000000001", Title = "CMS", Description = "Services of the CMS Portals", Directory = "cms", ExtendedPropertiesTableName = "T_Portals_Extended_Properties")]
 	public abstract class Repository<T> : RepositoryBase<T> where T : class { }
 
-	[EventHandlers]
-	public class FindObjectVersions : IPostUpdateHandler
-	{
-		public void OnPostUpdate<T>(RepositoryContext context, T @object, HashSet<string> changed, bool isRollback) where T : class
-			=> (@object as RepositoryBase).FindVersionsAsync().Run();
-
-		public Task OnPostUpdateAsync<T>(RepositoryContext context, T @object, HashSet<string> changed, bool isRollback, CancellationToken cancellationToken) where T : class
-			=> (@object as RepositoryBase).FindVersionsAsync(cancellationToken);
-	}
-
 }

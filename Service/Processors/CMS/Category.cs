@@ -27,7 +27,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",All,Feed,Feeds,Atom,Rss").ToLower().ToHashSet();
 
-		internal static HashSet<string> ExtraProperties { get; } = "Notifications,EmailSettings".ToHashSet();
+		internal static HashSet<string> ExtraProperties { get; } = "PrimaryContentID,Notifications,EmailSettings".ToHashSet();
 
 		public static Category CreateCategory(this ExpandoObject data, string excluded = null, Action<Category> onCompleted = null)
 			=> Category.CreateInstance(data, excluded?.ToHashSet(), category =>
