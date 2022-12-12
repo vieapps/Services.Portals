@@ -374,6 +374,20 @@ namespace net.vieapps.Services.Portals
 			// validate
 			contentType.Validate();
 
+			// special: contact forms
+			if (contentType.ContentTypeDefinitionID.IsEquals("B0000000000000000000000000000005"))
+			{
+				contentType.OriginalPrivileges = contentType.OriginalPrivileges ?? new Privileges
+				{
+					ContributiveRoles = new HashSet<string>(new[] { SystemRole.All.ToString() })
+				};
+				contentType.Notifications = contentType.Notifications ?? new Settings.Notifications
+				{
+					Events = new List<string>(new[] { Components.Security.Action.Create.ToString() }),
+					Methods = new List<string>(new[] { "Email" })
+				};
+			}
+
 			// create new
 			await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
 			await contentType.ClearRelatedCacheAsync(cancellationToken, correlationID).ConfigureAwait(false);
