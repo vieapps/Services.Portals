@@ -103,6 +103,9 @@ namespace net.vieapps.Services.Portals
 					if (definition.DefaultValue != null)
 						options["DefaultValue"] = definition.DefaultValue;
 
+					if (!string.IsNullOrWhiteSpace(definition.Css))
+						options["Css"] = definition.Css;
+
 					control["Options"] = options;
 				}
 			});
@@ -181,6 +184,9 @@ namespace net.vieapps.Services.Portals
 
 				if (!string.IsNullOrWhiteSpace(definition.ValidatePattern))
 					options["ValidatePattern"] = definition.ValidatePattern;
+
+				if (!string.IsNullOrWhiteSpace(definition.Css))
+					options["Css"] = definition.Css;
 
 				if (!string.IsNullOrWhiteSpace(definition.Width))
 					options["Width"] = definition.Width;

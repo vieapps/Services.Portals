@@ -305,6 +305,11 @@ namespace net.vieapps.Services.Portals
 		public int? MaxLength { get; set; }
 
 		/// <summary>
+		/// Gets or Sets the CSS classes
+		/// </summary>
+		public string Css { get; set; }
+
+		/// <summary>
 		/// Gets or Sets the width
 		/// </summary>
 		public string Width { get; set; }
@@ -413,6 +418,11 @@ namespace net.vieapps.Services.Portals
 		/// Gets or Sets the description - use doube braces to specified code of a language resource - ex: {{common.buttons.ok}}
 		/// </summary>
 		public string Description { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the CSS classes
+		/// </summary>
+		public string Css { get; set; }
 
 		/// <summary>
 		/// Gets or Sets the state that mark this property is required or not
