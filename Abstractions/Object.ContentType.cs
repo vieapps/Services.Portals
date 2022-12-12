@@ -91,16 +91,16 @@ namespace net.vieapps.Services.Portals
 
 					var options = control.Get("Options", new JObject());
 
-					if (!string.IsNullOrWhiteSpace(definition.Label))
+					if (definition.Label != null)
 						options["Label"] = definition.Label;
 
-					if (!string.IsNullOrWhiteSpace(definition.Description))
+					if (definition.Description != null)
 						options["Description"] = definition.Description;
 
-					if (!string.IsNullOrWhiteSpace(definition.PlaceHolder))
+					if (definition.PlaceHolder != null)
 						options["PlaceHolder"] = definition.PlaceHolder;
 
-					if (!string.IsNullOrWhiteSpace(definition.DefaultValue))
+					if (definition.DefaultValue != null)
 						options["DefaultValue"] = definition.DefaultValue;
 
 					control["Options"] = options;
