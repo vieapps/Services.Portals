@@ -261,12 +261,17 @@ namespace net.vieapps.Services.Portals
 				obj.Profiles = requestInfo.Session.User.IsAuthenticated ? new Dictionary<string, string> { ["vieapps"] = requestInfo.Session.User.ID } : null;
 			});
 
-			// compute & validate
-			form.Normalize(requestInfo);
-
 			// create new
+			form.Normalize(requestInfo);
 			await Form.CreateAsync(form, cancellationToken).ConfigureAwait(false);
-			await form.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+
+			// update cache & send notifications
+			Task.WhenAll
+			(
+				form.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+				Utility.Cache.AddSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), cancellationToken)
+			).Run();
+			await form.SendNotificationAsync("Create", form.ContentType.Notifications, ApprovalStatus.Draft, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			// send update message
 			var response = form.ToJson();
@@ -276,14 +281,6 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*",
 				Data = response
 			}.Send();
-
-			// send notification
-			await form.SendNotificationAsync("Create", form.ContentType.Notifications, ApprovalStatus.Draft, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// store object cache key to clear related cached
-			await Utility.Cache.AddSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-
-			// response
 			return response;
 		}
 

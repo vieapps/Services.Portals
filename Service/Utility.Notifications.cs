@@ -147,7 +147,9 @@ namespace net.vieapps.Services.Portals
 				{
 					case ApprovalStatus.Draft:
 					case ApprovalStatus.Rejected:
-						recipientIDs = new[] { @object.CreatedID }.ToList();
+						recipientIDs = @object is Form
+							? await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false)
+							: new[] { @object.CreatedID }.ToList();
 						break;
 
 					case ApprovalStatus.Pending:
@@ -254,14 +256,12 @@ namespace net.vieapps.Services.Portals
 				{
 					["Organization"] = organization?.ToJson(false, false, json =>
 					{
-						OrganizationProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-						json.Remove("Privileges");
+						OrganizationProcessor.ExtraProperties.Concat(new[] { "Privileges" }).ForEach(name => json.Remove(name));
 						json["AlwaysUseHtmlSuffix"] = alwaysUseHtmlSuffix;
 					}),
 					["Site"] = site?.ToJson(json =>
 					{
-						SiteProcessor.ExtraProperties.ForEach(name => json.Remove(name));
-						json.Remove("Privileges");
+						SiteProcessor.ExtraProperties.Concat(new[] { "Privileges" }).ForEach(name => json.Remove(name));
 						json["Domain"] = siteDomain;
 						json["URL"] = siteURL;
 					}),
@@ -271,7 +271,7 @@ namespace net.vieapps.Services.Portals
 						(json as JObject).Remove("ContentTypeDefinitions");
 						(json as JObject).Remove("ObjectDefinitions");
 					}),
-					["Module"] = contentType?.Module?.ToJson(false, false, json => new[] { "Privileges", "OriginalPrivileges", }.Concat(ModuleProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
+					["Module"] = contentType?.Module?.ToJson(false, false, json => new[] { "Privileges", "OriginalPrivileges" }.Concat(ModuleProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
 					["ContentType"] = contentType?.ToJson(false, json => new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
 					["ParentContentType"] = contentType?.GetParent()?.ToJson(false, json => new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
 					["URLs"] = new JObject
