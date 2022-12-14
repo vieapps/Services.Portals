@@ -111,18 +111,21 @@ namespace net.vieapps.Services.Portals
 				parent = parent.Parent;
 			}
 
+			var writeDebugLogs = requestInfo.IsWriteMessageLogs();
 			var businessObject = @object is IBusinessObject ? @object as IBusinessObject : null;
 			var contentType = businessObject?.ContentType as ContentType;
+			var gotEvent = events != null && events.Any() && events.FirstOrDefault(evt => evt.IsEquals(@event)) != null;
+			var gotContentTypeWebHooks = contentType?.WebHookNotifications != null && contentType.WebHookNotifications.Where(webhookNotification => webhookNotification != null).Any();
 
 			// stop if has no event or web-hook
-			var gotEvent = events != null && events.Any() && events.FirstOrDefault(e => e.IsEquals(@event)) == null;
-			var gotContentTypeWebHooks = contentType?.WebHookNotifications != null && contentType.WebHookNotifications.Where(webhookNotification => webhookNotification != null).Any();
 			if (!gotEvent && !gotContentTypeWebHooks)
+			{
+				if (writeDebugLogs)
+					await requestInfo.WriteLogAsync($"Stop to send notification because no event/method was found ({@object?.Title} [{@object?.GetType()}#{@object?.ID}]) => {@event} ({events?.Join(", ")} / {methods?.Join(", ")})", "Notifications").ConfigureAwait(false);
 				return;
+			}
 
 			// prepare parameters
-			var writeDebugLogs = requestInfo.IsWriteMessageLogs();
-			var sender = (await requestInfo.GetUserProfilesAsync(new[] { requestInfo.Session.User.ID }, cancellationToken).ConfigureAwait(false) as JArray)?.FirstOrDefault();
 			var serviceName = requestInfo.ServiceName;
 			var objectName = (businessObject as RepositoryBase)?.GetObjectName() ?? @object.GetTypeName(true);
 			var organization = contentType?.Organization ?? await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -140,7 +143,15 @@ namespace net.vieapps.Services.Portals
 			if (writeDebugLogs)
 				await requestInfo.WriteLogAsync($"Prepare to send notification ({@object?.Title} [{@object?.GetType()}#{@object?.ID}]) => App: True - Email: {sendEmailNotifications || emailsWhenPublish != null} - WebHook: {sendWebHookNotifications || gotContentTypeWebHooks}", "Notifications").ConfigureAwait(false);
 
-			// prepare recipients
+			// prepare sender & recipients
+			var sender = @object is Form form
+				? new JObject
+					{
+						{ "Name", form.Name },
+						{ "Email", form.Email }
+					}
+				: (await requestInfo.GetUserProfilesAsync(new[] { requestInfo.Session.User.ID }, cancellationToken).ConfigureAwait(false) as JArray)?.FirstOrDefault();
+
 			var recipientIDs = new List<string>();
 			if (sendEmailNotifications)
 				switch (status)
@@ -190,7 +201,7 @@ namespace net.vieapps.Services.Portals
 			recipientIDs = recipientIDs.Except(new[] { requestInfo.Session.User.ID }).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var recipients = recipientIDs.Any() ? await requestInfo.GetUserProfilesAsync(recipientIDs, cancellationToken).ConfigureAwait(false) as JArray : new JArray();
 
-			//  send app notifications
+			// send app notifications
 			try
 			{
 				var baseMessage = new BaseMessage
@@ -284,10 +295,10 @@ namespace net.vieapps.Services.Portals
 					["HTMLs"] = normalizedHTMLs,
 					["Sender"] = new JObject
 					{
-						{ "ID", requestInfo.Session.User.ID },
+						{ "ID", requestInfo.Session.User?.ID ?? "" },
 						{ "Name", sender?.Get<string>("Name") ?? "Unknown" },
 						{ "Email", sender?.Get<string>("Email") },
-						{ "URL", $"/users/profiles/{(sender?.Get<string>("Name") ?? "Unknown").GetANSIUri()}?x-request={("{\"ID\":\"" + requestInfo.Session.User.ID + "\"}").Url64Encode()}".GetAppURL() },
+						{ "URL", $"/users/profiles/{(sender?.Get<string>("Name") ?? "Unknown").GetANSIUri()}?x-request={("{\"ID\":\"" + (requestInfo.Session.User?.ID ?? "") + "\"}").Url64Encode()}".GetAppURL() },
 						{ "Location", await requestInfo.GetLocationAsync(cancellationToken).ConfigureAwait(false) },
 						{ "IP", requestInfo.Session.IP },
 						{ "AppName", requestInfo.Session.AppName },
