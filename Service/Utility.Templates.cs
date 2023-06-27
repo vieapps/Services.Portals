@@ -21,6 +21,16 @@ namespace net.vieapps.Services.Portals
 {
 	public static partial class Utility
 	{
+		internal static FileInfo GetTemplateFileInfo(this string filename, string theme, string mainDirectory = null, string subDirectory = null)
+		{
+			var filePath = Path.Combine(Utility.DataFilesDirectory, "themes", (theme ?? "default").Trim().ToLower(), "templates");
+			if (!string.IsNullOrWhiteSpace(mainDirectory))
+				filePath = Path.Combine(filePath, mainDirectory.Trim().ToLower());
+			if (!string.IsNullOrWhiteSpace(subDirectory))
+				filePath = Path.Combine(filePath, subDirectory.Trim().ToLower());
+			return new FileInfo(Path.Combine(filePath, filename.Trim().ToLower()));
+		}
+
 		/// <summary>
 		/// Gets the pre-defined template
 		/// </summary>
@@ -29,15 +39,10 @@ namespace net.vieapps.Services.Portals
 		/// <param name="mainDirectory"></param>
 		/// <param name="subDirectory"></param>
 		/// <returns></returns>
-		public static async Task<string> GetTemplateAsync(string filename, string theme = null, string mainDirectory = null, string subDirectory = null, CancellationToken cancellationToken = default)
+		public static async Task<string> GetTemplateAsync(string filename, string theme, string mainDirectory = null, string subDirectory = null, CancellationToken cancellationToken = default)
 		{
-			var filePath = Path.Combine(Utility.DataFilesDirectory, "themes", (theme ?? "default").Trim().ToLower(), "templates");
-			if (!string.IsNullOrWhiteSpace(mainDirectory))
-				filePath = Path.Combine(filePath, mainDirectory.Trim().ToLower());
-			if (!string.IsNullOrWhiteSpace(subDirectory))
-				filePath = Path.Combine(filePath, subDirectory.Trim().ToLower());
-			filePath = Path.Combine(filePath, filename.Trim().ToLower());
-			return File.Exists(filePath) ? await new FileInfo(filePath).ReadAsTextAsync(cancellationToken).ConfigureAwait(false) : null;
+			var fileInfo = filename.GetTemplateFileInfo(theme, mainDirectory, subDirectory);
+			return fileInfo.Exists ? await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false) : null;
 		}
 
 		/// <summary>

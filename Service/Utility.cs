@@ -744,23 +744,6 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		static Task<JToken> GetUserProfilesAsync(this RequestInfo requestInfo, IEnumerable<string> userIDs, CancellationToken cancellationToken = default)
-			=> Router.CallServiceAsync(new RequestInfo(requestInfo)
-			{
-				ServiceName = "Users",
-				ObjectName = "Profile",
-				Verb = "GET",
-				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "object-identity", "fetch" },
-					{ "x-request", new JObject { { "IDs", userIDs.ToJArray() } }.ToString(Newtonsoft.Json.Formatting.None).Url64Encode() }
-				},
-				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "x-notifications-key", Utility.NotificationsKey }
-				}
-			}, cancellationToken);
-
 		internal static Task WriteLogsAsync(string developerID, string appID, string objectName, List<string> logs, Exception exception = null, string correlationID = null, string additional = null)
 		{
 			// prepare

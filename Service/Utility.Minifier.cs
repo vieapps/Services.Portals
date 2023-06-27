@@ -213,7 +213,8 @@ namespace net.vieapps.Services.Portals
 
 					else if (thisChar == ' ')
 					{
-						if (lastChar == '-')
+						nextChar = reader.PeekChar();
+						if (lastChar == '+' || lastChar == '-' || lastChar == '*' || lastChar == '/' || nextChar == '+' || nextChar == '-' || nextChar == '*' || nextChar == '/')
 							isIgnore = false;
 
 						else if (lastChar == ' ' || lastChar == '>' || lastChar == '}' || Minifier.IsDelimiter(lastChar))
@@ -221,7 +222,6 @@ namespace net.vieapps.Services.Portals
 
 						else
 						{
-							nextChar = reader.PeekChar();
 							isEOF = nextChar.IsEOF();
 							if (!isEOF)
 								isIgnore = nextChar != '-' && nextChar != '[' && (nextChar == '>' || Minifier.IsDelimiter(nextChar));
@@ -274,7 +274,7 @@ namespace net.vieapps.Services.Portals
 						minified += decoder.GetChars(new[] { (byte)thisChar }, 0, 1, buffer, 0) > 0 ? $"{buffer[0]}" : "";
 					lastChar = thisChar;
 				}
-			return minified.Replace("; }", ";}");
+			return minified.Replace("; }", ";}").Replace(";}", "}");
 		}
 
 		/// <summary>

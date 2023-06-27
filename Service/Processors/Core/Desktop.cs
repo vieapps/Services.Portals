@@ -374,9 +374,7 @@ namespace net.vieapps.Services.Portals
 			// prepare
 			var request = requestInfo.GetBodyExpando();
 			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationInvalidException("The organization is invalid");
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, organization);

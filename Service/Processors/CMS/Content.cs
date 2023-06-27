@@ -223,10 +223,7 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = pagination.Item4;
 
 			var organizationID = filter?.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
-
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
 			var moduleID = filter?.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (module == null || !module.SystemID.IsEquals(organization.ID))
@@ -351,9 +348,7 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetBodyExpando();
 
 			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationInvalidException("The organization is invalid");
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationInvalidException("The organization is invalid");
 
 			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -375,16 +370,26 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// source to copy from
+			var source = await Content.GetAsync<Content>(request.Get<string>("CopyFromID"), cancellationToken).ConfigureAwait(false);
+
 			// get data
-			var content = request.CreateContent("Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
-			{
-				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
-				obj.SystemID = organization.ID;
-				obj.RepositoryID = module.ID;
-				obj.RepositoryEntityID = contentType.ID;
-				obj.Created = obj.LastModified = DateTime.Now;
-				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
-			});
+			var content = source != null
+				? source.Copy("ID,CategoryID,OtherCategories,Alias,Relateds,Privileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet(), obj =>
+				{
+					obj.Alias = source.Title.NormalizeAlias();
+					obj.CategoryID = category.ID;
+					obj.OtherCategories = request.Get<List<string>>("OtherCategories");
+				})
+				: request.CreateContent("Privileges,Created,CreatedID,LastModified,LastModifiedID");
+			content.SystemID = organization.ID;
+			content.RepositoryID = module.ID;
+			content.RepositoryEntityID = contentType.ID;
+			content.Created = content.LastModified = DateTime.Now;
+			content.CreatedID = content.LastModifiedID = requestInfo.Session.User.ID;
+			content.ID = source != null
+				? organization.ID.IsEquals(source.SystemID) ? UtilityService.NewUUID : $"{organization.ID}:{source.ID}".GenerateUUID()
+				: string.IsNullOrWhiteSpace(content.ID) || !content.ID.IsValidUUID() ? UtilityService.NewUUID : content.ID;
 
 			var existing = await Content.GetContentByAliasAsync(contentType, content.Alias, category.ID, cancellationToken).ConfigureAwait(false);
 			if (existing != null)
@@ -734,7 +739,7 @@ namespace net.vieapps.Services.Portals
 
 			JArray breadcrumbs = null, metaTags = null;
 			JObject pagination = null, seoInfo = null, filterBy = null, sortBy = null;
-			string coverURI = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null, ids = null;
+			string coverURI = null, ogURL = null, ogTitle = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null, ids = null;
 			DateTime? expiresAt = null;
 
 			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", true)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
@@ -989,6 +994,8 @@ namespace net.vieapps.Services.Portals
 				// prepare other info
 				categoryThumbnails = category != null ? categoryThumbnails ?? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false) : null;
 				coverURI = (categoryThumbnails as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+				ogURL = category?.GetURL(desktop, true).Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}" : "");
+				ogTitle = category?.Title;
 			}
 
 			// generate details
@@ -1004,9 +1011,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// get the requested object
-				var @object = await Content.GetContentByAliasAsync(contentTypeID, contentAlias, category?.ID, cancellationToken).ConfigureAwait(false);
-				if (@object == null)
-					throw new InformationNotFoundException();
+				var @object = await Content.GetContentByAliasAsync(contentTypeID, contentAlias, category?.ID, cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 				if (@object.Organization == null || @object.Module == null || @object.ContentType == null)
 					throw new InformationInvalidException("The organization/module/content-type is invalid");
 
@@ -1243,6 +1248,8 @@ namespace net.vieapps.Services.Portals
 				await thumbnailsTask.ConfigureAwait(false);
 				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
 				metaTags = new[] { $"<meta property=\"og:type\" content=\"{options.Get("Og:Type", "article")}\"/>" }.ToJArray();
+				ogURL = @object.GetURL(desktop);
+				ogTitle = @object.Title;
 				seoTitle = @object.Title;
 				seoDescription = @object.Summary;
 				seoKeywords = @object.Tags;
@@ -1254,7 +1261,9 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "Title", seoTitle },
 				{ "Description", string.IsNullOrWhiteSpace(seoDescription) || seoDescription.IsStartsWith("~~/") || seoDescription.IsStartsWith("http://") || seoDescription.IsStartsWith("https://") ? null : seoDescription },
-				{ "Keywords", seoKeywords }
+				{ "Keywords", seoKeywords },
+				{ "Og:URL", ogURL },
+				{ "Og:Title", ogTitle },
 			};
 
 			// response

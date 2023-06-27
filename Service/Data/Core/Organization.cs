@@ -14,6 +14,11 @@ using Newtonsoft.Json.Converters;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
+using DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing;
+using static System.Runtime.InteropServices.JavaScript.JSType;
+using System.Text.RegularExpressions;
+
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -358,17 +363,60 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		List<Tuple<string, string>> _redirectAddresses;
+		List<Tuple<string, string, string>> _redirectAddresses;
 
 		void PrepareRedirectAddresses()
 			=> this._redirectAddresses = this.RedirectUrls?.Addresses?.Select(address =>
 			{
 				var addresses = address.ToArray('|');
-				return addresses.Length > 1 ? new Tuple<string, string>(addresses[0], addresses[1]) : null;
+				return addresses.Length > 1 ? new Tuple<string, string, string>(addresses[0], addresses[1], addresses.Length > 2 ? Int32.TryParse(addresses[2], out var code) ? code.ToString() : "302" : "302") : null;
 			}).Where(addresses => addresses != null).ToList();
 
-		internal string GetRedirectURL(string requestedURL)
-			=> string.IsNullOrWhiteSpace(requestedURL) ? null : this._redirectAddresses?.FirstOrDefault(addresses => requestedURL.IsStartsWith(addresses.Item1))?.Item2;
+		internal string GetRedirectURL(string requestedURL, out int redirectCode)
+		{
+			redirectCode = 302;
+			if (!string.IsNullOrWhiteSpace(requestedURL))
+			{
+				var url = this._redirectAddresses?.FirstOrDefault(addresses => requestedURL.IsStartsWith(addresses.Item1))?.Item2;
+				if (url != null)
+					redirectCode = this._redirectAddresses.FirstOrDefault(addresses => requestedURL.IsStartsWith(addresses.Item1)).Item3.As<int>();
+				else
+				{
+					var regexAddresses = this._redirectAddresses?.Where(addresses => addresses.Item1.IsStartsWith("@regex")).ToList() ?? new List<Tuple<string, string, string>>();
+					var regexIndex = 0;
+					while (regexIndex < regexAddresses.Count)
+					{
+						var addresses = regexAddresses[regexIndex];
+						var regex = addresses.Item1.IsStartsWith("@regex(") && addresses.Item1.IsEndsWith(")")
+							? addresses.Item1.Left(addresses.Item1.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, "@regex(", "")
+							: addresses.Item1.Replace(StringComparison.OrdinalIgnoreCase, "@regex:", "");
+						var match = new Regex(regex, RegexOptions.IgnoreCase).Match(requestedURL);
+						if (match.Success)
+						{
+							var isRegEx = addresses.Item2.IsStartsWith("@regex");
+							var redirectURL = isRegEx
+								? addresses.Item2.IsStartsWith("@regex(") && addresses.Item2.IsEndsWith(")")
+									? addresses.Item2.Left(addresses.Item2.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, "@regex(", "")
+									: addresses.Item2.Replace(StringComparison.OrdinalIgnoreCase, "@regex:", "")
+								:addresses.Item2;
+							if (isRegEx)
+							{
+								var matchIndex = 1;
+								while (matchIndex < match.Groups.Count)
+								{
+									redirectURL = redirectURL.Replace($"${matchIndex}", match.Groups[matchIndex].Value);
+									matchIndex++;
+								}
+							}
+							redirectCode = addresses.Item3.As<int>();
+							return redirectURL;
+						}
+						regexIndex++;
+					}
+				}
+			}
+			return null;
+		}
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public bool IsHasJavascriptLibraries => (this.Socials != null && this.Socials.Any()) || (this.Trackings != null && this.Trackings.Any()) || !string.IsNullOrWhiteSpace(this.ScriptLibraries);
@@ -389,9 +437,9 @@ namespace net.vieapps.Services.Portals
 				if (this.Trackings != null && this.Trackings.Any())
 				{
 					if (this.Trackings.TryGetValue("GoogleAnalytics", out var googleAnalytics) && !string.IsNullOrWhiteSpace(googleAnalytics))
-						scripts += "<script src=\"https://www.googletagmanager.com/gtag/js?id=" + googleAnalytics.ToArray(";", true).First() + "\" async></script>";
+						scripts += "<script src=\"https://www.googletagmanager.com/gtag/js?id=" + googleAnalytics.ToArray(";", true).First() + "\" async defer></script>";
 					if (this.Trackings.TryGetValue("FacebookPixel", out var facebookPixels) && !string.IsNullOrWhiteSpace(facebookPixels))
-						scripts += $"<script src=\"https://connect.facebook.net/en_US/fbevents.js\" async></script>";
+						scripts += $"<script src=\"https://connect.facebook.net/en_US/fbevents.js\" async defer></script>";
 				}
 				return scripts + (string.IsNullOrWhiteSpace(this.ScriptLibraries) ? "" : this.ScriptLibraries);
 			}

@@ -18,6 +18,7 @@
 		<AssemblyVersion>10.7$(ReleaseVersion)</AssemblyVersion>
 		<FileVersion>10.7$(ReleaseVersion)</FileVersion>
 		<InformationalVersion>10.7.$([System.DateTime]::Now.Year).$([System.DateTime]::Now.Month).$([System.DateTime]::Now.Day)@$(TargetFramework)#$(ReleaseRevision)</InformationalVersion>
+		<RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -29,7 +30,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.7.2212.4" />
+		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.7.2306.1" />
 	</ItemGroup>
 
 </Project>

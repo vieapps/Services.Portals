@@ -427,7 +427,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> SearchOrganizationsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// check permissions
-			if (!isSystemAdministrator)
+			var asFetch = requestInfo.Query.TryGetValue("x-fetch", out var asxFetch) && ("vieapps-ngx".IsEquals(asxFetch) || "ngx-apps".IsEquals(asxFetch));
+			if (!isSystemAdministrator && !asFetch)
 				throw new AccessDeniedException();
 
 			// prepare
@@ -442,7 +443,8 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = pagination.Item4;
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
+			var cacheKey = Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber);
+			var json = string.IsNullOrWhiteSpace(query) && !asFetch ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 			if (!string.IsNullOrWhiteSpace(json))
 				return JObject.Parse(json);
 
@@ -471,12 +473,19 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
+				{ "Objects", asFetch
+					? objects.Select(@object => new JObject
+					{
+						{ "ID", @object.ID },
+						{ "Alias", @object.Alias },
+						{ "Title", @object.Title }
+					}).ToJArray()
+					: objects.ToJsonArray() }
 			};
 
 			// update cache
-			if (string.IsNullOrWhiteSpace(query))
-				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
+			if (string.IsNullOrWhiteSpace(query) && !asFetch)
+				await Utility.Cache.SetAsync(cacheKey, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -557,9 +566,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// get the organization
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
-			var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cancellationToken) : identity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationNotFoundException();
+			var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cancellationToken) : identity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 
 			// check permission
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization);

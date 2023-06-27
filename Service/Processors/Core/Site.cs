@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, Site> SitesByDomain { get; } = new ConcurrentDictionary<string, Site>(StringComparer.OrdinalIgnoreCase);
 
-		internal static HashSet<string> ExtraProperties { get; } = "AlwaysUseHTTPs,AlwaysReturnHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,UseInlineStylesheets,UseInlineScripts,SEOInfo".ToHashSet();
+		internal static HashSet<string> ExtraProperties { get; } = "AlwaysUseHTTPs,AlwaysReturnHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,UseInlineStylesheets,UseInlineScripts,CanonicalHost,SEOInfo".ToHashSet();
 
 		public static Site CreateSite(this ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
 			=> Site.CreateInstance(data, excluded?.ToHashSet(), site =>

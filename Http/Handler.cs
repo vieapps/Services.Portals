@@ -481,11 +481,11 @@ namespace net.vieapps.Services.Portals
 						requestSegments = Array.Empty<string>();
 					}
 
-					// HTTP indicator
-					else if (firstPathSegment.IsEndsWith(".txt"))
+					// HTTP indicator/validator
+					else if (firstPathSegment.IsEndsWith(".txt") || firstPathSegment.IsEndsWith(".xml") || firstPathSegment.IsEndsWith(".json"))
 					{
 						systemIdentity = "~indicators";
-						query["x-indicator"] = firstPathSegment.Replace(StringComparison.OrdinalIgnoreCase, ".txt", "").ToLower();
+						query["x-indicator"] = firstPathSegment.ToLower();
 						requestSegments = Array.Empty<string>();
 					}
 				}
@@ -693,6 +693,7 @@ namespace net.vieapps.Services.Portals
 						var baseURL = "";
 						var rootURL = "/";
 						var alwaysUseHTTPs = false;
+						var alwaysReturnHTTPs = false;
 						var redirectToNoneWWW = false;
 						var filesHttpURI = systemIdentityJson?.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
 						while (filesHttpURI.EndsWith("/"))
@@ -766,6 +767,7 @@ namespace net.vieapps.Services.Portals
 							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
 
 							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
+							alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
 							redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
 
 							var desktopAlias = queryString["x-desktop"].ToLower();
@@ -861,6 +863,11 @@ namespace net.vieapps.Services.Portals
 									});
 									if (!string.IsNullOrWhiteSpace(baseURL))
 										cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " src=\"//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" srcset=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " srcset=\"//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " href=\"//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $"url({(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", "url(//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"canonical\" href=\"//", $"<link rel=\"canonical\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://");
 								}
 
 								await context.WriteAsync(contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") ? cached.Base64ToBytes() : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL).ToBytes(), cts.Token).ConfigureAwait(false);

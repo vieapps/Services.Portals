@@ -116,6 +116,10 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, BsonIgnore]
 		[FormControl(Segment = "seo", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
+		public string CanonicalHost { get; set; }
+
+		[Ignore, BsonIgnore]
+		[FormControl(Segment = "seo", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public Settings.SEOInfo SEOInfo { get; set; }
 
 		JObject _json;
@@ -215,6 +219,7 @@ namespace net.vieapps.Services.Portals
 			this.Stylesheets = string.IsNullOrWhiteSpace(this.Stylesheets) ? null : this.Stylesheets.Trim();
 			this.ScriptLibraries = string.IsNullOrWhiteSpace(this.ScriptLibraries) ? null : this.ScriptLibraries.Trim();
 			this.Scripts = string.IsNullOrWhiteSpace(this.Scripts) ? null : this.Scripts.Trim();
+			this.CanonicalHost = string.IsNullOrWhiteSpace(this.CanonicalHost) ? null : this.CanonicalHost.Trim();
 			this.SEOInfo = this.SEOInfo?.Normalize();
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			SiteProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
@@ -237,7 +242,7 @@ namespace net.vieapps.Services.Portals
 				this.Scripts = this._json["Scripts"]?.As<string>();
 				this.RedirectToNoneWWW = this._json["RedirectToNoneWWW"] != null && this._json["RedirectToNoneWWW"].As<bool>();
 				this.UseInlineStylesheets = this._json["UseInlineStylesheets"] != null && this._json["UseInlineStylesheets"].As<bool>();
-				this.UseInlineScripts = this._json["UseInlineScripts"] != null && this._json["UseInlineScripts"].As<bool>();
+				this.CanonicalHost = this._json["CanonicalHost"]?.As<string>();
 				this.SEOInfo = this._json["SEOInfo"]?.As<Settings.SEOInfo>();
 			}
 			else if (SiteProcessor.ExtraProperties.Contains(name))

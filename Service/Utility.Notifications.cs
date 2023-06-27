@@ -61,7 +61,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="status"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		public static async Task SendNotificationAsync(this RequestInfo requestInfo, IPortalObject @object, string @event, Settings.Notifications notificationSettings, ApprovalStatus previousStatus, ApprovalStatus status, CancellationToken cancellationToken = default)
+		public static async Task SendNotificationAsync(this RequestInfo requestInfo, IPortalObject @object, string @event, Settings.Notifications notificationSettings, ApprovalStatus previousStatus, ApprovalStatus status, CancellationToken cancellationToken = default, bool sendAppNotifications = true, bool sendEmailNotifications = true, bool sendWebHookNotifications = true)
 		{
 			// check
 			if (@object == null)
@@ -136,111 +136,92 @@ namespace net.vieapps.Services.Portals
 			var siteDomain = site?.Host;
 			var siteURL = $"{site?.GetURL()}/";
 
-			// prepare notification settings
-			var sendEmailNotifications = gotEvent && methods?.FirstOrDefault(method => method.IsEquals("Email")) != null;
+			// prepare notification settings			
+			sendEmailNotifications = sendEmailNotifications && gotEvent && methods?.FirstOrDefault(method => method.IsEquals("Email")) != null;
+			sendWebHookNotifications = sendWebHookNotifications && gotEvent && methods?.FirstOrDefault(method => method.IsEquals("WebHook")) != null && webhooks != null && webhooks.EndpointURLs != null && webhooks.EndpointURLs.Any();
 			var emailNotifications = sendEmailNotifications && emailsByApprovalStatus != null && emailsByApprovalStatus.TryGetValue($"{status}", out var emailNotificationsByApprovalStatus) ? emailNotificationsByApprovalStatus : emails;
-			var sendWebHookNotifications = gotEvent && methods?.FirstOrDefault(method => method.IsEquals("WebHook")) != null && webhooks != null && webhooks.EndpointURLs != null && webhooks.EndpointURLs.Any();
 			if (writeDebugLogs)
-				await requestInfo.WriteLogAsync($"Prepare to send notification ({@object?.Title} [{@object?.GetType()}#{@object?.ID}]) => App: True - Email: {sendEmailNotifications || emailsWhenPublish != null} - WebHook: {sendWebHookNotifications || gotContentTypeWebHooks}", "Notifications").ConfigureAwait(false);
+				await requestInfo.WriteLogAsync($"Prepare to send notification ({@object?.Title} [{@object?.GetType()}#{@object?.ID}]) => App: {sendAppNotifications} - Email: {sendEmailNotifications || emailsWhenPublish != null} - WebHook: {sendWebHookNotifications || gotContentTypeWebHooks}", "Notifications").ConfigureAwait(false);
 
 			// prepare sender & recipients
 			var sender = @object is Form form
 				? new JObject
 					{
+						{ "ID", "" },
 						{ "Name", form.Name },
 						{ "Email", form.Email }
 					}
-				: (await requestInfo.GetUserProfilesAsync(new[] { requestInfo.Session.User.ID }, cancellationToken).ConfigureAwait(false) as JArray)?.FirstOrDefault();
+				: (await requestInfo.GetUserProfilesAsync(new[] { requestInfo.Session.User.ID }, false, cancellationToken).ConfigureAwait(false) as JArray)?.FirstOrDefault();
 
 			var recipientIDs = new List<string>();
-			if (sendEmailNotifications)
-				switch (status)
-				{
-					case ApprovalStatus.Draft:
-					case ApprovalStatus.Rejected:
-						recipientIDs = @object is Form
-							? await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false)
-							: new[] { @object.CreatedID }.ToList();
-						break;
+			switch (status)
+			{
+				case ApprovalStatus.Draft:
+				case ApprovalStatus.Rejected:
+					recipientIDs = @object is Form
+						? await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false)
+						: new[] { @object.CreatedID }.ToList();
+					break;
 
-					case ApprovalStatus.Pending:
-						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false);
-						if (!recipientIDs.Any())
-							recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false);
-						if (!recipientIDs.Any())
-							recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
-						if (!recipientIDs.Any())
-							recipientIDs = new[] { organization.OwnerID }.ToList();
-						break;
-
-					case ApprovalStatus.Approved:
+				case ApprovalStatus.Pending:
+					recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false);
+					if (!recipientIDs.Any())
 						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false);
-						if (!recipientIDs.Any())
-							recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
-						if (!recipientIDs.Any())
-							recipientIDs = new[] { organization.OwnerID }.ToList();
-						break;
+					if (!recipientIDs.Any())
+						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
+					if (!recipientIDs.Any())
+						recipientIDs = new[] { organization.OwnerID }.ToList();
+					break;
 
-					case ApprovalStatus.Published:
-						recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
-							.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
-							.Concat(new[] { @object.CreatedID }).ToList();
-						if (!recipientIDs.Any())
-							recipientIDs = new[] { organization.OwnerID }.ToList();
-						break;
+				case ApprovalStatus.Approved:
+					recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false);
+					if (!recipientIDs.Any())
+						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
+					if (!recipientIDs.Any())
+						recipientIDs = new[] { organization.OwnerID }.ToList();
+					break;
 
-					case ApprovalStatus.Archieved:
-						recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
-							.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
-							.Concat(new[] { @object.CreatedID, @object.LastModifiedID }).ToList();
-						if (!recipientIDs.Any())
-							recipientIDs = new[] { organization.OwnerID }.ToList();
-						break;
-				}
+				case ApprovalStatus.Published:
+					recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
+						.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
+						.Concat(new[] { @object.CreatedID }).ToList();
+					if (!recipientIDs.Any())
+						recipientIDs = new[] { organization.OwnerID }.ToList();
+					break;
 
+				case ApprovalStatus.Archieved:
+					recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
+						.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
+						.Concat(new[] { @object.CreatedID, @object.LastModifiedID }).ToList();
+					if (!recipientIDs.Any())
+						recipientIDs = new[] { organization.OwnerID }.ToList();
+					break;
+			}
 			recipientIDs = recipientIDs.Except(new[] { requestInfo.Session.User.ID }).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			var recipients = recipientIDs.Any() ? await requestInfo.GetUserProfilesAsync(recipientIDs, cancellationToken).ConfigureAwait(false) as JArray : new JArray();
 
 			// send app notifications
-			try
-			{
-				var baseMessage = new BaseMessage
+			if (sendAppNotifications)
+				try
 				{
-					Type = $"Portals#Notification#{@event}",
-					Data = new JObject
+					var info = new JObject
 					{
+						{ "SystemID", @object.OrganizationID },
+						{ "RepositoryID", businessObject?.RepositoryID },
+						{ "RepositoryEntityID", businessObject?.RepositoryEntityID },
+						{ "ObjectID", @object.ID },
+						{ "Title", @object.Title },
 						{ "Action", @event },
-						{ "Sender", new JObject
-							{
-								{ "ID", requestInfo.Session.User.ID },
-								{ "Name", sender?.Get<string>("Name") ?? "Unknown" }
-							}
-						},
-						{ "Info", new JObject
-							{
-								{ "ServiceName", serviceName },
-								{ "ObjectName", objectName },
-								{ "SystemID", @object.OrganizationID },
-								{ "ObjectID", @object.ID },
-								{ "ObjectTitle", @object.Title },
-								{ "Status", $"{status}" },
-								{ "PreviousStatus", $"{previousStatus}" },
-								{ "Time", DateTime.Now },
-							}
-						}
-					}
-				};
-				recipients.Select(recipient => recipient.Get<JArray>("Sessions"))
-					.Where(sessions => sessions != null)
-					.SelectMany(sessions => sessions.Select(session => session.Get<string>("DeviceID")))
-					.ForEach(deviceID => new UpdateMessage(baseMessage) { DeviceID = deviceID }.Send());
-				if (writeDebugLogs)
-					await requestInfo.WriteLogAsync($"Send app notifications successful\r\n{baseMessage.ToJson()}", "Notifications").ConfigureAwait(false);
-			}
-			catch (Exception exception)
-			{
-				await requestInfo.WriteErrorAsync(exception, $"Error occurred while sending app notifications ({@object?.Title} [{@object?.GetType()}#{@object?.ID}])", "Notifications").ConfigureAwait(false);
-			}
+						{ "Status", $"{status}" },
+						{ "PreviousStatus", $"{previousStatus}" }
+					};
+					await requestInfo.SendNotificationAsync(sender?.Get<string>("ID") ?? "", sender?.Get<string>("Name") ?? "Unknown", recipientIDs, info, cancellationToken).ConfigureAwait(false);
+					if (writeDebugLogs)
+						await requestInfo.WriteLogAsync($"Send app notifications successful\r\n{info}", "Notifications").ConfigureAwait(false);
+				}
+				catch (Exception exception)
+				{
+					await requestInfo.WriteErrorAsync(exception, $"Error occurred while sending app notifications ({@object?.Title} [{@object?.GetType()}#{@object?.ID}])", "Notifications").ConfigureAwait(false);
+				}
 
 			// send email notifications
 			if (sendEmailNotifications || emailsWhenPublish != null)
@@ -312,7 +293,7 @@ namespace net.vieapps.Services.Portals
 					{
 						new[] { "Privileges", "OriginalPrivileges" }.Concat(CategoryProcessor.ExtraProperties).ForEach(name => json.Remove(name));
 						json["URL"] = $"{category.GetURL()}{(alwaysUseHtmlSuffix ? ".html" : "")}".GetWebURL(siteURL);
-					}).ToExpandoObject();
+					});
 
 				// normalize parameters for evaluating
 				var language = requestInfo.CultureCode ?? "vi-VN";
@@ -331,7 +312,7 @@ namespace net.vieapps.Services.Portals
 					{ "EmailSignature", emailSettings?.Signature?.NormalizeHTMLBreaks() }
 				};
 
-				var objectAsExpandoObject = @object.ToExpandoObject();
+				var objectAsExpandoObject = (@object as RepositoryBase).ToJson(json => json.Remove("Privileges")).ToExpandoObject();
 				var requestInfoAsExpandoObject = requestInfo.AsExpandoObject;
 				var paramsAsExpandoObject = @params.ToExpandoObject();
 
@@ -366,6 +347,7 @@ namespace net.vieapps.Services.Portals
 							</ul>
 							{{@params(EmailSignature)}}";
 
+						var recipients = recipientIDs.Any() ? await requestInfo.GetUserProfilesAsync(recipientIDs, false, cancellationToken).ConfigureAwait(false) as JArray ?? new JArray() : new JArray();
 						var parameters = $"{subject}\r\n{body}".PrepareDoubleBracesParameters(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject);
 						var message = new EmailMessage
 						{
