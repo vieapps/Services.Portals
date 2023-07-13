@@ -247,7 +247,7 @@ namespace net.vieapps.Services.Portals
 				filter = ContentProcessor.GetContentsFilter(organization.ID, module.ID, contentType.ID, category?.ID);
 			if (!requestInfo.Session.User.IsAuthenticated)
 			{
-				if (!(filter.GetChild("Status") is FilterBy<Content> filterByStatus))
+				if (filter.GetChild("Status") is not FilterBy<Content> filterByStatus)
 					(filter as FilterBys<Content>).Add(Filters<Content>.Equals("Status", ApprovalStatus.Published.ToString()));
 				else if (filterByStatus.Value == null || !(filterByStatus.Value as string).IsEquals(ApprovalStatus.Published.ToString()))
 					filterByStatus.Value = ApprovalStatus.Published.ToString();
@@ -534,7 +534,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateAsync(this Content content, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken)
+		internal static async Task<JObject> UpdateAsync(this Content content, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken, string @event = null)
 		{
 			if (content.Status.Equals(ApprovalStatus.Published) && content.PublishedTime == null)
 				content.PublishedTime = DateTime.Now;
@@ -547,7 +547,7 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
-				content.SendNotificationAsync("Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken),
+				content.SendNotificationAsync(@event ?? "Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken)
 			).Run();
 

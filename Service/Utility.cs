@@ -186,6 +186,21 @@ namespace net.vieapps.Services.Portals
 		public static string GetObjectName(this ContentTypeDefinition definition)
 			=> definition.EntityDefinition?.GetObjectName();
 
+		/// <summary>
+		/// Gets a business object
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="objectID"></param>
+		/// <param name="entityInfo"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static async Task<T> GetBusinessObjectAsync<T>(this string objectID, string entityInfo = null, CancellationToken cancellationToken = default) where T : class
+		{
+			if (!string.IsNullOrWhiteSpace(entityInfo) && entityInfo.IsValidUUID())
+				await entityInfo.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+			return await RepositoryMediator.GetAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false) as T;
+		}
+
 		static FileExtensionContentTypeProvider MimeTypeProvider { get; } = new FileExtensionContentTypeProvider();
 
 		/// <summary>

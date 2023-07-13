@@ -324,7 +324,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception exception)
 					{
-						await requestInfo.WriteErrorAsync(exception, "Error occurred while fetching instructions", "Notifications").ConfigureAwait(false);
+						await requestInfo.WriteErrorAsync(exception, "Error occurred while fetching email instructions", "Emails").ConfigureAwait(false);
 					}
 
 				// send a normal email message (when the status was changed)
@@ -375,11 +375,11 @@ namespace net.vieapps.Services.Portals
 							$"- Subject: {message.Subject}";
 						if (writeDebugLogs)
 							log += $"\r\n- Message: {message.ToJson()}";
-						await requestInfo.WriteLogAsync(log, "Notifications").ConfigureAwait(false);
+						await requestInfo.WriteLogAsync(log, "Emails").ConfigureAwait(false);
 					}
 					catch (Exception exception)
 					{
-						await requestInfo.WriteErrorAsync(exception, $"Error occurred while adding an email notification into queue ({@object?.Title} [{@object?.GetType()}#{@object?.ID}])", "Notifications").ConfigureAwait(false);
+						await requestInfo.WriteErrorAsync(exception, $"Error occurred while adding an email notification into queue ({@object?.Title} [{@object?.GetType()}#{@object?.ID}])", "Emails").ConfigureAwait(false);
 					}
 
 				// send a special email message (when publish)
@@ -429,11 +429,11 @@ namespace net.vieapps.Services.Portals
 							$"- Subject: {message.Subject}";
 						if (writeDebugLogs)
 							log += $"\r\n- Message: {message.ToJson()}";
-						await requestInfo.WriteLogAsync(log, "Notifications").ConfigureAwait(false);
+						await requestInfo.WriteLogAsync(log, "Emails").ConfigureAwait(false);
 					}
 					catch (Exception exception)
 					{
-						await requestInfo.WriteErrorAsync(exception, $"Error occurred while adding an email notification (notify when publish) into queue ({@object?.Title} [{@object?.GetType()}#{@object?.ID}])", "Notifications").ConfigureAwait(false);
+						await requestInfo.WriteErrorAsync(exception, $"Error occurred while adding an email notification (notify when publish) into queue ({@object?.Title} [{@object?.GetType()}#{@object?.ID}])", "Emails").ConfigureAwait(false);
 					}
 			}
 
@@ -509,19 +509,25 @@ namespace net.vieapps.Services.Portals
 						{
 							message.ID = message.Header["X-Original-Message-ID"] = UtilityService.NewUUID;
 							message.EndpointURL = endpointURL;
-							await Utility.MessagingService.SendWebHookAsync(message, cancellationToken).ConfigureAwait(false);
-							var log = "Add a web-hook notification into queue successful" + "\r\n" +
+							var sendAsCall = endpointURL.IsStartsWith($"{Utility.APIsHttpURI}/webhooks/{Utility.ServiceName}");
+							var log = (sendAsCall ? "Call the service to process a web-hook message" : "Add a web-hook notification into queue successful") + "\r\n" +
 								$"- ID: {message.ID}" + "\r\n" +
 								$"- Object: {@object.Title} [{@object.GetType()}#{@object.ID}]" + "\r\n" +
 								$"- Event: {@event}" + "\r\n" +
 								$"- Status: {status} (previous: {previousStatus})" + "\r\n" +
 								$"- Endpoint URL: {message.EndpointURL}" + (writeDebugLogs ? $"\r\n- Message: {message.ToJson()}" : "");
-							await requestInfo.WriteLogAsync(log, "Notifications").ConfigureAwait(false);
+							await Task.WhenAll
+							(
+								sendAsCall ? Task.CompletedTask : Utility.MessagingService.SendWebHookAsync(message, cancellationToken),
+								requestInfo.WriteLogAsync(log, "WebHooks")
+							).ConfigureAwait(false);
+							if (sendAsCall)
+								message.SendAsCallServiceAsync(cancellationToken).Run(ex => requestInfo.WriteErrorAsync(ex, $"Error occurred while calling the service to process a web-hook notification message [{@endpointURL}]", "WebHooks").Run());
 						}, true, false).ConfigureAwait(false);
 					}
 					catch (Exception exception)
 					{
-						await requestInfo.WriteErrorAsync(exception, $"Error occurred while adding a web-hook notification into queue ({@object?.Title} [{@object?.GetType()}#{@object?.ID}] - {webhookNotification?.EndpointURLs?.Join(" :: ") ?? "NULL"})", "Notifications").ConfigureAwait(false);
+						await requestInfo.WriteErrorAsync(exception, $"Error occurred while processing a web-hook notification ({@object?.Title} [{@object?.GetType()}#{@object?.ID}] - {webhookNotification?.EndpointURLs?.Join(" :: ") ?? "NULL"})", "WebHooks").ConfigureAwait(false);
 					}
 				}, true, false).ConfigureAwait(false);
 			}

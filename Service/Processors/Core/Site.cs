@@ -509,7 +509,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateAsync(this Site site, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken, IEnumerable<string> oldDomains = null)
+		internal static async Task<JObject> UpdateAsync(this Site site, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken, IEnumerable<string> oldDomains = null, string @event = null)
 		{
 			// update
 			await Site.UpdateAsync(site.Set(true, false, oldDomains), requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
@@ -538,7 +538,7 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				site.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false),
-				site.SendNotificationAsync("Update", site.Organization.Notifications, oldStatus, site.Status, requestInfo, Utility.CancellationToken)
+				site.SendNotificationAsync(@event ?? "Update", site.Organization.Notifications, oldStatus, site.Status, requestInfo, Utility.CancellationToken)
 			).Run();
 
 			// response

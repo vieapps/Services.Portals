@@ -403,7 +403,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateAsync(this Item item, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken)
+		internal static async Task<JObject> UpdateAsync(this Item item, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken, string @event = null)
 		{
 			// update
 			await Item.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
@@ -425,7 +425,7 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				item.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
-				item.SendNotificationAsync("Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, cancellationToken),
+				item.SendNotificationAsync(@event ?? "Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, cancellationToken),
 				Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), cancellationToken)
 			).Run();
 

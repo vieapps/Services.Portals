@@ -617,6 +617,12 @@ namespace net.vieapps.Services.Portals
 						json = await this.ApproveAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
 
+					case "notification":
+					case "resendnotification":
+					case "resend-notification":
+						json = await this.ResendNotificationAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
+
 					case "move":
 						json = await this.MoveAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
@@ -677,7 +683,7 @@ namespace net.vieapps.Services.Portals
 		{
 			var correlationID = UtilityService.NewUUID;
 			Utility.Languages.Clear();
-			await UtilityService.GetAppSetting("Portals:Languages", "vi-VN|en-US").ToList("|", true).ForEachAsync(async language => await new[] { "common", "notifications", "portals", "portals.cms", "users" }.ForEachAsync(async module =>
+			await UtilityService.GetAppSetting("Portals:Languages", "vi-VN|en-US").ToList("|", true).ForEachAsync(async language => await new[] { "common", "portals", "portals.cms", "users" }.ForEachAsync(async module =>
 			{
 				if (!Utility.Languages.TryGetValue(language, out var languages))
 				{
@@ -4870,6 +4876,8 @@ namespace net.vieapps.Services.Portals
 					bodyJson["RepositoryID"] = contentType.RepositoryID;
 					bodyJson["RepositoryEntityID"] = contentType.ID;
 				}
+				if (settings.GenerateIdentity && bodyJson.Get<string>("ID") is string id && !string.IsNullOrWhiteSpace(id))
+					bodyJson["ID"] = $"{organization.ID}:{id}".GenerateUUID();
 				var requestInfoJson = requestInfo.AsJson;
 				var paramsJson = new JObject
 				{
@@ -4877,18 +4885,9 @@ namespace net.vieapps.Services.Portals
 					["Module"] = contentType?.Module?.ToJson(json => new[] { "Privileges", "OriginalPrivileges" }.Concat(ModuleProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
 					["ContentType"] = contentType?.ToJson(json => new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name)))
 				};
-				if (string.IsNullOrWhiteSpace(settings.PrepareBodyScript))
-				{
-					if (settings.GenerateIdentity && bodyJson.Get<string>("ID") is string id && !string.IsNullOrWhiteSpace(id))
-						bodyJson["ID"] = id.GenerateUUID();
-					requestInfo.Body = bodyJson.ToString(Newtonsoft.Json.Formatting.None);
-				}
-				else
-				{
-					if (settings.GenerateIdentity && bodyJson.Get<string>("ID") is string id && !string.IsNullOrWhiteSpace(id))
-						bodyJson["ID"] = id.GenerateUUID();
-					requestInfo.Body = settings.PrepareBodyScript.JsEvaluate(bodyJson, requestInfoJson, paramsJson)?.ToString() ?? bodyJson.ToString(Newtonsoft.Json.Formatting.None);
-				}
+				requestInfo.Body = string.IsNullOrWhiteSpace(settings.PrepareBodyScript)
+					? bodyJson.ToString(Newtonsoft.Json.Formatting.None)
+					: settings.PrepareBodyScript.JsEvaluate(bodyJson, requestInfoJson, paramsJson)?.ToString() ?? bodyJson.ToString(Newtonsoft.Json.Formatting.None);
 				var doubleBracesTokens = requestInfo.Body.GetDoubleBracesTokens();
 				if (doubleBracesTokens.Any())
 					requestInfo.Body = requestInfo.Body.Format(doubleBracesTokens.PrepareDoubleBracesParameters(bodyJson.ToExpandoObject(), requestInfoJson.ToExpandoObject(), paramsJson.ToExpandoObject()));
@@ -4896,7 +4895,7 @@ namespace net.vieapps.Services.Portals
 				// sync with the message
 				var result = await this.SyncObjectAsync(requestInfo, cts.Token).ConfigureAwait(false);
 				stopwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process a web-hook message successful - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled ? $"\r\nMessage: {requestInfo.ToString(this.JsonFormat)}\r\nResult: {result.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "WebHooks").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process a web-hook message successful - ID: {message.ID} - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled ? $"\r\nMessage: {requestInfo.ToString(this.JsonFormat)}\r\nResult: {result.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "WebHooks").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -5147,9 +5146,7 @@ namespace net.vieapps.Services.Portals
 			if (!Enum.TryParse<ApprovalStatus>(requestInfo.GetParameter("Status") ?? requestInfo.GetParameter("x-status"), out var approvalStatus))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
-			var entityInfo = requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity");
-			if (!(await this.GetBusinessObjectAsync(entityInfo, requestInfo.GetObjectIdentity(true), cancellationToken).ConfigureAwait(false) is IPortalObject @object))
-				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+			var @object = await requestInfo.GetObjectIdentity(true).GetBusinessObjectAsync<IPortalObject>(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity"), cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
 			var organization = @object is Organization
 				? @object as Organization
@@ -5247,12 +5244,13 @@ namespace net.vieapps.Services.Portals
 				return json;
 
 			// do the approval process
+			var @event = Components.Security.Action.Approve.ToString();
 			if (@object is Organization)
 			{
 				organization.Status = approvalStatus;
 				organization.LastModified = DateTime.Now;
 				organization.LastModifiedID = requestInfo.Session.User.ID;
-				json = await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+				json = await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken, false, null, @event).ConfigureAwait(false);
 			}
 
 			else if (site != null)
@@ -5260,7 +5258,7 @@ namespace net.vieapps.Services.Portals
 				site.Status = approvalStatus;
 				site.LastModified = DateTime.Now;
 				site.LastModifiedID = requestInfo.Session.User.ID;
-				json = await site.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+				json = await site.UpdateAsync(requestInfo, oldStatus, cancellationToken, null, @event).ConfigureAwait(false);
 			}
 
 			else if (@object is Content content)
@@ -5268,7 +5266,7 @@ namespace net.vieapps.Services.Portals
 				content.Status = approvalStatus;
 				content.LastModified = DateTime.Now;
 				content.LastModifiedID = requestInfo.Session.User.ID;
-				json = await content.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+				json = await content.UpdateAsync(requestInfo, oldStatus, cancellationToken, @event).ConfigureAwait(false);
 			}
 
 			else if (@object is Item item)
@@ -5276,7 +5274,7 @@ namespace net.vieapps.Services.Portals
 				item.Status = approvalStatus;
 				item.LastModified = DateTime.Now;
 				item.LastModifiedID = requestInfo.Session.User.ID;
-				json = await item.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
+				json = await item.UpdateAsync(requestInfo, oldStatus, cancellationToken, @event).ConfigureAwait(false);
 			}
 
 			else if (@object is Link link)
@@ -5284,7 +5282,7 @@ namespace net.vieapps.Services.Portals
 				link.Status = approvalStatus;
 				link.LastModified = DateTime.Now;
 				link.LastModifiedID = requestInfo.Session.User.ID;
-				json = await link.UpdateAsync(requestInfo, oldStatus, null, cancellationToken).ConfigureAwait(false);
+				json = await link.UpdateAsync(requestInfo, oldStatus, null, cancellationToken, @event).ConfigureAwait(false);
 			}
 
 			else if (@object is Form form)
@@ -5296,6 +5294,31 @@ namespace net.vieapps.Services.Portals
 			}
 
 			return json;
+		}
+		#endregion
+
+		#region Resend notification of an CMS object
+		async Task<JToken> ResendNotificationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			if (!requestInfo.Verb.IsEquals("GET"))
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			var @object = await requestInfo.GetObjectIdentity(true).GetBusinessObjectAsync<IBusinessObject>(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity"), cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}#404]");
+			var organization = await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}#401]");
+			var contentType = @object.ContentType as ContentType;
+
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+			if (!gotRights)
+				gotRights = requestInfo.Session.User.IsEditor((@object as IPortalObject).WorkingPrivileges, contentType?.WorkingPrivileges, organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			if (@object is Item)
+				await requestInfo.SendNotificationAsync(@object, "Update", contentType?.Notifications, @object.Status, @object.Status, cancellationToken, "true".IsEquals(requestInfo.GetParameter("x-send-app-notifications")), "true".IsEquals(requestInfo.GetParameter("x-send-email-notifications")), "true".IsEquals(requestInfo.GetParameter("x-send-webhook-notifications"))).ConfigureAwait(false);
+			else if (@object is Content content)
+				await requestInfo.SendNotificationAsync(@object, "Update", content.Category?.Notifications, @object.Status, @object.Status, cancellationToken, "true".IsEquals(requestInfo.GetParameter("x-send-app-notifications")), "true".IsEquals(requestInfo.GetParameter("x-send-email-notifications")), "true".IsEquals(requestInfo.GetParameter("x-send-webhook-notifications"))).ConfigureAwait(false);
+
+			return new JObject();
 		}
 		#endregion
 

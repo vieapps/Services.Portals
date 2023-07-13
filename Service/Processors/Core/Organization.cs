@@ -599,7 +599,7 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> UpdateAsync(this Organization organization, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken, bool clearObjectsCache = false, string oldAlias = null)
+		internal static async Task<JObject> UpdateAsync(this Organization organization, RequestInfo requestInfo, ApprovalStatus oldStatus, CancellationToken cancellationToken, bool clearObjectsCache = false, string oldAlias = null, string @event = null)
 		{
 			// update
 			await Organization.UpdateAsync(organization, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
@@ -626,7 +626,7 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// send notification
-			await organization.SendNotificationAsync("Update", organization.Notifications, oldStatus, organization.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			await organization.SendNotificationAsync(@event ?? "Update", organization.Notifications, oldStatus, organization.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			// update scheduling tasks
 			organization.SendRefreshingTasks();

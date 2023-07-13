@@ -23,7 +23,7 @@
 
 	<ItemGroup>
 	  <PackageReference Include="Microsoft.AspNetCore.StaticFiles" Version="2.2.0" />
-	  <PackageReference Include="VIEApps.Components.Utility.Excel" Version="10.7.2306.1" />
+	  <PackageReference Include="VIEApps.Components.Utility.Excel" Version="10.7.2307.1" />
 	</ItemGroup>
 
 	<ItemGroup>

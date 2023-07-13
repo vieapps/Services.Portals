@@ -13,7 +13,6 @@ using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Crawlers;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -552,7 +551,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		internal static async Task<JObject> UpdateAsync(this Link link, RequestInfo requestInfo, ApprovalStatus oldStatus, string oldParentID, CancellationToken cancellationToken)
+		internal static async Task<JObject> UpdateAsync(this Link link, RequestInfo requestInfo, ApprovalStatus oldStatus, string oldParentID, CancellationToken cancellationToken, string @event = null)
 		{
 			// update
 			await Link.UpdateAsync(link, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
@@ -562,7 +561,7 @@ namespace net.vieapps.Services.Portals
 			(
 				link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
 				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken),
-				link.SendNotificationAsync("Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken)
+				link.SendNotificationAsync(@event ?? "Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken)
 			).Run();
 			link.Organization.SendRefreshingTasks();
 
