@@ -16,6 +16,8 @@ using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
+using System.Net.Mime;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -758,6 +760,57 @@ namespace net.vieapps.Services.Portals
 					return new List<string>();
 			}
 		}
+
+		internal static async Task<List<string>> GetRecipientsAsync(this IPortalObject @object, ApprovalStatus status, Organization organization = null, CancellationToken cancellationToken = default, IEnumerable<string> excluded = null)
+		{
+			organization = organization ?? await(@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+			var recipientIDs = new List<string>();
+			switch (status)
+			{
+				case ApprovalStatus.Draft:
+				case ApprovalStatus.Rejected:
+					recipientIDs = @object is Form
+						? await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false)
+						: new[] { @object.CreatedID }.ToList();
+					break;
+
+				case ApprovalStatus.Pending:
+					recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false);
+					if (!recipientIDs.Any())
+						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false);
+					if (!recipientIDs.Any())
+						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
+					if (!recipientIDs.Any())
+						recipientIDs = new[] { organization.OwnerID }.ToList();
+					break;
+
+				case ApprovalStatus.Approved:
+					recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false);
+					if (!recipientIDs.Any())
+						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
+					if (!recipientIDs.Any())
+						recipientIDs = new[] { organization.OwnerID }.ToList();
+					break;
+
+				case ApprovalStatus.Published:
+					recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
+						.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
+						.Concat(new[] { @object.CreatedID }).ToList();
+					if (!recipientIDs.Any())
+						recipientIDs = new[] { organization.OwnerID }.ToList();
+					break;
+
+				case ApprovalStatus.Archieved:
+					recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
+						.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
+						.Concat(new[] { @object.CreatedID, @object.LastModifiedID }).ToList();
+					if (!recipientIDs.Any())
+						recipientIDs = new[] { organization.OwnerID }.ToList();
+					break;
+			}
+			return (excluded != null && excluded.Any() ? recipientIDs.Except(excluded) : recipientIDs).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		}
+
 
 		internal static Task WriteLogsAsync(string developerID, string appID, string objectName, List<string> logs, Exception exception = null, string correlationID = null, string additional = null)
 		{

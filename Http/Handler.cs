@@ -480,14 +480,6 @@ namespace net.vieapps.Services.Portals
 						// no info
 						requestSegments = Array.Empty<string>();
 					}
-
-					// HTTP indicator/validator
-					else if (firstPathSegment.IsEndsWith(".txt") || firstPathSegment.IsEndsWith(".xml") || firstPathSegment.IsEndsWith(".json"))
-					{
-						systemIdentity = "~indicators";
-						query["x-indicator"] = firstPathSegment.ToLower();
-						requestSegments = Array.Empty<string>();
-					}
 				}
 
 				// normalize info of requests
@@ -529,6 +521,14 @@ namespace net.vieapps.Services.Portals
 					else if (Handler.Feeds.Contains(firstRequestSegment))
 					{
 						specialRequest = "feed";
+						requestSegments = Array.Empty<string>();
+					}
+
+					// indicators
+					else if (firstPathSegment.IsEndsWith(".txt") || firstPathSegment.IsEndsWith(".xml") || firstPathSegment.IsEndsWith(".json"))
+					{
+						systemIdentity = "~indicators";
+						query["x-indicator"] = firstPathSegment;
 						requestSegments = Array.Empty<string>();
 					}
 

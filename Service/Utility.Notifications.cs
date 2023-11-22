@@ -112,16 +112,17 @@ namespace net.vieapps.Services.Portals
 			}
 
 			var writeDebugLogs = requestInfo.IsWriteMessageLogs();
-			var businessObject = @object is IBusinessObject ? @object as IBusinessObject : null;
+			var searchingEvent = "Create|Update|Delete".IsContains(@event) ? @event : "Update";
+			var businessObject = @object is IBusinessObject bizObject ? bizObject : null;
 			var contentType = businessObject?.ContentType as ContentType;
-			var gotEvent = events != null && events.Any() && events.FirstOrDefault(evt => evt.IsEquals(@event)) != null;
+			var gotEvent = events != null && events.Any() && events.FirstOrDefault(evt => evt.IsEquals(searchingEvent)) != null;
 			var gotContentTypeWebHooks = contentType?.WebHookNotifications != null && contentType.WebHookNotifications.Where(webhookNotification => webhookNotification != null).Any();
 
 			// stop if has no event or web-hook
 			if (!gotEvent && !gotContentTypeWebHooks)
 			{
 				if (writeDebugLogs)
-					await requestInfo.WriteLogAsync($"Stop to send notification because no event/method was found ({@object?.Title} [{@object?.GetType()}#{@object?.ID}]) => {@event} ({events?.Join(", ")} / {methods?.Join(", ")})", "Notifications").ConfigureAwait(false);
+					await requestInfo.WriteLogAsync($"Stop to send notification because no suitable event/method was found ({@object?.Title} [{@object?.GetType()}#{@object?.ID}]) => {@event} ({events?.Join(", ")} / {methods?.Join(", ")})", "Notifications").ConfigureAwait(false);
 				return;
 			}
 
@@ -152,55 +153,10 @@ namespace net.vieapps.Services.Portals
 						{ "Email", form.Email }
 					}
 				: (await requestInfo.GetUserProfilesAsync(new[] { requestInfo.Session.User.ID }, false, cancellationToken).ConfigureAwait(false) as JArray)?.FirstOrDefault();
-
-			var recipientIDs = new List<string>();
-			switch (status)
-			{
-				case ApprovalStatus.Draft:
-				case ApprovalStatus.Rejected:
-					recipientIDs = @object is Form
-						? await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false)
-						: new[] { @object.CreatedID }.ToList();
-					break;
-
-				case ApprovalStatus.Pending:
-					recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false);
-					if (!recipientIDs.Any())
-						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false);
-					if (!recipientIDs.Any())
-						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
-					if (!recipientIDs.Any())
-						recipientIDs = new[] { organization.OwnerID }.ToList();
-					break;
-
-				case ApprovalStatus.Approved:
-					recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false);
-					if (!recipientIDs.Any())
-						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
-					if (!recipientIDs.Any())
-						recipientIDs = new[] { organization.OwnerID }.ToList();
-					break;
-
-				case ApprovalStatus.Published:
-					recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
-						.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
-						.Concat(new[] { @object.CreatedID }).ToList();
-					if (!recipientIDs.Any())
-						recipientIDs = new[] { organization.OwnerID }.ToList();
-					break;
-
-				case ApprovalStatus.Archieved:
-					recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
-						.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
-						.Concat(new[] { @object.CreatedID, @object.LastModifiedID }).ToList();
-					if (!recipientIDs.Any())
-						recipientIDs = new[] { organization.OwnerID }.ToList();
-					break;
-			}
-			recipientIDs = recipientIDs.Except(new[] { requestInfo.Session.User.ID }).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var recipientIDs = await @object.GetRecipientsAsync(status, organization, cancellationToken, new[] { requestInfo.Session.User.ID }).ConfigureAwait(false);
 
 			// send app notifications
-			if (sendAppNotifications)
+			if (sendAppNotifications && recipientIDs.Any())
 				try
 				{
 					var info = new JObject

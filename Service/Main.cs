@@ -2108,7 +2108,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception ex)
 					{
-						portletHtmls[portlet.ID] = new Tuple<string, bool, string>(this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, portlet.ID), true, null);
+						portletHtmls[portlet.ID] = new Tuple<string, bool, string>(this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.GetStack(false, requestInfo), requestInfo.CorrelationID, portlet.ID), true, null);
 					}
 				}, true, Utility.RunProcessorInParallelsMode);
 
@@ -2127,7 +2127,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					body = this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID, "Desktop ID");
+					body = this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.GetStack(false, requestInfo), requestInfo.CorrelationID, desktop.ID, "Desktop ID");
 					gotErrorOnGenerateDesktop = true;
 				}
 
@@ -2274,7 +2274,7 @@ namespace net.vieapps.Services.Portals
 				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
 
 				// canonical URL
-				var canonicalURL = site.GetURL(string.IsNullOrWhiteSpace(site.CanonicalHost) ? site.Host : site.CanonicalHost) + (mainPortlet?.Get<JObject>("SEOInfo")?.Get<string>("Og:URL").Replace("~/", "/") ?? requestURI.AbsolutePath);
+				var canonicalURL = site.GetURL(string.IsNullOrWhiteSpace(site.CanonicalHost) ? site.Host : site.CanonicalHost) + (mainPortlet?.Get<JObject>("SEOInfo")?.Get<string>("Og:URL")?.Replace("~/", "/") ?? requestURI.AbsolutePath.Replace($"/~{organization.Alias}", ""));
 				html = html.Insert(html.IndexOf("<link rel="), $"<link rel=\"canonical\" href=\"{canonicalURL}\"/>");
 				if (!html.IsContains("<meta property=\"og:url") && html.IsContains("<meta property=\"og:locale"))
 					html = html.Insert(html.IndexOf("<meta", html.IndexOf("<meta property=\"og:locale") + 1), $"<meta property=\"og:url\" content=\"{canonicalURL}\"/>");
@@ -2341,7 +2341,7 @@ namespace net.vieapps.Services.Portals
 				html = "<!DOCTYPE html>\r\n"
 					+ "<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n"
 					+ "<head><title>Error: " + ex.Message.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;") + "</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/></head>\r\n"
-					+ "<body>" + this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.StackTrace, requestInfo.CorrelationID, desktop.ID, "Desktop ID") + "</body>\r\n"
+					+ "<body>" + this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.GetStack(false, requestInfo), requestInfo.CorrelationID, desktop.ID, "Desktop ID") + "</body>\r\n"
 					+ "</html>";
 			}
 
@@ -3527,9 +3527,9 @@ namespace net.vieapps.Services.Portals
 			=> "<div>"
 				+ $"<div style=\"color:red\">{errorMessage.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</div>"
 				+ $"<div style=\"font-size:80%\">Correlation ID: {correlationID} - {objectIDLabel ?? "Portlet ID"}: {objectID}</div>"
-				+ (this.IsDebugLogEnabled
-					? $"<div style=\"font-size:80%\">{errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}</div>"
-					: $"<!-- {errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")} -->")
+				+ (this.IsDebugLogEnabled ? "<div style=\"font-size:80%\">" : "\r\n<!-- ")
+				+ $"{errorStack?.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\r\n", "<br/>")}"
+				+ (this.IsDebugLogEnabled ? "</div>" : " -->")
 				+ ("AccessDeniedException".IsEquals(errorType) ? $"<div style=\"padding:30px 0\">Please <a href=\"javascript:__login()\">click here</a> to login and try again</div>" : "")
 				+ "</div>";
 		#endregion
@@ -5313,12 +5313,27 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			var sendAppNotifications = "true".IsEquals(requestInfo.GetParameter("x-send-app-notifications"));
+			var sendEmailNotifications = "true".IsEquals(requestInfo.GetParameter("x-send-email-notifications"));
+			var sendWebHookNotifications = "true".IsEquals(requestInfo.GetParameter("x-send-webhook-notifications"));
 			if (@object is Item)
-				await requestInfo.SendNotificationAsync(@object, "Update", contentType?.Notifications, @object.Status, @object.Status, cancellationToken, "true".IsEquals(requestInfo.GetParameter("x-send-app-notifications")), "true".IsEquals(requestInfo.GetParameter("x-send-email-notifications")), "true".IsEquals(requestInfo.GetParameter("x-send-webhook-notifications"))).ConfigureAwait(false);
+				await requestInfo.SendNotificationAsync(@object, "Update", contentType?.Notifications, @object.Status, @object.Status, cancellationToken, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications).ConfigureAwait(false);
 			else if (@object is Content content)
-				await requestInfo.SendNotificationAsync(@object, "Update", content.Category?.Notifications, @object.Status, @object.Status, cancellationToken, "true".IsEquals(requestInfo.GetParameter("x-send-app-notifications")), "true".IsEquals(requestInfo.GetParameter("x-send-email-notifications")), "true".IsEquals(requestInfo.GetParameter("x-send-webhook-notifications"))).ConfigureAwait(false);
+				await requestInfo.SendNotificationAsync(@object, "Update", content.Category?.Notifications, @object.Status, @object.Status, cancellationToken, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications).ConfigureAwait(false);
 
-			return new JObject();
+			var response = new JObject();
+			if (!string.IsNullOrWhiteSpace(requestInfo.GetParameter("x-recipients")))
+			{
+				var recipientIDs = await @object.GetRecipientsAsync(@object.Status, null, cancellationToken, new[] { requestInfo.Session.User.ID }).ConfigureAwait(false);
+				response = new JObject
+				{
+					{ "ID", (@object as IPortalObject).ID },
+					{ "Title", (@object as IPortalObject).Title },
+					{ "Type", @object.GetTypeName(true) },
+					{ "RecipientIDs", recipientIDs.Join(",") }
+				};
+			}
+			return response;
 		}
 		#endregion
 

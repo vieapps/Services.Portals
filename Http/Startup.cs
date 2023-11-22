@@ -19,15 +19,12 @@ using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Portals
 {
-	public class Startup
+	public class Startup(IConfiguration configuration)
 	{
 		public static void Main(string[] args)
 			=> WebHost.CreateDefaultBuilder(args).Run<Startup>(args);
 
-		public Startup(IConfiguration configuration)
-			=> this.Configuration = configuration;
-
-		public IConfiguration Configuration { get; }
+		public IConfiguration Configuration { get; } = configuration;
 
 		public LogLevel LogLevel => this.Configuration.GetAppSetting("Logging/LogLevel/Default", UtilityService.GetAppSetting("Logs:Level", "Information")).TryToEnum(out LogLevel logLevel) ? logLevel : LogLevel.Information;
 

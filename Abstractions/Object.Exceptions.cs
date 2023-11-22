@@ -12,8 +12,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public AliasIsExistedException(string message) : base(message) { }
 
 		public AliasIsExistedException(string message, Exception innerException) : base(message, innerException) { }
-
-		public AliasIsExistedException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
 
 	[Serializable]
@@ -26,8 +24,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public TemplateIsInvalidException(string message) : base(message) { }
 
 		public TemplateIsInvalidException(string message, Exception innerException) : base(message, innerException) { }
-
-		public TemplateIsInvalidException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
 
 	[Serializable]
@@ -40,8 +36,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public XslTemplateIsInvalidException(string message) : base(message) { }
 
 		public XslTemplateIsInvalidException(string message, Exception innerException) : base(message, innerException) { }
-
-		public XslTemplateIsInvalidException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
 
 	[Serializable]
@@ -54,8 +48,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public XslTemplateExecutionIsProhibitedException(string message) : base(message) { }
 
 		public XslTemplateExecutionIsProhibitedException(string message, Exception innerException) : base(message, innerException) { }
-
-		public XslTemplateExecutionIsProhibitedException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
 
 	[Serializable]
@@ -68,8 +60,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public XslTemplateIsNotCompiledException(string message) : base(message) { }
 
 		public XslTemplateIsNotCompiledException(string message, Exception innerException) : base(message, innerException) { }
-
-		public XslTemplateIsNotCompiledException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
 
 	[Serializable]
@@ -82,8 +72,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public MetaTagsAreInvalidException(string message) : base(message) { }
 
 		public MetaTagsAreInvalidException(string message, Exception innerException) : base(message, innerException) { }
-
-		public MetaTagsAreInvalidException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
 
 	[Serializable]
@@ -96,8 +84,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public OptionsAreInvalidException(string message) : base(message) { }
 
 		public OptionsAreInvalidException(string message, Exception innerException) : base(message, innerException) { }
-
-		public OptionsAreInvalidException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
 
 	[Serializable]
@@ -110,8 +96,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public SiteNotRecognizedException(string message) : base(message) { }
 
 		public SiteNotRecognizedException(string message, Exception innerException) : base(message, innerException) { }
-
-		public SiteNotRecognizedException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
 
 	[Serializable]
@@ -124,7 +108,5 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public DesktopNotFoundException(string message) : base(message) { }
 
 		public DesktopNotFoundException(string message, Exception innerException) : base(message, innerException) { }
-
-		public DesktopNotFoundException(SerializationInfo info, StreamingContext context) : base(info, context) { }
 	}
 }
