@@ -30,6 +30,32 @@ namespace net.vieapps.Services.Portals
 		/// <param name="previousStatus"></param>
 		/// <param name="status"></param>
 		/// <param name="requestInfo"></param>
+		/// <returns></returns>
+		public static void SendNotification(this IPortalObject @object, string @event, Settings.Notifications notificationSettings, ApprovalStatus previousStatus, ApprovalStatus status, RequestInfo requestInfo = null)
+			=> @object.SendNotificationAsync(@event, notificationSettings, previousStatus, status, requestInfo, Utility.CancellationToken).Run();
+
+		/// <summary>
+		/// Sends a notification when object was changed
+		/// </summary>
+		/// <param name="requestInfo"></param>
+		/// <param name="object"></param>
+		/// <param name="event"></param>
+		/// <param name="notificationSettings"></param>
+		/// <param name="previousStatus"></param>
+		/// <param name="status"></param>
+		/// <returns></returns>
+		public static void SendNotification(this RequestInfo requestInfo, IPortalObject @object, string @event, Settings.Notifications notificationSettings, ApprovalStatus previousStatus, ApprovalStatus status, bool sendAppNotifications = true, bool sendEmailNotifications = true, bool sendWebHookNotifications = true)
+			=> requestInfo.SendNotificationAsync(@object, @event, notificationSettings, previousStatus, status, Utility.CancellationToken, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications).Run();
+
+		/// <summary>
+		/// Sends a notification when object was changed
+		/// </summary>
+		/// <param name="object"></param>
+		/// <param name="event"></param>
+		/// <param name="notificationSettings"></param>
+		/// <param name="previousStatus"></param>
+		/// <param name="status"></param>
+		/// <param name="requestInfo"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
 		public static async Task SendNotificationAsync(this IPortalObject @object, string @event, Settings.Notifications notificationSettings, ApprovalStatus previousStatus, ApprovalStatus status, RequestInfo requestInfo = null, CancellationToken cancellationToken = default)
@@ -60,6 +86,9 @@ namespace net.vieapps.Services.Portals
 		/// <param name="previousStatus"></param>
 		/// <param name="status"></param>
 		/// <param name="cancellationToken"></param>
+		/// <param name="sendAppNotifications"></param>
+		/// <param name="sendEmailNotifications"></param>
+		/// <param name="sendWebHookNotifications"></param>
 		/// <returns></returns>
 		public static async Task SendNotificationAsync(this RequestInfo requestInfo, IPortalObject @object, string @event, Settings.Notifications notificationSettings, ApprovalStatus previousStatus, ApprovalStatus status, CancellationToken cancellationToken = default, bool sendAppNotifications = true, bool sendEmailNotifications = true, bool sendWebHookNotifications = true)
 		{

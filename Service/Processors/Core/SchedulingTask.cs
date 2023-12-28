@@ -108,7 +108,7 @@ namespace net.vieapps.Services.Portals
 				schedulingTask.Remove();
 		}
 
-		internal static Task ClearRelatedCacheAsync(this SchedulingTask schedulingTask, CancellationToken cancellationToken)
+		internal static Task ClearRelatedCacheAsync(this SchedulingTask schedulingTask, CancellationToken cancellationToken = default)
 			=> Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<SchedulingTask>.And(Filters<SchedulingTask>.Equals("SystemID", schedulingTask.SystemID)), Sorts<SchedulingTask>.Ascending("Time")), cancellationToken);
 
 		internal static async Task<Tuple<long, List<SchedulingTask>, List<string>>> SearchAsync(string query, IFilterBy<SchedulingTask> filter, SortBy<SchedulingTask> sort, int pageSize, int pageNumber, long totalRecords = -1, CancellationToken cancellationToken = default)
@@ -196,7 +196,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-				await Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Run();
 
 			// response
 			return response;
@@ -226,14 +226,14 @@ namespace net.vieapps.Services.Portals
 				obj.SetTime(requestBody.Get<DateTime>("Time"));
 			});
 			await SchedulingTask.CreateAsync(schedulingTask, cancellationToken).ConfigureAwait(false);
-			await schedulingTask.Set().ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
+			schedulingTask.Set().ClearRelatedCacheAsync(Utility.CancellationToken).Run();
 
 			// send update messages
 			var response = schedulingTask.ToJson();
 			schedulingTask.SendMessages("Create", response, Utility.NodeID);
 
 			// send notification
-			await schedulingTask.SendNotificationAsync("Create", schedulingTask.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			schedulingTask.SendNotification("Create", schedulingTask.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo);
 
 			// response
 			return response;
@@ -297,7 +297,7 @@ namespace net.vieapps.Services.Portals
 				obj.SetTime(requestBody.Get<DateTime>("Time"));
 			});
 			await SchedulingTask.UpdateAsync(schedulingTask, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await schedulingTask.Set().ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
+			schedulingTask.Set().ClearRelatedCacheAsync(Utility.CancellationToken).Run();
 
 			// send update messages
 			var versions = await schedulingTask.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
@@ -305,7 +305,7 @@ namespace net.vieapps.Services.Portals
 			schedulingTask.SendMessages("Update", response, Utility.NodeID);
 
 			// send notification
-			await schedulingTask.SendNotificationAsync("Update", schedulingTask.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			schedulingTask.SendNotification("Update", schedulingTask.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo);
 
 			// response
 			return response;

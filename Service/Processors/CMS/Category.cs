@@ -3,9 +3,9 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Dynamic;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Dynamic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -13,8 +13,6 @@ using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Exceptions;
 using net.vieapps.Services.Portals.Crawlers;
-using System.Security.Policy;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -454,13 +452,14 @@ namespace net.vieapps.Services.Portals
 			// update cache
 			if (string.IsNullOrWhiteSpace(query) && !addChildren)
 			{
+				//await Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
 				var cacheKeys = new[] { cacheKeyOfObjectsJson }.Concat(results.Item4).ToList();
-				await Task.WhenAll
+				Task.WhenAll
 				(
-					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken),
-					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationToken),
+					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None)),
+					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys),
 					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS categories\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
-				).ConfigureAwait(false);
+				).Run();
 			}
 
 			// response
@@ -576,13 +575,14 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			updateMessages.Send();
 			communicateMessages.Send();
-
-			// send notification
-			await category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 			category.Organization.SendRefreshingTasks();
 
-			// store object cache key to clear related cached
-			await Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+			// store object cache key to clear related cached & send notification
+			Task.WhenAll
+			(
+				category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, Utility.CancellationToken),
+				Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
+			).Run();
 
 			// response
 			return response;
@@ -762,9 +762,9 @@ namespace net.vieapps.Services.Portals
 			// update cache & send notification
 			Task.WhenAll
 			(
-				category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
-				category.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken),
-				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken)
+				category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				category.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
+				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, Utility.CancellationToken)
 			).Run();
 			category.Organization.SendRefreshingTasks();
 
@@ -827,7 +827,6 @@ namespace net.vieapps.Services.Portals
 				: await organization.ID.FindCategoriesAsync(module.ID, contentType.ID, null, cancellationToken, false).ConfigureAwait(false);
 
 			Category first = null;
-			var notificationTasks = new List<Task>();
 			await request.Get<JArray>("Categories").ForEachAsync(async info =>
 			{
 				var id = info.Get<string>("ID");
@@ -840,7 +839,7 @@ namespace net.vieapps.Services.Portals
 					item.LastModifiedID = requestInfo.Session.User.ID;
 
 					await Category.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					notificationTasks.Add(item.Set().SendNotificationAsync("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo, cancellationToken));
+					item.Set().SendNotification("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo);
 
 					var json = item.ToJson(true, false);
 					var versions = await item.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
@@ -885,9 +884,8 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 			else if (first != null)
-				await first.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 
-			await Task.WhenAll(notificationTasks).ConfigureAwait(false);
 			organization.SendRefreshingTasks();
 			return new JObject();
 		}

@@ -301,13 +301,14 @@ namespace net.vieapps.Services.Portals
 			// update cache
 			if (string.IsNullOrWhiteSpace(query) && !addChildren)
 			{
-				await Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
+				//await Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
 				var cacheKeys = new[] { cacheKeyOfObjectsJson }.Concat(results.Item4).ToList();
-				await Task.WhenAll
+				Task.WhenAll
 				(
-					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationToken),
+					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None)),
+					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys),
 					Utility.IsDebugLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS.Link\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Link") : Task.CompletedTask
-				).ConfigureAwait(false);
+				).Run();
 			}
 
 			// response
@@ -421,11 +422,12 @@ namespace net.vieapps.Services.Portals
 			communicateMessages.Send();
 			link.Organization.SendRefreshingTasks();
 
-			// send notification
-			await link.SendNotificationAsync("Create", link.ContentType.Notifications, ApprovalStatus.Draft, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// store object cache key to clear related cached
-			await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+			// store object cache key to clear related cached & send notification
+			Task.WhenAll
+			(
+				link.SendNotificationAsync("Create", link.ContentType.Notifications, ApprovalStatus.Draft, link.Status, requestInfo, Utility.CancellationToken),
+				Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken)
+			).Run();
 
 			// response
 			return response;
@@ -559,9 +561,9 @@ namespace net.vieapps.Services.Portals
 			// update cache & send notification
 			Task.WhenAll
 			(
-				link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
-				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken),
-				link.SendNotificationAsync(@event ?? "Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken)
+				link.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
+				link.SendNotificationAsync(@event ?? "Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, Utility.CancellationToken)
 			).Run();
 			link.Organization.SendRefreshingTasks();
 
@@ -672,7 +674,6 @@ namespace net.vieapps.Services.Portals
 				: await organization.ID.FindLinksAsync(module.ID, contentType.ID, null, cancellationToken).ConfigureAwait(false);
 
 			Link first = null;
-			var notificationTasks = new List<Task>();
 			await request.Get<JArray>("Links").ForEachAsync(async info =>
 			{
 				var id = info.Get<string>("ID");
@@ -685,7 +686,7 @@ namespace net.vieapps.Services.Portals
 					item.LastModifiedID = requestInfo.Session.User.ID;
 
 					await Link.UpdateAsync(item, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					notificationTasks.Add(item.SendNotificationAsync("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo, cancellationToken));
+					item.SendNotification("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo);
 
 					var json = item.ToJson(true, false);
 					var versions = await item.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
@@ -730,10 +731,9 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 			else if (first != null)
-				await first.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 
 			link.Organization.SendRefreshingTasks();
-			await Task.WhenAll(notificationTasks).ConfigureAwait(false);
 			return new JObject();
 		}
 

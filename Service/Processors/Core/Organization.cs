@@ -485,7 +485,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query) && !asFetch)
-				await Utility.Cache.SetAsync(cacheKey, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
+				Utility.Cache.SetAsync(cacheKey, response.ToString(Formatting.None)).Run();
 
 			// response
 			return response;

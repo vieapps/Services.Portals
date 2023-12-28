@@ -192,7 +192,7 @@ namespace net.vieapps.Services.Portals
 
 				// refine thumbnail images
 				if (args?.FirstOrDefault(arg => arg.IsEquals("/refine-thumbnails")) != null)
-					Task.Run(async () => await this.RefineThumbnailImagesAsync().ConfigureAwait(false)).ConfigureAwait(false);
+					this.RefineThumbnailImagesAsync().Run();
 
 				// send info & reload resources
 				this.StartTimer(() => this.SendDefinitionInfo(), 12 * 60 * 60);
@@ -584,10 +584,10 @@ namespace net.vieapps.Services.Portals
 						var mode = requestInfo.Extra != null && requestInfo.Extra.TryGetValue("mode", out var mvalue) ? mvalue.GetCapitalizedFirstLetter() : null;
 						var organization = mode != null ? await (requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("active-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false) : null;
 						json = new JObject
-							{
-								{ "Message", organization != null && organization.Instructions != null && organization.Instructions.TryGetValue(mode, out var instruction) ? instruction?.ToJson() : null },
-								{ "Email", organization?.EmailSettings?.ToJson() },
-							};
+						{
+							{ "Message", organization != null && organization.Instructions != null && organization.Instructions.TryGetValue(mode, out var instruction) ? instruction?.ToJson() : null },
+							{ "Email", organization?.EmailSettings?.ToJson() },
+						};
 						break;
 
 					case "files":
@@ -629,7 +629,7 @@ namespace net.vieapps.Services.Portals
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-						#endregion
+					#endregion
 
 				}
 				stopwatch.Stop();
@@ -4624,7 +4624,7 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		#region Process rollback versions requests
+		#region Process versions
 		public override async Task<JToken> ProcessRollbackRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			JToken json = null;
@@ -4821,8 +4821,18 @@ namespace net.vieapps.Services.Portals
 			if (@object == null)
 				throw new InformationNotFoundException($"Not Found [{requestInfo.GetObjectIdentity()}#{identity}]");
 
-			await @object.FindVersionsAsync(cancellationToken).ConfigureAwait(false);
-			return new JObject();
+			var sendUpdateMessage = !"false".IsEquals(requestInfo.GetParameter("x-update-messagae"));
+			var versions = await @object.FindVersionsAsync(cancellationToken, sendUpdateMessage).ConfigureAwait(false);
+			var response = sendUpdateMessage
+				? new JObject
+				{
+					["ID"] = @object.ID,
+					["SystemID"] = @object.SystemID,
+					["TotalVersions"] = versions != null ? versions.Count : 0,
+					["Versions"] = (versions ?? []).Select(version => version.ToJson()).ToJArray()
+				}
+				: new JObject();
+			return response;
 		}
 		#endregion
 
@@ -5136,7 +5146,7 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		#region Approval an object (organization/site/cms content)
+		#region Approval (organization/site/CMS content)
 		async Task<JToken> ApproveAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare

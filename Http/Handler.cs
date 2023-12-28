@@ -863,6 +863,12 @@ namespace net.vieapps.Services.Portals
 									});
 									if (!string.IsNullOrWhiteSpace(baseURL))
 										cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
+								}
+
+								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
+								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
+								if (contentType.IsEquals("text/html"))
+								{
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " src=\"//");
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" srcset=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " srcset=\"//");
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " href=\"//");
@@ -870,10 +876,9 @@ namespace net.vieapps.Services.Portals
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"canonical\" href=\"//", $"<link rel=\"canonical\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://");
 								}
 
-								await context.WriteAsync(contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") ? cached.Base64ToBytes() : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL).ToBytes(), cts.Token).ConfigureAwait(false);
+								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Excution times: {watch.GetElapsedTimes()}").ConfigureAwait(false);
-
 								return;
 							}
 						}
