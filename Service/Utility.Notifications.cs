@@ -37,19 +37,6 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Sends a notification when object was changed
 		/// </summary>
-		/// <param name="requestInfo"></param>
-		/// <param name="object"></param>
-		/// <param name="event"></param>
-		/// <param name="notificationSettings"></param>
-		/// <param name="previousStatus"></param>
-		/// <param name="status"></param>
-		/// <returns></returns>
-		public static void SendNotification(this RequestInfo requestInfo, IPortalObject @object, string @event, Settings.Notifications notificationSettings, ApprovalStatus previousStatus, ApprovalStatus status, bool sendAppNotifications = true, bool sendEmailNotifications = true, bool sendWebHookNotifications = true)
-			=> requestInfo.SendNotificationAsync(@object, @event, notificationSettings, previousStatus, status, Utility.CancellationToken, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications).Run();
-
-		/// <summary>
-		/// Sends a notification when object was changed
-		/// </summary>
 		/// <param name="object"></param>
 		/// <param name="event"></param>
 		/// <param name="notificationSettings"></param>
@@ -159,7 +146,6 @@ namespace net.vieapps.Services.Portals
 			var serviceName = requestInfo.ServiceName;
 			var objectName = (businessObject as RepositoryBase)?.GetObjectName() ?? @object.GetTypeName(true);
 			var organization = contentType?.Organization ?? await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			var alwaysUseHtmlSuffix = organization == null || organization.AlwaysUseHtmlSuffix;
 			if (organization != null && organization._siteIDs == null)
 				await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false);
 			var site = organization?.DefaultSite;
@@ -212,6 +198,7 @@ namespace net.vieapps.Services.Portals
 			if (sendEmailNotifications || emailsWhenPublish != null)
 			{
 				var appURL = $"/portals/initializer?x-request={("{" + $"\"SystemID\":\"{organization?.ID}\",\"ObjectName\":\"{objectName}\",\"ObjectID\":\"{@object.ID}\"" + "}").Url64Encode()}".GetAppURL();
+				var objectURL = businessObject?.GetURL() ?? $"~/index";
 				var normalizedHTMLs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 				var definition = RepositoryMediator.GetEntityDefinition(@object.GetType());
 				if (definition != null)
@@ -234,7 +221,7 @@ namespace net.vieapps.Services.Portals
 					["Organization"] = organization?.ToJson(false, false, json =>
 					{
 						OrganizationProcessor.ExtraProperties.Concat(new[] { "Privileges" }).ForEach(name => json.Remove(name));
-						json["AlwaysUseHtmlSuffix"] = alwaysUseHtmlSuffix;
+						json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
 					}),
 					["Site"] = site?.ToJson(json =>
 					{
@@ -253,8 +240,8 @@ namespace net.vieapps.Services.Portals
 					["ParentContentType"] = contentType?.GetParent()?.ToJson(false, json => new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
 					["URLs"] = new JObject
 					{
-						{ "Public", $"{businessObject?.GetURL() ?? $"~/index"}{(alwaysUseHtmlSuffix ? ".html" : "")}".GetWebURL(siteURL) },
-						{ "Portal", $"{businessObject?.GetURL() ?? $"~/index"}{(alwaysUseHtmlSuffix ? ".html" : "")}".GetWebURL($"{Utility.PortalsHttpURI}/~{organization?.Alias}/") },
+						{ "Public", objectURL.GetWebURL(siteURL) },
+						{ "Portal", objectURL.GetWebURL($"{Utility.PortalsHttpURI}/~{organization?.Alias}/") },
 						{ "Private", appURL },
 						{ "Review", appURL }
 					},
@@ -277,7 +264,7 @@ namespace net.vieapps.Services.Portals
 					@params["Category"] = category.ToJson(false, false, json =>
 					{
 						new[] { "Privileges", "OriginalPrivileges" }.Concat(CategoryProcessor.ExtraProperties).ForEach(name => json.Remove(name));
-						json["URL"] = $"{category.GetURL()}{(alwaysUseHtmlSuffix ? ".html" : "")}".GetWebURL(siteURL);
+						json["URL"] = category.GetURL().GetWebURL(siteURL);
 					});
 
 				// normalize parameters for evaluating
@@ -318,7 +305,7 @@ namespace net.vieapps.Services.Portals
 					{
 						var subject = emailNotifications?.Subject ?? instructions?.Get<JObject>("emailByApprovalStatus")?.Get<JObject>($"{status}")?.Get<string>("subject") ?? instructions?.Get<JObject>("email")?.Get<string>("subject");
 						if (string.IsNullOrWhiteSpace(subject))
-							subject = "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" was {{@toLower(@params(Event))}}d";
+							subject = "[{{@params(Organization.Alias)}}]: \"{{@current(Title)}}\" was {{@toLower(@params(Event))}}d";
 
 						var body = emailNotifications?.Body ?? instructions?.Get<JObject>("emailByApprovalStatus")?.Get<JObject>($"{status}")?.Get<string>("body") ?? instructions?.Get<JObject>("email")?.Get<string>("body");
 						if (string.IsNullOrWhiteSpace(body))
@@ -337,7 +324,7 @@ namespace net.vieapps.Services.Portals
 						var message = new EmailMessage
 						{
 							From = emailSettings?.Sender,
-							To = recipients.Select(recipient => recipient.Get<string>("Email")).Where(email => !string.IsNullOrWhiteSpace(email)).Join(";") + (string.IsNullOrWhiteSpace(emailNotifications.ToAddresses) ? "" : $";{emailNotifications.ToAddresses}"),
+							To = recipients.Select(recipient => recipient?.Get<string>("Email")).Where(email => !string.IsNullOrWhiteSpace(email)).Join(";") + (string.IsNullOrWhiteSpace(emailNotifications.ToAddresses) ? "" : $";{emailNotifications.ToAddresses}"),
 							Cc = emailNotifications?.CcAddresses,
 							Bcc = emailNotifications?.BccAddresses,
 							Subject = subject.NormalizeHTMLBreaks().Format(parameters),
@@ -373,7 +360,7 @@ namespace net.vieapps.Services.Portals
 					{
 						var subject = emailsWhenPublish?.Subject ?? instructions?.Get<JObject>("emailsWhenPublish")?.Get<string>("subject");
 						if (string.IsNullOrWhiteSpace(subject))
-							subject = "[{{@params(Organization.Alias)}}] - \"{{@current(Title)}}\" was published";
+							subject = "[{{@params(Organization.Alias)}}]: \"{{@current(Title)}}\" was published";
 
 						var body = emailsWhenPublish?.Body ?? instructions?.Get<JObject>("emailsWhenPublish")?.Get<string>("body");
 						if (string.IsNullOrWhiteSpace(body))

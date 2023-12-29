@@ -4829,7 +4829,7 @@ namespace net.vieapps.Services.Portals
 					["ID"] = @object.ID,
 					["SystemID"] = @object.SystemID,
 					["TotalVersions"] = versions != null ? versions.Count : 0,
-					["Versions"] = (versions ?? []).Select(version => version.ToJson()).ToJArray()
+					["Versions"] = (versions ?? []).Select(version => version.ToJson(json => (json as JObject).Remove("Data"))).ToJArray()
 				}
 				: new JObject();
 			return response;

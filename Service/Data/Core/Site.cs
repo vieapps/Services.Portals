@@ -10,8 +10,6 @@ using Newtonsoft.Json.Converters;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
-using System.Security.Policy;
-
 #endregion
 
 namespace net.vieapps.Services.Portals

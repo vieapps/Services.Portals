@@ -301,7 +301,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Run();
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), Utility.CancellationToken).Run();
 
 			// response
 			return response;
@@ -543,10 +543,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> UpdateContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
-			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null)
-				throw new InformationNotFoundException();
-			else if (contentType.Organization == null || contentType.Module == null)
+			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			if (contentType.Organization == null || contentType.Module == null)
 				throw new InformationInvalidException("The organization or module is invalid");
 
 			// check permission
@@ -578,10 +576,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> DeleteContentTypeAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
-			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null)
-				throw new InformationNotFoundException();
-			else if (contentType.Organization == null || contentType.Module == null)
+			var contentType = await (requestInfo.GetObjectIdentity() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			if (contentType.Organization == null || contentType.Module == null)
 				throw new InformationInvalidException("The organization or module is invalid");
 
 			// check permission

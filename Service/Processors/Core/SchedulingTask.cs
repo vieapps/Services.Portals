@@ -381,10 +381,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> RollbackSchedulingTaskAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
-			var schedulingTask = await (requestInfo.GetObjectIdentity() ?? "").GetSchedulingTaskByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (schedulingTask == null)
-				throw new InformationNotFoundException();
-			else if (schedulingTask.Organization == null)
+			var schedulingTask = await (requestInfo.GetObjectIdentity() ?? "").GetSchedulingTaskByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			if (schedulingTask.Organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
 			// check permission
@@ -409,10 +407,7 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetRequestExpando();
 			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<SchedulingTask>() ?? Filters<SchedulingTask>.And();
 			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
-
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
 			SchedulingTaskProcessor.SchedulingTasks.Where(kvp => organization.ID.IsEquals(kvp.Value.SystemID)).ForEach(kvp => kvp.Value.SendMessage(requestInfo.Session.DeviceID));
 			return new JObject();
 		}

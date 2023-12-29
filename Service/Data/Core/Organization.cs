@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
+using System.Text.RegularExpressions;
 using MsgPack.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
 using Newtonsoft.Json;
@@ -14,11 +15,6 @@ using Newtonsoft.Json.Converters;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
-using DocumentFormat.OpenXml.Office2016.Drawing.ChartDrawing;
-using static System.Runtime.InteropServices.JavaScript.JSType;
-using System.Text.RegularExpressions;
-
-
 #endregion
 
 namespace net.vieapps.Services.Portals
