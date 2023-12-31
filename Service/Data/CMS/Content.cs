@@ -220,8 +220,8 @@ namespace net.vieapps.Services.Portals
 			if (content != null)
 				Task.WhenAll
 				(
-					Utility.Cache.SetAsync(cacheKey, content.ID),
-					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey)
+					Utility.Cache.SetAsync(cacheKey, content.ID, Utility.CancellationToken),
+					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
 				).Run();
 			return content;
 		}
@@ -244,11 +244,11 @@ namespace net.vieapps.Services.Portals
 
 			var content = await Content.GetAsync<Content>(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID, cancellationToken).ConfigureAwait(false);
 			if (content != null)
-				await Task.WhenAll
+				Task.WhenAll
 				(
-					Utility.Cache.SetAsync(cacheKey, content.ID, cancellationToken),
-					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, cancellationToken)
-				).ConfigureAwait(false);
+					Utility.Cache.SetAsync(cacheKey, content.ID, Utility.CancellationToken),
+					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
+				).Run();
 			return content;
 		}
 

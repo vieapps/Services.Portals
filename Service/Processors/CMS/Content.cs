@@ -671,7 +671,7 @@ namespace net.vieapps.Services.Portals
 			await Content.DeleteAsync<Content>(content.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			// send update message
-			var response = content.ToJson();
+			var response = content.ToJson(json => json.Remove("Details"));
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Delete",

@@ -12,8 +12,6 @@ using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
-using DocumentFormat.OpenXml.Bibliography;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -157,8 +155,8 @@ namespace net.vieapps.Services.Portals
 			if (item != null)
 				Task.WhenAll
 				(
-					Utility.Cache.SetAsync(cacheKey, item.ID),
-					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey)
+					Utility.Cache.SetAsync(cacheKey, item.ID, Utility.CancellationToken),
+					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
 				).Run();
 			return item;
 		}
@@ -180,11 +178,11 @@ namespace net.vieapps.Services.Portals
 
 			var item = await Item.GetAsync(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, contentType.ID, cancellationToken).ConfigureAwait(false);
 			if (item != null)
-				await Task.WhenAll
+				Task.WhenAll
 				(
-					Utility.Cache.SetAsync(cacheKey, item.ID, cancellationToken),
-					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, cancellationToken)
-				).ConfigureAwait(false);
+					Utility.Cache.SetAsync(cacheKey, item.ID, Utility.CancellationToken),
+					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
+				).Run();
 			return item;
 		}
 
