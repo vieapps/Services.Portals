@@ -113,6 +113,11 @@ namespace net.vieapps.Services.Portals
 		public static string PortalsHttpURI { get; internal set; }
 
 		/// <summary>
+		/// Gets the URI of the Portals WebSocket HTTP service
+		/// </summary>
+		public static string PortalsWebSocketURI { get; internal set; }
+
+		/// <summary>
 		/// Gets the URI of the CMS Portals app
 		/// </summary>
 		public static string CmsPortalsHttpURI { get; internal set; }
