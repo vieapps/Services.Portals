@@ -16,7 +16,7 @@ using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
-using System.Net.Mime;
+using System.Reflection;
 
 #endregion
 
@@ -908,6 +908,24 @@ namespace net.vieapps.Services.Portals
 				json["TotalVersions"] = versions.Count;
 			}
 			return json;
+		}
+
+		internal static string GetValue(this Dictionary<string, string> dictionary, string name)
+			=> dictionary.TryGetValue(name, out var @string) ? @string : null;
+
+		internal static Dictionary<string, string> GetDictionary(this Dictionary<string, string> dictionary, string name)
+			=> (dictionary.GetValue(name)?.ToJson() as JObject)?.ToDictionary<string>();
+
+		internal static async Task<JToken> SendAsync(this WebHookMessage message, string verb = "POST", CancellationToken cancellationToken = default)
+		{
+			var uri = new Uri($"{message.EndpointURL}{(message.Query.Any() ? message.EndpointURL.IndexOf("?") > 0 ? "&" : "?" : "")}{message.Query.ToString("&", kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}")}");
+			var header = new Dictionary<string, string>(message.Header, StringComparer.OrdinalIgnoreCase)
+			{
+				["User-Agent"] = $"{UtilityService.DesktopUserAgent} NGX-Forwarder/{Assembly.GetExecutingAssembly().GetVersion(false)}",
+				["Content-Type"] = "application/json; charset=utf-8"
+			};
+			using var response = await uri.SendHttpRequestAsync(verb, header, message.Body, 30, cancellationToken).ConfigureAwait(false);
+			return (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false) ?? "{}").ToJson();
 		}
 	}
 

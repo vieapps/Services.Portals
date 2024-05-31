@@ -22,8 +22,8 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="VIEApps.Components.Utility.AssemblyLoader" Version="10.8.2404.1" />
-		<PackageReference Include="VIEApps.Services.Base" Version="10.8.2405.1" />
+		<PackageReference Include="VIEApps.Components.Utility.AssemblyLoader" Version="10.8.2406.2" />
+		<PackageReference Include="VIEApps.Services.Base" Version="10.8.2406.4" />
 	</ItemGroup>
 
 </Project>

@@ -9,11 +9,9 @@ using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
+using MsgPack.Serialization;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
-using MsgPack.Serialization;
-using System.Xml.Serialization;
-
 #endregion
 
 namespace net.vieapps.Services.Portals.Settings
@@ -243,40 +241,11 @@ namespace net.vieapps.Services.Portals.Settings
 		}
 	}
 
-	public class WebHook
+	public class WebHook : WebHookInfo
 	{
-		public WebHook() { }
-
-		public string SignAlgorithm { get; set; } = "SHA256";
-
-		public string SignKey { get; set; }
-
-		public bool SignKeyIsHex { get; set; } = false;
-
-		public string SignatureName { get; set; }
-
-		public bool SignatureAsHex { get; set; } = true;
-
-		[FormControl(ControlType = "TextArea")]
-		public string Query { get; set; }
-
-		[FormControl(ControlType = "TextArea")]
-		public string Header { get; set; }
-
-		public string EncryptionKey { get; set; }
-
-		public string EncryptionIV { get; set; }
+		public WebHook() : base() { }
 
 		public bool GenerateIdentity { get; set; } = false;
-
-		[FormControl(ControlType = "TextArea")]
-		public string PrepareBodyScript { get; set; }
-
-		[JsonIgnore, MessagePackIgnore]
-		public JObject QueryAsJson => string.IsNullOrWhiteSpace(this.Query) ? null : JObject.Parse(this.Query);
-
-		[JsonIgnore, MessagePackIgnore]
-		public JObject HeaderAsJson => string.IsNullOrWhiteSpace(this.Header) ? null : JObject.Parse(this.Header);
 
 		public virtual WebHook Normalize(Action onCompleted = null)
 		{
