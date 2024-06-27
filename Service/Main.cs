@@ -4886,22 +4886,7 @@ namespace net.vieapps.Services.Portals
 
 				// sync the message to an object
 				var message = requestInfo.ToWebHookMessage(settings.SecretToken, "x-webhook-secret-token", settings.SignAlgorithm, settings.SignKey ?? requestInfo.GetAppID() ?? requestInfo.GetDeveloperID() ?? organization.ID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, settings.QueryAsJson, settings.HeaderAsJson, settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes());
-				JToken bodyJson = null;
-				try
-				{
-					bodyJson = requestInfo.BodyAsJson;
-				}
-				catch
-				{
-					try
-					{
-						bodyJson = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(requestInfo.Body).ToDictionary(kvp => kvp.Key.ToLower(), kvp => kvp.Value.Where(@string => @string != null).Select(@string => @string.AsciiDecode()).Join(","), StringComparer.OrdinalIgnoreCase).ToJObject();
-					}
-					catch
-					{
-						bodyJson = new JObject { ["_original"] = requestInfo.Body };
-					}
-				}
+				var bodyJson = requestInfo.BodyAsJson;
 				bodyJson["SystemID"] = organization.ID;
 				if (contentType != null)
 				{
