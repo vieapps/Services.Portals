@@ -2102,7 +2102,7 @@ namespace net.vieapps.Services.Portals
 				if (writeDesktopLogs)
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate HTML of {desktopInfo}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
-				var portletHtmls = new ConcurrentDictionary<string, Tuple<string, bool, string>>(StringComparer.OrdinalIgnoreCase);
+				var portletHtmls = new ConcurrentDictionary<string, (string HTML, bool GotError, string CacheExpiration)>(StringComparer.OrdinalIgnoreCase);
 				var generatePortletsTask = desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 				{
 					try
@@ -2113,7 +2113,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception ex)
 					{
-						portletHtmls[portlet.ID] = new Tuple<string, bool, string>(this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.GetStack(false, requestInfo), requestInfo.CorrelationID, portlet.ID), true, null);
+						portletHtmls[portlet.ID] = (this.GenerateErrorHtml($"Unexpected error => {ex.Message}", ex.GetStack(false, requestInfo), requestInfo.CorrelationID, portlet.ID), true, null);
 					}
 				}, true, Utility.RunProcessorInParallelsMode);
 
@@ -2124,11 +2124,11 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					var desktopData = await this.GenerateDesktopAsync(desktop, requestInfo, organization, site, host, mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
-					title = desktopData.Item1;
-					metaTags = (this.AllowPreconnect ? $"<link rel=\"preconnect\" href=\"{this.GetPortalsHttpURI(organization).Substring(6)}\"/>" + $"<link rel=\"preconnect\" href=\"{this.GetFilesHttpURI(organization).Substring(6)}\"/>" + "<link rel=\"preconnect\" href=\"//fonts.googleapis.com\"/><link rel=\"preconnect\" href=\"//fonts.gstatic.com\"/><link rel=\"preconnect\" href=\"//www.googletagmanager.com\"/><link rel=\"preconnect\" href=\"//unpkg.com\"/><link rel=\"preconnect\" href=\"//cdnjs.cloudflare.com\"/>" : "") + desktopData.Item2;
-					body = desktopData.Item3;
-					stylesheets = desktopData.Item4;
-					scripts = desktopData.Item5;
+					title = desktopData.Title;
+					metaTags = (this.AllowPreconnect ? $"<link rel=\"preconnect\" href=\"{this.GetPortalsHttpURI(organization).Substring(6)}\"/>" + $"<link rel=\"preconnect\" href=\"{this.GetFilesHttpURI(organization).Substring(6)}\"/>" + "<link rel=\"preconnect\" href=\"//fonts.googleapis.com\"/><link rel=\"preconnect\" href=\"//fonts.gstatic.com\"/><link rel=\"preconnect\" href=\"//www.googletagmanager.com\"/><link rel=\"preconnect\" href=\"//unpkg.com\"/><link rel=\"preconnect\" href=\"//cdnjs.cloudflare.com\"/>" : "") + desktopData.MetaTags;
+					body = desktopData.Body;
+					stylesheets = desktopData.Stylesheets;
+					scripts = desktopData.Scripts;
 				}
 				catch (Exception ex)
 				{
@@ -2194,7 +2194,7 @@ namespace net.vieapps.Services.Portals
 						}
 						catch { }
 
-						portletHtmls[portletID] = new Tuple<string, bool, string>(portletHtml, false, portletCacheExpiration);
+						portletHtmls[portletID] = (portletHtml, false, portletCacheExpiration);
 					});
 
 				// prepare all SCRIPT tags of body
@@ -2246,7 +2246,7 @@ namespace net.vieapps.Services.Portals
 						htmls = new List<string>();
 						zoneHtmls[portlet.Zone] = htmls;
 					}
-					htmls.Add(portletHtmls[portlet.ID].Item1);
+					htmls.Add(portletHtmls[portlet.ID].HTML);
 				});
 				zoneHtmls.ForEach(kvp => body = body.Replace(StringComparison.OrdinalIgnoreCase, "{{" + kvp.Key + "-holder}}", kvp.Value.Join("\r\n")));
 
@@ -2288,18 +2288,18 @@ namespace net.vieapps.Services.Portals
 				if (requestInfo.GetParameter("x-force-cache") != null)
 					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken).ConfigureAwait(false);
 
-				if (processCache && !gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.Item2))
+				if (processCache && !gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.GotError))
 				{
 					var expirationTime = 0;
 					DateTime? expiresAt = null;
-					portletHtmls.Values.Where(data => data.Item3 != null).ForEach(data =>
+					portletHtmls.Values.Where(data => data.CacheExpiration != null).ForEach(data =>
 					{
-						if (Int32.TryParse(data.Item3, out var minutes) && minutes > 0)
+						if (Int32.TryParse(data.CacheExpiration, out var minutes) && minutes > 0)
 						{
 							if (expirationTime < minutes)
 								expirationTime = minutes;
 						}
-						else if (DateTime.TryParse(data.Item3, out var time))
+						else if (DateTime.TryParse(data.CacheExpiration, out var time))
 							expiresAt = expiresAt == null || expiresAt < time
 								? time
 								: expiresAt;
@@ -2501,7 +2501,7 @@ namespace net.vieapps.Services.Portals
 			return responseJson;
 		}
 
-		async Task<Tuple<string, bool, string>> GeneratePortletAsync(RequestInfo requestInfo, Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix, string language, CancellationToken cancellationToken, bool writeLogs, string fileSuffixName)
+		async Task<(string HTML, bool GotError, string CacheExpiration)> GeneratePortletAsync(RequestInfo requestInfo, Portlet theportlet, bool isList, JObject data, JObject siteJson, JObject desktopsJson, bool alwaysUseHtmlSuffix, string language, CancellationToken cancellationToken, bool writeLogs, string fileSuffixName)
 		{
 			// get original first
 			var stopwatch = Stopwatch.StartNew();
@@ -2562,7 +2562,7 @@ namespace net.vieapps.Services.Portals
 
 				title = "";
 				if (!string.IsNullOrWhiteSpace(portlet.CommonSettings.IconURI))
-					title += $"<picture><source srcset=\"{portlet.CommonSettings.IconURI.GetWebpImageURL(portlet.CommonSettings.IconURI.IsEndsWith(".png"))}\"/><img alt=\"\" src=\"{portlet.CommonSettings.IconURI}\"/></picture>";
+					title += $"<picture><source srcset=\"{portlet.CommonSettings.IconURI.GetWebpImageURL(portlet.Organization?.FakeFilesHttpURI, portlet.CommonSettings.IconURI.IsEndsWith(".png"))}\"/><img alt=\"\" src=\"{portlet.CommonSettings.IconURI}\"/></picture>";
 				title += string.IsNullOrWhiteSpace(portlet.CommonSettings.TitleURL)
 					? $"<span>{portlet.Title.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</span>"
 					: $"<span><a href=\"{portlet.CommonSettings.TitleURL}\">{portlet.Title.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}</a></span>";
@@ -2953,10 +2953,10 @@ namespace net.vieapps.Services.Portals
 			if (writeLogs)
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {portletInfo} has been generated - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
-			return new Tuple<string, bool, string>(html, gotError, cacheExpiration > 0 ? cacheExpiration.ToString() : cacheExpirationTime?.ToDTString());
+			return (html, gotError, cacheExpiration > 0 ? cacheExpiration.ToString() : cacheExpirationTime?.ToDTString());
 		}
 
-		async Task<Tuple<string, string, string, string, string>> GenerateDesktopAsync(Desktop desktop, RequestInfo requestInfo, Organization organization, Site site, string siteHost, JObject mainPortletData, string parentIdentity, string contentIdentity, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
+		async Task<(string Title, string MetaTags, string Body, string Stylesheets, string Scripts)> GenerateDesktopAsync(Desktop desktop, RequestInfo requestInfo, Organization organization, Site site, string siteHost, JObject mainPortletData, string parentIdentity, string contentIdentity, bool writeLogs = false, string correlationID = null, CancellationToken cancellationToken = default)
 		{
 			var desktopInfo = $"the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]";
 
@@ -3464,7 +3464,7 @@ namespace net.vieapps.Services.Portals
 			body = body.Format(parameters);
 			zones.ForEach(name => body = body.Replace(StringComparison.OrdinalIgnoreCase, $"[[{name}-holder]]", "{{" + name + "-holder}}"));
 
-			return new Tuple<string, string, string, string, string>(title, metaTags, body, stylesheets, scripts);
+			return (title, metaTags, body, stylesheets, scripts);
 		}
 
 		string NormalizeDesktopHtml(string html, Organization organization, Site site, Desktop desktop)

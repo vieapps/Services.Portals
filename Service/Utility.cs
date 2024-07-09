@@ -16,8 +16,6 @@ using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
-using System.Reflection;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -364,6 +362,36 @@ namespace net.vieapps.Services.Portals
 		internal static string GetThumbnailURL(this JToken thumbnails, string objectID, bool isPng = false, bool isBig = false, int width = 0, int height = 0)
 			=> thumbnails?.GetThumbnails(objectID, isPng, isBig, width, height)?.FirstOrDefault()?.Get<JObject>("URIs")?.Get<string>("Direct");
 
+		internal static XElement UpdateThumbnail(this XElement element, string thumbnailURL, bool transparency)
+		{
+			var originalURL = string.IsNullOrWhiteSpace(thumbnailURL) ? element?.Value ?? "" : thumbnailURL;
+			var alternativeURL = originalURL.GetWebpImageURL(null, transparency);
+			if (element != null)
+			{
+				element.Value = string.IsNullOrWhiteSpace(alternativeURL) ? originalURL : alternativeURL;
+				var attribute = element.Attribute("Original");
+				if (attribute != null)
+					attribute.Value = originalURL;
+				else
+					element.Add(new XAttribute("Original", originalURL));
+				attribute = element.Attribute("Alternative");
+				if (attribute != null)
+					attribute.Value = alternativeURL;
+				else
+					element.Add(new XAttribute("Alternative", alternativeURL));
+			}
+			return element;
+		}
+
+		internal static XElement GetThumbnail(this string thumbnailURL, bool transparency = false, string tag = "ThumbnailURL")
+			=> new XElement(string.IsNullOrWhiteSpace(tag) ? "ThumbnailURL" : tag, thumbnailURL).UpdateThumbnail(thumbnailURL, transparency);
+
+		internal static XElement AddThumbnail(this XElement element, string thumbnailURL, bool transparency = false, string tag = "ThumbnailURL")
+		{
+			element?.Add(thumbnailURL?.GetThumbnail(transparency, tag));
+			return element;
+		}
+
 		internal static JArray GetAttachments(this JToken attachments, string objectID)
 			=> attachments != null
 				? attachments is JArray attachmentsAsJArray
@@ -371,11 +399,11 @@ namespace net.vieapps.Services.Portals
 					: attachments[objectID] as JArray
 				: null;
 
-		internal static string GetWebpImageURL(this string url, bool useTransparentAsPng = false)
+		internal static string GetWebpImageURL(this string url, string filesHttpURI = null, bool transparency = false)
 		{
-			if (!string.IsNullOrWhiteSpace(url) && !url.IsEndsWith(".webp") && !url.IsContains("image=webp") && (url.IsStartsWith("~~/") || url.IsStartsWith(Utility.FilesHttpURI)))
+			if (!string.IsNullOrWhiteSpace(url) && !url.IsEndsWith(".webp") && !url.IsContains("image=webp") && (url.IsStartsWith("~~/") || url.IsStartsWith(filesHttpURI ?? Utility.FilesHttpURI)))
 			{
-				var segments = new Uri(url.Replace("~~/", $"{Utility.FilesHttpURI}/")).AbsolutePath.ToList("/").Skip(1).ToList();
+				var segments = new Uri(url.Replace("~~/", $"{filesHttpURI ?? Utility.FilesHttpURI}/")).AbsolutePath.ToList("/").Skip(1).ToList();
 				var handler = segments[0].IsStartsWith("thumbnail") ? segments[0].ToLower() : "webp.image";
 				if (segments[0].IsStartsWith("thumbnail"))
 					handler = handler.IsEndsWith("pngs")
@@ -383,10 +411,13 @@ namespace net.vieapps.Services.Portals
 						: handler.IsEndsWith("bigs")
 							? handler.Replace("bigs", "bigwebps")
 							: "thumbnailwebps";
-				url = (url.IsStartsWith("~~/") ? "~~" : Utility.FilesHttpURI) + $"/{handler}/" + (segments[0].IsStartsWith("thumbnail") ? segments.Skip(1).Join("/") : $"{segments[1]}/{segments.Skip(3).Join("/")}.webp");
+				url = (url.IsStartsWith("~~/") ? "~~" : filesHttpURI ?? Utility.FilesHttpURI) + $"/{handler}/";
+				url += segments[0].IsStartsWith("thumbnail")
+					? segments.Skip(1).Join("/")
+					: $"{segments[1]}/{(segments.Count > 3 && segments[3].Length > 33 && segments[3].Left(32).IsValidUUID() ? $"{segments[3].Left(32)}/{segments[3].Right(segments[3].Length - 33)}.webp" : $"{segments.Skip(3).Join("/")}.webp")}";
 				if (segments[0].IsStartsWith("thumbnail") && (url.IsEndsWith(".png") || url.IsEndsWith(".jpg")))
 					url = (segments[2].Equals("0") ? url.Left(url.Length - 4) : url) + ".webp";
-				url += useTransparentAsPng ? (url.IndexOf("?") > 0 ? "&" : "?") + "transparent=." : "";
+				url += transparency ? (url.IndexOf("?") > 0 ? "&" : "?") + "transparent=." : "";
 			}
 			return url;
 		}
@@ -396,7 +427,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="html"></param>
 		/// <returns></returns>
-		public static string NormalizeHTML(this string html)
+		public static string NormalizeHTML(this string html, string filesHttpURI = null)
 		{
 			if (string.IsNullOrWhiteSpace(html))
 				return null;
@@ -466,6 +497,10 @@ namespace net.vieapps.Services.Portals
 						image = image.Remove(heightStart, heightEnd + 2 - heightStart);
 					}
 
+					image = image.PositionOf("decoding=") < 0 ? image.Replace(StringComparison.OrdinalIgnoreCase, "<img", "<img decoding=\"async\"") : image;
+					image = image.PositionOf("loading=") < 0 ? image.Replace(StringComparison.OrdinalIgnoreCase, "<img", "<img loading=\"lazy\"") : image;
+					image = image.Replace(";  alt=", ";\" alt=");
+
 					var urlStart = image.IndexOf("src=") + 5;
 					var urlEnd = image.IndexOf("\"", urlStart + 1);
 					if (urlEnd < 0)
@@ -474,7 +509,12 @@ namespace net.vieapps.Services.Portals
 					if (urlEnd > 0)
 					{
 						var url = image.Substring(urlStart, urlEnd - urlStart);
-						var webpURL = url.IsContains("image=svg") ? url : url.GetWebpImageURL();
+						if (url.IsStartsWith("/files/"))
+						{
+							url = $"~~{url}";
+							image = image.Substring(0, urlStart) + url + image.Substring(urlEnd);
+						}
+						var webpURL = url.IsContains("image=svg") ? url : url.GetWebpImageURL(filesHttpURI);
 						if (!url.IsEquals(webpURL))
 							image = $"<picture><source srcset=\"{webpURL}\"/>{image}</picture>";
 					}
@@ -486,6 +526,22 @@ namespace net.vieapps.Services.Portals
 			}
 
 			return html.HtmlDecode();
+		}
+
+		static string NormalizeHTML(this string html, IBusinessObject @object)
+		{
+			var organization = @object.Organization as Organization;
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, $"{organization?.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, $"{organization?.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/", "~#/");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "~/File.ashx/", $"~~/files/{organization?.ID.ToLower()}/");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "\"/File.ashx/", $"\"~~/files/{organization?.ID.ToLower()}/");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "~/Image.ashx/", $"~~/files/{organization?.ID.ToLower()}/");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "\"/Image.ashx/", $"\"~~/files/{organization?.ID.ToLower()}/");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "~/Files/image=", $"~~/files/{organization?.ID.ToLower()}/image=");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "src=\"/files/", $"src=\"~~/files/");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "src=\"~/files/", $"src=\"~~/files/");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "~~~/files/", $"~~/files/");
+			return html.NormalizeHTML(organization?.FakeFilesHttpURI ?? Utility.FilesHttpURI);
 		}
 
 		/// <summary>
@@ -542,18 +598,18 @@ namespace net.vieapps.Services.Portals
 				// standard properties
 				definition.Attributes.Where(attribute => attribute.IsCLOB != null && attribute.IsCLOB.Value).ForEach(attribute =>
 				{
-					var elment = xml.Element(attribute.Name);
-					if (elment != null && !string.IsNullOrWhiteSpace(elment.Value))
-						elment.Value = elment.Value.NormalizeHTML();
+					var element = xml.Element(attribute.Name);
+					if (!string.IsNullOrWhiteSpace(element?.Value))
+						element.Value = element.Value.NormalizeHTML(@object);
 				});
 
 				// extended properties
 				if (@object.ExtendedProperties != null && definition.BusinessRepositoryEntities.TryGetValue(@object.RepositoryEntityID, out var repositiryEntity))
 					repositiryEntity?.ExtendedPropertyDefinitions?.Where(propertyDefinition => propertyDefinition.Mode.Equals(ExtendedPropertyMode.LargeText)).ForEach(propertyDefinition =>
 					{
-						var elment = xml.Element(propertyDefinition.Name);
-						if (elment != null && !string.IsNullOrWhiteSpace(elment.Value))
-							elment.Value = elment.Value.NormalizeHTML();
+						var element = xml.Element(propertyDefinition.Name);
+						if (!string.IsNullOrWhiteSpace(element?.Value))
+							element.Value = element.Value.NormalizeHTML(@object);
 					});
 			}
 

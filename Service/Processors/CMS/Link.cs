@@ -1103,13 +1103,12 @@ namespace net.vieapps.Services.Portals
 						// prepare parent info
 						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
 						var thumbnails = await requestInfo.GetThumbnailsAsync(parent.ID, parent.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-						var thumbnailURL = thumbnails?.GetThumbnailURL(parent.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", parent.Title),
 							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", parent.GetURL(desktop) ?? ""),
-							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+							(thumbnails?.GetThumbnailURL(parent.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails)
 						));
 
 						// update cache
@@ -1142,17 +1141,13 @@ namespace net.vieapps.Services.Portals
 						var linkJson = await requestInfo.GenerateLinkAsync(parent, thumbnailURL, addChildren, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false);
 
 						// generate xml
-						var dataXml = linkJson.Get<JObject>("Children").ToXml("Data", xml =>
-						{
-							var element = xml?.Element("ThumbnailURL");
-							element?.Add(new XAttribute("Alternative", element.Value?.GetWebpImageURL(pngThumbnails)));
-						});
+						var dataXml = linkJson.Get<JObject>("Children").ToXml("Data", xml => xml.Element("ThumbnailURL")?.UpdateThumbnail(null, pngThumbnails));
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", parent.Title),
 							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", parent.GetURL(desktop) ?? ""),
-							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+							(thumbnailURL ?? "").GetThumbnail(pngThumbnails)
 						));
 
 						// get xml data
@@ -1223,11 +1218,7 @@ namespace net.vieapps.Services.Portals
 							// generate xml of each item
 							var itemXml = asMenu
 								? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false)).ToXml("Menu")
-								: (await requestInfo.GenerateLinkAsync(@object, thumbnailURL, addChildren, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false)).ToXml("Link", xml =>
-								{
-									var element = xml.Element("ThumbnailURL");
-									element?.Add(new XAttribute("Alternative", element.Value?.GetWebpImageURL(pngThumbnails) ?? ""));
-								});
+								: (await requestInfo.GenerateLinkAsync(@object, thumbnailURL, addChildren, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false)).ToXml("Link", xml => xml.Element("ThumbnailURL")?.UpdateThumbnail(null, pngThumbnails));
 
 							// get and generate attachments
 							if (!asMenu && showAttachments)
@@ -1263,13 +1254,12 @@ namespace net.vieapps.Services.Portals
 					{
 						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
 						thumbnails = await requestInfo.GetThumbnailsAsync(parent.ID, parent.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-						var thumbnailURL = thumbnails?.GetThumbnailURL(parent.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", parent.Title),
 							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", parent.GetURL(desktop) ?? ""),
-							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? ""))
+							(thumbnails?.GetThumbnailURL(parent.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails)
 						));
 					}
 

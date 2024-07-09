@@ -664,8 +664,7 @@ namespace net.vieapps.Services.Portals
 								if (!string.IsNullOrWhiteSpace(@object.Summary))
 									element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
 								element.Add(new XElement("URL", @object.GetURL(desktop, false, parentIdentity) ?? ""));
-								var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-								element.Add(new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+								element.AddThumbnail(thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), pngThumbnails);
 								if (showAttachments)
 								{
 									var xmlAttachments = new XElement("Attachments");
@@ -718,7 +717,7 @@ namespace net.vieapps.Services.Portals
 					var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 					if (totalPages > 0 && pageNumber > totalPages)
 						pageNumber = totalPages;
-					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{parentIdentity ?? contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(organizationJson.Get<bool>("AlwaysUseHtmlSuffix", true) ? ".html" : "")}", showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => !kvp.Key.IsStartsWith("x-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
+					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{parentIdentity ?? contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(organizationJson.Get<bool>("AlwaysUseHtmlSuffix", true) ? ".html" : "")}", showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => kvp.Key.IsStartsWith("ngx-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
 				}
 
 				// prepare SEO info
@@ -829,11 +828,7 @@ namespace net.vieapps.Services.Portals
 						if (showThumbnails)
 						{
 							var thumbnails = new XElement("Thumbnails");
-							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail =>
-							{
-								var thumbnailURL = thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-								thumbnails.Add(new XElement("Thumbnail", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
-							});
+							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail => thumbnails.Add((thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails, "Thumbnail")));
 							element.Add(thumbnails);
 						}
 
@@ -859,7 +854,7 @@ namespace net.vieapps.Services.Portals
 						others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
 						{
 							otherXml.Add(new XElement("URL", other.GetURL(desktop, false, parentIdentity) ?? ""));
-							otherXml.Add(new XElement("ThumbnailURL", otherThumbnails?.GetThumbnailURL(other.ID) ?? ""));
+							otherXml.AddThumbnail(otherThumbnails?.GetThumbnailURL(other.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), pngThumbnails);
 						})));
 						dataXml.Add(othersXml);
 					}

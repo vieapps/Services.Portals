@@ -830,7 +830,7 @@ namespace net.vieapps.Services.Portals
 				var cacheKeyOfTotalObjects = Extensions.GetCacheKeyOfTotalObjects(filter, sort);
 				var cacheKeyOfObjectsXml = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
 				if (forceCache)
-					await Utility.Cache.RemoveAsync(new[] { cacheKeyOfTotalObjects, cacheKeyOfObjectsXml, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) }, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.RemoveAsync([cacheKeyOfTotalObjects, cacheKeyOfObjectsXml, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber)], cancellationToken).ConfigureAwait(false);
 
 				// get cache
 				long totalRecords = -1;
@@ -882,8 +882,7 @@ namespace net.vieapps.Services.Portals
 										element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
 									element.Add(new XElement("Category", @object.Category?.Title ?? "", new XAttribute("URL", @object.Category?.GetURL(desktop) ?? "")));
 									element.Add(new XElement("URL", @object.GetURL(desktop) ?? ""));
-									var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-									element.Add(new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+									element.AddThumbnail(thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), pngThumbnails);
 								}));
 							}
 							catch (Exception ex)
@@ -911,14 +910,13 @@ namespace net.vieapps.Services.Portals
 							parentCategory = parentCategory.ParentCategory;
 						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
 						categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-						var thumbnailURL = categoryThumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", category.Title),
 							new XElement("Description", category.Description?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", category.GetURL(desktop) ?? ""),
-							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")),
+							(categoryThumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails),
 							new XElement("Root", parentCategory?.Title ?? category.Title, new XAttribute("URL", parentCategory?.GetURL(desktop) ?? category.GetURL(desktop)))
 						));
 					}
@@ -931,11 +929,11 @@ namespace net.vieapps.Services.Portals
 					(
 						expiresAt != null
 							? expiresAt.Value < DateTime.Now
-								? Utility.Cache.RemoveAsync(results.Item5.Concat(new[] { cacheKeyOfObjectsXml }), cancellationToken)
+								? Utility.Cache.RemoveAsync(results.Item5.Concat([cacheKeyOfObjectsXml]), cancellationToken)
 								: Utility.Cache.SetAsync(cacheKeyOfObjectsXml, data, expiresAt.Value, cancellationToken)
 							: Utility.Cache.SetAsync(cacheKeyOfObjectsXml, data, cancellationToken),
 						contentType != null
-							? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item5.Concat(new[] { cacheKeyOfObjectsXml }), cancellationToken)
+							? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item5.Concat([cacheKeyOfObjectsXml]), cancellationToken)
 							: Task.CompletedTask,
 						Utility.IsCacheLogEnabled
 							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item5.Count + 1}): {results.Item5.Concat(new[] { cacheKeyOfObjectsXml }).Join(", ")}", "Caches")
@@ -981,7 +979,7 @@ namespace net.vieapps.Services.Portals
 					var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 					if (totalPages > 0 && pageNumber > totalPages)
 						pageNumber = totalPages;
-					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true), showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => !kvp.Key.IsStartsWith("x-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
+					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true), showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => kvp.Key.IsStartsWith("ngx-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
 				}
 
 				// prepare SEO
@@ -1121,11 +1119,7 @@ namespace net.vieapps.Services.Portals
 						if (showThumbnails)
 						{
 							var thumbnails = new XElement("Thumbnails");
-							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail =>
-							{
-								var thumbnailURL = thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-								thumbnails.Add(new XElement("Thumbnail", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
-							});
+							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail => thumbnails.Add((thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails, "Thumbnail")));
 							xml.Add(thumbnails);
 						}
 
@@ -1155,8 +1149,7 @@ namespace net.vieapps.Services.Portals
 							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime != null ? related.PublishedTime.Value : DateTime.Now).UpdateDateTime(cultureInfo, customDateTimeFormat));
 							relatedXml.Add(new XElement("Category", related.Category?.Title ?? "", new XAttribute("URL", related.Category?.GetURL(desktop) ?? "")));
 							relatedXml.Add(new XElement("URL", related.GetURL(desktop) ?? ""));
-							var thumbnailURL = relatedThumbnails?.GetThumbnailURL(related.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-							relatedXml.Add(new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+							relatedXml.AddThumbnail(relatedThumbnails?.GetThumbnailURL(related.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), pngThumbnails);
 							if (!string.IsNullOrWhiteSpace(related.Summary))
 								relatedXml.Element("Summary").Value = related.Summary.NormalizeHTMLBreaks();
 							relatedsXml.Add(relatedXml);
@@ -1183,8 +1176,7 @@ namespace net.vieapps.Services.Portals
 							otherXml.Element("PublishedTime")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
 							otherXml.Add(new XElement("Category", other.Category?.Title ?? "", new XAttribute("URL", other.Category?.GetURL(desktop) ?? "")));
 							otherXml.Add(new XElement("URL", other.GetURL(desktop) ?? ""));
-							var thumbnailURL = otherThumbnails?.GetThumbnailURL(other.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
-							otherXml.Add(new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")));
+							otherXml.AddThumbnail(otherThumbnails?.GetThumbnailURL(other.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), pngThumbnails);
 							if (!string.IsNullOrWhiteSpace(other.Summary))
 								otherXml.Element("Summary").Value = other.Summary.NormalizeHTMLBreaks();
 						})));
@@ -1206,7 +1198,7 @@ namespace net.vieapps.Services.Portals
 							new XElement("Description", category.Description?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", category.GetURL(desktop) ?? ""),
-							new XElement("ThumbnailURL", thumbnailURL ?? "", new XAttribute("Alternative", thumbnailURL?.GetWebpImageURL(pngThumbnails) ?? "")),
+							(categoryThumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails),
 							new XElement("Root", parentCategory?.Title ?? category.Title, new XAttribute("URL", parentCategory?.GetURL(desktop) ?? category.GetURL(desktop)))
 						));
 					}
