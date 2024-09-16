@@ -366,7 +366,7 @@ namespace net.vieapps.Services.Portals.Settings
 		[FormControl(MaxLength = 100)]
 		public string Name { get; set; }
 
-		[FormControl(ControlType = "TextArea", MaxLength = 4000)]
+		[FormControl(ControlType = "TextArea")]
 		public string Content { get; set; }
 
 		public HttpIndicator Normalize()

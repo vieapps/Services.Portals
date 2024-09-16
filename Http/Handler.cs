@@ -315,12 +315,8 @@ namespace net.vieapps.Services.Portals
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitStartingLogAsync(context.GetParameter("x-logs") != null).ConfigureAwait(false);
 
-			// request to favicon.ico file
-			if (requestPath.Equals("favicon.ico"))
-				await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
-
 			// request to static segments
-			else if (Global.StaticSegments.Contains(requestPath))
+			if (Global.StaticSegments.Contains(requestPath))
 				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
 
 			// request to portal desktops/resources
@@ -525,7 +521,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// indicators
-					else if (firstPathSegment.IsEndsWith(".txt") || firstPathSegment.IsEndsWith(".xml") || firstPathSegment.IsEndsWith(".json"))
+					else if (firstPathSegment.IsEndsWith(".txt") || firstPathSegment.IsEndsWith(".xml") || firstPathSegment.IsEndsWith(".json") || firstPathSegment.IsEquals("favicon.ico"))
 					{
 						systemIdentity = "~indicators";
 						query["x-indicator"] = firstPathSegment;
@@ -844,6 +840,9 @@ namespace net.vieapps.Services.Portals
 									{ "Cache-Control", "public" }
 								});
 
+								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
+								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
+
 								if (contentType.IsEquals("text/html"))
 								{
 									var osPlatform = osInfo.GetANSIUri();
@@ -863,12 +862,7 @@ namespace net.vieapps.Services.Portals
 									});
 									if (!string.IsNullOrWhiteSpace(baseURL))
 										cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
-								}
 
-								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
-								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
-								if (contentType.IsEquals("text/html"))
-								{
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " src=\"//");
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" srcset=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " srcset=\"//");
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " href=\"//");
@@ -885,12 +879,22 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// call Portals service to process the request
-					requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
-					var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-					context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
-					var body = response.Get<string>("Body");
-					if (body != null)
-						await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "gzip")), cts.Token).ConfigureAwait(false);
+					try
+					{
+						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
+						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
+						var body = response.Get<string>("Body");
+						if (body != null)
+							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "gzip")), cts.Token).ConfigureAwait(false);
+					}
+					catch (Exception)
+					{
+						if ("~indicators".IsEquals(systemIdentity) && queryString.TryGetValue("x-indicator", out var indicator) && "favicon.ico".IsEquals(indicator))
+							await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
+						else
+							throw;
+					}
 				}
 				catch (OperationCanceledException) { }
 				catch (Exception ex)

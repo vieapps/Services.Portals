@@ -1277,7 +1277,7 @@ namespace net.vieapps.Services.Portals
 
 			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 			var name = $"{requestInfo.Query["x-indicator"]}";
-			var contentType = name.IsEndsWith(".json") ? "application/json" : name.IsEndsWith(".xml") ? "text/xml" : "text/plain";
+			var contentType = name.IsEquals("favicon.ico") ? "image/x-icon" : name.IsEndsWith(".json") ? "application/json" : name.IsEndsWith(".xml") ? "text/xml" : "text/plain";
 			var indicator = organization.HttpIndicators?.FirstOrDefault(httpIndicator => httpIndicator.Name.IsEquals(name));
 			return indicator != null
 				? new JObject
@@ -1289,7 +1289,7 @@ namespace net.vieapps.Services.Portals
 							{ "X-Correlation-ID", requestInfo.CorrelationID }
 						}.ToJson()
 					},
-					{ "Body", indicator.Content.Compress(this.BodyEncoding) },
+					{ "Body", (name.IsEquals("favicon.ico") ? indicator.Content.ToList().Last().Base64ToBytes() : indicator.Content.ToBytes()).Compress(this.BodyEncoding).ToBase64() },
 					{ "BodyEncoding", this.BodyEncoding }
 				}
 				: throw new InformationNotFoundException();
@@ -2125,7 +2125,7 @@ namespace net.vieapps.Services.Portals
 				{
 					var desktopData = await this.GenerateDesktopAsync(desktop, requestInfo, organization, site, host, mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					title = desktopData.Title;
-					metaTags = (this.AllowPreconnect ? $"<link rel=\"preconnect\" href=\"{this.GetPortalsHttpURI(organization).Substring(6)}\"/>" + $"<link rel=\"preconnect\" href=\"{this.GetFilesHttpURI(organization).Substring(6)}\"/>" + "<link rel=\"preconnect\" href=\"//fonts.googleapis.com\"/><link rel=\"preconnect\" href=\"//fonts.gstatic.com\"/><link rel=\"preconnect\" href=\"//www.googletagmanager.com\"/><link rel=\"preconnect\" href=\"//unpkg.com\"/><link rel=\"preconnect\" href=\"//cdnjs.cloudflare.com\"/>" : "") + desktopData.MetaTags;
+					metaTags = (this.AllowPreconnect ? $"<link rel=\"preconnect\" crossorigin href=\"{this.GetPortalsHttpURI(organization).Substring(6)}\"/>" + $"<link rel=\"preconnect\" crossorigin href=\"{this.GetFilesHttpURI(organization).Substring(6)}\"/>" + "<link rel=\"preconnect\" crossorigin href=\"//fonts.googleapis.com\"/><link rel=\"preconnect\" crossorigin href=\"//fonts.gstatic.com\"/><link rel=\"preconnect\" crossorigin href=\"//www.googletagmanager.com\"/><link rel=\"preconnect\" crossorigin href=\"//unpkg.com\"/><link rel=\"preconnect\" crossorigin href=\"//cdnjs.cloudflare.com\"/>" : "") + desktopData.MetaTags;
 					body = desktopData.Body;
 					stylesheets = desktopData.Stylesheets;
 					scripts = desktopData.Scripts;
@@ -2964,10 +2964,30 @@ namespace net.vieapps.Services.Portals
 			var metaInfo = mainPortletData?.Get<JArray>("MetaTags");
 			var seoInfo = mainPortletData?.Get<JObject>("SEOInfo");
 
-			var title = "";
 			var titleOfPortlet = seoInfo?.Get<string>("Title") ?? "";
+			titleOfPortlet = string.IsNullOrWhiteSpace(titleOfPortlet) ? null : titleOfPortlet;
 			var titleOfDesktop = desktop.SEOSettings?.SEOInfo?.Title ?? desktop.Title;
+			titleOfDesktop = string.IsNullOrWhiteSpace(titleOfDesktop) ? null : titleOfDesktop;
 			var titleOfSite = site.SEOInfo?.Title ?? site.Title;
+			titleOfSite = string.IsNullOrWhiteSpace(titleOfSite) ? null : titleOfSite;
+
+			var descriptionOfPortlet = seoInfo?.Get<string>("Description") ?? "";
+			descriptionOfPortlet = string.IsNullOrWhiteSpace(descriptionOfPortlet) ? null : descriptionOfPortlet;
+			var descriptionOfDesktop = desktop.SEOSettings?.SEOInfo?.Description ?? "";
+			descriptionOfDesktop = string.IsNullOrWhiteSpace(descriptionOfDesktop) ? null : descriptionOfDesktop;
+			var descriptionOfSite = site.SEOInfo?.Description ?? "";
+			descriptionOfSite = string.IsNullOrWhiteSpace(descriptionOfSite) ? null : descriptionOfSite;
+
+			/*
+			var keywordsOfPortlet = seoInfo?.Get<string>("Keywords") ?? "";
+			keywordsOfPortlet = string.IsNullOrWhiteSpace(keywordsOfPortlet) ? null : keywordsOfPortlet;
+			var keywordsOfDesktop = desktop.SEOSettings?.SEOInfo?.Keywords ?? "";
+			keywordsOfDesktop = string.IsNullOrWhiteSpace(keywordsOfDesktop) ? null : keywordsOfDesktop;
+			var keywordsOfSite = site.SEOInfo?.Keywords ?? "";
+			keywordsOfSite = string.IsNullOrWhiteSpace(keywordsOfSite) ? null : keywordsOfSite;
+			*/
+
+			var title = "";
 			var mode = desktop.SEOSettings?.TitleMode;
 			if (mode == null)
 			{
@@ -2982,29 +3002,29 @@ namespace net.vieapps.Services.Portals
 			switch (mode.Value)
 			{
 				case Settings.SEOMode.SiteAndDesktopAndPortlet:
-					title = titleOfSite;
+					title = titleOfSite ?? "";
 					if (!string.IsNullOrWhiteSpace(titleOfDesktop))
 						title += (title != "" ? " :: " : "") + titleOfDesktop;
 					if (!string.IsNullOrWhiteSpace(titleOfPortlet))
 						title += (title != "" ? " :: " : "") + titleOfPortlet;
 					break;
 				case Settings.SEOMode.PortletAndDesktop:
-					title = titleOfPortlet;
+					title = titleOfPortlet ?? "";
 					if (!string.IsNullOrWhiteSpace(titleOfDesktop))
 						title += (title != "" ? " :: " : "") + titleOfDesktop;
 					break;
 				case Settings.SEOMode.DesktopAndPortlet:
-					title = titleOfDesktop;
+					title = titleOfDesktop ?? "";
 					if (!string.IsNullOrWhiteSpace(titleOfPortlet))
 						title += (title != "" ? " :: " : "") + titleOfPortlet;
 					break;
 				case Settings.SEOMode.PortletAndSite:
-					title = titleOfPortlet;
+					title = titleOfPortlet ?? "";
 					if (!string.IsNullOrWhiteSpace(titleOfSite))
 						title += (title != "" ? " :: " : "") + titleOfSite;
 					break;
 				case Settings.SEOMode.SiteAndPortlet:
-					title = titleOfSite;
+					title = titleOfSite ?? "";
 					if (!string.IsNullOrWhiteSpace(titleOfPortlet))
 						title += (title != "" ? " :: " : "") + titleOfPortlet;
 					break;
@@ -3017,7 +3037,7 @@ namespace net.vieapps.Services.Portals
 			}
 			if (string.IsNullOrWhiteSpace(title))
 			{
-				title = titleOfPortlet;
+				title = titleOfPortlet ?? "";
 				if (!string.IsNullOrWhiteSpace(titleOfDesktop))
 					title += (title != "" ? " :: " : "") + titleOfDesktop;
 				if (!string.IsNullOrWhiteSpace(titleOfSite))
@@ -3026,9 +3046,6 @@ namespace net.vieapps.Services.Portals
 			title = title.Replace("&", "&amp;").Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;");
 
 			var description = "";
-			var descriptionOfPortlet = seoInfo?.Get<string>("Description") ?? "";
-			var descriptionOfDesktop = desktop.SEOSettings?.SEOInfo?.Description ?? "";
-			var descriptionOfSite = site.SEOInfo?.Description ?? "";
 			mode = desktop.SEOSettings?.DescriptionMode;
 			if (mode == null)
 			{
@@ -3043,29 +3060,29 @@ namespace net.vieapps.Services.Portals
 			switch (mode.Value)
 			{
 				case Settings.SEOMode.SiteAndDesktopAndPortlet:
-					description = descriptionOfSite;
+					description = descriptionOfSite ?? "";
 					if (!string.IsNullOrWhiteSpace(descriptionOfDesktop))
 						description += (description != "" ? ", " : "") + descriptionOfDesktop;
 					if (!string.IsNullOrWhiteSpace(descriptionOfPortlet))
 						description += (description != "" ? ", " : "") + descriptionOfPortlet;
 					break;
 				case Settings.SEOMode.PortletAndDesktop:
-					description = descriptionOfPortlet;
+					description = descriptionOfPortlet ?? "";
 					if (!string.IsNullOrWhiteSpace(descriptionOfDesktop))
 						description += (description != "" ? ", " : "") + descriptionOfDesktop;
 					break;
 				case Settings.SEOMode.DesktopAndPortlet:
-					description = descriptionOfDesktop;
+					description = descriptionOfDesktop ?? "";
 					if (!string.IsNullOrWhiteSpace(descriptionOfPortlet))
 						description += (description != "" ? ", " : "") + descriptionOfPortlet;
 					break;
 				case Settings.SEOMode.PortletAndSite:
-					description = descriptionOfPortlet;
+					description = descriptionOfPortlet ?? "";
 					if (!string.IsNullOrWhiteSpace(descriptionOfSite))
 						description += (description != "" ? ", " : "") + descriptionOfSite;
 					break;
 				case Settings.SEOMode.SiteAndPortlet:
-					description = descriptionOfSite;
+					description = descriptionOfSite ?? "";
 					if (!string.IsNullOrWhiteSpace(descriptionOfPortlet))
 						description += (description != "" ? ", " : "") + descriptionOfPortlet;
 					break;
@@ -3078,7 +3095,7 @@ namespace net.vieapps.Services.Portals
 			}
 			if (string.IsNullOrWhiteSpace(description))
 			{
-				description = descriptionOfPortlet;
+				description = descriptionOfPortlet ?? "";
 				if (!string.IsNullOrWhiteSpace(descriptionOfDesktop))
 					description += (description != "" ? ", " : "") + descriptionOfDesktop;
 				if (!string.IsNullOrWhiteSpace(descriptionOfSite))
@@ -3086,10 +3103,8 @@ namespace net.vieapps.Services.Portals
 			}
 			description = description.Replace("\t", "").Replace("\r", "").Replace("\n", " ");
 
+			/*
 			var keywords = "";
-			var keywordsOfPortlet = seoInfo?.Get<string>("Keywords") ?? "";
-			var keywordsOfDesktop = desktop.SEOSettings?.SEOInfo?.Keywords ?? "";
-			var keywordsOfSite = site.SEOInfo?.Keywords ?? "";
 			mode = desktop.SEOSettings?.KeywordsMode;
 			if (mode == null)
 			{
@@ -3104,29 +3119,29 @@ namespace net.vieapps.Services.Portals
 			switch (mode.Value)
 			{
 				case Settings.SEOMode.SiteAndDesktopAndPortlet:
-					keywords = keywordsOfSite;
+					keywords = keywordsOfSite ?? "";
 					if (!string.IsNullOrWhiteSpace(keywordsOfDesktop))
 						keywords += (keywords != "" ? ", " : "") + keywordsOfDesktop;
 					if (!string.IsNullOrWhiteSpace(keywordsOfPortlet))
 						keywords += (keywords != "" ? ", " : "") + keywordsOfPortlet;
 					break;
 				case Settings.SEOMode.PortletAndDesktop:
-					keywords = keywordsOfPortlet;
+					keywords = keywordsOfPortlet ?? "";
 					if (!string.IsNullOrWhiteSpace(keywordsOfDesktop))
 						keywords += (keywords != "" ? ", " : "") + keywordsOfDesktop;
 					break;
 				case Settings.SEOMode.DesktopAndPortlet:
-					keywords = keywordsOfDesktop;
+					keywords = keywordsOfDesktop ?? "";
 					if (!string.IsNullOrWhiteSpace(keywordsOfPortlet))
 						keywords += (keywords != "" ? ", " : "") + keywordsOfPortlet;
 					break;
 				case Settings.SEOMode.PortletAndSite:
-					keywords = keywordsOfPortlet;
+					keywords = keywordsOfPortlet ?? "";
 					if (!string.IsNullOrWhiteSpace(keywordsOfSite))
 						keywords += (keywords != "" ? ", " : "") + keywordsOfSite;
 					break;
 				case Settings.SEOMode.SiteAndPortlet:
-					keywords = keywordsOfSite;
+					keywords = keywordsOfSite ?? "";
 					if (!string.IsNullOrWhiteSpace(keywordsOfPortlet))
 						keywords += (keywords != "" ? ", " : "") + keywordsOfPortlet;
 					break;
@@ -3139,13 +3154,14 @@ namespace net.vieapps.Services.Portals
 			}
 			if (string.IsNullOrWhiteSpace(keywords))
 			{
-				keywords = keywordsOfPortlet;
+				keywords = keywordsOfPortlet ?? "";
 				if (!string.IsNullOrWhiteSpace(keywordsOfDesktop))
 					keywords += (keywords != "" ? ", " : "") + keywordsOfDesktop;
 				if (!string.IsNullOrWhiteSpace(keywordsOfSite))
 					keywords += (keywords != "" ? ", " : "") + keywordsOfSite;
 			}
 			keywords = keywords.Replace("\t", "").Replace("\r", "").Replace("\n", " ");
+			*/
 
 			// start meta tags with information for SEO and social networks
 			var metaTags = "";
@@ -3156,17 +3172,23 @@ namespace net.vieapps.Services.Portals
 				metaTags += $"<meta name=\"description\" content=\"{description}\"/>";
 			}
 
-			metaTags += string.IsNullOrWhiteSpace(keywords) ? "" : $"<meta name=\"keywords\" content=\"{keywords.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}\"/>";
+			//metaTags += string.IsNullOrWhiteSpace(keywords) ? "" : $"<meta name=\"keywords\" content=\"{keywords.Replace("\"", "&quot;").Replace("<", "&lt;").Replace(">", "&gt;")}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(desktop.IconURI) ? "" : $"<link rel=\"icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".ico") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/><link rel=\"shortcut icon\" type=\"image/{(desktop.IconURI.IsEndsWith(".ico") ? "x-icon" : desktop.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{desktop.IconURI}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(site.IconURI) ? "" : $"<link rel=\"icon\" type=\"image/{(site.IconURI.IsEndsWith(".ico") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/><link rel=\"shortcut icon\" type=\"image/{(site.IconURI.IsEndsWith(".ico") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>";
 
 			// social network meta tags
-			metaTags += "<meta property=\"og:locale\" content=\"{{locale}}\"/>";
-			metaTags += $"<meta property=\"og:title\" name=\"twitter:title\" content=\"{seoInfo?.Get<string>("Og:Title") ?? title}\"/>";
-			metaTags += string.IsNullOrWhiteSpace(description) ? "" : $"<meta property=\"og:description\" name=\"twitter:description\" content=\"{description}\"/>";
-			metaTags += string.IsNullOrWhiteSpace(coverURI) ? "" : $"<meta property=\"og:image\" name=\"twitter:image\" content=\"{coverURI}\"/>";
-			metaTags += string.IsNullOrWhiteSpace(desktop.CoverURI) ? "" : $"<meta property=\"og:image\" name=\"twitter:image\" content=\"{desktop.CoverURI}\"/>";
-			metaTags += string.IsNullOrWhiteSpace(site.CoverURI) ? "" : $"<meta property=\"og:image\" name=\"twitter:image\" content=\"{site.CoverURI}\"/>";
+			metaTags += "<meta property=\"og:locale\" content=\"{{locale}}\"/>" + (desktop.ID.IsEquals(site?.HomeDesktop?.ID) ? "<meta property=\"og:type\" content=\"website\"/>" : "");			
+			metaTags += $"<meta property=\"og:title\" content=\"{seoInfo?.Get<string>("Og:Title") ?? titleOfPortlet ?? titleOfDesktop ?? titleOfSite}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(description) ? "" : $"<meta property=\"og:description\" content=\"{descriptionOfPortlet ?? descriptionOfDesktop ?? descriptionOfSite ?? description}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(coverURI) ? "" : $"<meta property=\"og:image\" content=\"{coverURI}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(desktop.CoverURI) ? "" : $"<meta property=\"og:image\" content=\"{desktop.CoverURI}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(site.CoverURI) ? "" : $"<meta property=\"og:image\" content=\"{site.CoverURI}\"/>";
+			metaTags += "<meta name=\"twitter:card\" content=\"summary_large_image\"/>";
+			metaTags += $"<meta name=\"twitter:title\" content=\"{seoInfo?.Get<string>("Og:Title") ?? titleOfPortlet ?? titleOfDesktop ?? titleOfSite}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(description) ? "" : $"<meta name=\"twitter:description\" content=\"{descriptionOfPortlet ?? descriptionOfDesktop ?? descriptionOfSite ?? description}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(coverURI) ? "" : $"<meta name=\"twitter:image\" content=\"{coverURI}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(desktop.CoverURI) ? "" : $"<meta name=\"twitter:image\" content=\"{desktop.CoverURI}\"/>";
+			metaTags += string.IsNullOrWhiteSpace(site.CoverURI) ? "" : $"<meta name=\"twitter:image\" content=\"{site.CoverURI}\"/>";
 
 			// addtional meta tags of main portlet
 			metaInfo?.Select(meta => (meta as JValue)?.Value?.ToString()).Where(meta => !string.IsNullOrWhiteSpace(meta)).ForEach(meta => metaTags += meta);
@@ -3231,8 +3253,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// add default scripts
-			var scripts = "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.0/jquery.min.js") + "\"></script>"
-				+ "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js") + "\"></script>"
+			var scripts = "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js") + "\"></script>"
+				+ "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js") + "\"></script>"
 				+ (site.UseInlineScripts ? "<script>" + this.MinifyJs(await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false) + "\r\n" + await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false)) : $"<script src=\"~#/_assets/rsa.js?v={version}\"></script><script src=\"~#/_assets/default.js?v={version}\"></script>");
 
 			// add scripts of the default theme
@@ -3342,7 +3364,7 @@ namespace net.vieapps.Services.Portals
 				var idAttribute = zone.GetZoneIDAttribute();
 				if (desktopZonesGotPortlet.IndexOf(idAttribute.Value) < 0)
 				{
-					// get parent  element
+					// get parent element
 					var parent = zone.Parent;
 
 					// remove this empty zone
