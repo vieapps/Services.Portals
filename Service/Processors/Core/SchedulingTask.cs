@@ -111,7 +111,7 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this SchedulingTask schedulingTask, CancellationToken cancellationToken = default)
 			=> Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(Filters<SchedulingTask>.And(Filters<SchedulingTask>.Equals("SystemID", schedulingTask.SystemID)), Sorts<SchedulingTask>.Ascending("Time")), cancellationToken);
 
-		internal static async Task<Tuple<long, List<SchedulingTask>, List<string>>> SearchAsync(string query, IFilterBy<SchedulingTask> filter, SortBy<SchedulingTask> sort, int pageSize, int pageNumber, long totalRecords = -1, CancellationToken cancellationToken = default)
+		internal static async Task<(long TotalRecords, List<SchedulingTask> Objects, List<string> CacheKeys)> SearchAsync(string query, IFilterBy<SchedulingTask> filter, SortBy<SchedulingTask> sort, int pageSize, int pageNumber, long totalRecords = -1, CancellationToken cancellationToken = default)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -137,7 +137,7 @@ namespace net.vieapps.Services.Portals
 				await Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).ConfigureAwait(false);
 
 			// return the results
-			return new Tuple<long, List<SchedulingTask>, List<string>>(totalRecords, objects, cacheKeys);
+			return (totalRecords, objects, cacheKeys);
 		}
 
 		internal static async Task<JObject> SearchSchedulingTasksAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)

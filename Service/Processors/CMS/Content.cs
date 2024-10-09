@@ -153,7 +153,7 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 		}
 
-		internal static async Task<Tuple<List<Content>, long, int, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, bool randomPage = false, int minRandomPage = 0, int maxRandomPage = 0, int cacheTime = 0)
+		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, bool randomPage = false, int minRandomPage = 0, int maxRandomPage = 0, int cacheTime = 0)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -205,7 +205,7 @@ namespace net.vieapps.Services.Portals
 				await Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), cancellationToken).ConfigureAwait(false);
 
 			// return the results
-			return new Tuple<List<Content>, long, int, JToken, List<string>>(objects, totalRecords, pageNumber, thumbnails, cacheKeys);
+			return (objects, totalRecords, pageNumber, thumbnails, cacheKeys);
 		}
 
 		internal static async Task<JObject> SearchContentsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -226,25 +226,25 @@ namespace net.vieapps.Services.Portals
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
 			var moduleID = filter?.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (module == null || !module.SystemID.IsEquals(organization.ID))
+			if ((module == null && string.IsNullOrWhiteSpace(query)) || (module != null && !organization.ID.IsEquals(module.SystemID)))
 				throw new InformationInvalidException("The module is invalid");
 
 			var contentTypeID = filter?.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
+			if ((contentType == null && string.IsNullOrWhiteSpace(query)) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			var categoryID = filter?.GetValue("CategoryID") ?? requestInfo.GetParameter("CategoryID") ?? requestInfo.GetParameter("x-category-id");
 			var category = await (categoryID ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, contentType.WorkingPrivileges, organization);
+			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, contentType?.WorkingPrivileges, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// normalize filter
 			if (filter == null || !(filter is FilterBys<Content>) || (filter as FilterBys<Content>).Children == null || (filter as FilterBys<Content>).Children.Count < 1)
-				filter = ContentProcessor.GetContentsFilter(organization.ID, module.ID, contentType.ID, category?.ID);
+				filter = ContentProcessor.GetContentsFilter(organization.ID, module?.ID, contentType?.ID, category?.ID);
 			if (!requestInfo.Session.User.IsAuthenticated)
 			{
 				if (filter.GetChild("Status") is not FilterBy<Content> filterByStatus)
@@ -273,10 +273,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// search if has no cache
-			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
-			var objects = results.Item1;
-			var totalRecords = results.Item2;
-			var thumbnails = results.Item4;
+			var (objects, totalRecords, _, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
 
 			JToken attachments = null;
 			if (objects.Count > 0 && showAttachments)
@@ -330,12 +327,12 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(query))
 			{
 				//await	Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
-				var cacheKeys = new[] { cacheKeyOfObjectsJson }.Concat(results.Item5).ToList();
+				cacheKeys = cacheKeys.Concat(new[] { cacheKeyOfObjectsJson }).ToList();
 				Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
-					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken),
-					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
+					contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken) : Task.CompletedTask,
+					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n{(contentType != null ? $"- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n" : "")}- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
 				).Run();
 			}
 

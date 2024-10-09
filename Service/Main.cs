@@ -22,6 +22,7 @@ using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Caching;
 using net.vieapps.Services.Portals.Exceptions;
+using net.vieapps.Services.Portals.Crawlers;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -33,8 +34,6 @@ namespace net.vieapps.Services.Portals
 		IDisposable ServiceCommunicator { get; set; }
 
 		IAsyncDisposable ServiceInstance { get; set; }
-
-		DateTime TimeOfRefreshOrganizations { get; set; } = DateTime.Now;
 
 		public override string ServiceName => "Portals";
 
@@ -147,6 +146,7 @@ namespace net.vieapps.Services.Portals
 				Utility.ValidationKey = this.ValidationKey;
 				Utility.NotificationsKey = UtilityService.GetAppSetting("Keys:Notifications");
 
+				this.ReloadOrganizationsAsync(false, false, false, false).Run();
 				Utility.NotRecognizedAliases.Add($"Site:{new Uri(Utility.PortalsHttpURI).Host}");
 				Task.Run(async () =>
 				{
@@ -154,24 +154,17 @@ namespace net.vieapps.Services.Portals
 					this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
 				}).ConfigureAwait(false);
 
+				// helper: refine thumbnail images
+				if (args?.FirstOrDefault(arg => arg.IsEquals("/refine-thumbnails")) != null)
+					this.RefineThumbnailImagesAsync().Run();
+
 				Task.Run(async () =>
 				{
 					// wait for a few times
 					await Task.Delay(UtilityService.GetRandomNumber(678, 789), this.CancellationToken).ConfigureAwait(false);
 
-					// get OEmbed providers
-					try
-					{
-						await this.GetOEmbedProvidersAsync(this.CancellationToken).ConfigureAwait(false);
-					}
-					catch { }
-
-					// prepare multi-languges
-					try
-					{
-						await this.PrepareLanguagesAsync(this.CancellationToken).ConfigureAwait(false);
-					}
-					catch { }
+					// prepare OEmbed providers and i18n Languages
+					await Task.WhenAll(this.GetOEmbedProvidersAsync(this.CancellationToken), this.PrepareLanguagesAsync(this.CancellationToken)).ConfigureAwait(false);
 
 					// gathering definitions
 					try
@@ -195,60 +188,28 @@ namespace net.vieapps.Services.Portals
 						catch { }
 				}).ConfigureAwait(false);
 
-				// refine thumbnail images
-				if (args?.FirstOrDefault(arg => arg.IsEquals("/refine-thumbnails")) != null)
-					this.RefineThumbnailImagesAsync().Run();
+				// timer: run scheduling tasks (each 13 seconds)
+				this.StartTimer(async () =>
+				{
+					var correlationID = UtilityService.NewUUID;
+					try
+					{
+						await SchedulingTaskProcessor.RunSchedulingTasksAsync(correlationID).ConfigureAwait(false);
+					}
+					catch (Exception ex)
+					{
+						await this.WriteLogsAsync(correlationID, $"Error occurred while running the scheduling tasks => {ex.Message} [{ex.GetType()}]", ex, this.ServiceName, "Task", LogLevel.Error).ConfigureAwait(false);
+					}
+				}, 13);
 
-				// send info & reload resources
+				// timer: get OEmbed and i18n Languages (each 15 minutes)
+				this.StartTimer(() => Task.WhenAll(this.GetOEmbedProvidersAsync(this.CancellationToken), this.PrepareLanguagesAsync(this.CancellationToken)).Run(), 15 * 60);
+
+				// timer: send info & reload resources (each 12 hours)
 				this.StartTimer(() => this.SendDefinitionInfo(), 12 * 60 * 60);
 
-				this.StartTimer(async () =>
-				{
-					var organizations = await OrganizationProcessor.ReloadOrganizationsAsync(this.CancellationToken).ConfigureAwait(false);
-					await this.WriteLogsAsync(UtilityService.NewUUID, $"All organizations have been re-loaded - Total: {organizations.Count}", null, this.ServiceName, "Caches").ConfigureAwait(false);
-					await Task.Delay(UtilityService.GetRandomNumber(1234, 3456), this.CancellationToken).ConfigureAwait(false);
-					if (this.TimeOfRefreshOrganizations.Hour < DateTime.Now.Hour)
-					{
-						new CommunicateMessage(this.ServiceName)
-						{
-							Type = "Organization#Refresh"
-						}.Send();
-						organizations.ForEach(organization => new UpdateMessage
-						{
-							Type = $"{this.ServiceName}#Organization#Update",
-							Data = organization.ToJson(),
-							DeviceID = "*"
-						}.Send());
-					}
-				}, 61 * 60);
-
-				this.StartTimer(async () =>
-				{
-					var sites = await SiteProcessor.ReloadSitesAsync(this.CancellationToken).ConfigureAwait(false);
-					await this.WriteLogsAsync(UtilityService.NewUUID, $"All sites have been re-loaded - Total: {sites.Count}", null, this.ServiceName, "Caches").ConfigureAwait(false);
-				}, 65 * 60);
-
-				this.StartTimer(async () => await this.GetOEmbedProvidersAsync(this.CancellationToken).ConfigureAwait(false), 15 * 60);
-				this.StartTimer(async () => await this.PrepareLanguagesAsync(this.CancellationToken).ConfigureAwait(false), 15 * 60);
-
-				// scheduling tasks
-				Task.Run(async () =>
-				{
-					await Task.Delay(UtilityService.GetRandomNumber(2345, 3456), this.CancellationToken).ConfigureAwait(false);
-					await OrganizationProcessor.ReloadOrganizationsAsync(this.CancellationToken, true).ConfigureAwait(false);
-					this.StartTimer(async () =>
-					{
-						var correlationID = UtilityService.NewUUID;
-						try
-						{
-							await SchedulingTaskProcessor.RunSchedulingTasksAsync(correlationID).ConfigureAwait(false);
-						}
-						catch (Exception ex)
-						{
-							await this.WriteLogsAsync(correlationID, $"Error occurred while running the scheduling tasks => {ex.Message} [{ex.GetType()}]", ex, this.ServiceName, "Task", LogLevel.Error).ConfigureAwait(false);
-						}
-					}, 13);
-				}).ConfigureAwait(false);
+				// timer: re-load all orangizations/sites (once per day)
+				this.StartTimer(() => (DateTime.Now.Hour < 4 || DateTime.Now.Hour > 4 ? Task.CompletedTask : this.ReloadOrganizationsAsync()).Run(), 60 * 60);
 
 				// invoke next action
 				next?.Invoke(this);
@@ -614,7 +575,12 @@ namespace net.vieapps.Services.Portals
 
 					case "version":
 					case "versions":
-						json = await this.FindVersionsAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						json = await this.FindVersionContentsAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
+
+					case "trash":
+					case "trashs":
+						json = await this.FindTrashContentsAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
 
 					case "approve":
@@ -1789,11 +1755,7 @@ namespace net.vieapps.Services.Portals
 
 			// prepare sites and desktops (at the first-time only)
 			if (SiteProcessor.Sites.IsEmpty)
-			{
-				var sites = await organization.ID.ReloadSitesAsync(cancellationToken).ConfigureAwait(false);
-				organization._siteIDs = sites.Select(website => website.ID).ToList();
-				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-			}
+				await organization.ReloadAsync(cancellationToken).ConfigureAwait(false);
 
 			if (DesktopProcessor.Desktops.IsEmpty || !DesktopProcessor.Desktops.Any(kvp => kvp.Value.SystemID == organization.ID))
 			{
@@ -4651,7 +4613,7 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		#region Process versions
+		#region Rollback/Restore objects
 		public override async Task<JToken> ProcessRollbackRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			JToken json = null;
@@ -4737,7 +4699,7 @@ namespace net.vieapps.Services.Portals
 			return json;
 		}
 
-		async Task<JToken> FindVersionsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JToken> FindVersionContentsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			if (!requestInfo.Verb.IsEquals("GET"))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
@@ -4861,16 +4823,176 @@ namespace net.vieapps.Services.Portals
 				: new JObject();
 			return response;
 		}
+
+		public override async Task<JToken> ProcessRestoreRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			var trashContent = await RepositoryMediator.GetTrashAsync<Organization>(requestInfo.GetObjectIdentity(true, true), cancellationToken).ConfigureAwait(false);
+			if (trashContent == null)
+				throw new InformationNotFoundException();
+
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.IsAdministrator(null, null, await (trashContent.SystemID ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false));
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			var sendCommunicateMessage = false;
+			var @object = trashContent.Object as RepositoryBase;
+			var objectName = @object.GetObjectName();
+			var response = @object.ToJson();
+
+			if (@object is IBusinessObject bizObject)
+			{
+				response["URL"] = bizObject.GetURL();
+				if (bizObject is Category category)
+				{
+					sendCommunicateMessage = true;
+					await RepositoryMediator.RestoreAsync<Category>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				}
+				else if (bizObject is Content content)
+				{
+					response["Summary"] = content.Summary?.NormalizeHTMLBreaks();
+					response["Details"] = content.Organization.NormalizeURLs(content.Details);
+					await RepositoryMediator.RestoreAsync<Content>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await content.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				}
+				else if (bizObject is Item item)
+				{
+					await RepositoryMediator.RestoreAsync<Item>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await item.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				}
+				else if (bizObject is Link link)
+				{
+					await RepositoryMediator.RestoreAsync<Link>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				}
+				else if (bizObject is Form form)
+				{
+					await RepositoryMediator.RestoreAsync<Form>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await form.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				}
+			}
+			else
+			{
+				sendCommunicateMessage = true;
+				if (@object is Organization organization)
+				{
+					await RepositoryMediator.RestoreAsync<Organization>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(organization, null, null, null, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+				}
+				else if (@object is Module module)
+				{
+					await RepositoryMediator.RestoreAsync<Module>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(null, module, null, null, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+				}
+				else if (@object is ContentType contentType)
+				{
+					await RepositoryMediator.RestoreAsync<Module>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(null, null, contentType, null, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+				}
+				else if (@object is Site site)
+				{
+					await RepositoryMediator.RestoreAsync<Site>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(null, null, null, site, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+				}
+				else if (@object is Desktop desktop)
+				{
+					await RepositoryMediator.RestoreAsync<Desktop>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(null, null, null, null, desktop, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+				}
+				else if (@object is Portlet portlet)
+				{
+					await RepositoryMediator.RestoreAsync<Portlet>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(null, null, null, null, portlet.OriginalDesktop, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+				}
+				else if (@object is Expression expression)
+				{
+					await RepositoryMediator.RestoreAsync<Expression>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(null, null, null, null, null, expression, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+				}
+				else if (@object is Role role)
+				{
+					await RepositoryMediator.RestoreAsync<Role>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(role.Organization, null, null, null, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+				}
+				else if (@object is SchedulingTask task)
+				{
+					await RepositoryMediator.RestoreAsync<SchedulingTask>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(task.Organization, null, null, null, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+				}
+			}
+
+			if (sendCommunicateMessage)
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+
+			var thumbnailsTask = requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var attachmentsTask = requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+			var versionsTask = @object.FindVersionsAsync(cancellationToken, false);
+			await Task.WhenAll(thumbnailsTask, attachmentsTask, versionsTask).ConfigureAwait(false);
+
+			response.UpdateVersions(versionsTask.Result);
+			response["Thumbnails"] = thumbnailsTask.Result;
+			response["Attachments"] = attachmentsTask.Result;
+
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = response,
+				DeviceID = "*"
+			}.Send();
+
+			return response;
+		}
+
+		async Task<JToken> FindTrashContentsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			if (!requestInfo.Verb.IsEquals("GET"))
+				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
+			var systemID = requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("x-organization-id");
+			var repositoryID = requestInfo.GetParameter("x-repository-id") ?? requestInfo.GetParameter("x-module-id");
+			var repositoryEntityID = requestInfo.GetParameter("x-repository-entity-id") ?? requestInfo.GetParameter("x-content-type-id");
+			var userID = requestInfo.GetParameter("x-user-id") ?? requestInfo.GetParameter("x-account-id");
+
+			var organization = await (systemID ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
+			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.IsAdministrator(null, null, organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			var pagination = requestInfo.GetRequestExpando().Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
+			var pageSize = pagination.Item3;
+			var pageNumber = pagination.Item4;
+			var totalRecords = await RepositoryMediator.CountTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, cancellationToken).ConfigureAwait(false);
+			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			if (totalPages > 0 && pageNumber > totalPages)
+				pageNumber = totalPages;
+
+			var objects = await RepositoryMediator.FindTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, pageSize, pageNumber, cancellationToken).ConfigureAwait(false);
+			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
+
+			var response = new JObject
+			{
+				{ "FilterBy", Filters<TrashContent>.And(organization != null ? Filters<TrashContent>.Equals("SystemID", organization.ID) : null).ToClientJson() },
+				{ "SortBy", Sorts<TrashContent>.Descending("Created").ToClientJson() },
+				{ "Pagination", pagination.GetPagination() },
+				{ "Objects", objects.Select(@object => @object.ToJson(json => (json as JObject)?.Remove("Data"))).ToJArray() }
+			};
+			return response;
+		}
 		#endregion
 
 		#region Process web-hook messages
 		public override async Task<JToken> ProcessWebHookMessageAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+	{
+		var stopwatch = Stopwatch.StartNew();
+		var isDebug = this.IsDebugLogEnabled || this.IsDebugResultsEnabled || requestInfo.Query.TryGetValue("x-logs", out var _);
+		try
 		{
-			var stopwatch = Stopwatch.StartNew();
-			var isDebug = this.IsDebugLogEnabled || this.IsDebugResultsEnabled || requestInfo.Query.TryGetValue("x-logs", out var _);
-			try
-			{
-				// prepare
+			// prepare
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
 
 				var identity = requestInfo.GetParameter("x-webhook-system") ?? "";
@@ -4955,12 +5077,7 @@ namespace net.vieapps.Services.Portals
 
 			// messages of an organization
 			if (message.Type.IsStartsWith("Organization#"))
-			{
-				if (message.Type.IsEquals("Organization#Refresh"))
-					this.TimeOfRefreshOrganizations = DateTime.Now;
-				else
-					await message.ProcessInterCommunicateMessageOfOrganizationAsync(cancellationToken).ConfigureAwait(false);
-			}
+				await message.ProcessInterCommunicateMessageOfOrganizationAsync(cancellationToken).ConfigureAwait(false);
 
 			// messages of a site
 			else if (message.Type.IsStartsWith("Site#"))
@@ -5001,10 +5118,12 @@ namespace net.vieapps.Services.Portals
 			// messages of a CMS crawler
 			else if (message.Type.IsStartsWith("Crawler#") || message.Type.IsStartsWith("CMS.Crawler#"))
 				await message.ProcessInterCommunicateMessageOfCrawlerAsync(cancellationToken).ConfigureAwait(false);
+
 			stopwatch.Stop();
 			if (Utility.IsWriteMessageLogs(null))
 				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", "Updates").ConfigureAwait(false);
 		}
+
 		async Task ProcessCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			var correlationID = UtilityService.NewUUID;
@@ -5035,7 +5154,29 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 		#endregion
 
-		#region Clear cache of a core object
+		#region Reload organizations/sites
+		async Task ReloadOrganizationsAsync(bool updateCache = true, bool sendCommunicatingMessage = true, bool sendUpdatingMessage = true, bool sendSchedulingTasks = true)
+		{
+			if (!updateCache && !sendCommunicatingMessage && !sendUpdatingMessage)
+				await SiteProcessor.FindSitesAsync(null, null, false, this.CancellationToken).ConfigureAwait(false);
+			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? new List<Organization>();
+			await organizations.ForEachAsync(async organization =>
+			{
+				await organization.RefreshAsync(this.CancellationToken, updateCache, sendCommunicatingMessage, sendUpdatingMessage).ConfigureAwait(false);
+				await (sendSchedulingTasks ? organization.SendSchedulingTasksAsync(this.CancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+				if (!updateCache && !sendCommunicatingMessage && !sendUpdatingMessage)
+				{
+					var cacheKey = organization.HomeDesktop?.GetDesktopCacheKey(new Uri($"https://{organization.DefaultSite?.PrimaryDomain ?? "vieapps.net"}"));
+					await (string.IsNullOrWhiteSpace(cacheKey) ? Task.CompletedTask : Utility.Cache.RemoveAsync($"v#{cacheKey}", this.CancellationToken)).ConfigureAwait(false);
+				}
+				else
+					await organization.Sites.ForEachAsync(site => site.RefreshAsync(this.CancellationToken, updateCache, sendCommunicatingMessage, sendUpdatingMessage), true, false).ConfigureAwait(false);
+			}, true, false).ConfigureAwait(false);
+			await this.WriteLogsAsync(UtilityService.NewUUID, $"All organizations have been re-loaded - Total: {organizations.Count}", null, this.ServiceName, "Caches").ConfigureAwait(false);
+		}
+		#endregion
+
+		#region Clear cache of a Core Portals objects
 		async Task<JToken> ClearCacheAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// validate
@@ -5103,13 +5244,22 @@ namespace net.vieapps.Services.Portals
 			var stopwatch = Stopwatch.StartNew();
 			if (Utility.IsCacheLogEnabled)
 				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear all cache{(organization != null ? " of the whole organization" : "")} [{requestInfo.GetURI()}]", "Caches").ConfigureAwait(false);
+			await this.ClearCacheAsync(organization, module, contentType, site, desktop, expression, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+			stopwatch.Stop();
+			if (Utility.IsCacheLogEnabled)
+				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear related cache successful - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 
+			return new JObject();
+		}
+
+		async Task ClearCacheAsync(Organization organization, Module module, ContentType contentType, Site site, Desktop desktop, Expression expression, string correlationID, CancellationToken cancellationToken)
+		{
 			if (organization != null)
-				await organization.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true, false).ConfigureAwait(false);
+				await organization.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
 
 			else if (module != null)
 			{
-				await module.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true, false).ConfigureAwait(false);
+				await module.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
 				module = await Module.GetAsync<Module>(module.ID, cancellationToken).ConfigureAwait(false);
 				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
@@ -5117,14 +5267,14 @@ namespace net.vieapps.Services.Portals
 
 			else if (contentType != null)
 			{
-				await contentType.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true, false).ConfigureAwait(false);
+				await contentType.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
 				contentType = await ContentType.GetAsync<ContentType>(contentType.ID, cancellationToken).ConfigureAwait(false);
 				await contentType.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 
 			else if (site != null)
 			{
-				await site.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
+				await site.ClearCacheAsync(cancellationToken, correlationID, true, true, false).ConfigureAwait(false);
 				site = await Site.GetAsync<Site>(site.ID, cancellationToken).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
 				if (desktop != null)
@@ -5139,12 +5289,12 @@ namespace net.vieapps.Services.Portals
 					desktop != null ? desktop.SetAsync(false, true, cancellationToken) : Task.CompletedTask
 				).ConfigureAwait(false);
 				if (desktop != null)
-					await $"{Utility.PortalsHttpURI}/~{site.Organization?.Alias}/{desktop.Alias}".RefreshWebPageAsync(0, requestInfo.CorrelationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]");
+					await $"{Utility.PortalsHttpURI}/~{site.Organization?.Alias}/{desktop.Alias}".RefreshWebPageAsync(0, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]");
 			}
 
 			else if (desktop != null)
 			{
-				await desktop.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, true).ConfigureAwait(false);
+				await desktop.ClearCacheAsync(cancellationToken, correlationID, true, true, true).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(desktop.ID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll
 				(
@@ -5165,16 +5315,10 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 				await expression.ID.GetExpressionByIDAsync(cancellationToken, true).ConfigureAwait(false);
 			}
-
-			stopwatch.Stop();
-			if (Utility.IsCacheLogEnabled)
-				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear related cache successful - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
-
-			return new JObject();
 		}
 		#endregion
 
-		#region Approval (organization/site/CMS content)
+		#region Approval an object (organization/site/CMS content)
 		async Task<JToken> ApproveAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare
@@ -5613,7 +5757,7 @@ namespace net.vieapps.Services.Portals
 						? thumbnails.GetThumbnailURL(content.ID)
 						: thumbnails.GetThumbnailURL(content.ID)?.Replace(Utility.FilesHttpURI, organization.FakeFilesHttpURI);
 					if (!string.IsNullOrWhiteSpace(media))
-						entry.Add(new XElement("media", new XAttribute("url", media)));
+						entry.Add(new XElement("media", new XAttribute("url", media.GetWebpImageURL(organization.FakeFilesHttpURI))));
 
 					if (content.Category != null)
 						entry.Add(new XElement

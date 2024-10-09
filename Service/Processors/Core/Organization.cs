@@ -94,7 +94,7 @@ namespace net.vieapps.Services.Portals
 			return set ? organization.Set(true) : organization;
 		}
 
-		internal static async Task<Organization> RefreshAsync(this Organization organization, CancellationToken cancellationToken)
+		internal static async Task<Organization> RefreshAsync(this Organization organization, CancellationToken cancellationToken, bool updateCache = true, bool sendCommunicatingMessage = true, bool sendUpdatingMessage = false)
 		{
 			// reload organization
 			await Utility.Cache.RemoveAsync(organization, cancellationToken).ConfigureAwait(false);
@@ -104,14 +104,24 @@ namespace net.vieapps.Services.Portals
 			await organization.ReloadAsync(cancellationToken, false).ConfigureAwait(false);
 			await organization.Modules.ForEachAsync(async module => await (module._contentTypeIDs == null ? module.FindContentTypesAsync(cancellationToken) : Task.CompletedTask).ConfigureAwait(false), true, false).ConfigureAwait(false);
 
-			// update cache and send update message
-			await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-			new CommunicateMessage(Utility.ServiceName)
-			{
-				Type = $"{organization.GetObjectName()}#Update",
-				Data = organization.ToJson(false, false),
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
+			// update cache
+			await organization.SetAsync(false, updateCache, cancellationToken).ConfigureAwait(false);
+
+			// send messages
+			if (sendCommunicatingMessage)
+				new CommunicateMessage(Utility.ServiceName)
+				{
+					Type = $"{organization.GetObjectName()}#Update",
+					Data = organization.ToJson(false, false),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			if (sendUpdatingMessage)
+				new UpdateMessage
+				{
+					Type = $"{Utility.ServiceName}#{organization.GetObjectName()}#Update",
+					Data = organization.ToJson(),
+					DeviceID = "*"
+				}.Send();
 
 			return organization;
 		}
@@ -223,6 +233,23 @@ namespace net.vieapps.Services.Portals
 			schedulingTasks.ForEach(schedulingTask => schedulingTask.SendMessages("Update", schedulingTask.ToJson()));
 		}
 
+		internal static async Task<Organization> SendSchedulingTasksAsync(this Organization organization, CancellationToken cancellationToken, bool onlyRefreshingTasks = false)
+		{
+			organization.SendRefreshingTasks();
+			if (!onlyRefreshingTasks)
+			{
+				var filter = Filters<SchedulingTask>.And(Filters<SchedulingTask>.Equals("SystemID", organization.ID));
+				var sort = Sorts<SchedulingTask>.Ascending("Time");
+				var (_, schedulingTasks, __) = await SchedulingTaskProcessor.SearchAsync(null, filter, sort, 0, 1, -1, cancellationToken).ConfigureAwait(false);
+				schedulingTasks.ForEach(schedulingTask =>
+				{
+					SchedulingTaskProcessor.SchedulingTasks[schedulingTask.ID] = schedulingTask;
+					schedulingTask.SendMessages("Update", schedulingTask.ToJson(), Utility.NodeID);
+				});
+			}
+			return organization;
+		}
+
 		public static Organization GetOrganizationByID(this string id, bool force = false, bool fetchRepository = true)
 			=> !force && !string.IsNullOrWhiteSpace(id) && OrganizationProcessor.Organizations.ContainsKey(id)
 				? OrganizationProcessor.Organizations[id]
@@ -272,28 +299,6 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 
 			return organization;
-		}
-
-		internal static async Task<List<Organization>> ReloadOrganizationsAsync(CancellationToken cancellationToken = default, bool sendRefreshingTasks = false)
-		{
-			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, cancellationToken).ConfigureAwait(false) ?? new List<Organization>();
-			await organizations.ForEachAsync(async organization =>
-			{
-				await organization.ReloadAsync(cancellationToken).ConfigureAwait(false);
-				if (sendRefreshingTasks)
-				{
-					organization.SendRefreshingTasks();
-					var filter = Filters<SchedulingTask>.And(Filters<SchedulingTask>.Equals("SystemID", organization.ID));
-					var sort = Sorts<SchedulingTask>.Ascending("Time");
-					var results = await SchedulingTaskProcessor.SearchAsync(null, filter, sort, 0, 1, -1, cancellationToken).ConfigureAwait(false);
-					results.Item2.ForEach(schedulingTask =>
-					{
-						SchedulingTaskProcessor.SchedulingTasks[schedulingTask.ID] = schedulingTask;
-						schedulingTask.SendMessages("Update", schedulingTask.ToJson(), Utility.NodeID);
-					});
-				}
-			}, true, false).ConfigureAwait(false);
-			return organizations;
 		}
 
 		internal static async Task ProcessInterCommunicateMessageOfOrganizationAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
@@ -581,9 +586,9 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", organization.Alias }
 				};
 
-			// refresh (clear cached and reload) or get site & modules
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
-			organization = isRefresh || organization._siteIDs == null || organization._moduleIDs == null
+			// refresh (clear cached and reload) or get sites & modules/content-types
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) || organization._siteIDs == null || organization._moduleIDs == null;
+			organization = isRefresh
 				? await organization.RefreshAsync(cancellationToken).ConfigureAwait(false)
 				: organization;
 
@@ -596,6 +601,7 @@ namespace net.vieapps.Services.Portals
 				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
+			await organization.SendSchedulingTasksAsync(cancellationToken, !isRefresh).ConfigureAwait(false);
 			return response;
 		}
 

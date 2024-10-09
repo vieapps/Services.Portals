@@ -230,32 +230,45 @@ namespace net.vieapps.Services.Portals
 			return sites;
 		}
 
-		public static async Task<List<Site>> FindSitesAsync(this string systemID, CancellationToken cancellationToken = default, bool updateCache = true)
+		public static Task<List<Site>> FindSitesAsync(this string systemID, CancellationToken cancellationToken = default, bool updateCache = true)
+			=> string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? Task.FromResult(new List<Site>()) : SiteProcessor.FindSitesAsync(systemID, null, updateCache, cancellationToken);
+
+		internal static async Task<List<Site>> FindSitesAsync(string systemID, string cacheKey, bool updateCache, CancellationToken cancellationToken)
 		{
-			if (string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID())
-				return new List<Site>();
-			var filter = Filters<Site>.And(Filters<Site>.Equals("SystemID", systemID));
+			var filter = string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? null : Filters<Site>.And(Filters<Site>.Equals("SystemID", systemID));
 			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
-			var sites = await Site.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
+			var sites = await Site.FindAsync(filter, sort, 0, 1, cacheKey ?? Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
 			await sites.ForEachAsync(site => site.ID.GetSiteByID(false, false) == null ? site.SetAsync(false, updateCache, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 			return sites;
 		}
 
-		internal static async Task<List<Site>> ReloadSitesAsync(this string systemID, CancellationToken cancellationToken = default)
+		internal static async Task<Site> RefreshAsync(this Site site, CancellationToken cancellationToken, bool updateCache = true, bool sendCommunicatingMessage = true, bool sendUpdatingMessage = false)
 		{
-			var sites = string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID()
-				? null
-				: await systemID.FindSitesAsync(cancellationToken).ConfigureAwait(false);
-			if (sites == null)
-			{
-				sites = await Site.FindAsync(null, Sorts<Site>.Ascending("Title"), 0, 1, null, cancellationToken).ConfigureAwait(false) ?? new List<Site>();
-				sites.ForEach(site => site.Set());
-			}
-			return sites;
-		}
+			// refresh (remove cache and reload)
+			await Utility.Cache.RemoveAsync(site, cancellationToken).ConfigureAwait(false);
+			site = await site.Remove().ID.GetSiteByIDAsync(cancellationToken, true).ConfigureAwait(false);
 
-		internal static Task<List<Site>> ReloadSitesAsync(CancellationToken cancellationToken)
-			=> SiteProcessor.ReloadSitesAsync(null, cancellationToken);
+			// update cache
+			await site.SetAsync(false, updateCache, cancellationToken).ConfigureAwait(false);
+
+			// send messages
+			if (sendCommunicatingMessage)
+				new CommunicateMessage(Utility.ServiceName)
+				{
+					Type = $"{site.GetObjectName()}#Update",
+					Data = site.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			if (sendUpdatingMessage)
+				new UpdateMessage
+				{
+					Type = $"{Utility.ServiceName}#{site.GetObjectName()}#Update",
+					Data = site.ToJson(),
+					DeviceID = "*"
+				}.Send();
+
+			return site;
+		}
 
 		internal static Task ProcessInterCommunicateMessageOfSiteAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
@@ -480,12 +493,9 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
-			if (isRefresh)
-			{
-				await Utility.Cache.RemoveAsync(site, cancellationToken).ConfigureAwait(false);
-				site = await site.Remove().ID.GetSiteByIDAsync(cancellationToken, true).ConfigureAwait(false);
-			}
+			site = "refresh".IsEquals(requestInfo.GetObjectIdentity())
+				? await site.RefreshAsync(cancellationToken).ConfigureAwait(false)
+				: site;
 
 			// send update message
 			var objectName = site.GetObjectName();
@@ -497,13 +507,6 @@ namespace net.vieapps.Services.Portals
 				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
-			if (isRefresh)
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
 
 			// response
 			return response;

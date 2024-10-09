@@ -458,7 +458,7 @@ namespace net.vieapps.Services.Portals
 					}
 					else
 					{
-						var isAudio = url.IsEndsWith(".mp3") || url.IsEndsWith(".m4a");
+						var isAudio = url.IsEndsWith(".mp3") || url.IsEndsWith(".m4a") || url.IsEndsWith(".wav");
 						var tag = isAudio ? "audio" : "video";
 						var height = isAudio ? "32" : "315";
 						media = ($"<{tag} width=\"560\" height=\"{height}\" controls autoplay muted>" + "<source src=\"{{url}}\"/>" + $"</{tag}>").Format(new Dictionary<string, object> { ["url"] = url });
@@ -500,6 +500,7 @@ namespace net.vieapps.Services.Portals
 					image = image.PositionOf("decoding=") < 0 ? image.Replace(StringComparison.OrdinalIgnoreCase, "<img", "<img decoding=\"async\"") : image;
 					image = image.PositionOf("loading=") < 0 ? image.Replace(StringComparison.OrdinalIgnoreCase, "<img", "<img loading=\"lazy\"") : image;
 					image = image.Replace(";  alt=", ";\" alt=");
+					image = image.EndsWith("/>") ? image : image.Replace(">", "/>");
 
 					var urlStart = image.IndexOf("src=") + 5;
 					var urlEnd = image.IndexOf("\"", urlStart + 1);
