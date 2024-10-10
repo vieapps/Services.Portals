@@ -4971,7 +4971,7 @@ namespace net.vieapps.Services.Portals
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
-			var objects = await RepositoryMediator.FindTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, pageSize, pageNumber, cancellationToken).ConfigureAwait(false);
+			var objects = totalRecords < 1 ? new List<TrashContent>() : await RepositoryMediator.FindTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, pageSize, pageNumber, cancellationToken).ConfigureAwait(false);
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
 			var response = new JObject
