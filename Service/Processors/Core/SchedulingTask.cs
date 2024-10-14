@@ -114,9 +114,9 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<(long TotalRecords, List<SchedulingTask> Objects, List<string> CacheKeys)> SearchAsync(string query, IFilterBy<SchedulingTask> filter, SortBy<SchedulingTask> sort, int pageSize, int pageNumber, long totalRecords = -1, CancellationToken cancellationToken = default)
 		{
 			// cache keys
-			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
-			var cacheKeyOfTotalObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfTotalObjects(filter, sort) : null;
-			var cacheKeys = string.IsNullOrWhiteSpace(query) ? new List<string> { cacheKeyOfObjects, cacheKeyOfTotalObjects } : new List<string>();
+			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) && pageSize > 0 ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
+			var cacheKeyOfTotalObjects = string.IsNullOrWhiteSpace(query) && pageSize > 0 ? Extensions.GetCacheKeyOfTotalObjects(filter, sort) : null;
+			var cacheKeys = string.IsNullOrWhiteSpace(query) && pageSize > 0 ? new List<string> { cacheKeyOfObjects, cacheKeyOfTotalObjects } : new List<string>();
 
 			// count
 			totalRecords = totalRecords > -1
@@ -133,12 +133,15 @@ namespace net.vieapps.Services.Portals
 				: new List<SchedulingTask>();
 
 			// page size to clear related cached
-			if (string.IsNullOrWhiteSpace(query))
+			if (string.IsNullOrWhiteSpace(query) && pageSize > 0)
 				await Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).ConfigureAwait(false);
 
 			// return the results
 			return (totalRecords, objects, cacheKeys);
 		}
+
+		internal static async Task<List<SchedulingTask>> SearchAsync(IFilterBy<SchedulingTask> filter, CancellationToken cancellationToken)
+			=> (await SchedulingTaskProcessor.SearchAsync(null, filter, Sorts<SchedulingTask>.Ascending("Time"), 0, 1, -1, cancellationToken).ConfigureAwait(false)).Objects;
 
 		internal static async Task<JObject> SearchSchedulingTasksAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
@@ -176,10 +179,7 @@ namespace net.vieapps.Services.Portals
 				return JObject.Parse(json);
 
 			// search if has no cache
-			var results = await SchedulingTaskProcessor.SearchAsync(query, filter, sort, pageSize, pageNumber, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
-			var totalRecords = results.Item1;
-			var objects = results.Item2;
-
+			var (totalRecords, objects, _) = await SchedulingTaskProcessor.SearchAsync(query, filter, sort, pageSize, pageNumber, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
 			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
@@ -266,9 +266,7 @@ namespace net.vieapps.Services.Portals
 			var versions = await schedulingTask.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = schedulingTask.ToJson(json => json.UpdateVersions(versions));
 			if (isRefresh)
-				schedulingTask.SendMessages("Update", response, Utility.NodeID, null, "");
-			else
-				schedulingTask.SendMessage(null, requestInfo.Session.DeviceID, "Update", response);
+				schedulingTask.SendMessages("Update", response, Utility.NodeID);
 
 			// response
 			return response;
@@ -402,13 +400,21 @@ namespace net.vieapps.Services.Portals
 			return response;
 		}
 
-		internal static async Task<JObject> FetchSchedulingTaskAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> FetchSchedulingTasksAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
-			var request = requestInfo.GetRequestExpando();
-			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<SchedulingTask>() ?? Filters<SchedulingTask>.And();
-			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
+			var filter = requestInfo.GetRequestExpando().Get<ExpandoObject>("FilterBy")?.ToFilterBy<SchedulingTask>() ?? Filters<SchedulingTask>.And();
+			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-organization-id") ?? requestInfo.GetParameter("OrganizationID");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
-			SchedulingTaskProcessor.SchedulingTasks.Where(kvp => organization.ID.IsEquals(kvp.Value.SystemID)).ForEach(kvp => kvp.Value.SendMessage(requestInfo.Session.DeviceID));
+			var schedulingTasks = await organization.GetSchedulingTasksAsync(cancellationToken, false).ConfigureAwait(false);
+			if ("false".IsEquals(requestInfo.GetParameter("x-update-messagae")))
+				return new JObject
+				{
+					{ "FilterBy", Filters<SchedulingTask>.And(Filters<SchedulingTask>.Equals("SystemID", organization.ID)).ToClientJson() },
+					{ "SortBy", Sorts<SchedulingTask>.Ascending("Time").ToClientJson() },
+					{ "Pagination", new Tuple<long, int, int, int>(schedulingTasks.Count, 1, 0, 1).GetPagination() },
+					{ "Objects", schedulingTasks.Select(schedulingTask => schedulingTask.ToJson()).ToJArray() }
+				};
+			schedulingTasks.ForEach(schedulingTask => schedulingTask.SendMessage(requestInfo.Session.DeviceID));
 			return new JObject();
 		}
 
@@ -470,7 +476,7 @@ namespace net.vieapps.Services.Portals
 				}
 			}).ConfigureAwait(false);
 
-			if (schedulingTasks.Any() && DateTime.Now.Hour > 0 && DateTime.Now.Hour < 2 && DateTime.Now.Minute > 26 && DateTime.Now.Minute < 30)
+			if (schedulingTasks.Any() && DateTime.Now.Hour > 2 && DateTime.Now.Hour < 4 && DateTime.Now.Minute > 26 && DateTime.Now.Minute < 30)
 			{
 				var filter = Filters<SchedulingTask>.Or
 				(
@@ -485,7 +491,7 @@ namespace net.vieapps.Services.Portals
 						Filters<SchedulingTask>.LessThanOrEquals("Time", DateTime.Now.AddHours(-48))
 					)
 				);
-				schedulingTasks = await SchedulingTask.FindAsync(filter, Sorts<SchedulingTask>.Ascending("Time"), 0, 1, null, null, Utility.CancellationToken).ConfigureAwait(false);
+				schedulingTasks = await SchedulingTaskProcessor.SearchAsync(filter, Utility.CancellationToken).ConfigureAwait(false);
 				if (Utility.IsDebugLogEnabled)
 					await Utility.WriteLogAsync(correlationID, $"Delete {schedulingTasks.Count} archived scheduling tasks", "Task").ConfigureAwait(false);
 				await schedulingTasks.ForEachAsync(async schedulingTask =>

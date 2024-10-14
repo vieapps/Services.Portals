@@ -146,7 +146,7 @@ namespace net.vieapps.Services.Portals
 				Utility.ValidationKey = this.ValidationKey;
 				Utility.NotificationsKey = UtilityService.GetAppSetting("Keys:Notifications");
 
-				this.ReloadOrganizationsAsync(false, false, false, false).Run();
+				this.ReloadOrganizationsAsync(false, false, false).Run();
 				Utility.NotRecognizedAliases.Add($"Site:{new Uri(Utility.PortalsHttpURI).Host}");
 				Task.Run(async () =>
 				{
@@ -906,7 +906,7 @@ namespace net.vieapps.Services.Portals
 					switch (requestInfo.GetObjectIdentity())
 					{
 						case "fetch":
-							return await requestInfo.FetchSchedulingTaskAsync(cancellationToken).ConfigureAwait(false);
+							return await requestInfo.FetchSchedulingTasksAsync(cancellationToken).ConfigureAwait(false);
 
 						case "search":
 							return await requestInfo.SearchSchedulingTasksAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
@@ -4877,47 +4877,47 @@ namespace net.vieapps.Services.Portals
 				if (@object is Organization organization)
 				{
 					await RepositoryMediator.RestoreAsync<Organization>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(organization, null, null, null, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(organization, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
 				else if (@object is Module module)
 				{
 					await RepositoryMediator.RestoreAsync<Module>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(null, module, null, null, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(module, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
 				else if (@object is ContentType contentType)
 				{
 					await RepositoryMediator.RestoreAsync<Module>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(null, null, contentType, null, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(contentType,requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
 				else if (@object is Site site)
 				{
 					await RepositoryMediator.RestoreAsync<Site>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(null, null, null, site, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(site, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
 				else if (@object is Desktop desktop)
 				{
 					await RepositoryMediator.RestoreAsync<Desktop>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(null, null, null, null, desktop, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(desktop, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
 				else if (@object is Portlet portlet)
 				{
 					await RepositoryMediator.RestoreAsync<Portlet>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(null, null, null, null, portlet.OriginalDesktop, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(portlet.OriginalDesktop, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
 				else if (@object is Expression expression)
 				{
 					await RepositoryMediator.RestoreAsync<Expression>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(null, null, null, null, null, expression, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(expression, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
 				else if (@object is Role role)
 				{
 					await RepositoryMediator.RestoreAsync<Role>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(role.Organization, null, null, null, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(role, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
-				else if (@object is SchedulingTask task)
+				else if (@object is SchedulingTask schedulingTask)
 				{
 					await RepositoryMediator.RestoreAsync<SchedulingTask>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(task.Organization, null, null, null, null, null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(schedulingTask, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
 			}
 
@@ -5154,8 +5154,8 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 		#endregion
 
-		#region Reload organizations/sites
-		async Task ReloadOrganizationsAsync(bool updateCache = true, bool sendCommunicatingMessage = true, bool sendUpdatingMessage = true, bool sendSchedulingTasks = true)
+		#region Reload organizations/sites & Clear cache of a Core Portals objects
+		async Task ReloadOrganizationsAsync(bool updateCache = true, bool sendCommunicatingMessage = true, bool sendUpdatingMessage = true)
 		{
 			if (!updateCache && !sendCommunicatingMessage && !sendUpdatingMessage)
 				await SiteProcessor.FindSitesAsync(null, null, false, this.CancellationToken).ConfigureAwait(false);
@@ -5163,7 +5163,6 @@ namespace net.vieapps.Services.Portals
 			await organizations.ForEachAsync(async organization =>
 			{
 				await organization.RefreshAsync(this.CancellationToken, updateCache, sendCommunicatingMessage, sendUpdatingMessage).ConfigureAwait(false);
-				await (sendSchedulingTasks ? organization.SendSchedulingTasksAsync(this.CancellationToken) : Task.CompletedTask).ConfigureAwait(false);
 				if (!updateCache && !sendCommunicatingMessage && !sendUpdatingMessage)
 				{
 					var cacheKey = organization.HomeDesktop?.GetDesktopCacheKey(new Uri($"https://{organization.DefaultSite?.PrimaryDomain ?? "vieapps.net"}"));
@@ -5171,12 +5170,11 @@ namespace net.vieapps.Services.Portals
 				}
 				else
 					await organization.Sites.ForEachAsync(site => site.RefreshAsync(this.CancellationToken, updateCache, sendCommunicatingMessage, sendUpdatingMessage), true, false).ConfigureAwait(false);
+				(await organization.GetSchedulingTasksAsync(this.CancellationToken).ConfigureAwait(false)).ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));
 			}, true, false).ConfigureAwait(false);
 			await this.WriteLogsAsync(UtilityService.NewUUID, $"All organizations have been re-loaded - Total: {organizations.Count}", null, this.ServiceName, "Caches").ConfigureAwait(false);
 		}
-		#endregion
 
-		#region Clear cache of a Core Portals objects
 		async Task<JToken> ClearCacheAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// validate
@@ -5187,15 +5185,18 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(identity))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
-			// check permissions
+			// prepare
+			var stopwatch = Stopwatch.StartNew();
 			var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
 			var gotRights = false;
+
 			Organization organization = null;
 			Module module = null;
 			ContentType contentType = null;
 			Site site = null;
 			Desktop desktop = null;
 			Expression expression = null;
+
 			switch (requestInfo.GetObjectIdentity().ToLower())
 			{
 				case "organization":
@@ -5240,24 +5241,24 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// clear related cache
-			var stopwatch = Stopwatch.StartNew();
+			// clear cache
 			if (Utility.IsCacheLogEnabled)
 				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear all cache{(organization != null ? " of the whole organization" : "")} [{requestInfo.GetURI()}]", "Caches").ConfigureAwait(false);
-			await this.ClearCacheAsync(organization, module, contentType, site, desktop, expression, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+
+			await this.ClearCacheAsync(organization ?? module ?? contentType ?? site ?? desktop ?? expression as IPortalObject, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+
 			stopwatch.Stop();
 			if (Utility.IsCacheLogEnabled)
 				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear related cache successful - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
-
 			return new JObject();
 		}
 
-		async Task ClearCacheAsync(Organization organization, Module module, ContentType contentType, Site site, Desktop desktop, Expression expression, string correlationID, CancellationToken cancellationToken)
+		async Task ClearCacheAsync(IPortalObject @object, string correlationID, CancellationToken cancellationToken)
 		{
-			if (organization != null)
+			if (@object is Organization organization)
 				await organization.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
 
-			else if (module != null)
+			else if (@object is Module module)
 			{
 				await module.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
 				module = await Module.GetAsync<Module>(module.ID, cancellationToken).ConfigureAwait(false);
@@ -5265,18 +5266,18 @@ namespace net.vieapps.Services.Portals
 				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 
-			else if (contentType != null)
+			else if (@object is ContentType contentType)
 			{
 				await contentType.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
 				contentType = await ContentType.GetAsync<ContentType>(contentType.ID, cancellationToken).ConfigureAwait(false);
 				await contentType.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 
-			else if (site != null)
+			else if (@object is Site site)
 			{
 				await site.ClearCacheAsync(cancellationToken, correlationID, true, true, false).ConfigureAwait(false);
 				site = await Site.GetAsync<Site>(site.ID, cancellationToken).ConfigureAwait(false);
-				desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
+				var desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
 				if (desktop != null)
 					await Task.WhenAll
 					(
@@ -5292,7 +5293,7 @@ namespace net.vieapps.Services.Portals
 					await $"{Utility.PortalsHttpURI}/~{site.Organization?.Alias}/{desktop.Alias}".RefreshWebPageAsync(0, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]");
 			}
 
-			else if (desktop != null)
+			else if (@object is Desktop desktop)
 			{
 				await desktop.ClearCacheAsync(cancellationToken, correlationID, true, true, true).ConfigureAwait(false);
 				desktop = await Desktop.GetAsync<Desktop>(desktop.ID, cancellationToken).ConfigureAwait(false);
@@ -5304,7 +5305,7 @@ namespace net.vieapps.Services.Portals
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
-			else if (expression != null)
+			else if (@object is Expression expression)
 			{
 				await Utility.Cache.RemoveAsync(expression.Remove(), cancellationToken).ConfigureAwait(false);
 				new CommunicateMessage(this.ServiceName)

@@ -12,6 +12,7 @@ using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Services.Portals.Exceptions;
+using net.vieapps.Services.Portals.Settings;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -173,21 +174,8 @@ namespace net.vieapps.Services.Portals
 			.Distinct(StringComparer.OrdinalIgnoreCase)
 			.ToList();
 
-		internal static void SendRefreshingTasks(this Organization organization, bool isDeleted = false, bool sendOtherURLs = true)
+		internal static List<SchedulingTask> GetRefreshingTasks(this Organization organization, bool others = true)
 		{
-			var sendDeleteMessage = (string type) => new SchedulingTask
-			{
-				ID = $"{organization.ID}:URLs:{type}".GenerateUUID(),
-				SystemID = organization.ID,
-				Persistance = false
-			}.SendMessages("Delete");
-
-			if (isDeleted)
-			{
-				new[] { "Home", "Other", "Force" }.ForEach(type => sendDeleteMessage(type));
-				return;
-			}
-
 			var refreshURLs = new[] { "~/" }.ToList();
 			var sites = organization.Sites ?? new List<Site>();
 			if (sites.Count > 1)
@@ -203,7 +191,7 @@ namespace net.vieapps.Services.Portals
 				Persistance = false
 			}}.ToList();
 
-			if (sendOtherURLs)
+			if (others)
 			{
 				refreshURLs = organization.GetRefreshingURLs();
 				if (refreshURLs.Any())
@@ -216,8 +204,6 @@ namespace net.vieapps.Services.Portals
 						Data = refreshURLs.ToJArray().ToString(Formatting.None),
 						Persistance = false
 					});
-				else
-					sendDeleteMessage("Other");
 
 				schedulingTasks.Add(new SchedulingTask(12, RecurringType.Hours, DateTime.Parse($"{DateTime.Now.AddDays(DateTime.Now.Hour < 13 ? 0 : 1):yyyy/MM/dd} {(DateTime.Now.Hour < 13 ? 13 : 1):00}:{UtilityService.GetRandomNumber(0, 30):00}:00"))
 				{
@@ -230,24 +216,41 @@ namespace net.vieapps.Services.Portals
 				});
 			}
 
-			schedulingTasks.ForEach(schedulingTask => schedulingTask.SendMessages("Update", schedulingTask.ToJson()));
+			return schedulingTasks;
 		}
 
-		internal static async Task<Organization> SendSchedulingTasksAsync(this Organization organization, CancellationToken cancellationToken, bool onlyRefreshingTasks = false)
+		internal static void SendRefreshingTasks(this Organization organization, bool isDeleted = false, bool sendOtherURLs = true)
 		{
-			organization.SendRefreshingTasks();
-			if (!onlyRefreshingTasks)
+			var sendDeleteMessage = (string type) => new SchedulingTask
+			{
+				ID = $"{organization.ID}:URLs:{type}".GenerateUUID(),
+				SystemID = organization.ID,
+				Persistance = false
+			}.SendMessages("Delete");
+
+			if (isDeleted)
+				new[] { "Home", "Other", "Force" }.ForEach(type => sendDeleteMessage(type));
+
+			else
+			{
+				if (sendOtherURLs && !organization.GetRefreshingURLs().Any())
+					sendDeleteMessage("Other");
+				organization.GetRefreshingTasks(sendOtherURLs).ForEach(schedulingTask => schedulingTask.SendMessages());
+			}
+		}
+
+		internal static async Task<List<SchedulingTask>> GetSchedulingTasksAsync(this Organization organization, CancellationToken cancellationToken, bool reload = true)
+		{
+			var schedulingTasks = reload ? null : SchedulingTaskProcessor.SchedulingTasks.Where(kvp => organization.ID.IsEquals(kvp.Value.OrganizationID)).Select(kvp => kvp.Value).OrderBy(schedulingTask => schedulingTask.Time).ToList();
+			if (reload || schedulingTasks.Count < 1)
 			{
 				var filter = Filters<SchedulingTask>.And(Filters<SchedulingTask>.Equals("SystemID", organization.ID));
-				var sort = Sorts<SchedulingTask>.Ascending("Time");
-				var (_, schedulingTasks, __) = await SchedulingTaskProcessor.SearchAsync(null, filter, sort, 0, 1, -1, cancellationToken).ConfigureAwait(false);
-				schedulingTasks.ForEach(schedulingTask =>
-				{
-					SchedulingTaskProcessor.SchedulingTasks[schedulingTask.ID] = schedulingTask;
-					schedulingTask.SendMessages("Update", schedulingTask.ToJson(), Utility.NodeID);
-				});
+				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(filter, Sorts<SchedulingTask>.Ascending("Time")), cancellationToken).ConfigureAwait(false);
+				schedulingTasks = await SchedulingTaskProcessor.SearchAsync(filter, cancellationToken).ConfigureAwait(false);
+				schedulingTasks = organization.GetRefreshingTasks().Concat(schedulingTasks).OrderBy(schedulingTask => schedulingTask.Time).ToList();
+				schedulingTasks.ForEach(schedulingTask => SchedulingTaskProcessor.SchedulingTasks[schedulingTask.ID] = schedulingTask);
 			}
-			return organization;
+			return schedulingTasks;
 		}
 
 		public static Organization GetOrganizationByID(this string id, bool force = false, bool fetchRepository = true)
@@ -601,7 +604,8 @@ namespace net.vieapps.Services.Portals
 				Data = response.UpdateVersions(versions),
 				DeviceID = "*"
 			}.Send();
-			await organization.SendSchedulingTasksAsync(cancellationToken, !isRefresh).ConfigureAwait(false);
+			if (isRefresh)
+				(await organization.GetSchedulingTasksAsync(cancellationToken).ConfigureAwait(false)).ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));
 			return response;
 		}
 
