@@ -4902,7 +4902,8 @@ namespace net.vieapps.Services.Portals
 				else if (@object is Portlet portlet)
 				{
 					await RepositoryMediator.RestoreAsync<Portlet>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(portlet.OriginalDesktop, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await portlet.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+					await (await portlet.GetMappingPortletsAsync(cancellationToken).ConfigureAwait(false)).Select(p => p.Desktop).Concat([portlet.OriginalDesktop]).DistinctBy(d => d.ID).ForEachAsync(d => this.ClearCacheAsync(d, requestInfo.CorrelationID, cancellationToken), true, false).ConfigureAwait(false);
 				}
 				else if (@object is Expression expression)
 				{
@@ -5307,15 +5308,18 @@ namespace net.vieapps.Services.Portals
 
 			else if (@object is Expression expression)
 			{
-				await Utility.Cache.RemoveAsync(expression.Remove(), cancellationToken).ConfigureAwait(false);
-				new CommunicateMessage(this.ServiceName)
-				{
-					Type = $"{expression.GetObjectName()}#Delete",
-					Data = expression.ToJson(),
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
+				await expression.ClearCacheAsync(cancellationToken, correlationID).ConfigureAwait(false);
 				await expression.ID.GetExpressionByIDAsync(cancellationToken, true).ConfigureAwait(false);
 			}
+
+			else if (@object is Role role)
+			{
+				await role.ClearCacheAsync(cancellationToken, correlationID).ConfigureAwait(false);
+				await role.ID.GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
+			}
+
+			else if (@object is SchedulingTask schedulingTask)
+				await schedulingTask.ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
 		}
 		#endregion
 

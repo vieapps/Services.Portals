@@ -160,12 +160,12 @@ namespace net.vieapps.Services.Portals
 			=> portlet.ClearRelatedCacheAsync(cancellationToken, correlationID, clearDataCache, clearHtmlCache, false, doRefresh);
 
 		internal static Task ClearCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = false)
-			=> Task.WhenAll(new[]
-			{
+			=> Task.WhenAll
+			(
 				portlet.ClearRelatedCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),
 				Utility.Cache.RemoveAsync(portlet, cancellationToken),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", "Caches") : Task.CompletedTask
-			});
+			);
 
 		internal static async Task<JObject> SearchPortletsAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
