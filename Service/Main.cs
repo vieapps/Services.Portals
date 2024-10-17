@@ -4812,7 +4812,7 @@ namespace net.vieapps.Services.Portals
 
 			var sendUpdateMessage = !"false".IsEquals(requestInfo.GetParameter("x-update-messagae"));
 			var versions = await @object.FindVersionsAsync(cancellationToken, sendUpdateMessage).ConfigureAwait(false);
-			var response = sendUpdateMessage
+			return sendUpdateMessage
 				? new JObject
 				{
 					["ID"] = @object.ID,
@@ -4821,7 +4821,6 @@ namespace net.vieapps.Services.Portals
 					["Versions"] = (versions ?? []).Select(version => version.ToJson(json => (json as JObject).Remove("Data"))).ToJArray()
 				}
 				: new JObject();
-			return response;
 		}
 
 		public override async Task<JToken> ProcessRestoreRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
@@ -4902,8 +4901,7 @@ namespace net.vieapps.Services.Portals
 				else if (@object is Portlet portlet)
 				{
 					await RepositoryMediator.RestoreAsync<Portlet>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await portlet.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-					await (await portlet.GetMappingPortletsAsync(cancellationToken).ConfigureAwait(false)).Select(p => p.Desktop).Concat([portlet.OriginalDesktop]).DistinctBy(d => d.ID).ForEachAsync(d => this.ClearCacheAsync(d, requestInfo.CorrelationID, cancellationToken), true, false).ConfigureAwait(false);
+					await this.ClearCacheAsync(portlet, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
 				else if (@object is Expression expression)
 				{
@@ -4975,14 +4973,13 @@ namespace net.vieapps.Services.Portals
 			var objects = totalRecords < 1 ? new List<TrashContent>() : await RepositoryMediator.FindTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, pageSize, pageNumber, cancellationToken).ConfigureAwait(false);
 			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
-			var response = new JObject
+			return new JObject
 			{
 				{ "FilterBy", Filters<TrashContent>.And(organization != null ? Filters<TrashContent>.Equals("SystemID", organization.ID) : null).ToClientJson() },
 				{ "SortBy", Sorts<TrashContent>.Descending("Created").ToClientJson() },
 				{ "Pagination", pagination.GetPagination() },
 				{ "Objects", objects.Select(@object => @object.ToJson(json => (json as JObject)?.Remove("Data"))).ToJArray() }
 			};
-			return response;
 		}
 		#endregion
 
@@ -5304,6 +5301,12 @@ namespace net.vieapps.Services.Portals
 					desktop.FindPortletsAsync(cancellationToken, false)
 				).ConfigureAwait(false);
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			}
+
+			else if (@object is Portlet portlet)
+			{
+				await portlet.ClearCacheAsync(cancellationToken, correlationID).ConfigureAwait(false);
+				await (await portlet.GetMappingPortletsAsync(cancellationToken).ConfigureAwait(false)).Select(p => p.Desktop).Concat([portlet.OriginalDesktop]).DistinctBy(d => d.ID).ForEachAsync(d => this.ClearCacheAsync(d, correlationID, cancellationToken), true, false).ConfigureAwait(false);
 			}
 
 			else if (@object is Expression expression)

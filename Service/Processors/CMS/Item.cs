@@ -402,7 +402,8 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
 				Data = response,
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
 			return response;
 		}

@@ -520,18 +520,16 @@ namespace net.vieapps.Services.Portals
 
 			// refresh (clear cached and reload)
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
-			if (isRefresh)
+			if (isRefresh || desktop._childrenIDs == null || desktop._portlets == null)
 			{
-				await desktop.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, true, false).ConfigureAwait(false);
-				await Utility.Cache.RemoveAsync(desktop, cancellationToken).ConfigureAwait(false);
-				desktop = await desktop.Remove().ID.GetDesktopByIDAsync(cancellationToken, true).ConfigureAwait(false);
-				desktop._childrenIDs = null;
-				desktop._portlets = null;
-			}
-
-			// prepare the response
-			if (desktop._childrenIDs == null || desktop._portlets == null)
-			{
+				if (isRefresh)
+				{
+					await desktop.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, true, false).ConfigureAwait(false);
+					await Utility.Cache.RemoveAsync(desktop, cancellationToken).ConfigureAwait(false);
+					desktop = await desktop.Remove().ID.GetDesktopByIDAsync(cancellationToken, true).ConfigureAwait(false);
+					desktop._childrenIDs = null;
+					desktop._portlets = null;
+				}
 				if (desktop._childrenIDs == null)
 					await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				if (desktop._portlets == null)
@@ -539,25 +537,23 @@ namespace net.vieapps.Services.Portals
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
-			// send update message
+			// response
 			var versions = await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = desktop.ToJson(true, false);
-			var objectName = desktop.GetObjectName();
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{desktop.GetObjectName()}#Update",
 				Data = response.UpdateVersions(versions),
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{desktop.GetObjectName()}#Update",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
-
-			// response
 			return response;
 		}
 

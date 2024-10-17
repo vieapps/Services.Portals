@@ -493,22 +493,21 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// refresh (clear cached and reload)
-			site = "refresh".IsEquals(requestInfo.GetObjectIdentity())
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			site = isRefresh
 				? await site.RefreshAsync(cancellationToken).ConfigureAwait(false)
 				: site;
 
-			// send update message
-			var objectName = site.GetObjectName();
+			// response
 			var versions = await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = site.ToJson();
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{site.GetObjectName()}#Update",
 				Data = response.UpdateVersions(versions),
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
-
-			// response
 			return response;
 		}
 

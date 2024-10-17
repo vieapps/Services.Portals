@@ -487,24 +487,23 @@ namespace net.vieapps.Services.Portals
 				contentType = await contentType.Remove().ID.GetContentTypeByIDAsync(cancellationToken, true).ConfigureAwait(false);
 			}
 
-			// send the update message to update to all other connected clients
-			var response = contentType.ToJson();
-			var objectName = contentType.GetObjectName();
+			// response
 			var versions = await contentType.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = contentType.ToJson();
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{contentType.GetObjectName()}#Update",
 				Data = response.UpdateVersions(versions),
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{contentType.GetObjectName()}#Update",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
-
 			return response;
 		}
 

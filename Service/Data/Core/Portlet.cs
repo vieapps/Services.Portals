@@ -19,7 +19,7 @@ namespace net.vieapps.Services.Portals
 {
 	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
 	[Entity(CollectionName = "Portlets", TableName = "T_Portals_Portlets", CacheClass = typeof(Utility), CacheName = "Cache")]
-	public sealed class Portlet : Repository<Portlet>
+	public sealed class Portlet : Repository<Portlet>, IPortalObject
 	{
 		public Portlet() : base() { }
 
@@ -116,6 +116,9 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.Desktop;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		IPortalObject IPortalObject.Parent => this.Desktop;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string OrganizationID => this.SystemID;

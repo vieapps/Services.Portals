@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Diagnostics;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
@@ -250,21 +251,24 @@ namespace net.vieapps.Services.Portals
 		internal static async Task RefreshWebPageAsync(this string url, int delay, string correlationID = null, string log = null)
 		{
 			correlationID = correlationID ?? UtilityService.NewUUID;
+			var stopwatch = Stopwatch.StartNew();
 			try
 			{
 				if (delay > 0)
 					await Task.Delay(delay * 1000, Utility.CancellationToken).ConfigureAwait(false);
-				await new Uri(url).FetchHttpAsync(Utility.RefresherHeaders, 13, Utility.CancellationToken).ConfigureAwait(false);
-				if (Utility.IsCacheLogEnabled)
-					await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {url}", "Caches").ConfigureAwait(false);
+				await new Uri(url).FetchHttpAsync(Utility.RefresherHeaders, 30, Utility.CancellationToken).ConfigureAwait(false);
+				stopwatch.Stop();
+				if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache=x"))
+					await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {url}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 			}
 			catch (RemoteServerMovedException ex)
 			{
 				try
 				{
-					await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, 13, Utility.CancellationToken).ConfigureAwait(false);
-					if (Utility.IsCacheLogEnabled)
-						await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {ex.URI}", "Caches").ConfigureAwait(false);
+					await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, 30, Utility.CancellationToken).ConfigureAwait(false);
+					stopwatch.Stop();
+					if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache=x"))
+						await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {ex.URI}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 				}
 				catch (Exception mex)
 				{
@@ -273,7 +277,7 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
-				await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({url}) => {(ex is RemoteServerException rex ? $"{rex.Message} (Code: {rex.StatusCode}){(string.IsNullOrWhiteSpace(rex.Body) ? "" : $"\r\nBody: {rex.Body}")}" : $"{ex.Message}")} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
 			}
 		}
 

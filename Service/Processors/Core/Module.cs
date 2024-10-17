@@ -377,46 +377,33 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) || module._contentTypeIDs == null;
 			if (isRefresh)
 			{
 				await Utility.Cache.RemoveAsync(module, cancellationToken).ConfigureAwait(false);
 				module = await module.Remove().ID.GetModuleByIDAsync(cancellationToken, true).ConfigureAwait(false);
 				module._contentTypeIDs = null;
-			}
-
-			// get content-types
-			if (module._contentTypeIDs == null)
-			{
 				await module.FindContentTypesAsync(cancellationToken).ConfigureAwait(false);
 				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{module.GetObjectName()}#Update",
-					Data = module.ToJson(false, false),
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
 			}
 
-			// send the update message to update to all other connected clients
+			// response
 			var versions = await module.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = module.ToJson(true, false);
-			var objectName = module.GetObjectName();
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{module.GetObjectName()}#Update",
 				Data = response.UpdateVersions(versions),
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{module.GetObjectName()}#Update",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
-
-			// response
 			return response;
 		}
 

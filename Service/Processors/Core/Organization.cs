@@ -602,7 +602,8 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{organization.GetObjectName()}#Update",
 				Data = response.UpdateVersions(versions),
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
 			if (isRefresh)
 				(await organization.GetSchedulingTasksAsync(cancellationToken).ConfigureAwait(false)).ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));

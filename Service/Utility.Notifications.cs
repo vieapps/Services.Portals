@@ -90,8 +90,8 @@ namespace net.vieapps.Services.Portals
 			var emailsByApprovalStatus = notificationSettings?.EmailsByApprovalStatus;
 			var emailsWhenPublish = notificationSettings?.EmailsWhenPublish;
 			var webhooks = notificationSettings?.WebHooks;
-			var category = @object is Content ? (@object as Content).Category : null;
-			var emailSettings = category != null ? category.EmailSettings : @object is Organization ? (@object as Organization).EmailSettings : null;
+			var category = @object is Content content ? content.Category : null;
+			var emailSettings = category != null ? category.EmailSettings : @object is Organization org ? org.EmailSettings : null;
 
 			var parent = @object.Parent;
 			while (parent != null)

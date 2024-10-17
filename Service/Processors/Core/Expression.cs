@@ -322,25 +322,23 @@ namespace net.vieapps.Services.Portals
 				expression = await expression.Remove().ID.GetExpressionByIDAsync(cancellationToken, true).ConfigureAwait(false);
 			}
 
-			// send the update message to update to all other connected clients
+			// response
 			var versions = await expression.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = expression.ToJson();
-			var objectName = expression.GetObjectName();
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{expression.GetObjectName()}#Update",
 				Data = response.UpdateVersions(versions),
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{expression.GetObjectName()}#Update",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
-
-			// response
 			return response;
 		}
 

@@ -607,49 +607,36 @@ namespace net.vieapps.Services.Portals
 
 			// refresh (clear cached and reload)
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
-			if (isRefresh)
+			if (isRefresh || category._childrenIDs == null)
 			{
 				await Utility.Cache.RemoveAsync(category, cancellationToken).ConfigureAwait(false);
 				category = await category.Remove().ID.GetCategoryByIDAsync(cancellationToken, true).ConfigureAwait(false);
 				category._childrenIDs = null;
-			}
-
-			// prepare the response
-			if (category._childrenIDs == null)
-			{
-				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				if (category._childrenIDs == null)
+					await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await category.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-				if (!isRefresh)
-					new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{category.GetObjectName()}#Update",
-						Data = category.ToJson(false, false),
-						ExcludedNodeID = Utility.NodeID
-					}.Send();
 			}
-
-			// send update message
-			var objectName = category.GetObjectName();
-			var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var response = category.ToJson(true, false);
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response.UpdateVersions(versions),
-				DeviceID = "*"
-			}.Send();
-			if (isRefresh)
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
 
 			// store object cache key to clear related cached
 			await Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
 			// response
+			var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = category.ToJson(true, false);
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{category.GetObjectName()}#Update",
+				Data = response.UpdateVersions(versions),
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
+			}.Send();
+			if (isRefresh)
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{category.GetObjectName()}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
 			return response;
 		}
 

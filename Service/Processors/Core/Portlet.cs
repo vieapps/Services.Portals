@@ -398,7 +398,7 @@ namespace net.vieapps.Services.Portals
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response.UpdateVersions(versions),
 					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 				}.Send();
 			else if (!"false".IsEquals(requestInfo.GetParameter("x-other-desktops")))
 			{
@@ -409,7 +409,7 @@ namespace net.vieapps.Services.Portals
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = response.UpdateVersions(versions),
 					DeviceID = "*",
-					ExcludedDeviceID = requestInfo.Session.DeviceID
+					ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 				}.Send();
 			}
 

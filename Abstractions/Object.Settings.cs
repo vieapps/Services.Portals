@@ -9,7 +9,6 @@ using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
-using MsgPack.Serialization;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 #endregion

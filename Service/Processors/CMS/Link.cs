@@ -457,7 +457,7 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) || link._childrenIDs == null;
 			if (isRefresh)
 			{
 				await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false).ConfigureAwait(false);
@@ -465,10 +465,6 @@ namespace net.vieapps.Services.Portals
 				link = await Link.GetAsync<Link>(link.ID, cancellationToken).ConfigureAwait(false);
 				link._children = null;
 				link._childrenIDs = null;
-			}
-
-			if (link._childrenIDs == null)
-			{
 				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await Utility.Cache.SetAsync(link, cancellationToken).ConfigureAwait(false);
 			}
@@ -476,7 +472,7 @@ namespace net.vieapps.Services.Portals
 			// store object cache key to clear related cached
 			await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
-			// send update messages
+			// response
 			var versions = await link.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -491,7 +487,8 @@ namespace net.vieapps.Services.Portals
 			{
 				Type = $"{requestInfo.ServiceName}#{link.GetObjectName()}#Update",
 				Data = response,
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
 			return response;
 		}

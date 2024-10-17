@@ -365,40 +365,33 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) || role._childrenIDs == null;
 			if (isRefresh)
 			{
-				await role.ClearRelatedCacheAsync("", cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 				await Utility.Cache.RemoveAsync(role, cancellationToken).ConfigureAwait(false);
 				role = await role.ID.GetRoleByIDAsync(cancellationToken, true).ConfigureAwait(false);
-			}
-
-			// prepare the response
-			if (role._childrenIDs == null)
-			{
+				role._childrenIDs = null;
 				await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
-				role.Set();
+				await role.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 
-			// send the update message to update to all other connected clients
-			var objectName = role.GetObjectName();
+			// response
 			var versions = await role.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = role.ToJson(true, false);
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{role.GetObjectName()}#Update",
 				Data = response.UpdateVersions(versions),
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
 			if (isRefresh)
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{objectName}#Update",
+					Type = $"{role.GetObjectName()}#Update",
 					Data = response,
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
-
-			// response
 			return response;
 		}
 

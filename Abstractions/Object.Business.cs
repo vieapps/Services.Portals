@@ -100,17 +100,16 @@ namespace net.vieapps.Services.Portals
 			});
 
 			// compute extended controls
-			if (@object.ExtendedProperties != null && @object.ExtendedProperties.Any())
+			if (@object.ExtendedProperties != null && @object.ExtendedProperties.Count > 0)
 				contentType.ExtendedControlDefinitions?.ForEach(definition =>
 				{
 					if (!@object.ExtendedProperties.TryGetValue(definition.Name, out var value) || value == null)
 					{
 						var propertyDefinition = contentType.ExtendedPropertyDefinitions?.FirstOrDefault(def => def.Name == definition.Name);
 						value = !string.IsNullOrWhiteSpace(definition.Formula) ? definition.Formula.Evaluate(objectExpando, requestExpando, @params) : null;
-						if (value == null)
-							value = !string.IsNullOrWhiteSpace(propertyDefinition.DefaultValueFormula)
-								? propertyDefinition.DefaultValueFormula.Evaluate(objectExpando, requestExpando, @params)
-								: propertyDefinition.GetDefaultValue();
+						value ??= !string.IsNullOrWhiteSpace(propertyDefinition.DefaultValueFormula)
+							? propertyDefinition.DefaultValueFormula.Evaluate(objectExpando, requestExpando, @params)
+							: propertyDefinition.GetDefaultValue();
 						@object.ExtendedProperties[definition.Name] = value?.CastAs(propertyDefinition.Type);
 					}
 				});
@@ -128,9 +127,9 @@ namespace net.vieapps.Services.Portals
 		public static T Validate<T>(this T @object, Action<string, object> onValidate = null) where T : IBusinessObject
 		{
 			var entityDefinition = @object.ContentType?.ContentTypeDefinition?.EntityDefinition;
-			var standardAttributes = @object.ContentType?.StandardControlDefinitions ?? new List<StandardControlDefinition>();
-			var extendedAttributes = @object.ContentType?.ExtendedControlDefinitions ?? new List<ExtendedControlDefinition>();
-			var allAttributes = entityDefinition?.Attributes?.Where(attribute => !attribute.IsIgnored() && attribute.CanRead && attribute.CanWrite).ToList() ?? new List<AttributeInfo>();
+			var standardAttributes = @object.ContentType?.StandardControlDefinitions ?? [];
+			var extendedAttributes = @object.ContentType?.ExtendedControlDefinitions ?? [];
+			var allAttributes = entityDefinition?.Attributes?.Where(attribute => !attribute.IsIgnored() && attribute.CanRead && attribute.CanWrite).ToList() ?? [];
 			var notEmptyAttributes = allAttributes.Where(attribute => attribute.NotEmpty != null && attribute.NotEmpty.Value).Select(attribute => attribute.Name).ToList();
 			var requiredAttributes = standardAttributes.Where(definition => definition.Required != null && definition.Required.Value).Select(definition => definition.Name).ToList();
 			requiredAttributes = new[] { entityDefinition?.PrimaryKeyInfo.Name }
@@ -142,7 +141,7 @@ namespace net.vieapps.Services.Portals
 			requiredAttributes.ForEach(name =>
 			{
 				var value = extendedAttributes.FirstOrDefault(attribute => attribute.Name == name) != null
-					? @object.ExtendedProperties != null && @object.ExtendedProperties.ContainsKey(name) ? @object.ExtendedProperties[name] : null
+					? @object.ExtendedProperties != null && @object.ExtendedProperties.TryGetValue(name, out var extValue) ? extValue : null
 					: @object.GetAttributeValue(name);
 				if (value == null)
 					throw new InformationRequiredException($"{name} is required");

@@ -506,7 +506,6 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
 			// send update message and return
-			var objectName = content.GetObjectName();
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
@@ -522,9 +521,10 @@ namespace net.vieapps.Services.Portals
 			});
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Update",
 				Data = response,
-				DeviceID = "*"
+				DeviceID = "*",
+				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
 			return response;
 		}
