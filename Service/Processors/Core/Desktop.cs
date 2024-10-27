@@ -743,15 +743,13 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// delete
-			var objectName = desktop.GetObjectName();
+			// update children
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
-
-			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Desktop>();
-			await children.ForEachAsync(async child =>
+			if (updateChildren)
 			{
-				// update children to root
-				if (updateChildren)
+				var objectName = desktop.GetObjectName();
+				var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Desktop>();
+				await children.ForEachAsync(async child =>
 				{
 					child.ParentID = null;
 					child.LastModified = DateTime.Now;
@@ -777,70 +775,47 @@ namespace net.vieapps.Services.Portals
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
 					}.Send();
-				}
-
-				// delete children
-				else
-					await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-			}, true, false).ConfigureAwait(false);
-
-			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await desktop.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-
-			// message to update to all other connected clients
-			var response = desktop.ToJson();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = response,
-				DeviceID = "*"
-			}.Send();
-
-			// message to update to all service instances (on all other nodes)
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-
-			// send notification
-			await desktop.SendNotificationAsync("Delete", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
-			return response;
-		}
-
-		static async Task DeleteChildrenAsync(this Desktop desktop, RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			// prepare
-			var objectName = desktop.GetObjectName();
-
-			// delete childrenn
-			var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Desktop>();
-			await children.ForEachAsync(async child => await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+				}, true, false).ConfigureAwait(false);
+			}
 
 			// delete
+			return await desktop.DeleteAsync(requestInfo, !updateChildren, true, true, cancellationToken).ConfigureAwait(false);
+		}
+
+		internal static async Task<JObject> DeleteAsync(this Desktop desktop, RequestInfo requestInfo, bool deleteChildren, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		{
+			if (deleteChildren)
+			{
+				var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Desktop>();
+				await children.ForEachAsync(async child => await child.DeleteAsync(requestInfo, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+			}
+
+			await desktop.Portlets.ForEachAsync(portlet => portlet.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
+			await requestInfo.DeleteFilesAsync(desktop.SystemID, null, desktop.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await desktop.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			if (updateCache)
+				desktop.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 
-			// send notification
-			await desktop.SendNotificationAsync("Delete", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			var json = sendUpdatingMessages ? desktop.ToJson() : null;
+			if (sendUpdatingMessages)
+			{
+				var objectName = desktop.GetObjectName();
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+					Data = json,
+					DeviceID = "*"
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Delete",
+					Data = json,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
 
-			// prepare update messages
-			var json = desktop.ToJson();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = json,
-				DeviceID = "*"
-			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = json,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
+			await desktop.SendNotificationAsync("Delete", desktop.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			return json;
 		}
 
 		internal static async Task<JObject> SyncDesktopAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)

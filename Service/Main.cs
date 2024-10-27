@@ -720,7 +720,7 @@ namespace net.vieapps.Services.Portals
 					return await requestInfo.UpdateOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
-					return await requestInfo.DeleteOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					return await requestInfo.DeleteOrganizationAsync(isSystemAdministrator, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, LogLevel.Error), cancellationToken).ConfigureAwait(false);
 
 				default:
 					throw new MethodNotAllowedException(requestInfo.Verb);

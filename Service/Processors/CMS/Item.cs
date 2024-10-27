@@ -13,7 +13,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
-using net.vieapps.Services.Portals.Crawlers;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -497,37 +496,33 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// delete files
-			try
-			{
-				await requestInfo.DeleteFilesAsync(item.SystemID, item.RepositoryEntityID, item.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				await requestInfo.WriteErrorAsync(ex, $"Error occurred while deleting files => {ex.Message}", "CMS.Item").ConfigureAwait(false);
-				throw;
-			}
-
 			// delete
+			return await item.DeleteAsync(requestInfo, true, true, cancellationToken).ConfigureAwait(false);
+		}
+
+		internal static async Task<JObject> DeleteAsync(this Item item, RequestInfo requestInfo, bool clearCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		{
+			await requestInfo.DeleteFilesAsync(item.SystemID, item.RepositoryEntityID, item.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Item.DeleteAsync<Item>(item.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await item.SendNotificationAsync("Delete", item.ContentType.Notifications, item.Status, item.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
-			// send update message
-			var response = item.ToJson();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Delete",
-				DeviceID = "*",
-				Data = response
-			}.Send();
+			if (clearCache)
+				Task.WhenAll
+				(
+					Utility.Cache.RemoveSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), Utility.CancellationToken),
+					item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false)
+				).Run();
 
-			// clear related cache & send notification
-			Task.WhenAll
-			(
-				item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
-				item.SendNotificationAsync("Delete", item.ContentType.Notifications, item.Status, item.Status, requestInfo, Utility.CancellationToken),
-				Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), Utility.CancellationToken)
-			).Run();
-			return response;
+			var json = sendUpdatingMessages ? item.ToJson() : null;
+			if (sendUpdatingMessages)
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Delete",
+					DeviceID = "*",
+					Data = json
+				}.Send();
+
+			return json;
 		}
 
 		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)

@@ -407,30 +407,36 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
+			return await expression.DeleteAsync(requestInfo, true, true, cancellationToken).ConfigureAwait(false);
+		}
+
+		internal static async Task<JObject> DeleteAsync(this Expression expression, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		{
 			await Expression.DeleteAsync<Expression>(expression.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await expression.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false).ConfigureAwait(false);
 
-			// send update messages
-			var response = expression.ToJson();
-			var objectName = expression.GetObjectName();
-			new UpdateMessage
+			if (updateCache)
+				expression.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false).Run();
+
+			var json = sendUpdatingMessages ? expression.ToJson() : null;
+			if (sendUpdatingMessages)
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = response,
-				DeviceID = "*"
-			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
+				var objectName = expression.GetObjectName();
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+					Data = json,
+					DeviceID = "*"
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Delete",
+					Data = json,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
 
-			// send notification
-			await expression.SendNotificationAsync("Delete", expression.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
-			return response;
+			await expression.SendNotificationAsync("Delete", expression.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			return json;
 		}
 
 		internal static async Task<JObject> SyncExpressionAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)

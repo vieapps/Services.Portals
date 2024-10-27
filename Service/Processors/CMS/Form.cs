@@ -405,38 +405,33 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// delete files
-			try
-			{
-				await requestInfo.DeleteFilesAsync(form.SystemID, form.RepositoryEntityID, form.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				await requestInfo.WriteErrorAsync(ex, $"Error occurred while deleting files => {ex.Message}", "CMS.Form").ConfigureAwait(false);
-				throw;
-			}
-
 			// delete
+			return await form.DeleteAsync(requestInfo, true, true, cancellationToken).ConfigureAwait(false);
+		}
+
+		internal static async Task<JObject> DeleteAsync(this Form form, RequestInfo requestInfo, bool clearCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		{
+			await requestInfo.DeleteFilesAsync(form.SystemID, form.RepositoryEntityID, form.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Form.DeleteAsync<Form>(form.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await form.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-
-			// send update message
-			var response = form.ToJson();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{form.GetObjectName()}#Delete",
-				DeviceID = "*",
-				Data = response
-			}.Send();
-
-			// send notification
 			await form.SendNotificationAsync("Delete", form.ContentType.Notifications, form.Status, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
-			// store object cache key to clear related cached
-			await Utility.Cache.RemoveSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+			if (clearCache)
+				Task.WhenAll
+				(
+					Utility.Cache.RemoveSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), Utility.CancellationToken),
+					form.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID)
+				).Run();
 
-			// response
-			return response;
+			var json = sendUpdatingMessages ? form.ToJson() : null;
+			if (sendUpdatingMessages)
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{form.GetObjectName()}#Delete",
+					DeviceID = "*",
+					Data = json
+				}.Send();
+
+			return json;
 		}
 
 		internal static JObject Generate(RequestInfo requestInfo)

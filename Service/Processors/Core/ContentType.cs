@@ -584,54 +584,60 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// TO DO: delete all business objects first
-			// .......
-
 			// delete
-			await ContentType.DeleteAsync<ContentType>(contentType.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await contentType.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, false, true, false, false).ConfigureAwait(false);
+			return await contentType.DeleteAsync(requestInfo, true, true, cancellationToken).ConfigureAwait(false);
+		}
 
-			// update instance/cache of module
-			var module = contentType.Module;
-			if (module != null && module._contentTypeIDs != null)
+		internal static async Task<JObject> DeleteAsync(this ContentType contentType, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		{
+			await ContentType.DeleteAsync<ContentType>(contentType.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
+			if (updateCache)
+				await contentType.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, false, true, false, false).ConfigureAwait(false);
+
+			if (updateCache && contentType.Module?._contentTypeIDs != null)
 			{
-				module._contentTypeIDs.Remove(contentType.ID);
-				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+				contentType.Module._contentTypeIDs.Remove(contentType.ID);
+				await contentType.Module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+				if (sendUpdatingMessages)
+				{
+					var objectName = contentType.Module.GetObjectName();
+					var mjson = contentType.Module.ToJson();
+					new UpdateMessage
+					{
+						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+						Data = mjson,
+						DeviceID = "*"
+					}.Send();
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{objectName}#Update",
+						Data = mjson,
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
+				}
+			}
+
+			var json = sendUpdatingMessages ? contentType.ToJson() : null;
+			if (sendUpdatingMessages)
+			{
+				var objectName = contentType.GetObjectName();
 				new UpdateMessage
 				{
-					Type = $"{requestInfo.ServiceName}#{module.GetObjectName()}#Update",
-					Data = module.ToJson(),
+					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+					Data = json,
 					DeviceID = "*"
 				}.Send();
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{module.GetObjectName()}#Update",
-					Data = module.ToJson(),
+					Type = $"{objectName}#Delete",
+					Data = json,
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
 			}
 
-			// send update messages
-			var response = contentType.ToJson();
-			var objectName = contentType.GetObjectName();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = response,
-				DeviceID = "*"
-			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-
-			// send notification
-			await contentType.SendNotificationAsync("Delete", contentType.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
-			return response;
+			await contentType.SendNotificationAsync("Delete", contentType.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			return json;
 		}
 
 		internal static async Task<JObject> SyncContentTypeAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)

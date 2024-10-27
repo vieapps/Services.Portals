@@ -12,7 +12,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
-using net.vieapps.Services.Portals.Crawlers;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -748,82 +747,62 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			var objectName = link.GetObjectName();
+			// update children
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
-
-			// children
-			var children = await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Link>();
-			await children.Where(child => child != null).ForEachAsync(async child =>
+			if (updateChildren)
 			{
-				if (updateChildren)
+				var children = await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Link>();
+				await children.Where(child => child != null).ForEachAsync(async child =>
 				{
 					child.ParentID = null;
 					child.LastModified = DateTime.Now;
 					child.LastModifiedID = requestInfo.Session.User.ID;
 					await child.UpdateAsync(requestInfo, child.Status, null, cancellationToken).ConfigureAwait(false);
-				}
-				else
-					await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-			}, true, false).ConfigureAwait(false);
+				}, true, false).ConfigureAwait(false);
+			}
 
 			// delete
-			await requestInfo.DeleteFilesAsync(link.SystemID, link.RepositoryEntityID, link.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			await Link.DeleteAsync<Link>(link.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-
-			// update cache & send notifications
-			Task.WhenAll
-			(
-				link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
-				Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken),
-				link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, cancellationToken)
-			).Run();
-			link.Organization.SendRefreshingTasks();
-
-			// send update messages
-			var response = link.ToJson();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = response,
-				DeviceID = "*"
-			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-			return response;
+			return await link.DeleteAsync(requestInfo, !updateChildren, true, true, cancellationToken).ConfigureAwait(false);
 		}
 
-		static async Task DeleteChildrenAsync(this Link link, RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteAsync(this Link link, RequestInfo requestInfo, bool deleteChildren, bool clearCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
-			var children = await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Link>();
-			await children.Where(child => child != null).ForEachAsync(async child => await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+			if (deleteChildren)
+			{
+				var children = await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await children.ForEachAsync(async child => await child.DeleteAsync(requestInfo, deleteChildren, clearCache, sendUpdatingMessages, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+			}
 
 			await requestInfo.DeleteFilesAsync(link.SystemID, link.RepositoryEntityID, link.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Link.DeleteAsync<Link>(link.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
-			Task.WhenAll
-			(
-				link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, cancellationToken),
-				Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken)
-			).Run();
+			if (clearCache)
+				Task.WhenAll
+				(
+					link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+					Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken)
+				).Run();
 
-			var json = link.ToJson();
-			var objectName = link.GetObjectName();
-			new UpdateMessage
+			var json = sendUpdatingMessages ? link.ToJson() : null;
+			if (sendUpdatingMessages)
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = json,
-				DeviceID = "*"
-			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = json,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
+				var objectName = link.GetObjectName();
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+					Data = json,
+					DeviceID = "*"
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Delete",
+					Data = json,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
+
+			return json;
 		}
 
 		internal static async Task<JObject> SyncLinkAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)

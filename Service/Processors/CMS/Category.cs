@@ -12,7 +12,6 @@ using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Services.Portals.Exceptions;
-using net.vieapps.Services.Portals.Crawlers;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -891,15 +890,13 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			var objectName = category.GetObjectName();
+			// update to root
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
-
-			// children
-			var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-			await children.ForEachAsync(async child =>
+			if (updateChildren)
 			{
-				// update to root
-				if (updateChildren)
+				var objectName = category.GetObjectName();
+				var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await children.ForEachAsync(async child =>
 				{
 					child.ParentID = null;
 					child.LastModified = DateTime.Now;
@@ -922,72 +919,51 @@ namespace net.vieapps.Services.Portals
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
 					}.Send();
-				}
-
-				// delete
-				else
-					await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-			}, true, false).ConfigureAwait(false);
+				}, true, false).ConfigureAwait(false);
+			}
 
 			// delete
-			await requestInfo.DeleteFilesAsync(category.SystemID, category.RepositoryEntityID, category.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-
-			// update cache & send notifications
-			Task.WhenAll
-			(
-				category.Remove().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
-				Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken),
-				category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken)
-			).Run();
-			category.Organization.SendRefreshingTasks();
-
-			// send update messages
-			var response = category.ToJson();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = response,
-				DeviceID = "*"
-			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-			return response;
+			return await category.DeleteAsync(requestInfo, !updateChildren, true, true, cancellationToken).ConfigureAwait(false);
 		}
 
-		static async Task DeleteChildrenAsync(this Category category, RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> DeleteAsync(this Category category, RequestInfo requestInfo, bool deleteChildren, bool clearCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
-			var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-			await children.ForEachAsync(async child => await child.DeleteChildrenAsync(requestInfo, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+			if (deleteChildren)
+			{
+				var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				await children.ForEachAsync(async child => await child.DeleteAsync(requestInfo, deleteChildren, clearCache, sendUpdatingMessages, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+			}
 
 			await requestInfo.DeleteFilesAsync(category.SystemID, category.RepositoryEntityID, category.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
-			Task.WhenAll
-			(
-				category.Remove().ClearRelatedCacheAsync(cancellationToken),
-				Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken),
-				category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken)
-			).Run();
+			if (clearCache)
+				Task.WhenAll
+				(
+					category.Remove().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
+					Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken)
+				).Run();
 
-			var json = category.ToJson();
-			var objectName = category.GetObjectName();
-			new UpdateMessage
+			var json = sendUpdatingMessages ? category.ToJson() : null;
+			if (sendUpdatingMessages)
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = json,
-				DeviceID = "*"
-			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = json,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
+				var objectName = category.GetObjectName();
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+					Data = json,
+					DeviceID = "*"
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Delete",
+					Data = json,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
+
+			return json;
 		}
 
 		internal static JArray GenerateBreadcrumbs(this Category category, string desktop = null)

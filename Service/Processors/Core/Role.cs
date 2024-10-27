@@ -11,6 +11,8 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
+using System.Security.AccessControl;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -593,14 +595,13 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			var objectName = role.GetObjectName();
+			// update children
 			var updateChildren = requestInfo.Header.TryGetValue("x-children", out var childrenMode) && "set-null".IsEquals(childrenMode);
-
-			// delete
-			var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
-			await children.ForEachAsync(async child =>
+			if (updateChildren)
 			{
-				if (updateChildren)
+				var objectName = role.GetObjectName();
+				var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
+				await children.ForEachAsync(async child =>
 				{
 					child.ParentID = null;
 					child.LastModified = DateTime.Now;
@@ -627,138 +628,86 @@ namespace net.vieapps.Services.Portals
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
 					}.Send();
-				}
-				else
-					await child.DeleteChildrenAsync(requestInfo, serviceCaller, onServiceCallerGotError, cancellationToken).ConfigureAwait(false);
-			}, true, false).ConfigureAwait(false);
-
-			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await role.Remove().ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true).ConfigureAwait(false);
-			await role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// update users
-			var beRemovedUserIDs = role.UserIDs ?? new List<string>();
-			var parentRole = role.ParentRole;
-			while (parentRole != null)
-			{
-				beRemovedUserIDs = beRemovedUserIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
-				parentRole = parentRole.ParentRole;
+				}, true, false).ConfigureAwait(false);
 			}
-			beRemovedUserIDs = beRemovedUserIDs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			var requestUser = new RequestInfo(requestInfo)
-			{
-				ServiceName = "Users",
-				ObjectName = "Privileges",
-				Verb = "POST",
-				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "related-service", requestInfo.ServiceName },
-					{ "related-object", "Role" },
-					{ "related-system", role.SystemID },
-					{ "related-entity", typeof(Role).GetTypeName() },
-					{ "related-object-identity", role.ID }
-				},
-				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "RemovedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(Utility.EncryptionKey) }
-				}
-			};
-			await beRemovedUserIDs.ForEachAsync(async userID =>
-			{
-				try
-				{
-					requestUser.Query["object-identity"] = userID;
-					await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, cancellationToken)).ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					onServiceCallerGotError?.Invoke(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex);
-				}
-			}, true, false).ConfigureAwait(false);
 
-			// send update  messages
-			var response = role.ToJson();
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				DeviceID = "*",
-				Data = response
-			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-			return response;
+			// delete
+			return await role.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, !updateChildren, true, true, cancellationToken).ConfigureAwait(false);
 		}
 
-		static async Task DeleteChildrenAsync(this Role role, RequestInfo requestInfo, Func<RequestInfo, CancellationToken, Task> serviceCaller, Action<RequestInfo, string, Exception> onServiceCallerGotError, CancellationToken cancellationToken)
+		internal static async Task<JObject> DeleteAsync(this Role role, RequestInfo requestInfo, Func<RequestInfo, CancellationToken, Task> serviceCaller, Action<RequestInfo, string, Exception> onServiceCallerGotError, bool deleteChildren, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
-			var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
-			await children.ForEachAsync(async child => await child.DeleteChildrenAsync(requestInfo, serviceCaller, onServiceCallerGotError, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+			if (deleteChildren)
+			{
+				var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
+				await children.ForEachAsync(async child => await child.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+			}
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll
-			(
-				role.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true),
-				role.SendNotificationAsync("Delete", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken)
-			).ConfigureAwait(false);
 
-			// update users
-			var beRemovedUserIDs = role.UserIDs ?? new List<string>();
-			var parentRole = role.ParentRole;
-			while (parentRole != null)
+			if (updateCache)
 			{
-				beRemovedUserIDs = beRemovedUserIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
-				parentRole = parentRole.ParentRole;
+				await role.Remove().ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true).ConfigureAwait(false);
+				var beRemovedUserIDs = role.UserIDs ?? new List<string>();
+				var parentRole = role.ParentRole;
+				while (parentRole != null)
+				{
+					beRemovedUserIDs = beRemovedUserIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
+					parentRole = parentRole.ParentRole;
+				}
+				beRemovedUserIDs = beRemovedUserIDs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+				var requestUser = new RequestInfo(requestInfo)
+				{
+					ServiceName = "Users",
+					ObjectName = "Privileges",
+					Verb = "POST",
+					Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+					{
+						{ "related-service", requestInfo.ServiceName },
+						{ "related-object", "Role" },
+						{ "related-system", role.SystemID },
+						{ "related-entity", typeof(Role).GetTypeName() },
+						{ "related-object-identity", role.ID }
+					},
+					Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+					{
+						{ "RemovedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(Utility.EncryptionKey) }
+					}
+				};
+				await beRemovedUserIDs.ForEachAsync(async userID =>
+				{
+					try
+					{
+						requestUser.Query["object-identity"] = userID;
+						await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, cancellationToken)).ConfigureAwait(false);
+					}
+					catch (Exception ex)
+					{
+						onServiceCallerGotError?.Invoke(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex);
+					}
+				}, true, false).ConfigureAwait(false);
 			}
-			beRemovedUserIDs = beRemovedUserIDs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			var requestUser = new RequestInfo(requestInfo)
-			{
-				ServiceName = "Users",
-				ObjectName = "Privileges",
-				Verb = "POST",
-				Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "related-service", requestInfo.ServiceName },
-					{ "related-object", "Role" },
-					{ "related-system", role.SystemID },
-					{ "related-entity", typeof(Role).GetTypeName() },
-					{ "related-object-identity", role.ID }
-				},
-				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "RemovedRoles", new[] { role.ID }.ToJArray().ToString(Formatting.None).Encrypt(Utility.EncryptionKey) }
-				}
-			};
-			await beRemovedUserIDs.ForEachAsync(async userID =>
-			{
-				try
-				{
-					requestUser.Query["object-identity"] = userID;
-					await (serviceCaller == null ? Task.CompletedTask : serviceCaller(requestUser, cancellationToken)).ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					onServiceCallerGotError?.Invoke(requestUser, $"Error occurred while updating roles of an user account [{userID}] => {ex.Message}", ex);
-				}
-			}, true, false).ConfigureAwait(false);
 
-			var json = role.ToJson();
-			var objectName = role.GetObjectName();
-			new UpdateMessage
+			var response = sendUpdatingMessages ? role.ToJson() : null;
+			if (sendUpdatingMessages)
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = json,
-				DeviceID = "*"
-			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = json,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
+				var objectName = role.GetObjectName();
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+					DeviceID = "*",
+					Data = response
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Delete",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
+
+			await role.SendNotificationAsync("Delete", role.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			return response;
 		}
 
 		internal static async Task<JObject> SyncRoleAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)

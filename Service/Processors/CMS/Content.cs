@@ -661,29 +661,33 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// delete files
+			// delete
+			return await content.DeleteAsync(requestInfo, true, true, cancellationToken).ConfigureAwait(false);
+		}
+
+		internal static async Task<JObject> DeleteAsync(this Content content, RequestInfo requestInfo, bool clearCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		{
 			await requestInfo.DeleteFilesAsync(content.SystemID, content.RepositoryEntityID, content.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-
-			// delete content
 			await Content.DeleteAsync<Content>(content.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
-			// send update message
-			var response = content.ToJson(json => json.Remove("Details"));
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Delete",
-				DeviceID = "*",
-				Data = response
-			}.Send();
+			if (clearCache)
+				Task.WhenAll
+				(
+					Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
+					content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false)
+				).Run();
 
-			// clear cache and send notification
-			Task.WhenAll
-			(
-				Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
-				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false),
-				content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo, Utility.CancellationToken)
-			).Run();
-			return response;
+			var json = sendUpdatingMessages ? content.ToJson(json => json.Remove("Details")) : null;
+			if (sendUpdatingMessages)
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Delete",
+					DeviceID = "*",
+					Data = json
+				}.Send();
+
+			return json;
 		}
 
 		internal static async Task<JObject> GenerateAsync(RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)

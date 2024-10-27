@@ -689,33 +689,42 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			// delete
+			return await portlet.DeleteAsync(requestInfo, true, true, cancellationToken).ConfigureAwait(false);
+		}
+
+		internal static async Task<JObject> DeleteAsync(this Portlet portlet, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		{
 			// delete portlet
 			await Portlet.DeleteAsync<Portlet>(portlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			if (updateCache)
+				portlet.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 
-			var response = portlet.ToJson();
+			var json = sendUpdatingMessages ? portlet.ToJson() : null;
 			var objectName = portlet.GetObjectName();
-			var updateMessages = new List<UpdateMessage>
+
+			var updateMessages = sendUpdatingMessages ? new List<UpdateMessage>
 			{
 				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-					Data = response,
+					Data = json,
 					DeviceID = "*"
 				}
-			};
-			var communicateMessages = new List<CommunicateMessage>
+			} : new List<UpdateMessage>();
+
+			var communicateMessages = sendUpdatingMessages ? new List<CommunicateMessage>
 			{
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Delete",
-					Data = response,
+					Data = json,
 					ExcludedNodeID = Utility.NodeID
 				}
-			};
+			} : new List<CommunicateMessage>();
 
 			// update desktop
-			var desktop = portlet.Desktop;
+			var desktop = updateCache ? portlet.Desktop : null;
 			if (desktop != null && desktop._portlets != null)
 			{
 				var index = desktop._portlets.FindIndex(p => p.ID.IsEquals(portlet.ID));
@@ -727,20 +736,21 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// delete mapping portlets
-			if (string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
+			if (updateCache && string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
 			{
 				var mappingPortlets = await portlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? new List<Portlet>();
 				await mappingPortlets.ForEachAsync(async mappingPortlet =>
 				{
 					// delete portlet
 					await Portlet.DeleteAsync<Portlet>(mappingPortlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					var json = mappingPortlet.ToJson();
-					updateMessages.Add(new UpdateMessage
-					{
-						Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-						Data = json,
-						DeviceID = "*"
-					});
+					var json = sendUpdatingMessages ? mappingPortlet.ToJson() : null;
+					if (sendUpdatingMessages)
+						updateMessages.Add(new UpdateMessage
+						{
+							Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+							Data = json,
+							DeviceID = "*"
+						});
 
 					// update desktop
 					desktop = mappingPortlet.Desktop;
@@ -753,44 +763,53 @@ namespace net.vieapps.Services.Portals
 							await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 						}
 					}
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{objectName}#Delete",
-						Data = json,
-						ExcludedNodeID = Utility.NodeID
-					});
+					if (sendUpdatingMessages)
+						communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+						{
+							Type = $"{objectName}#Delete",
+							Data = json,
+							ExcludedNodeID = Utility.NodeID
+						});
 				}).ConfigureAwait(false);
 			}
 			else
 			{
-				var originalPortlet = portlet.OriginalPortlet;
+				var originalPortlet = updateCache ? portlet.OriginalPortlet : null;
 				if (originalPortlet != null)
 				{
-					await originalPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-					var json = originalPortlet.ToJson(async originalPortletJson =>
+					if (updateCache)
+						originalPortlet.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
+
+					if (sendUpdatingMessages)
 					{
-						var mappingPortlets = await originalPortlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? new List<Portlet>();
-						originalPortletJson["OtherDesktops"] = mappingPortlets.Where(mappingPortlet => mappingPortlet != null).Select(mappingPortlet => mappingPortlet.DesktopID).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToJArray();
-					});
-					updateMessages.Add(new UpdateMessage
-					{
-						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-						Data = json,
-						DeviceID = "*"
-					});
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{objectName}#Update",
-						Data = json
-					});
+						var originalJson = originalPortlet.ToJson(async originalPortletJson =>
+						{
+							var mappingPortlets = await originalPortlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? new List<Portlet>();
+							originalPortletJson["OtherDesktops"] = mappingPortlets.Where(mappingPortlet => mappingPortlet != null).Select(mappingPortlet => mappingPortlet.DesktopID).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToJArray();
+						});
+						updateMessages.Add(new UpdateMessage
+						{
+							Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+							Data = originalJson,
+							DeviceID = "*"
+						});
+						communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+						{
+							Type = $"{objectName}#Update",
+							Data = originalJson
+						});
+					}
 				}
 			}
 
-			// send messages and response
-			updateMessages.Send();
-			communicateMessages.Send();
+			if (sendUpdatingMessages)
+			{
+				updateMessages.Send();
+				communicateMessages.Send();
+			}
 
-			return response;
+			await portlet.SendNotificationAsync("Delete", portlet.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			return json;
 		}
 
 		internal static async Task<JObject> SyncPortletAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool dontCreateNewVersion = false)

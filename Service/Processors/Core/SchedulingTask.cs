@@ -324,18 +324,22 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
+			return await schedulingTask.DeleteAsync(requestInfo, true, true, cancellationToken).ConfigureAwait(false);
+		}
+
+		internal static async Task<JObject> DeleteAsync(this SchedulingTask schedulingTask, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		{
 			await SchedulingTask.DeleteAsync<SchedulingTask>(schedulingTask.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await schedulingTask.Remove().ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
 
-			// send update messages
-			var response = schedulingTask.ToJson();
-			schedulingTask.SendMessages("Delete", response, Utility.NodeID);
+			if (updateCache)
+				await schedulingTask.Remove().ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
 
-			// send notification
-			await schedulingTask.SendNotificationAsync("Delete", schedulingTask.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			var json = sendUpdatingMessages ? schedulingTask.ToJson() : null;
+			if (sendUpdatingMessages)
+				schedulingTask.SendMessages("Delete", json, Utility.NodeID);
 
-			// response
-			return response;
+			await schedulingTask.SendNotificationAsync("Delete", schedulingTask.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			return json;
 		}
 
 		internal static async Task<JObject> SyncSchedulingTaskAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)

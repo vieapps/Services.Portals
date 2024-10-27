@@ -600,63 +600,56 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
+			return await site.DeleteAsync(requestInfo, true, true, cancellationToken).ConfigureAwait(false);
+		}
+
+		internal static async Task<JObject> DeleteAsync(this Site site, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		{
+			await requestInfo.DeleteFilesAsync(site.SystemID, null, site.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Site.DeleteAsync<Site>(site.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			site.Remove();
 
-			// update organization
-			var organization = site.Organization;
-			if (organization != null && organization._siteIDs != null)
+			if (updateCache)
+				site.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false).Run();
+
+			var json = sendUpdatingMessages ? site.ToJson() : null;
+			if (sendUpdatingMessages)
 			{
-				organization._siteIDs.Remove(site.ID);
-				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				var objectName = site.GetObjectName();
+				var organization = site.Organization;
+				if (site.Organization?._siteIDs != null)
+				{
+					site.Organization._siteIDs.Remove(site.ID);
+					await site.Organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+					new UpdateMessage
+					{
+						Type = $"{requestInfo.ServiceName}#{site.Organization.GetTypeName(true)}#Update",
+						Data = site.Organization.ToJson(),
+						DeviceID = "*"
+					}.Send();
+				}
 				new UpdateMessage
 				{
-					Type = $"{requestInfo.ServiceName}#{organization.GetObjectName()}#Update",
-					Data = organization.ToJson(),
+					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+					Data = json,
 					DeviceID = "*"
 				}.Send();
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
-					Type = $"{organization.GetObjectName()}#Update",
-					Data = organization.ToJson(),
+					Type = $"{objectName}#Delete",
+					Data = json,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{site.Organization?.GetTypeName(true)}#Update",
+					Data = site.Organization?.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
 			}
 
-			// send update messages
-			var response = site.ToJson();
-			var objectName = site.GetObjectName();
-
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = response,
-				DeviceID = "*"
-			}.Send();
-
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{site.Organization.GetTypeName(true)}#Update",
-				Data = site.Organization.ToJson(),
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-
-			// update cache & send notification
-			Task.WhenAll
-			(
-				site.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false),
-				site.SendNotificationAsync("Delete", site.Organization.Notifications, site.Status, site.Status, requestInfo, Utility.CancellationToken)
-			).Run();
-
-			// response
-			return response;
+			await site.SendNotificationAsync("Delete", site.Organization?.Notifications, site.Status, site.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			return json;
 		}
 
 		internal static async Task<JObject> SyncSiteAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)

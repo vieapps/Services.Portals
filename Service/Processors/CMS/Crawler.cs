@@ -461,31 +461,30 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
+			return await crawler.DeleteAsync(requestInfo, true, cancellationToken).ConfigureAwait(false);
+		}
+
+		internal static async Task<JObject> DeleteAsync(this Crawler crawler, RequestInfo requestInfo, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		{
 			await Crawler.DeleteAsync<Crawler>(crawler.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-
-			// message to update to all other connected clients
-			var objectName = crawler.GetObjectName();
-			var response = crawler.ToJson();
-			new UpdateMessage
+			var json = sendUpdatingMessages ? crawler.ToJson() : null;
+			if (sendUpdatingMessages)
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-				Data = response,
-				DeviceID = "*"
-			}.Send();
-
-			// message to update to all service instances (on all other nodes)
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Delete",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-
-			// send notification
-			//await crawler.SendNotificationAsync("Delete", crawler.ContentType.Notifications, crawler.Status, crawler.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
-			return response;
+				var objectName = crawler.GetObjectName();
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+					Data = json,
+					DeviceID = "*"
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Delete",
+					Data = json,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
+			return json;
 		}
 
 		internal static async Task<JObject> SyncCrawlerAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
