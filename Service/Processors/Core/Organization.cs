@@ -748,11 +748,12 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// delete all desktops
-			var desktops = await RepositoryMediator.FindAsync("", organization.GetFilter<Desktop>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			IFilterBy filter = Filters<Desktop>.And(organization.GetFilter<Desktop>(), Filters<Desktop>.IsNull("ParentID"));
+			var desktops = await RepositoryMediator.FindAsync("", filter as IFilterBy<Desktop>, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			while (desktops.Count > 0)
 			{
 				await desktops.ForEachAsync(desktop => desktop.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				desktops = await RepositoryMediator.FindAsync("", organization.GetFilter<Desktop>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				desktops = await RepositoryMediator.FindAsync("", filter as IFilterBy<Desktop>, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all sites
@@ -772,12 +773,12 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// delete all roles
-			var filter = Filters<Role>.And(organization.GetFilter<Role>(), Filters<Role>.IsNull("ParentID"));
-			var roles = await RepositoryMediator.FindAsync("", filter, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			filter = Filters<Role>.And(organization.GetFilter<Role>(), Filters<Role>.IsNull("ParentID"));
+			var roles = await RepositoryMediator.FindAsync("", filter as IFilterBy<Role>, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			while (roles.Count > 0)
 			{
 				await roles.ForEachAsync(role => role.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, true, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				roles = await RepositoryMediator.FindAsync("", filter, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				roles = await RepositoryMediator.FindAsync("", filter as IFilterBy<Role>, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete organization
