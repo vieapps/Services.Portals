@@ -665,13 +665,12 @@ namespace net.vieapps.Services.Portals
 			return await content.DeleteAsync(requestInfo, true, true, cancellationToken).ConfigureAwait(false);
 		}
 
-		internal static async Task<JObject> DeleteAsync(this Content content, RequestInfo requestInfo, bool clearCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		internal static async Task<JObject> DeleteAsync(this Content content, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
 			await requestInfo.DeleteFilesAsync(content.SystemID, content.RepositoryEntityID, content.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Content.DeleteAsync<Content>(content.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await content.SendNotificationAsync("Delete", content.Category.Notifications, content.Status, content.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
-			if (clearCache)
+			if (updateCache)
 				Task.WhenAll
 				(
 					Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
@@ -687,6 +686,7 @@ namespace net.vieapps.Services.Portals
 					Data = json
 				}.Send();
 
+			await content.SendNotificationAsync("Delete", content.Category?.Notifications ?? content.ContentType?.Notifications, content.Status, content.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}
 

@@ -585,19 +585,39 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
-			return await contentType.DeleteAsync(requestInfo, true, true, cancellationToken).ConfigureAwait(false);
+			return await contentType.DeleteAsync(requestInfo, true, true, true, cancellationToken).ConfigureAwait(false);
 		}
 
-		internal static async Task<JObject> DeleteAsync(this ContentType contentType, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		internal static async Task<JObject> DeleteAsync(this ContentType contentType, RequestInfo requestInfo, bool deleteContents, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
+			if (deleteContents)
+				await (typeof(Link) == contentType.EntityDefinition?.Type
+					? requestInfo.DeleteAsync<Link>(null, contentType.ID, updateCache, sendUpdatingMessages, cancellationToken)
+					: typeof(Item) == contentType.EntityDefinition?.Type
+						? requestInfo.DeleteAsync<Item>(null, contentType.ID, updateCache, sendUpdatingMessages, cancellationToken)
+						: typeof(Content) == contentType.EntityDefinition?.Type
+							? requestInfo.DeleteAsync<Content>(null, contentType.ID, updateCache, sendUpdatingMessages, cancellationToken)
+							: typeof(Category) == contentType.EntityDefinition?.Type
+								? requestInfo.DeleteAsync<Category>(null, contentType.ID, updateCache, sendUpdatingMessages, cancellationToken)
+								: typeof(Form) == contentType.EntityDefinition?.Type
+									? requestInfo.DeleteAsync<Form>(null, contentType.ID, updateCache, sendUpdatingMessages, cancellationToken)
+									: typeof(Crawler) == contentType.EntityDefinition?.Type
+										? requestInfo.DeleteAsync<Crawler>(null, contentType.ID, updateCache, sendUpdatingMessages, cancellationToken)
+										: Task.CompletedTask
+				).ConfigureAwait(false);
+
 			await ContentType.DeleteAsync<ContentType>(contentType.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
-				await contentType.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, false, true, false, false).ConfigureAwait(false);
+				await Task.WhenAll
+				(
+					contentType.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, false, true, false, false),
+					Utility.Cache.RemoveAsync(contentType.ObjectCacheKeys, cancellationToken)
+				).ConfigureAwait(false);
 
-			if (updateCache && contentType.Module?._contentTypeIDs != null)
+			if (updateCache && contentType.Module?.ContentTypeIDs != null)
 			{
-				contentType.Module._contentTypeIDs.Remove(contentType.ID);
+				contentType.Module.ContentTypeIDs.Remove(contentType.ID);
 				await contentType.Module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 				if (sendUpdatingMessages)
 				{
@@ -636,8 +656,42 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
+			contentType.Remove()?.Module?.ContentTypeIDs?.Remove(contentType.ID);
 			await contentType.SendNotificationAsync("Delete", contentType.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
+		}
+
+		static async Task DeleteAsync<T>(this RequestInfo requestInfo, string organizationID, string contentTypeID, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken) where T : class
+		{
+			var typeofT = typeof(T);
+			IFilterBy<T> filter = typeofT == typeof(Link) || typeofT == typeof(Category)
+				? string.IsNullOrWhiteSpace(organizationID)
+					? Filters<T>.And(Filters<T>.Equals("RepositoryEntityID", contentTypeID), Filters<T>.IsNull("ParentID"))
+					: Filters<T>.And(Filters<T>.Equals("SystemID", organizationID), Filters<T>.IsNull("ParentID"))
+				: typeofT == typeof(Item) || typeofT == typeof(Content) || typeofT == typeof(Form) || typeofT == typeof(Crawler)
+					? string.IsNullOrWhiteSpace(organizationID)
+						? Filters<T>.Equals("RepositoryEntityID", contentTypeID)
+						: Filters<T>.Equals("SystemID", organizationID)
+					: null;
+			var objects = filter == null ? new List<T>() : await RepositoryMediator.FindAsync("", filter, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false) ?? new List<T>();
+			while (objects.Count > 0)
+			{
+				await objects.ForEachAsync(@object => @object is Link link
+					? link.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken)
+					: @object is Category category
+						? category.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken)
+						: @object is Item item
+							? item.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken)
+							: @object is Content content
+								? content.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken)
+								: @object is Form form
+									? form.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken)
+									: @object is Crawler crawler
+										? crawler.DeleteAsync(requestInfo, sendUpdatingMessages, cancellationToken)
+										: Task.CompletedTask
+				, true, false).ConfigureAwait(false);
+				objects = await RepositoryMediator.FindAsync("", filter, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false) ?? new List<T>();
+			}
 		}
 
 		internal static async Task<JObject> SyncContentTypeAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)

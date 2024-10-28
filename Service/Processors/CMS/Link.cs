@@ -765,23 +765,22 @@ namespace net.vieapps.Services.Portals
 			return await link.DeleteAsync(requestInfo, !updateChildren, true, true, cancellationToken).ConfigureAwait(false);
 		}
 
-		internal static async Task<JObject> DeleteAsync(this Link link, RequestInfo requestInfo, bool deleteChildren, bool clearCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		internal static async Task<JObject> DeleteAsync(this Link link, RequestInfo requestInfo, bool deleteChildren, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
 			if (deleteChildren)
 			{
 				var children = await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				await children.ForEachAsync(async child => await child.DeleteAsync(requestInfo, deleteChildren, clearCache, sendUpdatingMessages, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+				await children.ForEachAsync(child => child.DeleteAsync(requestInfo, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
 			}
 
 			await requestInfo.DeleteFilesAsync(link.SystemID, link.RepositoryEntityID, link.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Link.DeleteAsync<Link>(link.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await link.SendNotificationAsync("Delete", link.ContentType.Notifications, link.Status, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
-			if (clearCache)
+			if (updateCache)
 				Task.WhenAll
 				(
-					link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
-					Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken)
+					link.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+					Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken)
 				).Run();
 
 			var json = sendUpdatingMessages ? link.ToJson() : null;
@@ -802,6 +801,7 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
+			await link.SendNotificationAsync("Delete", link.ContentType?.Notifications, link.Status, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}
 

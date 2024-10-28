@@ -435,6 +435,7 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
+			expression.Remove();
 			await expression.SendNotificationAsync("Delete", expression.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}

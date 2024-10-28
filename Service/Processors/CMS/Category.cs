@@ -276,7 +276,7 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 		}
 
-		static async Task<Tuple<long, List<Category>, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Category> filter, SortBy<Category> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false)
+		static async Task<(long TotalRecords, List<Category> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Category> filter, SortBy<Category> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -317,7 +317,7 @@ namespace net.vieapps.Services.Portals
 				await Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), cancellationToken).ConfigureAwait(false);
 
 			// return the results
-			return new Tuple<long, List<Category>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
+			return (totalRecords, objects, thumbnails, cacheKeys);
 		}
 
 		internal static async Task<JObject> SearchCategoriesAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
@@ -384,10 +384,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// search if has no cache
-			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentTypeID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken, showThumbnails).ConfigureAwait(false);
-			var totalRecords = results.Item1;
-			var objects = results.Item2;
-			var thumbnails = results.Item3;
+			var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentTypeID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken, showThumbnails).ConfigureAwait(false);
 
 			// build response
 			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
@@ -451,8 +448,7 @@ namespace net.vieapps.Services.Portals
 			// update cache
 			if (string.IsNullOrWhiteSpace(query) && !addChildren)
 			{
-				//await Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
-				var cacheKeys = new[] { cacheKeyOfObjectsJson }.Concat(results.Item4).ToList();
+				cacheKeys = cacheKeys.Concat(new[] { cacheKeyOfObjectsJson }).ToList();
 				Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None)),
@@ -926,23 +922,23 @@ namespace net.vieapps.Services.Portals
 			return await category.DeleteAsync(requestInfo, !updateChildren, true, true, cancellationToken).ConfigureAwait(false);
 		}
 
-		internal static async Task<JObject> DeleteAsync(this Category category, RequestInfo requestInfo, bool deleteChildren, bool clearCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
+		internal static async Task<JObject> DeleteAsync(this Category category, RequestInfo requestInfo, bool deleteChildren, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
 			if (deleteChildren)
 			{
 				var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				await children.ForEachAsync(async child => await child.DeleteAsync(requestInfo, deleteChildren, clearCache, sendUpdatingMessages, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+				await children.ForEachAsync(child => child.DeleteAsync(requestInfo, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
 			}
 
 			await requestInfo.DeleteFilesAsync(category.SystemID, category.RepositoryEntityID, category.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Category.DeleteAsync<Category>(category.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await category.SendNotificationAsync("Delete", category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			category.Remove();
 
-			if (clearCache)
+			if (updateCache)
 				Task.WhenAll
 				(
-					category.Remove().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
-					Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken)
+					category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+					Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
 				).Run();
 
 			var json = sendUpdatingMessages ? category.ToJson() : null;
@@ -963,6 +959,7 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
+			await category.SendNotificationAsync("Delete", category.ContentType?.Notifications, category.Status, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}
 

@@ -640,14 +640,14 @@ namespace net.vieapps.Services.Portals
 			if (deleteChildren)
 			{
 				var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
-				await children.ForEachAsync(async child => await child.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+				await children.ForEachAsync(child => child.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
 			}
 
 			await Role.DeleteAsync<Role>(role.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
 			{
-				await role.Remove().ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true).ConfigureAwait(false);
+				await role.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true).ConfigureAwait(false);
 				var beRemovedUserIDs = role.UserIDs ?? new List<string>();
 				var parentRole = role.ParentRole;
 				while (parentRole != null)
@@ -706,6 +706,7 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
+			role.Remove();
 			await role.SendNotificationAsync("Delete", role.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 			return response;
 		}

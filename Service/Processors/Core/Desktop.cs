@@ -787,7 +787,7 @@ namespace net.vieapps.Services.Portals
 			if (deleteChildren)
 			{
 				var children = await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? new List<Desktop>();
-				await children.ForEachAsync(async child => await child.DeleteAsync(requestInfo, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
+				await children.ForEachAsync(child => child.DeleteAsync(requestInfo, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
 			}
 
 			await desktop.Portlets.ForEachAsync(portlet => portlet.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
@@ -814,6 +814,7 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
+			desktop.Remove();
 			await desktop.SendNotificationAsync("Delete", desktop.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}

@@ -332,12 +332,13 @@ namespace net.vieapps.Services.Portals
 			await SchedulingTask.DeleteAsync<SchedulingTask>(schedulingTask.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
-				await schedulingTask.Remove().ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
+				await schedulingTask.ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
 
 			var json = sendUpdatingMessages ? schedulingTask.ToJson() : null;
 			if (sendUpdatingMessages)
 				schedulingTask.SendMessages("Delete", json, Utility.NodeID);
 
+			schedulingTask.Remove();
 			await schedulingTask.SendNotificationAsync("Delete", schedulingTask.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}

@@ -607,7 +607,6 @@ namespace net.vieapps.Services.Portals
 		{
 			await requestInfo.DeleteFilesAsync(site.SystemID, null, site.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Site.DeleteAsync<Site>(site.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			site.Remove();
 
 			if (updateCache)
 				site.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false).Run();
@@ -648,6 +647,7 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
+			site.Remove();
 			await site.SendNotificationAsync("Delete", site.Organization?.Notifications, site.Status, site.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}

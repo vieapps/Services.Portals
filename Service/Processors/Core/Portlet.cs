@@ -711,7 +711,7 @@ namespace net.vieapps.Services.Portals
 					Data = json,
 					DeviceID = "*"
 				}
-			} : new List<UpdateMessage>();
+			} : null;
 
 			var communicateMessages = sendUpdatingMessages ? new List<CommunicateMessage>
 			{
@@ -721,7 +721,7 @@ namespace net.vieapps.Services.Portals
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
 				}
-			} : new List<CommunicateMessage>();
+			} : null;
 
 			// update desktop
 			var desktop = updateCache ? portlet.Desktop : null;
@@ -802,13 +802,9 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 
-			if (sendUpdatingMessages)
-			{
-				updateMessages.Send();
-				communicateMessages.Send();
-			}
-
-			await portlet.SendNotificationAsync("Delete", portlet.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			updateMessages?.Send();
+			communicateMessages?.Send();
+			await portlet.SendNotificationAsync("Delete", portlet.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}
 

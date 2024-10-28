@@ -485,6 +485,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> DeleteAsync(this Module module, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
+			if (module._contentTypeIDs != null && module._contentTypeIDs.Count > 0)
+				await module.ContentTypes.ForEachAsync(contentType => contentType.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
+
 			await Module.DeleteAsync<Module>(module.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
@@ -531,7 +534,8 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
-			await module.SendNotificationAsync("Delete", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			module.Remove();
+			await module.SendNotificationAsync("Delete", module.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}
 
