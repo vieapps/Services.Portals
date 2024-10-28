@@ -697,6 +697,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// delete portlet
 			await Portlet.DeleteAsync<Portlet>(portlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
 			if (updateCache)
 				portlet.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 

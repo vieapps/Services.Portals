@@ -790,9 +790,10 @@ namespace net.vieapps.Services.Portals
 				await children.ForEachAsync(child => child.DeleteAsync(requestInfo, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
 			}
 
-			await desktop.Portlets.ForEachAsync(portlet => portlet.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
+			await (desktop.Portlets ?? []).Select(portlet => portlet).ToList().ForEachAsync(portlet => portlet.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
 			await requestInfo.DeleteFilesAsync(desktop.SystemID, null, desktop.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
 			if (updateCache)
 				desktop.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 

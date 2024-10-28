@@ -717,9 +717,6 @@ namespace net.vieapps.Services.Portals
 			return organization.ToJson();
 		}
 
-		static IFilterBy<T> GetFilterBy<T>(this Organization organization) where T : class
-			=> Filters<T>.Equals("SystemID", organization.ID);
-
 		internal static async Task DeleteAsync(this Organization organization, RequestInfo requestInfo, Func<RequestInfo, CancellationToken, Task> serviceCaller, Action<RequestInfo, string, Exception> onServiceCallerGotError, CancellationToken cancellationToken)
 		{
 			// prepare
@@ -727,55 +724,55 @@ namespace net.vieapps.Services.Portals
 			var sendUpdatingMessages = !"false".IsEquals(requestInfo.GetParameter("x-send-updating-messages"));
 
 			// delete all content-types & all belong contents
-			var contentTypes = await RepositoryMediator.FindAsync("", organization.GetFilterBy<ContentType>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var contentTypes = await RepositoryMediator.FindAsync("", organization.GetFilter<ContentType>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			while (contentTypes.Count > 0)
 			{
 				await contentTypes.ForEachAsync(contentType => contentType.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				contentTypes = await RepositoryMediator.FindAsync("", organization.GetFilterBy<ContentType>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				contentTypes = await RepositoryMediator.FindAsync("", organization.GetFilter<ContentType>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all modules
-			var modules = await RepositoryMediator.FindAsync("", organization.GetFilterBy<Module>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var modules = await RepositoryMediator.FindAsync("", organization.GetFilter<Module>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			while (modules.Count > 0)
 			{
 				await modules.ForEachAsync(module => module.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				modules = await RepositoryMediator.FindAsync("", organization.GetFilterBy<Module>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				modules = await RepositoryMediator.FindAsync("", organization.GetFilter<Module>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all expressions
-			var expressions = await RepositoryMediator.FindAsync("", organization.GetFilterBy<Expression>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var expressions = await RepositoryMediator.FindAsync("", organization.GetFilter<Expression>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			while (expressions.Count > 0)
 			{
 				await expressions.ForEachAsync(expression => expression.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				expressions = await RepositoryMediator.FindAsync("", organization.GetFilterBy<Expression>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				expressions = await RepositoryMediator.FindAsync("", organization.GetFilter<Expression>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			}
 
-			// delete all desktops & portlets
-			var desktops = await RepositoryMediator.FindAsync("", organization.GetFilterBy<Desktop>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			// delete all desktops
+			var desktops = await RepositoryMediator.FindAsync("", organization.GetFilter<Desktop>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			while (desktops.Count > 0)
 			{
 				await desktops.ForEachAsync(desktop => desktop.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				desktops = await RepositoryMediator.FindAsync("", organization.GetFilterBy<Desktop>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				desktops = await RepositoryMediator.FindAsync("", organization.GetFilter<Desktop>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all sites
-			var sites = await RepositoryMediator.FindAsync("", organization.GetFilterBy<Site>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var sites = await RepositoryMediator.FindAsync("", organization.GetFilter<Site>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			while (sites.Count > 0)
 			{
 				await sites.ForEachAsync(site => site.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				sites = await RepositoryMediator.FindAsync("", organization.GetFilterBy<Site>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				sites = await RepositoryMediator.FindAsync("", organization.GetFilter<Site>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all tasks
-			var schedulingTasks = await RepositoryMediator.FindAsync("", organization.GetFilterBy<SchedulingTask>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var schedulingTasks = await RepositoryMediator.FindAsync("", organization.GetFilter<SchedulingTask>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			while (schedulingTasks.Count > 0)
 			{
 				await schedulingTasks.ForEachAsync(schedulingTask => schedulingTask.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				schedulingTasks = await RepositoryMediator.FindAsync("", organization.GetFilterBy<SchedulingTask>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				schedulingTasks = await RepositoryMediator.FindAsync("", organization.GetFilter<SchedulingTask>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all roles
-			var filter = Filters<Role>.And(organization.GetFilterBy<Role>(), Filters<Role>.IsNull("ParentID"));
+			var filter = Filters<Role>.And(organization.GetFilter<Role>(), Filters<Role>.IsNull("ParentID"));
 			var roles = await RepositoryMediator.FindAsync("", filter, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
 			while (roles.Count > 0)
 			{
@@ -784,9 +781,15 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// delete organization
-			organization.Remove();
 			await Organization.DeleteAsync<Organization>(organization.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await organization.SendNotificationAsync("Delete", organization.Notifications, organization.Status, organization.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			await Task.WhenAll
+			(
+				Utility.Cache.RemoveAsync(organization.GetCacheKey(), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetCacheKey(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"), 20, 1), cancellationToken),
+				Utility.Cache.RemoveAsync(Extensions.GetCacheKeyOfObjectsJson(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"), 20, 1), cancellationToken)
+			).ConfigureAwait(false);
+			organization.Remove();
 
 			if (sendUpdatingMessages)
 			{
@@ -806,6 +809,9 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 		}
+
+		static IFilterBy<T> GetFilter<T>(this Organization organization) where T : class
+			=> Filters<T>.Equals("SystemID", organization.ID);
 
 		internal static async Task<JObject> SyncOrganizationAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{
