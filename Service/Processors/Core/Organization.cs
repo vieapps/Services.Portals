@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
 using System.Dynamic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -711,7 +712,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
-			organization.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, Utility.CancellationToken).Run(1234);
+			organization.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, Utility.CancellationToken).Run(ex => Utility.WriteErrorAsync(ex, $"Error occurred while deleting an organization => {ex.Message}", "Trash", requestInfo.CorrelationID), false, 1234);
 
 			// response
 			return organization.ToJson();
@@ -720,65 +721,67 @@ namespace net.vieapps.Services.Portals
 		internal static async Task DeleteAsync(this Organization organization, RequestInfo requestInfo, Func<RequestInfo, CancellationToken, Task> serviceCaller, Action<RequestInfo, string, Exception> onServiceCallerGotError, CancellationToken cancellationToken)
 		{
 			// prepare
+			var stopwatch = Stopwatch.StartNew();
 			var updateCache = "true".IsEquals(requestInfo.GetParameter("x-update-cache"));
 			var sendUpdatingMessages = !"false".IsEquals(requestInfo.GetParameter("x-send-updating-messages"));
+			await requestInfo.WriteLogAsync($"Prepare to move an organization ({organization.Title}) into trash", "Trash").ConfigureAwait(false);
 
 			// delete all content-types & all belong contents
-			var contentTypes = await RepositoryMediator.FindAsync("", organization.GetFilter<ContentType>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var contentTypes = await organization.FetchAsync<ContentType>(cancellationToken).ConfigureAwait(false);
 			while (contentTypes.Count > 0)
 			{
 				await contentTypes.ForEachAsync(contentType => contentType.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				contentTypes = await RepositoryMediator.FindAsync("", organization.GetFilter<ContentType>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				contentTypes = await organization.FetchAsync<ContentType>(cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all modules
-			var modules = await RepositoryMediator.FindAsync("", organization.GetFilter<Module>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var modules = await organization.FetchAsync<Module>(cancellationToken).ConfigureAwait(false);
 			while (modules.Count > 0)
 			{
 				await modules.ForEachAsync(module => module.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				modules = await RepositoryMediator.FindAsync("", organization.GetFilter<Module>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				modules = await organization.FetchAsync<Module>(cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all expressions
-			var expressions = await RepositoryMediator.FindAsync("", organization.GetFilter<Expression>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var expressions = await organization.FetchAsync<Expression>(cancellationToken).ConfigureAwait(false);
 			while (expressions.Count > 0)
 			{
 				await expressions.ForEachAsync(expression => expression.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				expressions = await RepositoryMediator.FindAsync("", organization.GetFilter<Expression>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				expressions = await organization.FetchAsync<Expression>(cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all desktops
 			IFilterBy filter = Filters<Desktop>.And(organization.GetFilter<Desktop>(), Filters<Desktop>.IsNull("ParentID"));
-			var desktops = await RepositoryMediator.FindAsync("", filter as IFilterBy<Desktop>, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var desktops = await organization.FetchAsync(cancellationToken, filter as IFilterBy<Desktop>).ConfigureAwait(false);
 			while (desktops.Count > 0)
 			{
 				await desktops.ForEachAsync(desktop => desktop.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				desktops = await RepositoryMediator.FindAsync("", filter as IFilterBy<Desktop>, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				desktops = await organization.FetchAsync(cancellationToken, filter as IFilterBy<Desktop>).ConfigureAwait(false);
 			}
 
 			// delete all sites
-			var sites = await RepositoryMediator.FindAsync("", organization.GetFilter<Site>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var sites = await organization.FetchAsync<Site>(cancellationToken).ConfigureAwait(false);
 			while (sites.Count > 0)
 			{
 				await sites.ForEachAsync(site => site.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				sites = await RepositoryMediator.FindAsync("", organization.GetFilter<Site>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				sites = await organization.FetchAsync<Site>(cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all tasks
-			var schedulingTasks = await RepositoryMediator.FindAsync("", organization.GetFilter<SchedulingTask>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var schedulingTasks = await organization.FetchAsync<SchedulingTask>(cancellationToken).ConfigureAwait(false);
 			while (schedulingTasks.Count > 0)
 			{
 				await schedulingTasks.ForEachAsync(schedulingTask => schedulingTask.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				schedulingTasks = await RepositoryMediator.FindAsync("", organization.GetFilter<SchedulingTask>(), null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				schedulingTasks = await organization.FetchAsync<SchedulingTask>(cancellationToken).ConfigureAwait(false);
 			}
 
 			// delete all roles
 			filter = Filters<Role>.And(organization.GetFilter<Role>(), Filters<Role>.IsNull("ParentID"));
-			var roles = await RepositoryMediator.FindAsync("", filter as IFilterBy<Role>, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var roles = await organization.FetchAsync(cancellationToken, filter as IFilterBy<Role>).ConfigureAwait(false);
 			while (roles.Count > 0)
 			{
 				await roles.ForEachAsync(role => role.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, true, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
-				roles = await RepositoryMediator.FindAsync("", filter as IFilterBy<Role>, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+				roles = await organization.FetchAsync(cancellationToken, filter as IFilterBy<Role>).ConfigureAwait(false);
 			}
 
 			// delete organization
@@ -809,10 +812,15 @@ namespace net.vieapps.Services.Portals
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
 			}
+			stopwatch.Stop();
+			await requestInfo.WriteLogAsync($"The organization ({organization.Title}) has been moved into trash - Execution times: {stopwatch.GetElapsedTimes()}", "Trash").ConfigureAwait(false);
 		}
 
 		static IFilterBy<T> GetFilter<T>(this Organization organization) where T : class
 			=> Filters<T>.Equals("SystemID", organization.ID);
+
+		static Task<List<T>> FetchAsync<T>(this Organization organization, CancellationToken cancellationToken, IFilterBy<T> filter = null) where T : class
+			=> RepositoryMediator.FindAsync("", filter ?? organization.GetFilter<T>(), null, 100, 1, null, false, null, 0, cancellationToken);
 
 		internal static async Task<JObject> SyncOrganizationAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)
 		{

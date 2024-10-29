@@ -673,24 +673,34 @@ namespace net.vieapps.Services.Portals
 						? Filters<T>.Equals("RepositoryEntityID", contentTypeID)
 						: Filters<T>.Equals("SystemID", organizationID)
 					: null;
-			var objects = filter == null ? new List<T>() : await RepositoryMediator.FindAsync("", filter, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false) ?? new List<T>();
+			var objects = filter == null ? [] : await RepositoryMediator.FindAsync("", filter, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false) ?? [];
 			while (objects.Count > 0)
 			{
-				await objects.ForEachAsync(@object => @object is Link link
-					? link.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken)
-					: @object is Category category
-						? category.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken)
-						: @object is Item item
-							? item.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken)
-							: @object is Content content
-								? content.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken)
-								: @object is Form form
-									? form.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken)
-									: @object is Crawler crawler
-										? crawler.DeleteAsync(requestInfo, sendUpdatingMessages, cancellationToken)
-										: Task.CompletedTask
-				, true, false).ConfigureAwait(false);
-				objects = await RepositoryMediator.FindAsync("", filter, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false) ?? new List<T>();
+				await objects.Where(@object => @object != null).ToList().ForEachAsync(async @object =>
+				{
+					try
+					{
+						await (@object is Link link
+							? link.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken)
+							: @object is Category category
+								? category.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken)
+								: @object is Item item
+									? item.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken)
+									: @object is Content content
+										? content.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken)
+										: @object is Form form
+											? form.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken)
+											: @object is Crawler crawler
+												? crawler.DeleteAsync(requestInfo, sendUpdatingMessages, cancellationToken)
+												: Task.CompletedTask
+						).ConfigureAwait(false);
+					}
+					catch (Exception ex)
+					{
+						await requestInfo.WriteErrorAsync(ex, $"Error occurred while deleting '{@object.GetAttributeValue("Title")}' [{@object.GetTypeName(true)} => {ex.Message}", "Trash").ConfigureAwait(false);
+					}
+				}, true, false).ConfigureAwait(false);
+				objects = await RepositoryMediator.FindAsync("", filter, null, 100, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false) ?? [];
 			}
 		}
 

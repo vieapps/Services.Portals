@@ -430,7 +430,7 @@ namespace net.vieapps.Services.Portals
 					Data = json
 				}.Send();
 
-			await form.SendNotificationAsync("Delete", form.ContentType.Notifications, form.Status, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			await form.SendNotificationAsync("Delete", form.ContentType?.Notifications, form.Status, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}
 

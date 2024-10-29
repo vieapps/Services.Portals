@@ -11,8 +11,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
-using System.Security.AccessControl;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -639,7 +637,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (deleteChildren)
 			{
-				var children = await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
+				var children = await role.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? [];
 				await children.ForEachAsync(child => child.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
 			}
 
@@ -648,11 +646,11 @@ namespace net.vieapps.Services.Portals
 			if (updateCache)
 			{
 				await role.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, true).ConfigureAwait(false);
-				var beRemovedUserIDs = role.UserIDs ?? new List<string>();
+				var beRemovedUserIDs = role.UserIDs ?? [];
 				var parentRole = role.ParentRole;
 				while (parentRole != null)
 				{
-					beRemovedUserIDs = beRemovedUserIDs.Concat(parentRole.UserIDs ?? new List<string>()).ToList();
+					beRemovedUserIDs = beRemovedUserIDs.Concat(parentRole.UserIDs ?? []).ToList();
 					parentRole = parentRole.ParentRole;
 				}
 				beRemovedUserIDs = beRemovedUserIDs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -688,7 +686,7 @@ namespace net.vieapps.Services.Portals
 				}, true, false).ConfigureAwait(false);
 			}
 
-			var response = sendUpdatingMessages ? role.ToJson() : null;
+			var json = sendUpdatingMessages ? role.ToJson() : null;
 			if (sendUpdatingMessages)
 			{
 				var objectName = role.GetObjectName();
@@ -696,19 +694,19 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 					DeviceID = "*",
-					Data = response
+					Data = json
 				}.Send();
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Delete",
-					Data = response,
+					Data = json,
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
 			}
 
 			role.Remove();
 			await role.SendNotificationAsync("Delete", role.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-			return response;
+			return json;
 		}
 
 		internal static async Task<JObject> SyncRoleAsync(this RequestInfo requestInfo, CancellationToken cancellationToken, bool sendNotifications = false, bool dontCreateNewVersion = false)

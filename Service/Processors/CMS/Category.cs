@@ -926,7 +926,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (deleteChildren)
 			{
-				var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				var children = await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false) ?? [];
 				await children.ForEachAsync(child => child.DeleteAsync(requestInfo, deleteChildren, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
 			}
 

@@ -739,7 +739,7 @@ namespace net.vieapps.Services.Portals
 			// delete mapping portlets
 			if (updateCache && string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
 			{
-				var mappingPortlets = await portlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? new List<Portlet>();
+				var mappingPortlets = await portlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? [];
 				await mappingPortlets.ForEachAsync(async mappingPortlet =>
 				{
 					// delete portlet
@@ -785,7 +785,7 @@ namespace net.vieapps.Services.Portals
 					{
 						var originalJson = originalPortlet.ToJson(async originalPortletJson =>
 						{
-							var mappingPortlets = await originalPortlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? new List<Portlet>();
+							var mappingPortlets = await originalPortlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? [];
 							originalPortletJson["OtherDesktops"] = mappingPortlets.Where(mappingPortlet => mappingPortlet != null).Select(mappingPortlet => mappingPortlet.DesktopID).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToJArray();
 						});
 						updateMessages.Add(new UpdateMessage

@@ -467,6 +467,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> DeleteAsync(this Crawler crawler, RequestInfo requestInfo, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
 			await Crawler.DeleteAsync<Crawler>(crawler.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+
 			var json = sendUpdatingMessages ? crawler.ToJson() : null;
 			if (sendUpdatingMessages)
 			{
@@ -484,6 +485,7 @@ namespace net.vieapps.Services.Portals
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
 			}
+
 			return json;
 		}
 

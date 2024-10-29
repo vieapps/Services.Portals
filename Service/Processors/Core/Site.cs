@@ -614,19 +614,29 @@ namespace net.vieapps.Services.Portals
 			var json = sendUpdatingMessages ? site.ToJson() : null;
 			if (sendUpdatingMessages)
 			{
-				var objectName = site.GetObjectName();
 				var organization = site.Organization;
-				if (site.Organization?._siteIDs != null)
+				if (organization != null)
 				{
-					site.Organization._siteIDs.Remove(site.ID);
-					await site.Organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-					new UpdateMessage
+					var ojson = organization.ToJson();
+					if (organization._siteIDs != null)
 					{
-						Type = $"{requestInfo.ServiceName}#{site.Organization.GetTypeName(true)}#Update",
-						Data = site.Organization.ToJson(),
-						DeviceID = "*"
+						organization._siteIDs.Remove(site.ID);
+						await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+						new UpdateMessage
+						{
+							Type = $"{requestInfo.ServiceName}#{organization.GetTypeName(true)}#Update",
+							Data = ojson,
+							DeviceID = "*"
+						}.Send();
+					}
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{organization.GetTypeName(true)}#Update",
+						Data = ojson,
+						ExcludedNodeID = Utility.NodeID
 					}.Send();
 				}
+				var objectName = site.GetObjectName();
 				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
@@ -637,12 +647,6 @@ namespace net.vieapps.Services.Portals
 				{
 					Type = $"{objectName}#Delete",
 					Data = json,
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{site.Organization?.GetTypeName(true)}#Update",
-					Data = site.Organization?.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
 			}
