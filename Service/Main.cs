@@ -4962,7 +4962,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			var pagination = requestInfo.GetRequestExpando().Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
+			var pagination = requestInfo.GetRequestExpando().Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 			var pageSize = pagination.Item3;
 			var pageNumber = pagination.Item4;
 			var totalRecords = await RepositoryMediator.CountTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, cancellationToken).ConfigureAwait(false);
@@ -4971,13 +4971,12 @@ namespace net.vieapps.Services.Portals
 				pageNumber = totalPages;
 
 			var objects = totalRecords < 1 ? new List<TrashContent>() : await RepositoryMediator.FindTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, pageSize, pageNumber, cancellationToken).ConfigureAwait(false);
-			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
 			return new JObject
 			{
 				{ "FilterBy", Filters<TrashContent>.And(organization != null ? Filters<TrashContent>.Equals("SystemID", organization.ID) : null).ToClientJson() },
 				{ "SortBy", Sorts<TrashContent>.Descending("Created").ToClientJson() },
-				{ "Pagination", pagination.GetPagination() },
+				{ "Pagination", (totalRecords, totalPages, pageSize, pageNumber).GetPagination() },
 				{ "Objects", objects.Select(@object => @object.ToJson(json => (json as JObject)?.Remove("Data"))).ToJArray() }
 			};
 		}
@@ -5844,7 +5843,7 @@ namespace net.vieapps.Services.Portals
 				var totalRecords = await Content.CountAsync(null, "", this.CancellationToken).ConfigureAwait(false);
 				var pageSize = 100;
 				var pageNumber = 1;
-				var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+				var totalPages = (totalRecords, pageSize).GetTotalPages();
 
 				await this.WriteLogsAsync(correlationID, $"Start to refine thumbnail image of {totalRecords:###,###,###,##0} CMS contents", null, this.ServiceName, "Thumbnails").ConfigureAwait(false);
 				while (pageNumber <= totalPages)

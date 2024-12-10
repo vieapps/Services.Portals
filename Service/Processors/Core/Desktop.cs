@@ -299,7 +299,7 @@ namespace net.vieapps.Services.Portals
 
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Desktop>() ?? Sorts<Desktop>.Ascending("Title") : null;
 
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
+			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 			var pageSize = pagination.Item3;
 			var pageNumber = pagination.Item4;
 
@@ -341,8 +341,6 @@ namespace net.vieapps.Services.Portals
 				: new List<Desktop>();
 
 			// build response
-			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
-
 			if (addChildren)
 				await objects.Where(desktop => desktop._childrenIDs == null || desktop._portlets == null).ForEachAsync(async desktop =>
 				{
@@ -353,11 +351,11 @@ namespace net.vieapps.Services.Portals
 					await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 				}, true, false).ConfigureAwait(false);
 
-			var response = new JObject()
+			var response = new JObject
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
-				{ "Pagination", pagination.GetPagination() },
+				{ "Pagination", (totalRecords, totalPages, pageSize, pageNumber).GetPagination() },
 				{ "Objects", objects.Select(desktop => desktop.ToJson(addChildren, false)).ToJArray() }
 			};
 

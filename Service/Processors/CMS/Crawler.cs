@@ -193,8 +193,8 @@ namespace net.vieapps.Services.Portals
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Crawler>() ?? Sorts<Crawler>.Ascending("Title").ThenByDescending("LastModified") : null;
 
 			var pagination = string.IsNullOrWhiteSpace(query)
-				? new Tuple<long, int, int, int>(-1, 0, 0, 1)
-				: request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
+				? (-1, 0, 0, 1)
+				: request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 			var pageSize = pagination.Item3;
 			var pageNumber = pagination.Item4;
 
@@ -224,13 +224,12 @@ namespace net.vieapps.Services.Portals
 			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
-			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
 
 			var response = new JObject
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
-				{ "Pagination", pagination.GetPagination() },
+				{ "Pagination", (totalRecords, totalPages, pageSize, pageNumber).GetPagination() },
 				{ "Objects", objects.Select(@object => @object.ToJson()).ToJArray() }
 			};
 

@@ -163,7 +163,7 @@ namespace net.vieapps.Services.Portals
 			}
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Role>() ?? Sorts<Role>.Ascending("Title") : null;
 
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? new Tuple<long, int, int, int>(-1, 0, 20, 1);
+			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 			var pageSize = pagination.Item3;
 			var pageNumber = pagination.Item4;
 
@@ -203,8 +203,6 @@ namespace net.vieapps.Services.Portals
 				: new List<Role>();
 
 			// build result
-			pagination = new Tuple<long, int, int, int>(totalRecords, totalPages, pageSize, pageNumber);
-
 			if (addChildren)
 				await objects.Where(role => role._childrenIDs == null).ForEachAsync(async role => await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false), true, false).ConfigureAwait(false);
 
@@ -212,7 +210,7 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
-				{ "Pagination", pagination.GetPagination() },
+				{ "Pagination", (totalRecords, totalPages, pageSize, pageNumber).GetPagination() },
 				{ "Objects", objects.Select(role => role.ToJson(addChildren, false)).ToJArray() }
 			};
 
