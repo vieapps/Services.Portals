@@ -32,7 +32,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static ILogger Logger { get; internal set; }
 
-		internal static ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string, string>, List<string>, string>> Logs { get; } = new ConcurrentQueue<Tuple<Tuple<DateTime, string, string, string, string, string, string>, List<string>, string>>();
+		internal static ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)> Logs { get; } = new ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)>();
 
 		internal static bool IsDebugLogEnabled => Utility.Logger != null && Utility.Logger.IsEnabled(LogLevel.Debug);
 
@@ -878,15 +878,15 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			correlationID = correlationID ?? UtilityService.NewUUID;
-			var wampException = exception != null && exception is WampException
-				? (exception as WampException).GetDetails()
-				: null;
+			var wampDetails = exception != null && exception is WampException wampException
+				? wampException.GetDetails()
+				: (0, null, null, null, null, null);
 
 			logs = logs ?? new List<string>();
-			if (wampException != null)
+			if (wampDetails.Code > 0)
 			{
-				logs.Add($"> Message: {wampException.Item2}");
-				logs.Add($"> Type: {wampException.Item3}");
+				logs.Add($"> Message: {wampDetails.Message}");
+				logs.Add($"> Type: {wampDetails.Type}");
 			}
 			else if (exception != null)
 			{
@@ -897,12 +897,12 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(additional))
 				logs.Add(additional);
 
-			var stack = wampException != null
-				? $"{wampException.Item3}: {wampException.Item2}\r\n{wampException.Item4}"
+			var stack = wampDetails.Code > 0
+				? $"{wampDetails.Type}: {wampDetails.Message}\r\n{wampDetails.Stack}"
 				: exception?.GetStack();
 
 			// update queue & write to centerlized logs
-			Utility.Logs.Enqueue(new Tuple<Tuple<DateTime, string, string, string, string, string, string>, List<string>, string>(new Tuple<DateTime, string, string, string, string, string, string>(DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.NodeID, Utility.ServiceName, objectName), logs, stack));
+			Utility.Logs.Enqueue(((DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.NodeID, Utility.ServiceName, objectName), logs, stack));
 			return Utility.Logs.WriteLogsAsync(Utility.CancellationToken, Utility.Logger);
 		}
 

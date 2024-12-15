@@ -1171,6 +1171,7 @@ namespace net.vieapps.Services.Portals
 					{ "HomeDesktopAlias", (site?.HomeDesktop ?? organization.HomeDesktop ?? organization.DefaultDesktop)?.Alias ?? "-default" },
 					{ "FilesHttpURI", this.GetFilesHttpURI(organization) },
 					{ "PortalsHttpURI", this.GetPortalsHttpURI(organization) },
+					{ "PortalsWebSocketURI", Utility.PortalsWebSocketURI },
 					{ "CmsPortalsHttpURI", Utility.CmsPortalsHttpURI },
 					{ "AlwaysUseHtmlSuffix", organization.AlwaysUseHtmlSuffix },
 					{ "AlwaysUseHTTPs", site != null && site.AlwaysUseHTTPs },

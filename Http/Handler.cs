@@ -903,8 +903,8 @@ namespace net.vieapps.Services.Portals
 					if (ex is WampException wampException)
 					{
 						var wampDetails = wampException.GetDetails(requestInfo);
-						statusCode = wampDetails.Item3 == "SiteNotRecognizedException" ? (int)HttpStatusCode.NotFound : wampDetails.Item1;
-						context.ShowError(statusCode, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
+						statusCode = wampDetails.Type == "SiteNotRecognizedException" ? (int)HttpStatusCode.NotFound : wampDetails.Code;
+						context.ShowError(statusCode, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
 					}
 					else
 					{
@@ -1663,9 +1663,9 @@ namespace net.vieapps.Services.Portals
 			);
 		}
 
-		internal static void Disconnect(int waitingTimes = 1234)
+		internal static void Disconnect()
 		{
-			Global.UnregisterService(null, waitingTimes);
+			Global.UnregisterService();
 			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 			Global.Disconnect();
@@ -1680,6 +1680,10 @@ namespace net.vieapps.Services.Portals
 			while (portalsHttpURI.EndsWith("/"))
 				portalsHttpURI = portalsHttpURI.Left(portalsHttpURI.Length - 1);
 
+			var portalsWebSocketURI = systemIdentityJson.Get<string>("PortalsWebSocketURI") ?? UtilityService.GetAppSetting("HttpUri:WebSockets", portalsHttpURI);
+			while (portalsWebSocketURI.EndsWith("/"))
+				portalsWebSocketURI = portalsWebSocketURI.Left(portalsWebSocketURI.Length - 1);
+
 			var filesHttpURI = systemIdentityJson.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
 			while (filesHttpURI.EndsWith("/"))
 				filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1);
@@ -1692,9 +1696,9 @@ namespace net.vieapps.Services.Portals
 			var osInfo = (session.AppAgent ?? "").GetOSInfo();
 
 			var version = DateTime.Now.GetTimeQuarter().ToUnixTimestamp().ToString();
-			var scripts = "<script>__vieapps={ids:{" + $"system:\"{organizationID}\"" + "},URLs:{root:" + $"\"{rootURL}\",portals:\"{portalsHttpURI}\",files:\"{filesHttpURI}\"" + "}" + $",language:\"{language}\",isMobile:{isMobile},osInfo:\"{osInfo}\",correlationID:\"{context.GetCorrelationID()}\"" + "};</script>"
-				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js")}\"></script>"
-				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js")}\"></script>"
+			var scripts = "<script>__vieapps={ids:{" + $"system:\"{organizationID}\"" + "},URLs:{root:" + $"\"{rootURL}\",portals:\"{portalsHttpURI}\",websockets:\"{portalsWebSocketURI}\",files:\"{filesHttpURI}\"" + "}" + $",language:\"{language}\",isMobile:{isMobile},osInfo:\"{osInfo}\",correlationID:\"{context.GetCorrelationID()}\"" + "};</script>"
+				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js")}\"></script>"
+				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js")}\"></script>"
 				+ $"<script src=\"{portalsHttpURI}/_assets/rsa.js?v={version}\"></script>"
 				+ $"<script src=\"{portalsHttpURI}/_assets/default.js?v={version}\"></script>"
 				+ $"<script src=\"{portalsHttpURI}/_themes/default/js/all.js?v={version}\"></script>"
