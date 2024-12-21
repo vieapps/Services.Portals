@@ -42,7 +42,7 @@ namespace net.vieapps.Services.Portals
 
 		static bool UseShortURLs { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
 
-		static string LoadBalancingHealthCheckUrl { get; } = UtilityService.GetAppSetting("HealthCheckUrl", "/load-balancing-health-check");
+		static string LoadBalancerHealthCheckURL { get; } = UtilityService.GetAppSetting("LoadBalancer:HealthCheckURL", "/load-balancer-health-check");
 
 		internal static Components.WebSockets.WebSocket WebSocket { get; private set; }
 
@@ -94,8 +94,8 @@ namespace net.vieapps.Services.Portals
 					context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
 				}
 
-				// load balancing health check
-				else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancingHealthCheckUrl))
+				// health check
+				else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancerHealthCheckURL))
 					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero).ConfigureAwait(false);
 
 				// process portals' requests
@@ -310,13 +310,18 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
-			var requestPath = context.GetRequestPathSegments(true).First();
+			var requestURI = context.GetRequestUri();
+			var requestPath = requestURI.GetRequestPathSegments(true).First();
 
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitStartingLogAsync(context.GetParameter("x-logs") != null).ConfigureAwait(false);
 
+			// request to favicon.ico file
+			if (requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(new Uri(UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net")).Host))
+				await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
+
 			// request to static segments
-			if (Global.StaticSegments.Contains(requestPath))
+			else if (Global.StaticSegments.Contains(requestPath))
 				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
 
 			// request to portal desktops/resources
@@ -808,8 +813,9 @@ namespace net.vieapps.Services.Portals
 							{
 								context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 								{
-									{ "X-Cache", "HTTP-304" },
+									{ "X-Cache", $"HTTP-304/{typeof(Handler).Assembly.GetVersion(false)}" },
 									{ "X-Correlation-ID", correlationID },
+									{ "X-Node", Global.NodeID },
 									{ "Content-Type", $"{contentType}; charset=utf-8" },
 									{ "ETag", eTag },
 									{ "Last-Modified", lastModified }
@@ -831,8 +837,9 @@ namespace net.vieapps.Services.Portals
 								var expiresAt = contentType.IsEquals("text/html") ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
 								context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 								{
-									{ "X-Cache", "HTTP-200" },
+									{ "X-Cache", $"HTTP-200/{typeof(Handler).Assembly.GetVersion(false)}" },
 									{ "X-Correlation-ID", correlationID },
+									{ "X-Node", Global.NodeID },
 									{ "Content-Type", $"{contentType}; charset=utf-8" },
 									{ "ETag", eTag },
 									{ "Last-Modified", lastModified },
@@ -860,14 +867,19 @@ namespace net.vieapps.Services.Portals
 										["correlationID"] = correlationID,
 										["correlation-id"] = correlationID
 									});
+
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"http://", " src=\"//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"https://", " src=\"//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" srcset=\"http://", " srcset=\"//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" srcset=\"https://", " srcset=\"//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" href=\"http://", " href=\"//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" href=\"https://", " href=\"//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $"url(http://", "url(//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $"url(https://", "url(//");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"canonical\" href=\"//", $"<link rel=\"canonical\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://");
+
 									if (!string.IsNullOrWhiteSpace(baseURL))
 										cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
-
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " src=\"//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" srcset=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " srcset=\"//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", " href=\"//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $"url({(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://", "url(//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"canonical\" href=\"//", $"<link rel=\"canonical\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://");
 								}
 
 								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
@@ -883,7 +895,7 @@ namespace net.vieapps.Services.Portals
 					{
 						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
 						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
+						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), new Dictionary<string, string>(response.Get("Headers", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase) { ["X-Node"] = Global.NodeID });
 						var body = response.Get<string>("Body");
 						if (body != null)
 							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "gzip")), cts.Token).ConfigureAwait(false);
@@ -967,7 +979,7 @@ namespace net.vieapps.Services.Portals
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), response.Get("Headers", new Dictionary<string, string>()));
+							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), new Dictionary<string, string>(response.Get("Headers", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase) { ["X-Node"] = Global.NodeID });
 							var body = response.Get<string>("Body");
 							if (body != null)
 								await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "gzip")), cts.Token).ConfigureAwait(false);

@@ -939,6 +939,15 @@ namespace net.vieapps.Services.Portals
 			return html;
 		}
 
+		internal static string RemoveURITrail(this string uri, string trail = "/")
+		{
+			uri ??= "";
+			trail = string.IsNullOrWhiteSpace(trail) ? trail = "/" : trail;
+			while (uri.EndsWith(trail))
+				uri = uri.Left(uri.Length - trail.Length);
+			return uri;
+		}
+
 		internal static bool IsAdministrator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
 			=> user.ID.IsEquals(organization?.OwnerID) || user.IsAdministrator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
