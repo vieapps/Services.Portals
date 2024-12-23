@@ -739,9 +739,8 @@ namespace net.vieapps.Services.Portals
 			string coverURI = null, ogURL = null, ogTitle = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null, ids = null;
 			DateTime? expiresAt = null;
 
-			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", true)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
+			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", true)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false);
 			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
-			var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
 			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 
@@ -882,7 +881,7 @@ namespace net.vieapps.Services.Portals
 										element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
 									element.Add(new XElement("Category", @object.Category?.Title ?? "", new XAttribute("URL", @object.Category?.GetURL(desktop) ?? "")));
 									element.Add(new XElement("URL", @object.GetURL(desktop) ?? ""));
-									element.AddThumbnail(thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), pngThumbnails);
+									element.AddThumbnail(thumbnails?.GetThumbnailURL(@object.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails), pngThumbnails);
 								}));
 							}
 							catch (Exception ex)
@@ -916,7 +915,7 @@ namespace net.vieapps.Services.Portals
 							new XElement("Description", category.Description?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", category.GetURL(desktop) ?? ""),
-							(categoryThumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails),
+							(categoryThumbnails?.GetThumbnailURL(category.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "").GetThumbnail(pngThumbnails),
 							new XElement("Root", parentCategory?.Title ?? category.Title, new XAttribute("URL", parentCategory?.GetURL(desktop) ?? category.GetURL(desktop)))
 						));
 					}
@@ -988,7 +987,7 @@ namespace net.vieapps.Services.Portals
 
 				// prepare other info
 				categoryThumbnails = category != null ? categoryThumbnails ?? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false) : null;
-				coverURI = (categoryThumbnails as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+				coverURI = (categoryThumbnails as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(thumbnailsWidth, thumbnailsHeight, pngThumbnails);
 				ogURL = category?.GetURL(desktop, true).Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}" : "");
 				ogTitle = category?.Title;
 			}
@@ -1119,7 +1118,7 @@ namespace net.vieapps.Services.Portals
 						if (showThumbnails)
 						{
 							var thumbnails = new XElement("Thumbnails");
-							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail => thumbnails.Add((thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails, "Thumbnail")));
+							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail => thumbnails.Add((thumbnail.Get<string>("URI")?.GetThumbnailURL(thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "").GetThumbnail(pngThumbnails, "Thumbnail")));
 							xml.Add(thumbnails);
 						}
 
@@ -1149,7 +1148,7 @@ namespace net.vieapps.Services.Portals
 							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime != null ? related.PublishedTime.Value : DateTime.Now).UpdateDateTime(cultureInfo, customDateTimeFormat));
 							relatedXml.Add(new XElement("Category", related.Category?.Title ?? "", new XAttribute("URL", related.Category?.GetURL(desktop) ?? "")));
 							relatedXml.Add(new XElement("URL", related.GetURL(desktop) ?? ""));
-							relatedXml.AddThumbnail(relatedThumbnails?.GetThumbnailURL(related.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), pngThumbnails);
+							relatedXml.AddThumbnail(relatedThumbnails?.GetThumbnailURL(related.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails), pngThumbnails);
 							if (!string.IsNullOrWhiteSpace(related.Summary))
 								relatedXml.Element("Summary").Value = related.Summary.NormalizeHTMLBreaks();
 							relatedsXml.Add(relatedXml);
@@ -1176,7 +1175,7 @@ namespace net.vieapps.Services.Portals
 							otherXml.Element("PublishedTime")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
 							otherXml.Add(new XElement("Category", other.Category?.Title ?? "", new XAttribute("URL", other.Category?.GetURL(desktop) ?? "")));
 							otherXml.Add(new XElement("URL", other.GetURL(desktop) ?? ""));
-							otherXml.AddThumbnail(otherThumbnails?.GetThumbnailURL(other.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), pngThumbnails);
+							otherXml.AddThumbnail(otherThumbnails?.GetThumbnailURL(other.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails), pngThumbnails);
 							if (!string.IsNullOrWhiteSpace(other.Summary))
 								otherXml.Element("Summary").Value = other.Summary.NormalizeHTMLBreaks();
 						})));
@@ -1191,14 +1190,14 @@ namespace net.vieapps.Services.Portals
 							parentCategory = parentCategory.ParentCategory;
 						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
 						var categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-						var thumbnailURL = categoryThumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+						var thumbnailURL = categoryThumbnails?.GetThumbnailURL(category.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails);
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", category.Title),
 							new XElement("Description", category.Description?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", category.GetURL(desktop) ?? ""),
-							(categoryThumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails),
+							(categoryThumbnails?.GetThumbnailURL(category.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "").GetThumbnail(pngThumbnails),
 							new XElement("Root", parentCategory?.Title ?? category.Title, new XAttribute("URL", parentCategory?.GetURL(desktop) ?? category.GetURL(desktop)))
 						));
 					}
@@ -1235,7 +1234,7 @@ namespace net.vieapps.Services.Portals
 				pagination = showPagination ? Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true), showPageLinks, numberOfPageLinks) : null;
 				thumbnailsTask = thumbnailsTask ?? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 				await thumbnailsTask.ConfigureAwait(false);
-				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(thumbnailsWidth, thumbnailsHeight, pngThumbnails);
 				metaTags = new[] { $"<meta property=\"og:type\" content=\"{options.Get("Og:Type", "article")}\"/>" }.ToJArray();
 				ogURL = @object.GetURL(desktop);
 				ogTitle = @object.Title;

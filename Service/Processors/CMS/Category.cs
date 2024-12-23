@@ -1054,9 +1054,8 @@ namespace net.vieapps.Services.Portals
 				await Utility.Cache.RemoveAsync(new[] { Extensions.GetCacheKeyOfTotalObjects(filter, sort), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) }, cancellationToken).ConfigureAwait(false);
 
 			// search
-			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", false)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
+			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", false)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false);
 			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
-			var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
 			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 
@@ -1083,7 +1082,7 @@ namespace net.vieapps.Services.Portals
 					json.Remove("EmailSettings");
 					json["Summary"] = category.Description?.NormalizeHTMLBreaks();
 					json["URL"] = category.GetURL(desktop);
-					json["ThumbnailURL"] = thumbnails?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+					json["ThumbnailURL"] = thumbnails?.GetThumbnailURL(category.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails);
 				},
 				async (json, cat) =>
 				{
@@ -1093,7 +1092,7 @@ namespace net.vieapps.Services.Portals
 					json["Summary"] = cat.Description?.NormalizeHTMLBreaks();
 					json["URL"] = cat.GetURL(desktop);
 					if (showThumbnails)
-						await json.GenerateThumbnailURLAsync(cat, requestInfo, cancellationToken, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight).ConfigureAwait(false);
+						await json.GenerateThumbnailURLAsync(cat, requestInfo, cancellationToken, thumbnailsWidth, thumbnailsHeight, pngThumbnails).ConfigureAwait(false);
 				},
 				level,
 				maxLevel
@@ -1108,12 +1107,12 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		static async Task GenerateThumbnailURLAsync(this JObject json, Category category, RequestInfo requestInfo, CancellationToken cancellationToken, bool pngThumbnails = false, bool bigThumbnails = false, int thumbnailsWidth = 0, int thumbnailsHeight = 0)
+		static async Task GenerateThumbnailURLAsync(this JObject json, Category category, RequestInfo requestInfo, CancellationToken cancellationToken, int thumbnailsWidth = 0, int thumbnailsHeight = 0, bool pngThumbnails = false)
 		{
 			try
 			{
 				var thumbs = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-				json["ThumbnailURL"] = thumbs?.GetThumbnailURL(category.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
+				json["ThumbnailURL"] = thumbs?.GetThumbnailURL(category.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "";
 			}
 			catch (Exception ex)
 			{
@@ -1121,7 +1120,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Category category, string thumbnailURL, int level, int maxLevel = 0, bool pngThumbnails = false, bool bigThumbnails = false, int thumbnailsWidth = 0, int thumbnailsHeight = 0, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Category category, string thumbnailURL, int level, int maxLevel = 0, int thumbnailsWidth = 0, int thumbnailsHeight = 0, bool pngThumbnails = false, CancellationToken cancellationToken = default)
 		{
 			// generate the menu item
 			var url = category.GetURL();
@@ -1156,7 +1155,7 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 					subMenu = new JArray();
-					await children.ForEachAsync(async child => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), level + 1, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false)), true, false).ConfigureAwait(false);
+					await children.ForEachAsync(async child => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails), level + 1, maxLevel, thumbnailsWidth, thumbnailsHeight, pngThumbnails, cancellationToken).ConfigureAwait(false)), true, false).ConfigureAwait(false);
 				}
 
 				// update children

@@ -324,22 +324,20 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		internal static string GetThumbnailURL(this string url, bool isPng, bool isBig, int width, int height)
+		internal static string GetThumbnailURL(this string url, int width, int height, bool isPng)
 		{
-			if (isPng || isBig || width > 0 || height > 0)
+			if (width > 0 || height > 0 || isPng)
 			{
 				var uri = new Uri(url);
 				var segments = uri.AbsolutePath.ToList("/").Skip(2).ToList();
-				url = $"{uri.Scheme}://{uri.Host}/"
-					+ (isPng && isBig ? "thumbnailbigpngs" : isPng ? "thumbnailpngs" : isBig ? "thumbnailbigs" : "thumbnails")
-					+ $"/{segments[0]}/{segments[1]}/{(width > 0 ? $"{width}" : "0")}/{(width > 0 ? $"{height}" : "0")}/{segments.Skip(4).Join("/")}";
+				url = $"{uri.Scheme}://{uri.Host}/" + (isPng ? "thumbnailpngs" : "thumbnails") + $"/{segments[0]}/{segments[1]}/{(width > 0 ? $"{width}" : "0")}/{(width > 0 ? $"{height}" : "0")}/{segments.Skip(4).Join("/")}";
 				if (isPng && !url.IsEndsWith(".png"))
 					url = url.Left(url.Length - 4) + ".png";
 			}
 			return url;
 		}
 
-		internal static JArray GetThumbnails(this JToken thumbnails, string objectID, bool isPng = false, bool isBig = false, int width = 0, int height = 0)
+		internal static JArray GetThumbnails(this JToken thumbnails, string objectID, int width = 0, int height = 0, bool isPng = false)
 		{
 			var thumbnailImages = thumbnails != null
 				? thumbnails is JArray thumbnailsAsJArray
@@ -350,17 +348,17 @@ namespace net.vieapps.Services.Portals
 			{
 				var uri = thumbnail.Get<string>("URI");
 				if (!string.IsNullOrWhiteSpace(uri))
-					thumbnail["URI"] = uri.GetThumbnailURL(isPng, isBig, width, height);
+					thumbnail["URI"] = uri.GetThumbnailURL(width, height, isPng);
 				var uris = thumbnail.Get<JObject>("URIs");
 				uri = uris?.Get<string>("Direct");
 				if (!string.IsNullOrWhiteSpace(uri))
-					uris["Direct"] = uri.GetThumbnailURL(isPng, isBig, width, height);
+					uris["Direct"] = uri.GetThumbnailURL(width, height, isPng);
 			});
 			return thumbnailImages;
 		}
 
-		internal static string GetThumbnailURL(this JToken thumbnails, string objectID, bool isPng = false, bool isBig = false, int width = 0, int height = 0)
-			=> thumbnails?.GetThumbnails(objectID, isPng, isBig, width, height)?.FirstOrDefault()?.Get<JObject>("URIs")?.Get<string>("Direct");
+		internal static string GetThumbnailURL(this JToken thumbnails, string objectID, int width = 0, int height = 0, bool isPng = false)
+			=> thumbnails?.GetThumbnails(objectID, width, height, isPng)?.FirstOrDefault()?.Get<JObject>("URIs")?.Get<string>("Direct");
 
 		internal static XElement UpdateThumbnail(this XElement element, string thumbnailURL, bool transparency)
 		{
@@ -405,19 +403,14 @@ namespace net.vieapps.Services.Portals
 			{
 				var segments = new Uri(url.Replace("~~/", $"{filesHttpURI ?? Utility.FilesHttpURI}/")).AbsolutePath.ToList("/").Skip(1).ToList();
 				var handler = segments[0].IsStartsWith("thumbnail") ? segments[0].ToLower() : "webp.image";
-				if (segments[0].IsStartsWith("thumbnail"))
-					handler = handler.IsEndsWith("pngs")
-						? handler.Replace("pngs", "webps")
-						: handler.IsEndsWith("bigs")
-							? handler.Replace("bigs", "bigwebps")
-							: "thumbnailwebps";
+				handler = segments[0].IsStartsWith("thumbnail") ? handler.IsEndsWith("pngs") ? handler.Replace("pngs", "webps") : "thumbnailwebps" : handler;
 				url = (url.IsStartsWith("~~/") ? "~~" : filesHttpURI ?? Utility.FilesHttpURI) + $"/{handler}/";
 				url += segments[0].IsStartsWith("thumbnail")
 					? segments.Skip(1).Join("/")
 					: $"{segments[1]}/{(segments.Count > 3 && segments[3].Length > 33 && segments[3].Left(32).IsValidUUID() ? $"{segments[3].Left(32)}/{segments[3].Right(segments[3].Length - 33)}.webp" : $"{segments.Skip(3).Join("/")}.webp")}";
 				if (segments[0].IsStartsWith("thumbnail") && (url.IsEndsWith(".png") || url.IsEndsWith(".jpg")))
 					url = (segments[2].Equals("0") ? url.Left(url.Length - 4) : url) + ".webp";
-				url += transparency ? (url.IndexOf("?") > 0 ? "&" : "?") + "transparent=." : "";
+				url += transparency ? (url.IndexOf("?") > 0 ? "&" : "?") + "transparent=x" : "";
 			}
 			return url;
 		}

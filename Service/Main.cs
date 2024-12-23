@@ -2410,19 +2410,19 @@ namespace net.vieapps.Services.Portals
 				{ "Organization", organizationJson },
 				{ "Module", contentType.Module?.ToJson(json =>
 					{
-						new[] { "Privileges", "OriginalPrivileges" }.Concat(ModuleProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+						ModuleProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
 						json["Description"] = contentType.Module.Description?.NormalizeHTMLBreaks();
 					})
 				},
 				{ "ContentType", contentType.ToJson(json =>
 					{
-						new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+						ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]).ForEach(name => json.Remove(name));
 						json["Description"] = contentType.Description?.NormalizeHTMLBreaks();
 					})
 				},
 				{ "ParentContentType", parentContentType?.ToJson(json =>
 					{
-						new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+						ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]).ForEach(name => json.Remove(name));
 						json["Description"] = parentContentType.Description?.NormalizeHTMLBreaks();
 					})
 				}
@@ -2683,7 +2683,7 @@ namespace net.vieapps.Services.Portals
 								{ "Site", siteJson },
 								{ "ContentType", contentType.ToJson(json =>
 									{
-										new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+										ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]).ForEach(name => json.Remove(name));
 										json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
 										if (contentType.ExtendedPropertyDefinitions != null)
 										{
@@ -3390,7 +3390,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var organizationJson = organization.ToJson(false, false, json =>
 				{
-					new[] { "Privileges", "OriginalPrivileges" }.Concat(OrganizationProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+					OrganizationProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
 					json["Description"] = organization.Description?.NormalizeHTMLBreaks();
 					json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
 				});
@@ -3611,10 +3611,9 @@ namespace net.vieapps.Services.Portals
 					: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), this.ValidationKey, cancellationToken).ConfigureAwait(false);
 
 				// generate and return the menu
-				var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
-				var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
 				var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 				var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
+				var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
 
 				if (!Int32.TryParse(requestInfo.GetParameter("x-menu-level") ?? "1", out var level))
 					level = 1;
@@ -3629,9 +3628,9 @@ namespace net.vieapps.Services.Portals
 						try
 						{
 							if (child is Category category)
-								menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false));
+								menu.Add(await requestInfo.GenerateMenuAsync(category, thumbnails?.GetThumbnailURL(child.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails), level, maxLevel, thumbnailsWidth, thumbnailsHeight, pngThumbnails, cancellationToken).ConfigureAwait(false));
 							else if (child is Link link)
-								menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false));
+								menu.Add(await requestInfo.GenerateMenuAsync(link, thumbnails?.GetThumbnailURL(child.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails), level, maxLevel, thumbnailsWidth, thumbnailsHeight, pngThumbnails, cancellationToken).ConfigureAwait(false));
 						}
 						catch (Exception ex)
 						{

@@ -999,9 +999,8 @@ namespace net.vieapps.Services.Portals
 			};
 
 			// options
-			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", false)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
+			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", false)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false);
 			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
-			var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
 			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 			var showAttachments = options.Get("ShowAttachments", true);
@@ -1083,7 +1082,7 @@ namespace net.vieapps.Services.Portals
 							new XElement("Title", parent.Title),
 							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", parent.GetURL(desktop) ?? ""),
-							(thumbnails?.GetThumbnailURL(parent.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails)
+							(thumbnails?.GetThumbnailURL(parent.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "").GetThumbnail(pngThumbnails)
 						));
 
 						// update cache
@@ -1110,10 +1109,10 @@ namespace net.vieapps.Services.Portals
 						// prepare parent info
 						requestInfo.Header["x-thumbnails-as-attachments"] = "true";
 						var thumbnails = await requestInfo.GetThumbnailsAsync(parent.ID, parent.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-						var thumbnailURL = thumbnails?.GetThumbnailURL(parent.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
+						var thumbnailURL = thumbnails?.GetThumbnailURL(parent.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "";
 
 						// generate links
-						var linkJson = await requestInfo.GenerateLinkAsync(parent, thumbnailURL, addChildren, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false);
+						var linkJson = await requestInfo.GenerateLinkAsync(parent, thumbnailURL, addChildren, level, maxLevel, thumbnailsWidth, thumbnailsHeight, pngThumbnails, cancellationToken).ConfigureAwait(false);
 
 						// generate xml
 						var dataXml = linkJson.Get<JObject>("Children").ToXml("Data", xml => xml.Element("ThumbnailURL")?.UpdateThumbnail(null, pngThumbnails));
@@ -1188,12 +1187,12 @@ namespace net.vieapps.Services.Portals
 						try
 						{
 							// get thumbnails
-							var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight);
+							var thumbnailURL = thumbnails?.GetThumbnailURL(@object.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails);
 
 							// generate xml of each item
 							var itemXml = asMenu
-								? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false)).ToXml("Menu")
-								: (await requestInfo.GenerateLinkAsync(@object, thumbnailURL, addChildren, level, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false)).ToXml("Link", xml => xml.Element("ThumbnailURL")?.UpdateThumbnail(null, pngThumbnails));
+								? (await requestInfo.GenerateMenuAsync(@object, thumbnailURL, level, maxLevel, thumbnailsWidth, thumbnailsHeight, pngThumbnails, cancellationToken).ConfigureAwait(false)).ToXml("Menu")
+								: (await requestInfo.GenerateLinkAsync(@object, thumbnailURL, addChildren, level, maxLevel, thumbnailsWidth, thumbnailsHeight, pngThumbnails, cancellationToken).ConfigureAwait(false)).ToXml("Link", xml => xml.Element("ThumbnailURL")?.UpdateThumbnail(null, pngThumbnails));
 
 							// get and generate attachments
 							if (!asMenu && showAttachments)
@@ -1234,7 +1233,7 @@ namespace net.vieapps.Services.Portals
 							new XElement("Title", parent.Title),
 							new XElement("Description", parent.Summary?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", parent.GetURL(desktop) ?? ""),
-							(thumbnails?.GetThumbnailURL(parent.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails)
+							(thumbnails?.GetThumbnailURL(parent.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "").GetThumbnail(pngThumbnails)
 						));
 					}
 
@@ -1270,7 +1269,7 @@ namespace net.vieapps.Services.Portals
 			};
 		}
 
-		internal static async Task<JObject> GenerateLinkAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, bool addChildren, int level, int maxLevel = 0, bool pngThumbnails = false, bool bigThumbnails = false, int thumbnailsWidth = 0, int thumbnailsHeight = 0, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GenerateLinkAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, bool addChildren, int level, int maxLevel = 0, int thumbnailsWidth = 0, int thumbnailsHeight = 0, bool pngThumbnails = false, CancellationToken cancellationToken = default)
 		{
 			var linkJson = link.ToJson
 			(
@@ -1291,7 +1290,7 @@ namespace net.vieapps.Services.Portals
 						{
 							var thumbnails = await requestInfo.GetThumbnailsAsync(clink.ID, clink.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 							json["URL"] = clink.GetURL();
-							json["ThumbnailURL"] = thumbnails?.GetThumbnailURL(clink.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "";
+							json["ThumbnailURL"] = thumbnails?.GetThumbnailURL(clink.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "";
 						}
 					}
 					catch (Exception ex)
@@ -1360,7 +1359,7 @@ namespace net.vieapps.Services.Portals
 			return linkJson;
 		}
 
-		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, int level, int maxLevel = 0, bool pngThumbnails = false, bool bigThumbnails = false, int thumbnailsWidth = 0, int thumbnailsHeight = 0, CancellationToken cancellationToken = default)
+		internal static async Task<JObject> GenerateMenuAsync(this RequestInfo requestInfo, Link link, string thumbnailURL, int level, int maxLevel = 0, int thumbnailsWidth = 0, int thumbnailsHeight = 0, bool pngThumbnails = false, CancellationToken cancellationToken = default)
 		{
 			// generate the menu item
 			var menu = new JObject
@@ -1392,7 +1391,7 @@ namespace net.vieapps.Services.Portals
 							? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 							: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 						subMenu = new JArray();
-						await children.ForEachAsync(async child => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), level + 1, maxLevel, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight, cancellationToken).ConfigureAwait(false)), true, false).ConfigureAwait(false);
+						await children.ForEachAsync(async child => subMenu.Add(await requestInfo.GenerateMenuAsync(child, thumbnails?.GetThumbnailURL(child.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails), level + 1, maxLevel, thumbnailsWidth, thumbnailsHeight, pngThumbnails, cancellationToken).ConfigureAwait(false)), true, false).ConfigureAwait(false);
 					}
 				}
 

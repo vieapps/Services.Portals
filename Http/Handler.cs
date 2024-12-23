@@ -898,7 +898,7 @@ namespace net.vieapps.Services.Portals
 						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), new Dictionary<string, string>(response.Get("Headers", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase) { ["X-Node"] = Global.NodeID });
 						var body = response.Get<string>("Body");
 						if (body != null)
-							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "gzip")), cts.Token).ConfigureAwait(false);
+							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "br")), cts.Token).ConfigureAwait(false);
 					}
 					catch (Exception)
 					{

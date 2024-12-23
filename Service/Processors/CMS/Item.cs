@@ -559,9 +559,8 @@ namespace net.vieapps.Services.Portals
 			JObject pagination = null, seoInfo, filterBy = null, sortBy = null;
 			string coverURI = null, data = null, ids = null;
 
-			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", false)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false) || options.Get("ShowBigThumbnails", false) || options.Get("ShowAsBigThumbnails", false);
+			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", false)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false);
 			var pngThumbnails = options.Get("ThumbnailsAsPng", options.Get("ThumbnailAsPng", options.Get("ShowPngThumbnails", options.Get("ShowAsPngThumbnails", false))));
-			var bigThumbnails = options.Get("ThumbnailsAsBig", options.Get("ThumbnailAsBig", options.Get("ShowBigThumbnails", options.Get("ShowAsBigThumbnails", false))));
 			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 
@@ -656,7 +655,7 @@ namespace net.vieapps.Services.Portals
 								if (!string.IsNullOrWhiteSpace(@object.Summary))
 									element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
 								element.Add(new XElement("URL", @object.GetURL(desktop, false, parentIdentity) ?? ""));
-								element.AddThumbnail(thumbnails?.GetThumbnailURL(@object.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), pngThumbnails);
+								element.AddThumbnail(thumbnails?.GetThumbnailURL(@object.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails), pngThumbnails);
 								if (showAttachments)
 								{
 									var xmlAttachments = new XElement("Attachments");
@@ -820,7 +819,7 @@ namespace net.vieapps.Services.Portals
 						if (showThumbnails)
 						{
 							var thumbnails = new XElement("Thumbnails");
-							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail => thumbnails.Add((thumbnail.Get<string>("URI")?.GetThumbnailURL(pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight) ?? "").GetThumbnail(pngThumbnails, "Thumbnail")));
+							(thumbnailsTask.Result as JArray)?.ForEach(thumbnail => thumbnails.Add((thumbnail.Get<string>("URI")?.GetThumbnailURL(thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "").GetThumbnail(pngThumbnails, "Thumbnail")));
 							element.Add(thumbnails);
 						}
 
@@ -846,7 +845,7 @@ namespace net.vieapps.Services.Portals
 						others.ForEach(other => othersXml.Add(other.ToXml(false, cultureInfo, otherXml =>
 						{
 							otherXml.Add(new XElement("URL", other.GetURL(desktop, false, parentIdentity) ?? ""));
-							otherXml.AddThumbnail(otherThumbnails?.GetThumbnailURL(other.ID, pngThumbnails, bigThumbnails, thumbnailsWidth, thumbnailsHeight), pngThumbnails);
+							otherXml.AddThumbnail(otherThumbnails?.GetThumbnailURL(other.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails), pngThumbnails);
 						})));
 						dataXml.Add(othersXml);
 					}
