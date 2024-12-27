@@ -22,14 +22,14 @@ namespace net.vieapps.Services.Portals
 		public static Form CreateForm(this ExpandoObject data, string excluded = null, Action<Form> onCompleted = null)
 			=> Form.CreateInstance(data, excluded?.ToHashSet(), form =>
 			{
-				form.NormalizeHTMLs();
+				form.NormalizeHTMLs(out var inlineImages);
 				onCompleted?.Invoke(form);
 			});
 
 		public static Form Update(this Form form, ExpandoObject data, string excluded = null, Action<Form> onCompleted = null)
 			=> form.Fill(data, excluded?.ToHashSet(), _ =>
 			{
-				form.NormalizeHTMLs();
+				form.NormalizeHTMLs(out var inlineImages);
 				onCompleted?.Invoke(form);
 			});
 

@@ -32,11 +32,14 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static ILogger Logger { get; internal set; }
 
-		internal static ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)> Logs { get; } = new ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)>();
+		internal static ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)> Logs
+			=> new ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)>();
 
-		internal static bool IsDebugLogEnabled => Utility.Logger != null && Utility.Logger.IsEnabled(LogLevel.Debug);
+		internal static bool IsDebugLogEnabled
+			=> Utility.Logger != null && Utility.Logger.IsEnabled(LogLevel.Debug);
 
-		internal static bool IsCacheLogEnabled => Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
+		internal static bool IsCacheLogEnabled
+			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
 
 		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo)
 			=> Utility.IsDebugLogEnabled || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
@@ -44,11 +47,20 @@ namespace net.vieapps.Services.Portals
 		internal static bool IsWriteMessageLogs(this RequestInfo requestInfo)
 			=> Utility.IsDebugLogEnabled || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false"));
 
-		internal static bool Preload => "true".IsEquals(UtilityService.GetAppSetting("Portals:Preload", "true"));
+		internal static bool AllowInlineImages
+			=> "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));
 
-		internal static bool RunProcessorInParallelsMode => "Parallels".IsEquals(UtilityService.GetAppSetting("Portals:Processor", "Parallels"));
+		internal static bool UploadInlineImages
+			=> "upload".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Mode", "Upload"));
 
-		internal static CancellationToken CancellationToken => ServiceBase.ServiceComponent.CancellationToken;
+		internal static bool Preload
+			=> "true".IsEquals(UtilityService.GetAppSetting("Portals:Preload", "true"));
+
+		internal static bool RunProcessorInParallelsMode
+			=> "Parallels".IsEquals(UtilityService.GetAppSetting("Portals:Processor", "Parallels"));
+
+		internal static CancellationToken CancellationToken
+			=> ServiceBase.ServiceComponent.CancellationToken;
 
 		/// <summary>
 		/// Gets the key for encrypting/decrypting data with AES
@@ -59,6 +71,11 @@ namespace net.vieapps.Services.Portals
 		/// Gets the key for validating data
 		/// </summary>
 		public static string ValidationKey { get; internal set; }
+
+		/// <summary>
+		/// Gets the key for validating/signing a JSON Web Token
+		/// </summary>
+		public static string JWTKey { get; internal set; }
 
 		/// <summary>
 		/// Gets the key for sending notifications
@@ -399,7 +416,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static string GetWebpImageURL(this string url, string filesHttpURI = null, bool transparency = false)
 		{
-			if (!string.IsNullOrWhiteSpace(url) && !url.IsEndsWith(".webp") && !url.IsContains("image=webp") && (url.IsStartsWith("~~/") || url.IsStartsWith(filesHttpURI ?? Utility.FilesHttpURI)))
+			if (!string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("~~/") || url.IsStartsWith(filesHttpURI ?? Utility.FilesHttpURI)))
 			{
 				var segments = new Uri(url.Replace("~~/", $"{filesHttpURI ?? Utility.FilesHttpURI}/")).AbsolutePath.ToList("/").Skip(1).ToList();
 				var handler = segments[0].IsStartsWith("thumbnail") ? segments[0].ToLower() : "webp.image";
@@ -410,6 +427,7 @@ namespace net.vieapps.Services.Portals
 					: $"{segments[1]}/{(segments.Count > 3 && segments[3].Length > 33 && segments[3].Left(32).IsValidUUID() ? $"{segments[3].Left(32)}/{segments[3].Right(segments[3].Length - 33)}.webp" : $"{segments.Skip(3).Join("/")}.webp")}";
 				if (segments[0].IsStartsWith("thumbnail") && (url.IsEndsWith(".png") || url.IsEndsWith(".jpg")))
 					url = (segments[2].Equals("0") ? url.Left(url.Length - 4) : url) + ".webp";
+				url = url.IsEndsWith(".webp.webp") ? url.Left(url.Length - 5) : url;
 				url += transparency ? (url.IndexOf("?") > 0 ? "&" : "?") + "transparent=x" : "";
 			}
 			return url;
@@ -420,7 +438,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="html"></param>
 		/// <returns></returns>
-		public static string NormalizeHTML(this string html, string filesHttpURI = null)
+		public static string NormalizeHTML(this string html, string filesHttpURI)
 		{
 			if (string.IsNullOrWhiteSpace(html))
 				return null;
@@ -461,7 +479,7 @@ namespace net.vieapps.Services.Portals
 				start = html.PositionOf("<oembed", start + 1);
 			}
 
-			// normalize all 'img' tags with WebP images
+			// normalize all 'img' tags
 			start = html.PositionOf("<img");
 			while (start > -1)
 			{
@@ -502,15 +520,21 @@ namespace net.vieapps.Services.Portals
 
 					if (urlEnd > 0)
 					{
+						var imageStart = image.Substring(0, urlStart);
+						var imageEnd = image.Substring(urlEnd);
 						var url = image.Substring(urlStart, urlEnd - urlStart);
-						if (url.IsStartsWith("/files/"))
+
+						// inline image
+						if (url.IsStartsWith("data:image/"))
+							image = Utility.AllowInlineImages ? image : $"{imageStart}~~/thumbnails/no-image.png{imageEnd}";
+
+						// use WebP image
+						else
 						{
-							url = $"~~{url}";
-							image = image.Substring(0, urlStart) + url + image.Substring(urlEnd);
+							url = url.IsStartsWith("/files/") ? $"~~{url}" : url;
+							var webpURL = url.IsContains("image=svg") ? url : url.GetWebpImageURL(filesHttpURI);
+							image = url.IsEquals(webpURL) ? image : url.IsContains(".webp") ? imageStart + webpURL + imageEnd : $"<picture><source srcset=\"{webpURL}\"/>{imageStart + url + imageEnd}</picture>";
 						}
-						var webpURL = url.IsContains("image=svg") ? url : url.GetWebpImageURL(filesHttpURI);
-						if (!url.IsEquals(webpURL))
-							image = $"<picture><source srcset=\"{webpURL}\"/>{image}</picture>";
 					}
 
 					html = html.Substring(0, start) + image + html.Substring(end);
@@ -535,7 +559,61 @@ namespace net.vieapps.Services.Portals
 			html = html.Replace(StringComparison.OrdinalIgnoreCase, "src=\"/files/", $"src=\"~~/files/");
 			html = html.Replace(StringComparison.OrdinalIgnoreCase, "src=\"~/files/", $"src=\"~~/files/");
 			html = html.Replace(StringComparison.OrdinalIgnoreCase, "~~~/files/", $"~~/files/");
-			return html.NormalizeHTML(organization?.FakeFilesHttpURI ?? Utility.FilesHttpURI);
+			return html.NormalizeHTML(organization?.FakeFilesHttpURI);
+		}
+
+		static string NormalizeHTML(this string html, out Dictionary<string, (string Identifier, string Filename)> inlineImages)
+		{
+			inlineImages = new Dictionary<string, (string Identifier, string Filename)>();
+			var start = html.PositionOf("<img");
+
+			while (start > -1)
+			{
+				var offset = 1;
+				var end = start < 0 ? -1 : html.PositionOf(">", start);
+
+				if (end > -1)
+				{
+					end += 1;
+					var image = html.Substring(start, end - start);
+					image = image.EndsWith("/>") ? image : image.Replace(">", "/>");
+
+					var urlStart = image.IndexOf("src=") + 5;
+					var urlEnd = image.IndexOf("\"", urlStart + 1);
+					if (urlEnd < 0)
+						urlEnd = image.IndexOf("'", urlStart + 1);
+
+					if (urlEnd > 0)
+					{
+						var imageStart = image.Substring(0, urlStart);
+						var imageEnd = image.Substring(urlEnd);
+						var url = image.Substring(urlStart, urlEnd - urlStart);
+						if (url.IsStartsWith("data:image/"))
+						{
+							if (!Utility.AllowInlineImages)
+								url = "~~/thumbnails/no-image.png";
+							else if (Utility.UploadInlineImages)
+							{
+								var data = url.ToArray();
+								var contentType = data.First().ToArray(";").First().ToArray(":").Last();
+								var identifier = UtilityService.NewUUID;
+								var filename = $"img{inlineImages.Count + 1}-{DateTime.Now:HHmmssfff}.{contentType.ToArray("/").Last()}";
+								File.WriteAllBytes(Path.Combine(Utility.TempFilesDirectory, filename), data.Last().Base64ToBytes());
+								url = $"~~/files/[system-id]/{contentType.Replace("/", "=")}/{identifier}/{filename}";
+								inlineImages.Add(url, (identifier, filename));
+							}
+							image = imageStart + url + imageEnd;
+							html = html.Substring(0, start) + image + html.Substring(end);
+						}
+					}
+
+					offset = image.Length;
+				}
+
+				start = html.PositionOf("<img", start + offset);
+			}
+
+			return html.HtmlDecode();
 		}
 
 		/// <summary>
@@ -544,10 +622,11 @@ namespace net.vieapps.Services.Portals
 		/// <param name="object"></param>
 		/// <param name="onCompleted"></param>
 		/// <returns></returns>
-		public static IBusinessObject NormalizeHTMLs(this IBusinessObject @object, Action<IBusinessObject> onCompleted = null)
+		public static IBusinessObject NormalizeHTMLs(this IBusinessObject @object, out Dictionary<string, (string Identifier, string Filename)> inlineImages, Action<IBusinessObject> onCompleted = null)
 		{
 			// get entity definition
-			var definition = RepositoryMediator.GetEntityDefinition(@object?.GetType());
+			var images = new Dictionary<string, (string Identifier, string Filename)>();
+			var definition = RepositoryMediator.GetEntityDefinition(@object.GetType());
 
 			// normalize
 			if (definition != null)
@@ -557,7 +636,10 @@ namespace net.vieapps.Services.Portals
 				{
 					var value = @object.GetAttributeValue<string>(attribute.Name);
 					if (!string.IsNullOrWhiteSpace(value))
-						@object.SetAttributeValue(attribute.Name, value.HtmlDecode());
+					{
+						@object.SetAttributeValue(attribute.Name, value.NormalizeHTML(out var img));
+						img.ForEach(kvp => images.Add(kvp.Key, kvp.Value));
+					}
 				});
 
 				// extended properties
@@ -565,11 +647,15 @@ namespace net.vieapps.Services.Portals
 					repositiryEntity?.ExtendedPropertyDefinitions?.Where(propertyDefinition => propertyDefinition.Mode.Equals(ExtendedPropertyMode.LargeText)).ForEach(propertyDefinition =>
 					{
 						if (@object.ExtendedProperties.TryGetValue(propertyDefinition.Name, out var value) && value is string @string && !string.IsNullOrWhiteSpace(@string))
-							@object.ExtendedProperties[propertyDefinition.Name] = @string.HtmlDecode();
+						{
+							@object.ExtendedProperties[propertyDefinition.Name] = @string.NormalizeHTML(out var img);
+							img.ForEach(kvp => images.Add(kvp.Key, kvp.Value));
+						}
 					});
 			}
 
 			// return the object
+			inlineImages = images;
 			onCompleted?.Invoke(@object);
 			return @object;
 		}
@@ -610,6 +696,69 @@ namespace net.vieapps.Services.Portals
 			// return the xml
 			onCompleted?.Invoke(xml);
 			return xml;
+		}
+
+		internal static async Task<IBusinessObject> UploadInlineImagesAsync(this RequestInfo requestInfo, Dictionary<string, (string Identifier, string Filename)> inlineImages, IBusinessObject @object, CancellationToken cancellationToken)
+		{
+			// upload the images
+			await inlineImages.ForEachAsync(async kvp =>
+			{
+				try
+				{
+					var fileInfo = new FileInfo(Path.Combine(Utility.TempFilesDirectory, kvp.Value.Filename));
+					var contentType = fileInfo.GetMimeType();
+					contentType = string.IsNullOrWhiteSpace(contentType) ? $"image/{(fileInfo.Extension.IsEquals(".jpg") ? "jpeg" : fileInfo.Extension.Right(fileInfo.Extension.Length - 1))}" : contentType;
+					await fileInfo.UploadAsync($"{Utility.FilesHttpURI}/files", new Dictionary<string, string>
+					{
+						["x-attachment-id"] = kvp.Value.Identifier,
+						["x-attachment-content-type"] = contentType,
+						["x-service-name"] = Utility.ServiceName.ToLower(),
+						["x-object-name"] = @object.GetTypeName(true).ToLower(),
+						["x-system-id"] = @object.SystemID,
+						["x-entity"] = @object.RepositoryEntityID,
+						["x-object-id"] = (@object as IPortalObject).ID,
+						["x-object-title"] = (@object as IPortalObject).Title,
+						["x-receive-mode"] = "file",
+						["x-app-name"] = "NGX Uploader",
+						["x-correlation-id"] = requestInfo.CorrelationID,
+						["x-temp-token"] = requestInfo.Session.User.GetAuthenticateToken(Utility.EncryptionKey, Utility.JWTKey)
+					}, cancellationToken).ConfigureAwait(false);
+					if (Utility.IsDebugLogEnabled || requestInfo.GetParameter("x-logs") != null)
+						await requestInfo.WriteLogAsync($"Upload an inline image successful [{@object.SystemID}/{kvp.Value.Identifier}-{kvp.Value.Filename}]", "Images").ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await requestInfo.WriteErrorAsync(ex, $"Error occurred while uploading an inline image [{@object.SystemID}/{kvp.Value.Identifier}-{kvp.Value.Filename}] => {ex.Message}", "Images").ConfigureAwait(false);
+				}
+			}, true, false).ConfigureAwait(false);
+
+			// update the object
+			var inlineURLs = inlineImages.Select(kvp => (Original: kvp.Key, Final: kvp.Key.Replace(StringComparison.OrdinalIgnoreCase, kvp.Key, kvp.Key.Replace("[system-id]", @object.SystemID)))).ToList();
+			var definition = RepositoryMediator.GetEntityDefinition(@object.GetType());
+			if (definition != null)
+			{
+				definition.Attributes.Where(attribute => attribute.IsCLOB != null && attribute.IsCLOB.Value).ForEach(attribute =>
+				{
+					var value = @object.GetAttributeValue<string>(attribute.Name);
+					if (!string.IsNullOrWhiteSpace(value))
+					{
+						inlineURLs.ForEach(url => value = value.Replace(StringComparison.OrdinalIgnoreCase, url.Original, url.Final));
+						@object.SetAttributeValue(attribute.Name, value);
+					}
+				});
+				if (@object.ExtendedProperties != null && definition.BusinessRepositoryEntities.TryGetValue(@object.RepositoryEntityID, out var repositiryEntity))
+					repositiryEntity?.ExtendedPropertyDefinitions?.Where(propertyDefinition => propertyDefinition.Mode.Equals(ExtendedPropertyMode.LargeText)).ForEach(propertyDefinition =>
+					{
+						if (@object.ExtendedProperties.TryGetValue(propertyDefinition.Name, out var value) && value is string @string && !string.IsNullOrWhiteSpace(@string))
+						{
+							inlineURLs.ForEach(url => @string = @string.Replace(StringComparison.OrdinalIgnoreCase, url.Original, url.Final));
+							@object.ExtendedProperties[propertyDefinition.Name] = @string;
+						}
+					});
+			}
+
+			// return the object
+			return @object;
 		}
 
 		/// <summary>

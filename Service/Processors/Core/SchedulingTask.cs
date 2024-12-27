@@ -534,7 +534,7 @@ namespace net.vieapps.Services.Portals
 					requestInfo.CorrelationID = UtilityService.NewUUID;
 
 					if (@object is Content content)
-						await content.Update(expando, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+						await content.Update(expando, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", out var _, obj =>
 						{
 							obj.LastModified = DateTime.Now;
 							obj.LastModifiedID = requestInfo.Session.User.ID;

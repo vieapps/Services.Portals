@@ -124,12 +124,13 @@ namespace net.vieapps.Services.Portals
 				Utility.APIsHttpURI = this.GetHttpURI("APIs", "https://apis.vieapps.net").RemoveURITrail();
 				Utility.FilesHttpURI = this.GetHttpURI("Files", "https://fs.vieapps.net").RemoveURITrail();
 				Utility.PortalsHttpURI = this.GetHttpURI("Portals", "https://portals.vieapps.net").RemoveURITrail();
-				Utility.PortalsWebSocketURI = this.GetHttpURI("WebSockets", Utility.PortalsHttpURI).RemoveURITrail();
+				Utility.PortalsWebSocketURI = this.GetHttpURI("WebSockets", Utility.PortalsHttpURI).RemoveURITrail().Replace("http://", "ws://").Replace("https://", "wss://");
 				Utility.CmsPortalsHttpURI = this.GetHttpURI("CMSPortals", "https://cms.vieapps.net").RemoveURITrail();
 
 				Utility.Logger = this.Logger;
 				Utility.EncryptionKey = this.EncryptionKey;
 				Utility.ValidationKey = this.ValidationKey;
+				Utility.JWTKey = this.JWTKey;
 				Utility.NotificationsKey = UtilityService.GetAppSetting("Keys:Notifications");
 
 				this.ReloadOrganizationsAsync(false, false, false).Run();
@@ -593,7 +594,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}"),
-					this.IsDebugResultsEnabled ? this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}\r\n- Response: {json?.ToString(this.JsonFormat)}") : Task.CompletedTask
+					this.IsDebugResultsEnabled || requestInfo.GetParameter("x-logs") != null ? this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}\r\n- Response: {json?.ToString(this.JsonFormat)}") : Task.CompletedTask
 				).ConfigureAwait(false);
 				return json;
 			}

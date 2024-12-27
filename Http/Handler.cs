@@ -28,42 +28,67 @@ namespace net.vieapps.Services.Portals
 		public Handler(RequestDelegate _) { }
 
 		#region Properties
-		static HashSet<string> Validators { get; } = "_validator,validator.aspx".ToHashSet();
+		static HashSet<string> Validators
+			=> "_validator,validator.aspx".ToHashSet();
 
-		static HashSet<string> Initializers { get; } = "_initializer,_activate,initializer.aspx,activate.aspx,initializer.html,activate.html,initializer.php,activate.php".ToHashSet();
+		static HashSet<string> Initializers
+			=> "_initializer,_activate,initializer.aspx,activate.aspx,initializer.html,activate.html,initializer.php,activate.php".ToHashSet();
 
-		static HashSet<string> LogIns { get; } = "_login,login.aspx,signin.aspx,login.html,signin.html,login.php,signin.php".ToHashSet();
+		static HashSet<string> LogIns
+			=> "_login,login.aspx,signin.aspx,login.html,signin.html,login.php,signin.php".ToHashSet();
 
-		static HashSet<string> LogOuts { get; } = "_logout,logout.aspx,signout.aspx,logout.html,signout.html,logout.php,signout.php".ToHashSet();
+		static HashSet<string> LogOuts
+			=> "_logout,logout.aspx,signout.aspx,logout.html,signout.html,logout.php,signout.php".ToHashSet();
 
-		static HashSet<string> CmsPortals { get; } = "_admin,_cms,admin.aspx,cms.aspx,admin.html,cms.html,admin.php,cms.php".ToHashSet();
+		static HashSet<string> CmsPortals
+			=> "_admin,_cms,admin.aspx,cms.aspx,admin.html,cms.html,admin.php,cms.php".ToHashSet();
 
-		static HashSet<string> Feeds { get; } = "feed,feed.xml,feed.json,atom,atom.xml,atom.json,rss,rss.xml,rss.json".ToHashSet();
+		static HashSet<string> Feeds
+			=> "feed,feed.xml,feed.json,atom,atom.xml,atom.json,rss,rss.xml,rss.json".ToHashSet();
 
-		static bool UseShortURLs { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
+		static bool UseShortURLs
+			=> "true".IsEquals(UtilityService.GetAppSetting("Portals:UseShortURLs", "true"));
 
-		static string LoadBalancerHealthCheckURL { get; } = UtilityService.GetAppSetting("LoadBalancer:HealthCheckURL", "/load-balancer-health-check");
+		static string LoadBalancerHealthCheckURL
+			=> UtilityService.GetAppSetting("LoadBalancer:HealthCheckURL", "/load-balancer-health-check");
+
+		internal static List<string> ExcludedHeaders
+			=> UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop").ToList();
+
+		internal static Cache Cache
+			=> new (UtilityService.GetAppSetting("Portals:Cache:Name", "VIEApps-Services-Portals"), Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
+
+		static bool AllowCache
+			=> "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
+
+		internal static string RefresherURL
+			=> UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
+
+		internal static int ExpiresAfter
+			=> Int32.TryParse(UtilityService.GetAppSetting("Portals:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 0;
+
+		internal static List<string> LegacyParameters
+			=> UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop,catName,contId,page").ToList();
+
+		internal static HashSet<string> BlackIPs
+			=> UtilityService.GetAppSetting("Portals:BlackIPs", "").ToHashSet();
+
+		static string PortalsHttpURI
+			=> UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
+
+		static string PortalsHttpHost
+			=> new Uri(Handler.PortalsHttpURI).Host;
+
+		static string PortalsWebSocketURI
+			=> UtilityService.GetAppSetting("HttpUri:WebSockets", Handler.PortalsHttpURI);
+
+		static string CMSPortalsHttpURI
+			=> UtilityService.GetAppSetting("HttpUri:CMSPortals", "https://cms.vieapps.net");
+
+		static string FilesHttpURI
+			=> UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
 
 		internal static Components.WebSockets.WebSocket WebSocket { get; private set; }
-
-		internal static string NodeName => Extensions.GetUniqueName(Global.ServiceName + ".http");
-
-		public static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop").ToList();
-
-		internal static Cache Cache { get; } = new Cache(UtilityService.GetAppSetting("Portals:Cache:Name", "VIEApps-Services-Portals"), Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
-
-		static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
-
-		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
-
-		internal static int ExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 0;
-
-		public static List<string> LegacyParameters { get; } = UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop,catName,contId,page").ToList();
-
-		public static HashSet<string> BlackIPs { get; } = UtilityService.GetAppSetting("Portals:BlackIPs", "").ToHashSet();
-
-		static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
-			=> Task.CompletedTask;
 		#endregion
 
 		public async Task Invoke(HttpContext context)
@@ -96,7 +121,7 @@ namespace net.vieapps.Services.Portals
 
 				// health check
 				else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancerHealthCheckURL))
-					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero).ConfigureAwait(false);
+					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
 
 				// process portals' requests
 				else
@@ -317,7 +342,7 @@ namespace net.vieapps.Services.Portals
 				await context.WriteVisitStartingLogAsync(context.GetParameter("x-logs") != null).ConfigureAwait(false);
 
 			// request to favicon.ico file
-			if (requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(new Uri(UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net")).Host))
+			if (requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(Handler.PortalsHttpHost))
 				await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
 
 			// request to static segments
@@ -673,9 +698,7 @@ namespace net.vieapps.Services.Portals
 
 						if (!string.IsNullOrWhiteSpace(legacyHandler))
 						{
-							var filesHttpURI = systemIdentityJson?.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
-							while (filesHttpURI.EndsWith("/"))
-								filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1).Trim();
+							var filesHttpURI = this.RemoveURITrail(systemIdentityJson?.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
 							context.SetResponseHeaders((int)HttpStatusCode.MovedPermanently, new Dictionary<string, string>
 							{
 								["Location"] = $"{filesHttpURI}/{requestSegments.Join("/")}"
@@ -696,12 +719,8 @@ namespace net.vieapps.Services.Portals
 						var alwaysUseHTTPs = false;
 						var alwaysReturnHTTPs = false;
 						var redirectToNoneWWW = false;
-						var filesHttpURI = systemIdentityJson?.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
-						while (filesHttpURI.EndsWith("/"))
-							filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1).Trim();
-						var portalsHttpURI = systemIdentityJson?.Get<string>("PortalsHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
-						while (portalsHttpURI.EndsWith("/"))
-							portalsHttpURI = portalsHttpURI.Left(portalsHttpURI.Length - 1).Trim();
+						var filesHttpURI = this.RemoveURITrail(systemIdentityJson?.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
+						var portalsHttpURI = this.RemoveURITrail(systemIdentityJson?.Get<string>("PortalsHttpURI") ?? Handler.PortalsHttpURI);
 
 						if ("~resources".IsEquals(systemIdentity))
 						{
@@ -963,7 +982,7 @@ namespace net.vieapps.Services.Portals
 							if (ex is WampException wampException)
 							{
 								var wampDetails = wampException.GetDetails(requestInfo);
-								context.ShowError(wampDetails.Item1, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
+								context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
 							}
 							else
 								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, isDebugLogEnabled);
@@ -982,7 +1001,7 @@ namespace net.vieapps.Services.Portals
 							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), new Dictionary<string, string>(response.Get("Headers", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase) { ["X-Node"] = Global.NodeID });
 							var body = response.Get<string>("Body");
 							if (body != null)
-								await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "gzip")), cts.Token).ConfigureAwait(false);
+								await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "br")), cts.Token).ConfigureAwait(false);
 						}
 						catch (Exception ex)
 						{
@@ -1602,12 +1621,57 @@ namespace net.vieapps.Services.Portals
 
 		async Task ProcessCmsPortalsRequestAsync(HttpContext context, string systemID)
 		{
-			var url = UtilityService.GetAppSetting("HttpUri:CMSPortals", "https://cms.vieapps.net");
-			while (url.EndsWith("/"))
-				url = url.Left(url.Length - 1);
-			url += "/home?redirect=" + $"/portals/initializer?x-request={("{\"SystemID\":\"" + systemID + "\"}").Url64Encode()}".Url64Encode();
-			context.Redirect(url);
+			context.Redirect($"{this.RemoveURITrail(Handler.CMSPortalsHttpURI)}/home?redirect=" + $"/portals/initializer?x-request={("{\"SystemID\":\"" + systemID + "\"}").Url64Encode()}".Url64Encode());
 			await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
+		}
+
+		string GetSpecialHtml(HttpContext context, JObject systemIdentityJson, string title = "Log in")
+		{
+			var organizationID = systemIdentityJson.Get<string>("ID");
+			var organizationAlias = systemIdentityJson.Get<string>("Alias");
+
+			var portalsHttpURI = this.RemoveURITrail(systemIdentityJson.Get("PortalsHttpURI", Handler.PortalsHttpURI));
+			var portalsWebSocketURI = this.RemoveURITrail(systemIdentityJson.Get("PortalsWebSocketURI", Handler.PortalsWebSocketURI).Replace("http://", "ws://").Replace("https://", "wss://"));
+			var filesHttpURI = this.RemoveURITrail(systemIdentityJson.Get("FilesHttpURI", Handler.FilesHttpURI));
+
+			var rootURL = context.GetRequestPathSegments().First().StartsWith("~") ? "" : "/";
+			var language = context.GetQueryParameter("language") ?? systemIdentityJson.Get("Language", "en-US");
+
+			var session = context.GetSession();
+			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
+			var osInfo = (session.AppAgent ?? "").GetOSInfo();
+
+			var version = DateTime.Now.GetTimeQuarter().ToUnixTimestamp().ToString();
+			var scripts = "<script>__vieapps={ids:{" + $"system:\"{organizationID}\"" + "},URLs:{root:" + $"\"{rootURL}\",portals:\"{portalsHttpURI}\",websockets:\"{portalsWebSocketURI}\",files:\"{filesHttpURI}\"" + "}" + $",language:\"{language}\",isMobile:{isMobile},osInfo:\"{osInfo}\",correlationID:\"{context.GetCorrelationID()}\"" + "};</script>"
+				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js")}\"></script>"
+				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js")}\"></script>"
+				+ $"<script src=\"{portalsHttpURI}/_assets/rsa.js?v={version}\"></script>"
+				+ $"<script src=\"{portalsHttpURI}/_assets/default.js?v={version}\"></script>"
+				+ $"<script src=\"{portalsHttpURI}/_themes/default/js/all.js?v={version}\"></script>"
+				+ $"<script src=\"{portalsHttpURI}/_js/o_{organizationID}.js?v={version}\"></script>";
+
+			return @$"<!DOCTYPE html>
+				<html xmlns=""http://www.w3.org/1999/xhtml"">
+				<head>{(rootURL.Equals("/") ? "" : $"\r\n<base href=\"{portalsHttpURI}/~{organizationAlias}/\"/>")}
+				<title>{title.GetCapitalizedFirstLetter()} ({organizationAlias.ToUpper()})</title>
+				<meta name=""viewport"" content=""width=device-width, initial-scale=1""/>
+				<link rel=""stylesheet"" href=""{portalsHttpURI}/_assets/default.css?v={version}""/>
+				<link rel=""stylesheet"" href=""{portalsHttpURI}/_themes/default/css/all.css?v={version}""/>
+				</head>
+				<body>
+				{scripts}
+				[[placeholder]]
+				</body>
+				</html>".Replace("\t\t\t\t\t", "");
+		}
+
+		string RemoveURITrail(string uri, string trail = "/")
+		{
+			uri ??= "";
+			trail = string.IsNullOrWhiteSpace(trail) ? trail = "/" : trail;
+			while (uri.EndsWith(trail))
+				uri = uri.Left(uri.Length - trail.Length);
+			return uri;
 		}
 
 		internal static void Connect(int waitingTimes = 6789)
@@ -1683,52 +1747,7 @@ namespace net.vieapps.Services.Portals
 			Global.Disconnect();
 		}
 
-		string GetSpecialHtml(HttpContext context, JObject systemIdentityJson, string title = "Log in")
-		{
-			var organizationID = systemIdentityJson.Get<string>("ID");
-			var organizationAlias = systemIdentityJson.Get<string>("Alias");
-
-			var portalsHttpURI = systemIdentityJson.Get<string>("PortalsHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
-			while (portalsHttpURI.EndsWith("/"))
-				portalsHttpURI = portalsHttpURI.Left(portalsHttpURI.Length - 1);
-
-			var portalsWebSocketURI = systemIdentityJson.Get<string>("PortalsWebSocketURI") ?? UtilityService.GetAppSetting("HttpUri:WebSockets", portalsHttpURI);
-			while (portalsWebSocketURI.EndsWith("/"))
-				portalsWebSocketURI = portalsWebSocketURI.Left(portalsWebSocketURI.Length - 1);
-
-			var filesHttpURI = systemIdentityJson.Get<string>("FilesHttpURI") ?? UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
-			while (filesHttpURI.EndsWith("/"))
-				filesHttpURI = filesHttpURI.Left(filesHttpURI.Length - 1);
-
-			var rootURL = context.GetRequestPathSegments().First().StartsWith("~") ? "" : "/";
-			var language = context.GetQueryParameter("language") ?? systemIdentityJson.Get<string>("Language") ?? "en-US";
-
-			var session = context.GetSession();
-			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
-			var osInfo = (session.AppAgent ?? "").GetOSInfo();
-
-			var version = DateTime.Now.GetTimeQuarter().ToUnixTimestamp().ToString();
-			var scripts = "<script>__vieapps={ids:{" + $"system:\"{organizationID}\"" + "},URLs:{root:" + $"\"{rootURL}\",portals:\"{portalsHttpURI}\",websockets:\"{portalsWebSocketURI}\",files:\"{filesHttpURI}\"" + "}" + $",language:\"{language}\",isMobile:{isMobile},osInfo:\"{osInfo}\",correlationID:\"{context.GetCorrelationID()}\"" + "};</script>"
-				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js")}\"></script>"
-				+ $"<script src=\"{UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js")}\"></script>"
-				+ $"<script src=\"{portalsHttpURI}/_assets/rsa.js?v={version}\"></script>"
-				+ $"<script src=\"{portalsHttpURI}/_assets/default.js?v={version}\"></script>"
-				+ $"<script src=\"{portalsHttpURI}/_themes/default/js/all.js?v={version}\"></script>"
-				+ $"<script src=\"{portalsHttpURI}/_js/o_{organizationID}.js?v={version}\"></script>";
-
-			return @$"<!DOCTYPE html>
-				<html xmlns=""http://www.w3.org/1999/xhtml"">
-				<head>{(rootURL.Equals("/") ? "" : $"\r\n<base href=\"{portalsHttpURI}/~{organizationAlias}/\"/>")}
-				<title>{title.GetCapitalizedFirstLetter()} ({organizationAlias.ToUpper()})</title>
-				<meta name=""viewport"" content=""width=device-width, initial-scale=1""/>
-				<link rel=""stylesheet"" href=""{portalsHttpURI}/_assets/default.css?v={version}""/>
-				<link rel=""stylesheet"" href=""{portalsHttpURI}/_themes/default/css/all.css?v={version}""/>
-				</head>
-				<body>
-				{scripts}
-				[[placeholder]]
-				</body>
-				</html>".Replace("\t\t\t\t\t", "");
-		}
+		internal static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
+			=> Task.CompletedTask;
 	}
 }

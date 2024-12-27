@@ -206,13 +206,13 @@ namespace net.vieapps.Services.Portals
 					definition.Attributes.Where(attribute => attribute.IsCLOB != null && attribute.IsCLOB.Value).ForEach(attribute =>
 					{
 						var value = @object.GetAttributeValue<string>(attribute);
-						normalizedHTMLs[attribute.Name] = value?.NormalizeHTML().NormalizeURLs(siteURL);
+						normalizedHTMLs[attribute.Name] = value?.NormalizeHTML(organization?.FakeFilesHttpURI).NormalizeURLs(siteURL);
 					});
 					if (businessObject?.ExtendedProperties != null && definition.BusinessRepositoryEntities.TryGetValue(businessObject.RepositoryEntityID, out var repositiryEntity))
 						repositiryEntity?.ExtendedPropertyDefinitions?.Where(propertyDefinition => propertyDefinition.Mode.Equals(ExtendedPropertyMode.LargeText)).ForEach(propertyDefinition =>
 						{
 							if (businessObject.ExtendedProperties.TryGetValue(propertyDefinition.Name, out var value))
-								normalizedHTMLs[propertyDefinition.Name] = (value as string)?.NormalizeHTML().NormalizeURLs(siteURL);
+								normalizedHTMLs[propertyDefinition.Name] = (value as string)?.NormalizeHTML(organization?.FakeFilesHttpURI).NormalizeURLs(siteURL);
 						});
 				}
 

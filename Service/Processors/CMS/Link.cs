@@ -21,14 +21,14 @@ namespace net.vieapps.Services.Portals
 		public static Link CreateLink(this ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 			=> Link.CreateInstance(data, excluded?.ToHashSet(), link =>
 			{
-				link.NormalizeHTMLs();
+				link.NormalizeHTMLs(out var inlineImages);
 				onCompleted?.Invoke(link);
 			});
 
 		public static Link Update(this Link link, ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 			=> link.Fill(data, excluded?.ToHashSet(), _ =>
 			{
-				link.NormalizeHTMLs();
+				link.NormalizeHTMLs(out var inlineImages);
 				onCompleted?.Invoke(link);
 			});
 

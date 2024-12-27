@@ -20,25 +20,27 @@ namespace net.vieapps.Services.Portals
 {
 	public static class ContentProcessor
 	{
-		public static Content CreateContent(this ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
-			=> Content.CreateInstance(data, excluded?.ToHashSet(), content =>
-			{
-				content.NormalizeHTMLs();
-				content.Alias = (string.IsNullOrWhiteSpace(content.Alias) ? content.Title : content.Alias).NormalizeAlias();
-				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
-				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
-				onCompleted?.Invoke(content);
-			});
+		public static Content CreateContent(this ExpandoObject data, string excluded, out Dictionary<string, (string Identifier, string Filename)> inlineImages, Action<Content> onCompleted = null)
+		{
+			var content = Content.CreateInstance(data, excluded?.ToHashSet());
+			content.NormalizeHTMLs(out inlineImages);
+			content.Alias = (string.IsNullOrWhiteSpace(content.Alias) ? content.Title : content.Alias).NormalizeAlias();
+			content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
+			content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
+			onCompleted?.Invoke(content);
+			return content;
+		}
 
-		public static Content Update(this Content content, ExpandoObject data, string excluded = null, Action<Content> onCompleted = null)
-			=> content.Fill(data, excluded?.ToHashSet(), _ =>
-			{
-				content.NormalizeHTMLs();
-				content.Alias = (string.IsNullOrWhiteSpace(content.Alias) ? content.Title : content.Alias).NormalizeAlias();
-				content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
-				content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
-				onCompleted?.Invoke(content);
-			});
+		public static Content Update(this Content content, ExpandoObject data, string excluded, out Dictionary<string, (string Identifier, string Filename)> inlineImages, Action<Content> onCompleted = null)
+		{
+			content.Fill(data, excluded?.ToHashSet());
+			content.NormalizeHTMLs(out inlineImages);
+			content.Alias = (string.IsNullOrWhiteSpace(content.Alias) ? content.Title : content.Alias).NormalizeAlias();
+			content.Tags = content.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
+			content.Tags = string.IsNullOrWhiteSpace(content.Tags) ? null : content.Tags;
+			onCompleted?.Invoke(content);
+			return content;
+		}
 
 		internal static string GetCacheKeyOfAliasedContent(this string contentTypeID, string categoryID, string alias)
 			=> !string.IsNullOrWhiteSpace(contentTypeID) && !string.IsNullOrWhiteSpace(categoryID) && !string.IsNullOrWhiteSpace(alias)
@@ -331,7 +333,7 @@ namespace net.vieapps.Services.Portals
 				(
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
 					contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken) : Task.CompletedTask,
-					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n{(contentType != null ? $"- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n" : "")}- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
+					Utility.IsCacheLogEnabled || requestInfo.GetParameter("x-logs") != null ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n{(contentType != null ? $"- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n" : "")}- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
 				).Run();
 			}
 
@@ -371,6 +373,7 @@ namespace net.vieapps.Services.Portals
 			var source = await Content.GetAsync<Content>(request.Get<string>("CopyFromID"), cancellationToken).ConfigureAwait(false);
 
 			// get data
+			Dictionary<string, (string Identifier, string Filename)> inlineImages = null;
 			var content = source != null
 				? source.Copy("ID,CategoryID,OtherCategories,Alias,Relateds,Privileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet(), obj =>
 				{
@@ -378,7 +381,7 @@ namespace net.vieapps.Services.Portals
 					obj.CategoryID = category.ID;
 					obj.OtherCategories = request.Get<List<string>>("OtherCategories");
 				})
-				: request.CreateContent("Privileges,Created,CreatedID,LastModified,LastModifiedID");
+				: request.CreateContent("Privileges,Created,CreatedID,LastModified,LastModifiedID", out inlineImages);
 			content.SystemID = organization.ID;
 			content.RepositoryID = module.ID;
 			content.RepositoryEntityID = contentType.ID;
@@ -412,7 +415,8 @@ namespace net.vieapps.Services.Portals
 			content.OtherCategories = content.OtherCategories?.Where(id => !content.CategoryID.IsEquals(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			content.OtherCategories = content.OtherCategories != null && content.OtherCategories.Count > 0 ? content.OtherCategories : null;
 
-			content.Details = organization.NormalizeURLs(content.Details, false);
+			if (inlineImages == null || inlineImages.Count < 1)
+				content.Details = organization.NormalizeURLs(content.Details, false);
 
 			content.Relateds = content.Relateds?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			content.Relateds = content.Relateds != null && content.Relateds.Count > 0 ? content.Relateds : null;
@@ -433,6 +437,14 @@ namespace net.vieapps.Services.Portals
 			// create new
 			await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
 			Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, Utility.CancellationToken).Run();
+
+			// upload inline images
+			if (inlineImages != null && inlineImages.Count > 0)
+			{
+				await requestInfo.UploadInlineImagesAsync(inlineImages, content, cancellationToken).ConfigureAwait(false);
+				content.Details = organization.NormalizeURLs(content.Details, false);
+				await Content.UpdateAsync(content, true, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update message
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -592,7 +604,8 @@ namespace net.vieapps.Services.Portals
 			var oldAlias = content.Alias;
 			var oldStatus = content.Status;
 
-			content.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			Dictionary<string, (string Identifier, string Filename)> inlineImages = null;
+			content.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", out inlineImages, obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
@@ -619,8 +632,6 @@ namespace net.vieapps.Services.Portals
 			content.OtherCategories = content.OtherCategories?.Where(id => !content.CategoryID.IsEquals(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			content.OtherCategories = content.OtherCategories != null && content.OtherCategories.Count > 0 ? content.OtherCategories : null;
 
-			content.Details = content.Organization.NormalizeURLs(content.Details, false);
-
 			content.Relateds = content.Relateds?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			content.Relateds = content.Relateds != null && content.Relateds.Count > 0 ? content.Relateds : null;
 
@@ -636,6 +647,10 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 			content.ExternalRelateds = content.ExternalRelateds != null && content.ExternalRelateds.Count > 0 ? content.ExternalRelateds : null;
+
+			if (inlineImages != null && inlineImages.Count > 0)
+				await requestInfo.UploadInlineImagesAsync(inlineImages, content, cancellationToken).ConfigureAwait(false);
+			content.Details = content.Organization.NormalizeURLs(content.Details, false);
 
 			// update
 			return await content.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
@@ -1410,7 +1425,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (content == null)
 				{
-					content = data.CreateContent(null, obj =>
+					content = data.CreateContent(null, out var _, obj =>
 					{
 						obj.StartDate = string.IsNullOrWhiteSpace(obj.StartDate)
 							? obj.PublishedTime != null
@@ -1429,7 +1444,7 @@ namespace net.vieapps.Services.Portals
 				}
 				else
 				{
-					content.Update(data, null, obj =>
+					content.Update(data, null, out var _, obj =>
 					{
 						obj.StartDate = string.IsNullOrWhiteSpace(obj.StartDate)
 							? obj.PublishedTime != null
