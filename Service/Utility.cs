@@ -42,10 +42,10 @@ namespace net.vieapps.Services.Portals
 			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
 
 		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo)
-			=> Utility.IsDebugLogEnabled || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false"));
+			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false")) || requestInfo.GetParameter("x-logs") != null;
 
 		internal static bool IsWriteMessageLogs(this RequestInfo requestInfo)
-			=> Utility.IsDebugLogEnabled || (requestInfo != null && requestInfo.GetParameter("x-logs") != null) || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false"));
+			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false")) || requestInfo.GetParameter("x-logs") != null;
 
 		internal static bool AllowInlineImages
 			=> "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));
@@ -479,13 +479,13 @@ namespace net.vieapps.Services.Portals
 				start = html.PositionOf("<oembed", start + 1);
 			}
 
-			// normalize all 'img' tags
+			// normalize IMG tags
 			start = html.PositionOf("<img");
 			while (start > -1)
 			{
 				var offset = 1;
-				var end = start < 0 ? -1 : html.PositionOf(">", start);
-				if (end > -1)
+				var end = html.PositionOf(">", start);
+				if (end > start)
 				{
 					end += 1;
 					var image = html.Substring(start, end - start);
@@ -543,6 +543,39 @@ namespace net.vieapps.Services.Portals
 				start = html.PositionOf("<img", start + offset);
 			}
 
+			// normalize inline popup image
+			start = html.PositionOf("<figure class=\"image\"><a class=\"inline popup");
+			while (start > -1)
+			{
+				var offset = 1;
+				start = html.PositionOf("<a", start);
+				var end = html.PositionOf(">", start);
+				if (end > start)
+				{
+					end += 1;
+					var anchor = html.Substring(start, end - start);
+
+					var urlStart = anchor.PositionOf("href=") + 6;
+					var urlEnd = anchor.IndexOf("\"", urlStart + 1);
+					if (urlEnd < 0)
+						urlEnd = anchor.IndexOf("'", urlStart + 1);
+
+					if (urlEnd > 0)
+					{
+						var anchorStart = anchor.Substring(0, urlStart);
+						var anchorEnd = anchor.Substring(urlEnd);
+						var url = anchor.Substring(urlStart, urlEnd - urlStart);
+						url = url.IsStartsWith("/files/") ? $"~~{url}" : url;
+						var webpURL = url.IsContains("image=") && !url.IsContains("image=svg") ? url.GetWebpImageURL(filesHttpURI) : url;
+						anchor = url.IsEquals(webpURL) ? anchor : anchorStart + webpURL + anchorEnd;
+					}
+
+					html = html.Substring(0, start) + anchor + html.Substring(end);
+					offset = anchor.Length;
+				}
+				start = html.PositionOf("<figure class=\"image\"><a class=\"inline popup", start + offset);
+			}
+
 			return html.HtmlDecode();
 		}
 
@@ -597,7 +630,7 @@ namespace net.vieapps.Services.Portals
 								var data = url.ToArray();
 								var contentType = data.First().ToArray(";").First().ToArray(":").Last();
 								var identifier = UtilityService.NewUUID;
-								var filename = $"img{inlineImages.Count + 1}-{DateTime.Now:HHmmssfff}.{contentType.ToArray("/").Last()}";
+								var filename = $"img{inlineImages.Count + 1}-{DateTime.Now:HHmmssfff}-{identifier.Left(4)}.{contentType.ToArray("/").Last()}";
 								File.WriteAllBytes(Path.Combine(Utility.TempFilesDirectory, filename), data.Last().Base64ToBytes());
 								url = $"~~/files/[system-id]/{contentType.Replace("/", "=")}/{identifier}/{filename}";
 								inlineImages.Add(url, (identifier, filename));
@@ -701,6 +734,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<IBusinessObject> UploadInlineImagesAsync(this RequestInfo requestInfo, Dictionary<string, (string Identifier, string Filename)> inlineImages, IBusinessObject @object, CancellationToken cancellationToken)
 		{
 			// upload the images
+			var isDebugLogEnabled = Utility.IsDebugLogEnabled || requestInfo.GetParameter("x-logs") != null;
 			await inlineImages.ForEachAsync(async kvp =>
 			{
 				try
@@ -708,7 +742,7 @@ namespace net.vieapps.Services.Portals
 					var fileInfo = new FileInfo(Path.Combine(Utility.TempFilesDirectory, kvp.Value.Filename));
 					var contentType = fileInfo.GetMimeType();
 					contentType = string.IsNullOrWhiteSpace(contentType) ? $"image/{(fileInfo.Extension.IsEquals(".jpg") ? "jpeg" : fileInfo.Extension.Right(fileInfo.Extension.Length - 1))}" : contentType;
-					await fileInfo.UploadAsync($"{Utility.FilesHttpURI}/files", new Dictionary<string, string>
+					await fileInfo.UploadAsync($"{Utility.FilesHttpURI}/files{(isDebugLogEnabled ? "?x-logs=true" : "")}", new Dictionary<string, string>
 					{
 						["x-attachment-id"] = kvp.Value.Identifier,
 						["x-attachment-content-type"] = contentType,
@@ -723,7 +757,7 @@ namespace net.vieapps.Services.Portals
 						["x-correlation-id"] = requestInfo.CorrelationID,
 						["x-temp-token"] = requestInfo.Session.User.GetAuthenticateToken(Utility.EncryptionKey, Utility.JWTKey)
 					}, cancellationToken).ConfigureAwait(false);
-					if (Utility.IsDebugLogEnabled || requestInfo.GetParameter("x-logs") != null)
+					if (isDebugLogEnabled)
 						await requestInfo.WriteLogAsync($"Upload an inline image successful [{@object.SystemID}/{kvp.Value.Identifier}-{kvp.Value.Filename}]", "Images").ConfigureAwait(false);
 				}
 				catch (Exception ex)

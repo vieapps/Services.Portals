@@ -105,7 +105,7 @@ namespace net.vieapps.Services.Portals
 			else
 			{
 				// CORS: allow origin
-				context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+				context.Response.Headers.AccessControlAllowOrigin = "*";
 
 				// CORS: options
 				if (context.Request.Method.IsEquals("OPTIONS"))
