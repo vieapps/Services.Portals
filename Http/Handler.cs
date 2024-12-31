@@ -223,8 +223,8 @@ namespace net.vieapps.Services.Portals
 					else
 					{
 						var appToken = body?.Get<string>("x-app-token") ?? "";
-						await Global.UpdateWithAuthenticateTokenAsync(session, appToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Http.Authentications", correlationID).ConfigureAwait(false);
-						if (!string.IsNullOrWhiteSpace(session.User.ID) && !await session.IsSessionExistAsync(Global.Logger, "Http.Authentications", correlationID).ConfigureAwait(false))
+						await Global.UpdateWithAuthenticateTokenAsync(session, appToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Authentications", correlationID).ConfigureAwait(false);
+						if (!string.IsNullOrWhiteSpace(session.User.ID) && !await session.IsSessionExistAsync(Global.Logger, "Authentications", correlationID).ConfigureAwait(false))
 							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
 
 						var encryptionKey = session.GetEncryptionKey(Global.EncryptionKey);
@@ -233,14 +233,14 @@ namespace net.vieapps.Services.Portals
 						if (!header.TryGetValue("x-session-id", out var sessionID) || !sessionID.Decrypt(encryptionKey, encryptionIV).Equals(session.GetEncryptedID()))
 						{
 							if (Global.IsDebugLogEnabled)
-								await Global.WriteLogsAsync(Global.Logger, "Http.Authentications", $"The session identity is invalid [{session.GetEncryptedID()} != {(sessionID ?? "").Decrypt(encryptionKey, encryptionIV)}]", null, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+								await Global.WriteLogsAsync(Global.Logger, "Authentications", $"The session identity is invalid [{session.GetEncryptedID()} != {(sessionID ?? "").Decrypt(encryptionKey, encryptionIV)}]", null, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
 						}
 
 						if (!header.TryGetValue("x-device-id", out var deviceID) || !deviceID.Decrypt(encryptionKey, encryptionIV).Equals(session.DeviceID))
 						{
 							if (Global.IsDebugLogEnabled)
-								await Global.WriteLogsAsync(Global.Logger, "Http.Authentications", $"The device identity is invalid [{session.DeviceID} != {(deviceID ?? "").Decrypt(encryptionKey, encryptionIV)}]", null, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+								await Global.WriteLogsAsync(Global.Logger, "Authentications", $"The device identity is invalid [{session.DeviceID} != {(deviceID ?? "").Decrypt(encryptionKey, encryptionIV)}]", null, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
 						}
 
@@ -253,7 +253,7 @@ namespace net.vieapps.Services.Portals
 					websocket.Set("Session", session);
 					await websocket.PrepareConnectionInfoAsync(correlationID, session, Global.CancellationToken, Global.Logger).ConfigureAwait(false);
 					if (Global.IsDebugLogEnabled)
-						await Global.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully {(verb.IsEquals("REG") ? "register" : "authenticate")} a WebSocket connection\r\n{websocket.GetConnectionInfo(session)}\r\n- Status: {websocket.Get<string>("Status")}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+						await Global.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully {(verb.IsEquals("REG") ? "register" : "authenticate")} a WebSocket connection\r\n{websocket.GetConnectionInfo(session)}\r\n- Status: {websocket.Get<string>("Status")}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 				}
 
 				// call a service of APIs
@@ -387,14 +387,14 @@ namespace net.vieapps.Services.Portals
 				}
 
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully update an user with authenticate ticket {session.ToJson()}").ConfigureAwait(false);
+					await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully update an user with authenticate ticket {session.ToJson()}").ConfigureAwait(false);
 			}
 
 			// update with authenticate token
 			else
 			{
 				// prepare token
-				var authenticateToken = context.GetParameter("x-app-token");
+				var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-temp-token");
 				if (string.IsNullOrWhiteSpace(authenticateToken))
 				{
 					authenticateToken = context.GetHeaderParameter("authorization");
@@ -406,16 +406,16 @@ namespace net.vieapps.Services.Portals
 					try
 					{
 						// authenticate
-						await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Http.Authentications", correlationID).ConfigureAwait(false);
+						await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Authentications", correlationID).ConfigureAwait(false);
 						if (isDebugLogEnabled)
-							await context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully authenticate an user with authenticate token {session.ToJson().ToString(Formatting.Indented)}").ConfigureAwait(false);
+							await context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully authenticate an user with authenticate token {session.ToJson().ToString(Formatting.Indented)}").ConfigureAwait(false);
 
 						// assign user information
 						context.User = new UserPrincipal(session.User);
 					}
 					catch (Exception ex)
 					{
-						await context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Failure authenticate an user with authenticate token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+						await context.WriteLogsAsync(Global.Logger, "Authentications", $"Failure authenticate an user with authenticate token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 					}
 
 				// update identities
@@ -951,7 +951,7 @@ namespace net.vieapps.Services.Portals
 				{
 					case "initializer":
 						if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Authentications").ConfigureAwait(false) as JObject;
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Authentications").ConfigureAwait(false) as JObject;
 						await this.ProcessInitializerRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
 						break;
 
@@ -961,13 +961,13 @@ namespace net.vieapps.Services.Portals
 
 					case "login":
 						if (!context.Request.Method.IsEquals("GET") || context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Authentications").ConfigureAwait(false) as JObject;
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Authentications").ConfigureAwait(false) as JObject;
 						await this.ProcessLogInRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
 						break;
 
 					case "logout":
 						if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Authentications").ConfigureAwait(false) as JObject;
+							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Authentications").ConfigureAwait(false) as JObject;
 						await this.ProcessLogOutRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
 						break;
 
@@ -1076,17 +1076,17 @@ namespace net.vieapps.Services.Portals
 								query.Remove("object-identity");
 							}),
 							CorrelationID = correlationID
-						}, cts.Token, Global.Logger, "Http.Authentications").ConfigureAwait(false);
+						}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 						await Task.WhenAll
 						(
 							Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully activate {context.Request.QueryString.ToDictionary().ToJson()}") : Task.CompletedTask
+							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully activate {context.Request.QueryString.ToDictionary().ToJson()}") : Task.CompletedTask
 						).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
-						await context.WriteLogsAsync("Http.Authentications", $"Error occurred while activating => {ex.Message}", ex).ConfigureAwait(false);
+						await context.WriteLogsAsync("Authentications", $"Error occurred while activating => {ex.Message}", ex).ConfigureAwait(false);
 						await context.WaitOnAttemptedAsync().ConfigureAwait(false);
 						var code = ex.GetHttpStatusCode();
 						var message = ex.Message;
@@ -1119,7 +1119,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					await context.WriteLogsAsync("Http.Authentications", $"Error occurred while activating => {ex.Message}", ex).ConfigureAwait(false);
+					await context.WriteLogsAsync("Authentications", $"Error occurred while activating => {ex.Message}", ex).ConfigureAwait(false);
 					var code = ex.GetHttpStatusCode();
 					var message = ex.Message;
 					var type = ex.GetTypeName(true);
@@ -1198,7 +1198,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					context.WriteAsync($"console.error('Error occurred while validating => {ex.Message.Replace("'", @"\'")}')", "application/javascript", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, Global.CancellationToken),
-					context.WriteLogsAsync("Http.Authentications", $"Error occurred while validating => {ex.Message}", ex)
+					context.WriteLogsAsync("Authentications", $"Error occurred while validating => {ex.Message}", ex)
 				).ConfigureAwait(false);
 			}
 		}
@@ -1231,16 +1231,16 @@ namespace net.vieapps.Services.Portals
 														{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
 												},
 						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Authentications").ConfigureAwait(false);
+					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 					await Task.WhenAll
 					(
 							context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully register a new session {response}") : Task.CompletedTask
+							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully register a new session {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
-					context.WriteError(Global.Logger, ex, null, $"Error occurred while registering a new session => {ex.Message}", true, "Http.Authentications");
+					context.WriteError(Global.Logger, ex, null, $"Error occurred while registering a new session => {ex.Message}", true, "Authentications");
 				}
 			}
 
@@ -1285,7 +1285,7 @@ namespace net.vieapps.Services.Portals
 														{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
 												},
 						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Authentications").ConfigureAwait(false);
+					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 					// check to see the account is two-factor authenticaion required 
 					var require2FA = response.Get("Require2FA", false);
@@ -1314,7 +1314,7 @@ namespace net.vieapps.Services.Portals
 																{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
 														},
 							CorrelationID = correlationID
-						}, cts.Token, Global.Logger, "Http.Authentications").ConfigureAwait(false);
+						}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 						// update authenticate ticket
 						var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
@@ -1329,7 +1329,7 @@ namespace net.vieapps.Services.Portals
 					(
 							Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
 							context.WriteAsync(response, Formatting.Indented, correlationID, cts.Token),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully log a session in {response}") : Task.CompletedTask
+							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
@@ -1379,7 +1379,7 @@ namespace net.vieapps.Services.Portals
 					{
 						Body = body,
 						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Authentications").ConfigureAwait(false);
+					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 					// update session
 					session.User = response.Copy<User>();
@@ -1396,7 +1396,7 @@ namespace net.vieapps.Services.Portals
 														{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
 												},
 						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Authentications").ConfigureAwait(false);
+					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 					// update authenticate ticket
 					var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
@@ -1408,7 +1408,7 @@ namespace net.vieapps.Services.Portals
 					(
 							Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
 							context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully log a session in with OTP {response}") : Task.CompletedTask
+							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in with OTP {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
@@ -1453,14 +1453,14 @@ namespace net.vieapps.Services.Portals
 														{ "Uri", renewURI.Encrypt(Global.EncryptionKey) }
 												},
 						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Authentications").ConfigureAwait(false);
+					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 					// response
 					await Task.WhenAll
 					(
 							Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
 							context.WriteAsync(response, Formatting.Indented, correlationID, cts.Token),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully send a renew password request {response}") : Task.CompletedTask
+							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully send a renew password request {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
@@ -1517,7 +1517,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (isUserInteract)
 				{
-					await context.WriteLogsAsync("Http.Authentications", $"Error occurred while logging in => {ex.Message}", ex).ConfigureAwait(false);
+					await context.WriteLogsAsync("Authentications", $"Error occurred while logging in => {ex.Message}", ex).ConfigureAwait(false);
 					var code = ex.GetHttpStatusCode();
 					var message = ex.Message;
 					var type = ex.GetTypeName(true);
@@ -1555,7 +1555,7 @@ namespace net.vieapps.Services.Portals
 						{ "Signature", $"x-session-temp-token-{correlationID}".GetHMACSHA256(Global.ValidationKey) }
 					},
 					CorrelationID = correlationID
-				}, cts.Token, Global.Logger, "Http.Authentications").ConfigureAwait(false);
+				}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 				// perform log out
 				await context.SignOutAsync().ConfigureAwait(false);
@@ -1570,7 +1570,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						context.WriteAsync(this.GetSpecialHtml(context, systemIdentityJson, "Log out").Replace("[[placeholder]]", scripts.Replace("\t\t\t\t\t", "")), "text/html", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, cts.Token),
-						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully log a session out (direct) {response}") : Task.CompletedTask
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session out (direct) {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				else
@@ -1588,12 +1588,12 @@ namespace net.vieapps.Services.Portals
 							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
 						},
 						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Authentications").ConfigureAwait(false);
+					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 					context.Session.Add("Session", session);
 					await Task.WhenAll
 					(
 						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
-						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Authentications", $"Successfully log a session out {response}") : Task.CompletedTask
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session out {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 			}
@@ -1601,7 +1601,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (isUserInteract)
 				{
-					await context.WriteLogsAsync("Http.Authentications", $"Error occurred while logging out => {ex.Message}", ex).ConfigureAwait(false);
+					await context.WriteLogsAsync("Authentications", $"Error occurred while logging out => {ex.Message}", ex).ConfigureAwait(false);
 					var code = ex.GetHttpStatusCode();
 					var message = ex.Message;
 					var type = ex.GetTypeName(true);
