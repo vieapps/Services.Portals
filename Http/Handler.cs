@@ -41,7 +41,7 @@ namespace net.vieapps.Services.Portals
 			=> "_logout,logout.aspx,signout.aspx,logout.html,signout.html,logout.php,signout.php".ToHashSet();
 
 		static HashSet<string> CmsPortals
-			=> "_admin,_cms,admin.aspx,cms.aspx,admin.html,cms.html,admin.php,cms.php".ToHashSet();
+			=> "_admin,_cms,_edit,_update,admin.aspx,cms.aspx,admin.html,cms.html,admin.php,cms.php".ToHashSet();
 
 		static HashSet<string> Feeds
 			=> "feed,feed.xml,feed.json,atom,atom.xml,atom.json,rss,rss.xml,rss.json".ToHashSet();
@@ -476,7 +476,7 @@ namespace net.vieapps.Services.Portals
 						}
 					}
 
-					// special requests (_initializer, _validator, _login, _logout, _feed) or special resources (_assets, _css, _fonts, _images, _js)
+					// special requests (_initializer, _validator, _login, _logout, _feed, _cms, _admin) or special resources (_assets, _css, _fonts, _images, _js)
 					else if (firstPathSegment.StartsWith("_"))
 					{
 						// special requests
@@ -494,6 +494,13 @@ namespace net.vieapps.Services.Portals
 
 						else if (Handler.Feeds.Contains(firstPathSegment.Right(firstPathSegment.Length - 1)))
 							specialRequest = "feed";
+
+						else if (Handler.CmsPortals.Contains(firstPathSegment))
+						{
+							specialRequest = "cms";
+							query["x-resource"] = "cms";
+							query["x-resource-path"] = requestSegments.Skip(2).Take(2).Join("/");
+						}
 
 						// special resources
 						else
@@ -538,15 +545,17 @@ namespace net.vieapps.Services.Portals
 						requestSegments = Array.Empty<string>();
 					}
 
-					else if (Handler.CmsPortals.Contains(firstRequestSegment))
-					{
-						specialRequest = "cms";
-						requestSegments = Array.Empty<string>();
-					}
-
 					else if (Handler.Feeds.Contains(firstRequestSegment))
 					{
 						specialRequest = "feed";
+						requestSegments = Array.Empty<string>();
+					}
+
+					else if (Handler.CmsPortals.Contains(firstRequestSegment))
+					{
+						specialRequest = "cms";
+						query["x-resource"] = "cms";
+						query["x-resource-path"] = requestSegments.Skip(2).Take(2).Join("/");
 						requestSegments = Array.Empty<string>();
 					}
 
@@ -975,7 +984,7 @@ namespace net.vieapps.Services.Portals
 						try
 						{
 							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-							await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID")).ConfigureAwait(false);
+							await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID"), systemIdentityJson?.Get<string>("ObjectID"), systemIdentityJson?.Get<string>("RepositoryEntityID") ?? systemIdentityJson?.Get<string>("ObjectName")).ConfigureAwait(false);
 						}
 						catch (Exception ex)
 						{
@@ -1619,9 +1628,15 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		async Task ProcessCmsPortalsRequestAsync(HttpContext context, string systemID)
+		async Task ProcessCmsPortalsRequestAsync(HttpContext context, string systemID, string objectID, string objectNameOrContentTypeID)
 		{
-			context.Redirect($"{this.RemoveURITrail(Handler.CMSPortalsHttpURI)}/home?redirect=" + $"/portals/initializer?x-request={("{\"SystemID\":\"" + systemID + "\"}").Url64Encode()}".Url64Encode());
+			var request = new JObject
+			{
+				["SystemID"] = systemID,
+				["ObjectID"] = objectID
+			};
+			request[!string.IsNullOrWhiteSpace(objectNameOrContentTypeID) && objectNameOrContentTypeID.IsValidUUID() ? "RepositoryEntityID" : "ObjectName"] = objectNameOrContentTypeID;
+			context.Redirect($"{this.RemoveURITrail(Handler.CMSPortalsHttpURI)}/home?redirect=" + $"/portals/initializer?x-request={request.ToString(Formatting.None).Url64Encode()}".Url64Encode());
 			await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
 		}
 

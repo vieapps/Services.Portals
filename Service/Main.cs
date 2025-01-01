@@ -1150,7 +1150,7 @@ namespace net.vieapps.Services.Portals
 			if (organization != null && requestInfo.GetParameter("x-force-refresh") != null)
 				await organization.RefreshAsync(cancellationToken).ConfigureAwait(false);
 
-			return organization != null
+			var identityJson = organization != null
 				? new JObject
 				{
 					{ "ID", organization.ID },
@@ -1167,6 +1167,25 @@ namespace net.vieapps.Services.Portals
 					{ "Language", requestInfo.GetParameter("Language") ?? site?.Language ?? "en-US" }
 				}
 				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
+
+			if (requestInfo.Query.TryGetValue("x-resource", out var xresource) && "cms".IsEquals(xresource) && requestInfo.Query.TryGetValue("x-resource-path", out var xresourcePath))
+			{
+				var resourcePaths = xresourcePath.ToArray("/");
+				var category = resourcePaths.Length > 0
+					? await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("SystemID", organization.ID), Filters<Category>.Equals("Alias", resourcePaths[0].NormalizeAlias())), null, null, cancellationToken).ConfigureAwait(false)
+					: null;
+				var content = category != null && resourcePaths.Length > 1
+					? await Content.GetAsync(Filters<Content>.And(Filters<Content>.Equals("SystemID", organization.ID), Filters<Content>.Equals("CategoryID", category.ID), Filters<Content>.Equals("Alias", resourcePaths[1].NormalizeAlias())), null, null, cancellationToken).ConfigureAwait(false)
+					: null;
+				if (content != null)
+				{
+					identityJson["ObjectID"] = content.ID;
+					identityJson["ObjectName"] = content.GetObjectName();
+					identityJson["RepositoryEntityID"] = content.RepositoryEntityID;
+				}
+			}
+
+			return identityJson;
 		}
 
 		Task<JToken> ProcessHttpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
