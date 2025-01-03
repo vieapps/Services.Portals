@@ -192,6 +192,10 @@ namespace net.vieapps.Services.Portals
 			if (objects.Count > 0 && searchThumbnails)
 			{
 				requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+				if (requestInfo.GetParameter("x-logs") != null)
+					requestInfo.Header["x-logs"] = "true";
+				if (requestInfo.GetParameter("x-force-cache") != null)
+					requestInfo.Header["x-force-cache"] = "true";
 				thumbnails = objects.Count == 1
 					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
@@ -865,10 +869,10 @@ namespace net.vieapps.Services.Portals
 				{
 					// search
 					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, true, randomPage, minRandomPage, maxRandomPage).ConfigureAwait(false);
-					var objects = results.Item1;
-					totalRecords = results.Item2;
-					pageNumber = results.Item3;
-					var thumbnails = results.Item4;
+					var objects = results.Objects;
+					totalRecords = results.TotalRecords;
+					pageNumber = results.PageNumber;
+					var thumbnails = results.Thumbnails;
 
 					// generate xml
 					Exception exception = null;
@@ -943,14 +947,14 @@ namespace net.vieapps.Services.Portals
 					(
 						expiresAt != null
 							? expiresAt.Value < DateTime.Now
-								? Utility.Cache.RemoveAsync(results.Item5.Concat([cacheKeyOfObjectsXml]), cancellationToken)
+								? Utility.Cache.RemoveAsync(results.CacheKeys.Concat([cacheKeyOfObjectsXml]), cancellationToken)
 								: Utility.Cache.SetAsync(cacheKeyOfObjectsXml, data, expiresAt.Value, cancellationToken)
 							: Utility.Cache.SetAsync(cacheKeyOfObjectsXml, data, cancellationToken),
 						contentType != null
 							? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item5.Concat([cacheKeyOfObjectsXml]), cancellationToken)
 							: Task.CompletedTask,
 						Utility.IsCacheLogEnabled
-							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item5.Count + 1}): {results.Item5.Concat(new[] { cacheKeyOfObjectsXml }).Join(", ")}", "Caches")
+							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.CacheKeys.Count + 1}): {results.CacheKeys.Concat(new[] { cacheKeyOfObjectsXml }).Join(", ")}", "Caches")
 							: Task.CompletedTask
 					).ConfigureAwait(false);
 
@@ -1079,6 +1083,10 @@ namespace net.vieapps.Services.Portals
 
 					// get files
 					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+					if (requestInfo.GetParameter("x-logs") != null)
+						requestInfo.Header["x-logs"] = "true";
+					if (requestInfo.GetParameter("x-force-cache") != null)
+						requestInfo.Header["x-force-cache"] = "true";
 					thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 					var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 

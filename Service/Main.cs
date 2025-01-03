@@ -315,6 +315,7 @@ namespace net.vieapps.Services.Portals
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
+			var isDebugEnabled = this.IsDebugLogEnabled || this.IsDebugResultsEnabled || requestInfo.TryGetParameter("x-logs", out var _);
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
 			try
 			{
@@ -594,7 +595,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}"),
-					this.IsDebugResultsEnabled || requestInfo.GetParameter("x-logs") != null ? this.WriteLogsAsync(requestInfo, $"- Request: {requestInfo.ToString(this.JsonFormat)}\r\n- Response: {json?.ToString(this.JsonFormat)}") : Task.CompletedTask
+					isDebugEnabled ? this.WriteLogsAsync(requestInfo, (requestInfo.TryGetParameter("x-request", out var xrequest) ? $"- Request (Encoded): {xrequest}\r\n" : "") + $"- Request (JSON): {requestInfo.ToString(this.JsonFormat)}\r\n- Response (JSON): {json?.ToString(this.JsonFormat)}") : Task.CompletedTask
 				).ConfigureAwait(false);
 				return json;
 			}
@@ -1147,7 +1148,7 @@ namespace net.vieapps.Services.Portals
 				site = site.Prepare(host, false);
 
 			organization = organization ?? site?.Organization;
-			if (organization != null && requestInfo.GetParameter("x-force-refresh") != null)
+			if (organization != null && requestInfo.TryGetParameter("x-force-refresh", out var _))
 				await organization.RefreshAsync(cancellationToken).ConfigureAwait(false);
 
 			var identityJson = organization != null
@@ -1168,22 +1169,41 @@ namespace net.vieapps.Services.Portals
 				}
 				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
 
-			if (requestInfo.Query.TryGetValue("x-resource", out var xresource) && "cms".IsEquals(xresource) && requestInfo.Query.TryGetValue("x-resource-path", out var xresourcePath))
+			if (requestInfo.TryGetQueryParameter("x-resource", out var resource) && "cms".IsEquals(resource) && requestInfo.TryGetQueryParameter("x-cms-path", out var resourcePath))
 			{
-				var resourcePaths = xresourcePath.ToArray("/");
-				var category = resourcePaths.Length > 0
-					? await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("SystemID", organization.ID), Filters<Category>.Equals("Alias", resourcePaths[0].NormalizeAlias())), null, null, cancellationToken).ConfigureAwait(false)
-					: null;
-				var content = category != null && resourcePaths.Length > 1
-					? await Content.GetAsync(Filters<Content>.And(Filters<Content>.Equals("SystemID", organization.ID), Filters<Content>.Equals("CategoryID", category.ID), Filters<Content>.Equals("Alias", resourcePaths[1].NormalizeAlias())), null, null, cancellationToken).ConfigureAwait(false)
-					: null;
-				if (content != null)
+				var cmsPaths = resourcePath.ToArray("/");
+				if (cmsPaths.Length == 1)
 				{
-					identityJson["ObjectID"] = content.ID;
-					identityJson["ObjectName"] = content.GetObjectName();
-					identityJson["RepositoryEntityID"] = content.RepositoryEntityID;
+					var desktop = await organization.ID.GetDesktopByAliasAsync(cmsPaths[0].NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+					if (desktop != null)
+					{
+						identityJson["ObjectID"] = desktop.ID;
+						identityJson["ObjectName"] = desktop.GetObjectName();
+					}
+				}
+				else
+				{
+					var category = cmsPaths.Length > 1
+						? await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("SystemID", organization.ID), Filters<Category>.Equals("Alias", cmsPaths[1].NormalizeAlias())), null, null, cancellationToken).ConfigureAwait(false)
+						: null;
+					var content = category != null && cmsPaths.Length > 2
+						? await Content.GetAsync(Filters<Content>.And(Filters<Content>.Equals("SystemID", organization.ID), Filters<Content>.Equals("CategoryID", category.ID), Filters<Content>.Equals("Alias", cmsPaths[2].NormalizeAlias())), null, null, cancellationToken).ConfigureAwait(false)
+						: null;
+					if (content != null)
+					{
+						identityJson["ObjectID"] = content.ID;
+						identityJson["RepositoryEntityID"] = content.RepositoryEntityID;
+					}
+					else if (category != null)
+					{
+						identityJson["ObjectID"] = category.ID;
+						identityJson["RepositoryEntityID"] = category.RepositoryEntityID;
+					}
 				}
 			}
+
+			if (requestInfo.IsWriteDesktopLogs())
+				await requestInfo.WriteLogAsync($"Identify the system\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identityJson}").ConfigureAwait(false);
 
 			return identityJson;
 		}

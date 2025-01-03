@@ -42,10 +42,10 @@ namespace net.vieapps.Services.Portals
 			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
 
 		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo)
-			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false")) || requestInfo.GetParameter("x-logs") != null;
+			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false")) || requestInfo.TryGetParameter("x-logs", out var _);
 
 		internal static bool IsWriteMessageLogs(this RequestInfo requestInfo)
-			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false")) || requestInfo.GetParameter("x-logs") != null;
+			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false")) || requestInfo.TryGetParameter("x-logs", out var _);
 
 		internal static bool AllowInlineImages
 			=> "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));
@@ -164,7 +164,12 @@ namespace net.vieapps.Services.Portals
 		/// <param name="allowMinusSymbols"></param>
 		/// <returns></returns>
 		public static string NormalizeAlias(this string alias, bool allowMinusSymbols = true)
-			=> allowMinusSymbols ? alias.GetANSIUri() : alias.GetANSIUri().Replace("-", "").Replace("_", "");
+		{
+			alias = alias.Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "");
+			return allowMinusSymbols
+				? alias.GetANSIUri()
+				: alias.GetANSIUri().Replace("-", "").Replace("_", "");
+		}
 
 		/// <summary>
 		/// Normalizes a domain name

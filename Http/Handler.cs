@@ -335,11 +335,13 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
+			context.SetItem("Correlation-ID", context.GetParameter("x-original-correlation-id") ?? context.GetParameter("x-correlation-id") ?? UtilityService.NewUUID);
+
 			var requestURI = context.GetRequestUri();
 			var requestPath = requestURI.GetRequestPathSegments(true).First();
 
 			if (Global.IsVisitLogEnabled)
-				await context.WriteVisitStartingLogAsync(context.GetParameter("x-logs") != null).ConfigureAwait(false);
+				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
 
 			// request to favicon.ico file
 			if (requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(Handler.PortalsHttpHost))
@@ -361,7 +363,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var correlationID = context.GetCorrelationID();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.GetParameter("x-logs") != null;
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
 
 			var session = context.Session.Get<Session>("Session") ?? context.GetSession();
 			Handler.NormalizeSession(session, context.GetParameter("x-app-name"), context.GetParameter("x-app-platform"), context.GetParameter("x-device-id"));
@@ -444,8 +446,8 @@ namespace net.vieapps.Services.Portals
 			var queryString = context.Request.QueryString.ToDictionary(query =>
 			{
 				var pathSegments = context.GetRequestPathSegments().Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx") && !segment.IsEquals("index.aspx") && !segment.IsEquals("index.php")).ToArray();
-				var requestSegments = pathSegments.Select(path => path).ToArray();
 				var firstPathSegment = pathSegments.Length > 0 ? pathSegments[0].ToLower() : "";
+				var requestSegments = pathSegments.Skip(0).ToArray();
 
 				// special parameters (like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity)
 				if (!string.IsNullOrWhiteSpace(firstPathSegment))
@@ -453,26 +455,23 @@ namespace net.vieapps.Services.Portals
 					// system/oranization identity or service
 					if (firstPathSegment.StartsWith("~"))
 					{
-						// a specified service
-						if (requestSegments[0].IsStartsWith("~apis"))
-							specialRequest = "service";
+						// normalize request segments
+						requestSegments = pathSegments.Skip(1).ToArray();
 
-						else if (Handler.Feeds.Contains(firstPathSegment.Right(firstPathSegment.Length - 1)))
-							specialRequest = "feed";
+						// a call to a service of APIs
+						if (firstPathSegment.IsStartsWith("~apis"))
+						{
+							specialRequest = "service";
+							query["service-name"] = requestSegments.Length > 0 && !string.IsNullOrWhiteSpace(requestSegments[0]) ? requestSegments[0].GetANSIUri(true, true) : "unknown";
+							query["object-name"] = requestSegments.Length > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].GetANSIUri(true, true) : "";
+							query["object-identity"] = requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]) ? requestSegments[2].GetANSIUri() : "";
+						}
 
 						// a specified system
 						else
 						{
 							systemIdentity = firstPathSegment.Right(firstPathSegment.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "").GetANSIUri(true, false);
 							query["x-system"] = systemIdentity;
-						}
-
-						requestSegments = pathSegments.Skip(1).ToArray();
-						if (specialRequest.IsEquals("service"))
-						{
-							query["service-name"] = requestSegments.Length > 0 && !string.IsNullOrWhiteSpace(requestSegments[0]) ? requestSegments[0].GetANSIUri(true, true) : "unknown";
-							query["object-name"] = requestSegments.Length > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].GetANSIUri(true, true) : "";
-							query["object-identity"] = requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]) ? requestSegments[2].GetANSIUri() : "";
 						}
 					}
 
@@ -499,7 +498,7 @@ namespace net.vieapps.Services.Portals
 						{
 							specialRequest = "cms";
 							query["x-resource"] = "cms";
-							query["x-resource-path"] = requestSegments.Skip(2).Take(2).Join("/");
+							query["x-cms-path"] = requestSegments.Skip(1).Join("/");
 						}
 
 						// special resources
@@ -516,7 +515,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// normalize info of requests
-				if (requestSegments.Length > 0 && specialRequest.IsEquals(""))
+				if (requestSegments.Length > 0 && specialRequest == "")
 				{
 					var firstRequestSegment = requestSegments.First().ToLower();
 
@@ -555,7 +554,7 @@ namespace net.vieapps.Services.Portals
 					{
 						specialRequest = "cms";
 						query["x-resource"] = "cms";
-						query["x-resource-path"] = requestSegments.Skip(2).Take(2).Join("/");
+						query["x-cms-path"] = requestSegments.Skip(1).Join("/");
 						requestSegments = Array.Empty<string>();
 					}
 
@@ -717,7 +716,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// working with cache (of portal desktops/resources)
-					if (Handler.AllowCache && !Handler.RefresherURL.IsEquals(context.GetReferUrl()) && requestInfo.GetParameter("x-no-cache") == null && requestInfo.GetParameter("x-force-cache") == null)
+					if (Handler.AllowCache && !Handler.RefresherURL.IsEquals(context.GetReferUrl()) && !requestInfo.TryGetParameter("x-no-cache", out var _) && !requestInfo.TryGetParameter("x-force-cache", out var _))
 					{
 						var cacheKey = "";
 						var eTag = "";
@@ -923,7 +922,7 @@ namespace net.vieapps.Services.Portals
 					{
 						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
 						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), new Dictionary<string, string>(response.Get("Headers", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase) { ["X-Node"] = Global.NodeID });
+						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), new Dictionary<string, string>(response.Get("Headers", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase) { ["X-Node"] = Global.NodeID, ["X-Correlation-ID"] = context.GetCorrelationID() });
 						var body = response.Get<string>("Body");
 						if (body != null)
 							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "br")), cts.Token).ConfigureAwait(false);
@@ -1007,7 +1006,7 @@ namespace net.vieapps.Services.Portals
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), new Dictionary<string, string>(response.Get("Headers", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase) { ["X-Node"] = Global.NodeID });
+							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), new Dictionary<string, string>(response.Get("Headers", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase) { ["X-Node"] = Global.NodeID, ["X-Correlation-ID"] = context.GetCorrelationID() });
 							var body = response.Get<string>("Body");
 							if (body != null)
 								await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "br")), cts.Token).ConfigureAwait(false);
@@ -1045,7 +1044,7 @@ namespace net.vieapps.Services.Portals
 							var response = await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Services").ConfigureAwait(false);
 							await Task.WhenAll
 							(
-								context.WriteAsync(response, cts.Token),
+								context.WriteAsync(response, new Dictionary<string, string> { ["X-Node"] = Global.NodeID, ["X-Correlation-ID"] = context.GetCorrelationID() }, cts.Token),
 								isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Services", $"Successfully process request of a service {response}") : Task.CompletedTask
 							).ConfigureAwait(false);
 						}
@@ -1636,8 +1635,15 @@ namespace net.vieapps.Services.Portals
 				["ObjectID"] = objectID
 			};
 			request[!string.IsNullOrWhiteSpace(objectNameOrContentTypeID) && objectNameOrContentTypeID.IsValidUUID() ? "RepositoryEntityID" : "ObjectName"] = objectNameOrContentTypeID;
-			context.Redirect($"{this.RemoveURITrail(Handler.CMSPortalsHttpURI)}/home?redirect=" + $"/portals/initializer?x-request={request.ToString(Formatting.None).Url64Encode()}".Url64Encode());
-			await context.FlushAsync(Global.CancellationToken).ConfigureAwait(false);
+			var location = $"/portals/initializer?x-request={request.ToString(Formatting.None).Url64Encode()}".Url64Encode();
+			context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string> {
+				["Location"] = $"{this.RemoveURITrail(Handler.CMSPortalsHttpURI)}/home?redirect={location}&r={UtilityService.GetRandomNumber()}",
+				["Cache-Control"] = "private, no-store, no-cache",
+				["X-Node"] = Global.NodeID,
+				["X-Correlation-ID"] = context.GetCorrelationID()
+			});
+			if (Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs"))
+				await context.WriteLogsAsync("Redirections", $"Redirect to CMS Portals app => {this.RemoveURITrail(Handler.CMSPortalsHttpURI)}/home?redirect={location}").ConfigureAwait(false);
 		}
 
 		string GetSpecialHtml(HttpContext context, JObject systemIdentityJson, string title = "Log in")
