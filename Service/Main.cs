@@ -201,6 +201,15 @@ namespace net.vieapps.Services.Portals
 				// invoke next action
 				next?.Invoke(this);
 			});
+
+		public override void DoWork(string[] args = null)
+		{
+			if (args?.FirstOrDefault(arg => arg.IsStartsWith("/start-before-sync-work")) == null)
+				this.UpdateDefinition(this.GetDefinition());
+
+			if (args?.FirstOrDefault(arg => arg.IsEquals("/refine-thumbnails")) != null)
+				this.RefineThumbnailImagesAsync().Run(true);
+		}
 		#endregion
 
 		#region Authorizations
@@ -5865,7 +5874,7 @@ namespace net.vieapps.Services.Portals
 			try
 			{
 				var stopwatch = Stopwatch.StartNew();
-				var sort = Sorts<Content>.Ascending("Created");
+				var sort = Sorts<Content>.Descending("Created");
 				var totalRecords = await Content.CountAsync(null, "", this.CancellationToken).ConfigureAwait(false);
 				var pageSize = 100;
 				var pageNumber = 1;
@@ -5875,29 +5884,35 @@ namespace net.vieapps.Services.Portals
 				while (pageNumber <= totalPages)
 				{
 					var objects = await Content.FindAsync(null, sort, pageSize, pageNumber, null, this.CancellationToken).ConfigureAwait(false);
-					objects.ForEach(@object => new CommunicateMessage("Files")
+					await objects.ForEachAsync(async @object =>
 					{
-						Type = "Thumbnail#Refine",
-						Data = new JObject
+						await Task.Delay(UtilityService.GetRandomNumber(3, 33), this.CancellationToken).ConfigureAwait(false);
+						new CommunicateMessage("Files")
 						{
-							{ "ServiceName", this.ServiceName },
-							{ "ObjectName", "Content" },
-							{ "SystemID", @object.SystemID },
-							{ "EntityInfo", @object.RepositoryEntityID },
-							{ "ObjectID", @object.ID },
-							{ "Filename", $"{@object.ID}.jpg" },
-							{ "Size", 0 },
-							{ "ContentType", "image/jpeg" },
-							{ "IsTemporary", false },
-							{ "IsShared", false },
-							{ "IsTracked", false },
-							{ "IsThumbnail", true },
-							{ "Title", "" },
-							{ "Description", "" },
-							{ "LastModified", @object.LastModified },
-							{ "LastModifiedID", @object.LastModifiedID }
-						}
-					}.Send());
+							Type = "Thumbnail#Refine",
+							Data = new JObject
+							{
+								{ "ServiceName", this.ServiceName },
+								{ "ObjectName", "Content" },
+								{ "SystemID", @object.SystemID },
+								{ "EntityInfo", @object.RepositoryEntityID },
+								{ "ObjectID", @object.ID },
+								{ "Filename", $"{@object.ID}.jpg" },
+								{ "Size", 0 },
+								{ "ContentType", "image/jpeg" },
+								{ "IsTemporary", false },
+								{ "IsShared", false },
+								{ "IsTracked", false },
+								{ "IsThumbnail", true },
+								{ "Title", "" },
+								{ "Description", "" },
+								{ "LastModified", @object.LastModified },
+								{ "LastModifiedID", @object.LastModifiedID },
+								{ "CorrelationID", correlationID }
+							}
+						}.Send();
+					}, true, false).ConfigureAwait(false);
+					this.Logger.LogInformation($"Send {pageNumber} of {totalPages} pages");
 					pageNumber++;
 				}
 				stopwatch.Stop();
