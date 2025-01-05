@@ -603,6 +603,15 @@ namespace net.vieapps.Services.Portals
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
 			if (isRefresh || category._childrenIDs == null)
 			{
+				new CommunicateMessage("Files")
+				{
+					Type = "ClearCache",
+					Data = new JObject
+					{
+						{ "ObjectID", category.ID },
+						{ "CorrelationID", requestInfo.CorrelationID }
+					}
+				}.Send();
 				await Utility.Cache.RemoveAsync(category, cancellationToken).ConfigureAwait(false);
 				category = await category.Remove().ID.GetCategoryByIDAsync(cancellationToken, true).ConfigureAwait(false);
 				category._childrenIDs = null;

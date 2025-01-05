@@ -2027,14 +2027,14 @@ namespace net.vieapps.Services.Portals
 
 				var organizationJson = organization.ToJson(false, false, json =>
 				{
-					new[] { "Privileges", "OriginalPrivileges" }.Concat(OrganizationProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+					OrganizationProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
 					json["Description"] = organization.Description?.NormalizeHTMLBreaks();
 					json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
 				});
 
 				var siteJson = site.ToJson(json =>
 				{
-					new[] { "Privileges", "OriginalPrivileges" }.Concat(SiteProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+					SiteProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
 					json["Description"] = site.Description?.NormalizeHTMLBreaks();
 					json["Domain"] = site.Host;
 					json["Host"] = host;
@@ -2076,7 +2076,7 @@ namespace net.vieapps.Services.Portals
 
 				var language = desktop.WorkingLanguage ?? site.Language ?? "en-US";
 				var portletData = new ConcurrentDictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
-				await (desktop.Portlets ?? new List<Portlet>()).Where(portlet => portlet != null).ForEachAsync(async portlet =>
+				await (desktop.Portlets ?? []).Where(portlet => portlet != null).ForEachAsync(async portlet =>
 				{
 					var data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, language, parentIdentity, contentIdentity, pageNumber, generateAsync, writeDesktopLogs, cancellationToken).ConfigureAwait(false);
 					if (data != null)
@@ -2229,11 +2229,11 @@ namespace net.vieapps.Services.Portals
 
 				// prepare HTML of all zones
 				var zoneHtmls = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-				(desktop.Portlets ?? new List<Portlet>()).Where(portlet => portlet != null).OrderBy(portlet => portlet.Zone).ThenBy(portlet => portlet.OrderIndex).ForEach(portlet =>
+				(desktop.Portlets ?? []).Where(portlet => portlet != null).OrderBy(portlet => portlet.Zone).ThenBy(portlet => portlet.OrderIndex).ForEach(portlet =>
 				{
 					if (!zoneHtmls.TryGetValue(portlet.Zone, out var htmls))
 					{
-						htmls = new List<string>();
+						htmls = [];
 						zoneHtmls[portlet.Zone] = htmls;
 					}
 					htmls.Add(portletHtmls[portlet.ID].HTML);
@@ -2275,8 +2275,8 @@ namespace net.vieapps.Services.Portals
 					html = html.Insert(html.IndexOf("<meta", html.IndexOf("<meta property=\"og:locale") + 1), $"<meta property=\"og:url\" content=\"{canonicalURL}\"/>");
 
 				// prepare caching
-				if (requestInfo.GetParameter("x-force-cache") != null)
-					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken).ConfigureAwait(false);
+				if (requestInfo.TryGetParameter("x-force-cache", out var _))
+					await Utility.Cache.RemoveAsync([cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken).ConfigureAwait(false);
 
 				if (processCache && !gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.GotError))
 				{
@@ -2319,7 +2319,7 @@ namespace net.vieapps.Services.Portals
 								? Utility.Cache.SetAsync(cacheKeyOfExpiration, DateTime.Now.AddMinutes(expirationTime).ToDTString(), expirationTime, cancellationToken)
 								: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken)
 						).ConfigureAwait(false);
-					await Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration }, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken).ConfigureAwait(false);
 				}
 
 				// normalize
@@ -3445,7 +3445,7 @@ namespace net.vieapps.Services.Portals
 				});
 				var siteJson = site.ToJson(json =>
 				{
-					new[] { "Privileges", "OriginalPrivileges" }.Concat(SiteProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+					SiteProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
 					json["Description"] = site.Description?.NormalizeHTMLBreaks();
 					json["Domain"] = site.Host;
 					json["Host"] = siteHost;
@@ -3537,12 +3537,12 @@ namespace net.vieapps.Services.Portals
 			};
 			if (exception is WampException wampException)
 			{
-				var details = wampException.GetDetails(requestInfo);
-				json["Code"] = details.Item1;
-				json["Error"] = details.Item3.Equals("AccessDeniedException") ? details.Item2 : string.IsNullOrWhiteSpace(errorMessage) ? details.Item2 : $"{errorMessage} => {details.Item2}";
-				json["Type"] = details.Item3;
+				var (code, message, type, stack, inner, _) = wampException.GetDetails(requestInfo);
+				json["Code"] = code;
+				json["Error"] = type.Equals("AccessDeniedException") ? message : string.IsNullOrWhiteSpace(errorMessage) ? message : $"{errorMessage} => {message}";
+				json["Type"] = type;
 				if (addErrorStack)
-					json["Stack"] = details.Item4;
+					json["Stack"] = stack;
 			}
 			else if (addErrorStack)
 				json["Stack"] = exception.StackTrace;
@@ -3632,7 +3632,7 @@ namespace net.vieapps.Services.Portals
 				var @object = await this.GetBusinessObjectAsync(repositoryEntityID, repositoryObjectID, cancellationToken).ConfigureAwait(false);
 				if (@object == null)
 					throw new InformationNotFoundException($"The requested menu is not found [Content-Type ID: {contentType.ID} - Menu ID: {repositoryObjectID}]");
-				if (!(@object is INestedObject))
+				if (@object is not INestedObject)
 					throw new InformationInvalidException($"The requested menu is invalid (its not nested object) [Content-Type ID: {contentType.ID} - Menu ID: {repositoryObjectID}]");
 
 				// check permission

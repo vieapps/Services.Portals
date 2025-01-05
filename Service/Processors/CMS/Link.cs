@@ -458,6 +458,15 @@ namespace net.vieapps.Services.Portals
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) || link._childrenIDs == null;
 			if (isRefresh)
 			{
+				new CommunicateMessage("Files")
+				{
+					Type = "ClearCache",
+					Data = new JObject
+					{
+						{ "ObjectID", link.ID },
+						{ "CorrelationID", requestInfo.CorrelationID }
+					}
+				}.Send();
 				await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false).ConfigureAwait(false);
 				await Utility.Cache.RemoveAsync(link, cancellationToken).ConfigureAwait(false);
 				link = await Link.GetAsync<Link>(link.ID, cancellationToken).ConfigureAwait(false);

@@ -14,6 +14,8 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
+using System.IO;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -511,11 +513,22 @@ namespace net.vieapps.Services.Portals
 			// refresh (reload and force cache of HTMLs)
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
 			if (isRefresh)
+			{
+				new CommunicateMessage("Files")
+				{
+					Type = "ClearCache",
+					Data = new JObject
+					{
+						{ "ObjectID", content.ID },
+						{ "CorrelationID", requestInfo.CorrelationID }
+					}
+				}.Send();
 				await Task.WhenAll
 				(
 					Utility.IsDebugLogEnabled ? requestInfo.WriteLogAsync($"Refresh the CMS content by a request [{content.Title} - ID: {content.ID}]", "Caches") : Task.CompletedTask,
 					content.RefreshAsync(cancellationToken, requestInfo.CorrelationID, "Refresh the CMS content by a request", true, false)
 				).ConfigureAwait(false);
+			}
 
 			// store object cache key to clear related cached
 			await Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), cancellationToken).ConfigureAwait(false);

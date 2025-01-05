@@ -13,6 +13,8 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
+using net.vieapps.Services.Portals.Crawlers;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -377,6 +379,15 @@ namespace net.vieapps.Services.Portals
 			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
 			if (isRefresh)
 			{
+				new CommunicateMessage("Files")
+				{
+					Type = "ClearCache",
+					Data = new JObject
+					{
+						{ "ObjectID", item.ID },
+						{ "CorrelationID", requestInfo.CorrelationID }
+					}
+				}.Send();
 				await item.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 				await Utility.Cache.RemoveAsync(item, cancellationToken).ConfigureAwait(false);
 				item = await Item.GetAsync<Item>(item.ID, cancellationToken).ConfigureAwait(false);
