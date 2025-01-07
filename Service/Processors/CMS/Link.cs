@@ -12,6 +12,8 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using DocumentFormat.OpenXml.Office2016.Excel;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -574,12 +576,31 @@ namespace net.vieapps.Services.Portals
 			// send updates messages
 			var objectName = link.GetObjectName();
 			var response = link.ToJson(true, false);
+
+			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(link.ParentID))
+			{
+				response["OldParentID"] = oldParentID;
+				var oldParent = await Link.GetAsync<Link>(oldParentID, cancellationToken).ConfigureAwait(false);
+				if (oldParent != null)
+				{
+					oldParent.ChildrenIDs.Remove(link.ID);
+					await Utility.Cache.SetAsync(oldParent, 0, cancellationToken).ConfigureAwait(false);
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{objectName}#Update",
+						Data = oldParent.ToJson(true, false),
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
+				}
+			}
+
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+
 			if (link.ParentLink == null)
 			{
 				var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -596,6 +617,7 @@ namespace net.vieapps.Services.Portals
 					DeviceID = "*"
 				}.Send();
 			}
+
 			return response;
 		}
 
@@ -613,10 +635,12 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
+			var request = requestInfo.GetBodyExpando();
 			var oldParentID = link.ParentID;
 			var oldStatus = link.Status;
-			link.Update(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			link.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,ParentID,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
+				obj.ParentID = request.Get<string>("ParentID");
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 			});

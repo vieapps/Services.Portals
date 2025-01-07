@@ -731,9 +731,10 @@ namespace net.vieapps.Services.Portals
 					throw new InformationExistedException($"The alias ({category.Alias}) was used by another category");
 			}
 
-			category.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			category.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,ParentID,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? oldAlias : obj.Alias.NormalizeAlias();
+				obj.ParentID = request.Get<string>("ParentID");
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 			});
@@ -761,12 +762,31 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var objectName = category.GetObjectName();
 			var response = category.ToJson(true, false);
+
+			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(category.ParentID))
+			{
+				response["OldParentID"] = oldParentID;
+				var oldParent = await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (oldParent != null)
+				{
+					oldParent.ChildrenIDs.Remove(category.ID);
+					await oldParent.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{objectName}#Update",
+						Data = oldParent.ToJson(true, false),
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
+				}
+			}
+
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Update",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
+
 			if (category.ParentCategory == null)
 			{
 				var versions = await category.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
@@ -777,6 +797,7 @@ namespace net.vieapps.Services.Portals
 					DeviceID = "*"
 				}.Send();
 			}
+
 			return response;
 		}
 

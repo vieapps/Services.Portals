@@ -587,12 +587,14 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			var oldAliases = (desktop.Aliases ?? "").ToArray(";", true).Concat(new[] { oldAlias }).ToList();
-			desktop.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async _ =>
+			desktop.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,ParentID,Created,CreatedID,LastModified,LastModifiedID", async obj =>
 			{
-				desktop.LastModified = DateTime.Now;
-				desktop.LastModifiedID = requestInfo.Session.User.ID;
-				await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				obj.ParentID = request.Get<string>("ParentID");
+				obj.LastModified = DateTime.Now;
+				obj.LastModifiedID = requestInfo.Session.User.ID;
+				await obj.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			});
+
 			await Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await desktop.Set(existing != null, false, oldAliases).ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
@@ -650,7 +652,10 @@ namespace net.vieapps.Services.Portals
 
 			// message to update to all other connected clients
 			var response = desktop.ToJson(true, false);
+			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(desktop.ParentID))
+				response["OldParentID"] = oldParentID;
 			var versions = await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{objectName}#Update",

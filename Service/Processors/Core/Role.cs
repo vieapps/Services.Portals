@@ -408,15 +408,18 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// update
+			var request = requestInfo.GetBodyExpando();
 			var oldParentID = role.ParentID;
 			var oldUserIDs = role.UserIDs ?? new List<string>();
 
-			role.Update(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", async obj =>
+			role.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,ParentID,Created,CreatedID,LastModified,LastModifiedID", async obj =>
 			{
+				obj.ParentID = request.Get<string>("ParentID");
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
 				await obj.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 			});
+
 			await Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await role.Set().ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 

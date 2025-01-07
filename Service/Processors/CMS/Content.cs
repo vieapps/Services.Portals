@@ -905,6 +905,7 @@ namespace net.vieapps.Services.Portals
 								}
 								dataXml.Add(@object.ToXml(false, cultureInfo, element =>
 								{
+									element.CleanInvalidCharacters();
 									element.Element("Details")?.Remove();
 									element.Element("StartDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
 									element.Element("EndDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
