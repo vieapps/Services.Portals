@@ -424,7 +424,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("~~/") || url.IsStartsWith(filesHttpURI ?? Utility.FilesHttpURI)))
 			{
 				var segments = new Uri(url.Replace("~~/", $"{filesHttpURI ?? Utility.FilesHttpURI}/")).AbsolutePath.ToList("/").Skip(1).ToList();
-				var handler = segments[0].IsStartsWith("thumbnail") ? segments[0].ToLower() : "webp.image";
+				var handler = segments[0].IsStartsWith("thumbnail") ? segments[0].ToLower() : "images";
 				handler = segments[0].IsStartsWith("thumbnail") ? handler.IsEndsWith("pngs") ? handler.Replace("pngs", "webps") : "thumbnailwebps" : handler;
 				url = (url.IsStartsWith("~~/") ? "~~" : filesHttpURI ?? Utility.FilesHttpURI) + $"/{handler}/";
 				url += segments[0].IsStartsWith("thumbnail")

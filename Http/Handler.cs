@@ -363,7 +363,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var correlationID = context.GetCorrelationID();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.TryGetParameter("x-logs", out var _);
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 
 			var session = context.Session.Get<Session>("Session") ?? context.GetSession();
 			Handler.NormalizeSession(session, context.GetParameter("x-app-name"), context.GetParameter("x-app-platform"), context.GetParameter("x-device-id"));
@@ -716,7 +716,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// working with cache (of portal desktops/resources)
-					if (Handler.AllowCache && !Handler.RefresherURL.IsEquals(context.GetReferUrl()) && !requestInfo.TryGetParameter("x-no-cache", out var _) && !requestInfo.TryGetParameter("x-force-cache", out var _))
+					if (Handler.AllowCache && !Handler.RefresherURL.IsEquals(context.GetReferUrl()) && !requestInfo.ContainsKey("x-no-cache") && !requestInfo.ContainsKey("x-force-cache"))
 					{
 						var cacheKey = "";
 						var eTag = "";
@@ -840,7 +840,7 @@ namespace net.vieapps.Services.Portals
 							{
 								context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 								{
-									{ "X-Cache", $"HTTP-304/{typeof(Handler).Assembly.GetVersion(false)}" },
+									{ "X-Cache", "HTTP-304" },
 									{ "X-Correlation-ID", correlationID },
 									{ "X-Node", Global.NodeID },
 									{ "Content-Type", $"{contentType}; charset=utf-8" },
@@ -864,7 +864,7 @@ namespace net.vieapps.Services.Portals
 								var expiresAt = contentType.IsEquals("text/html") ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
 								context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 								{
-									{ "X-Cache", $"HTTP-200/{typeof(Handler).Assembly.GetVersion(false)}" },
+									{ "X-Cache", "HTTP-200" },
 									{ "X-Correlation-ID", correlationID },
 									{ "X-Node", Global.NodeID },
 									{ "Content-Type", $"{contentType}; charset=utf-8" },
@@ -922,7 +922,15 @@ namespace net.vieapps.Services.Portals
 					{
 						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
 						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), new Dictionary<string, string>(response.Get("Headers", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase) { ["X-Node"] = Global.NodeID, ["X-Correlation-ID"] = context.GetCorrelationID() });
+						headers = response.Get("Headers", new Dictionary<string, string>());
+						if (headers.TryGetValue("X-Node", out var nodeID))
+							headers["X-SVC-Node"] = nodeID;
+						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+						{
+							["X-Node"] = Global.NodeID,
+							["X-Correlation-ID"] = context.GetCorrelationID()
+						};
+						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 						var body = response.Get<string>("Body");
 						if (body != null)
 							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "br")), cts.Token).ConfigureAwait(false);
@@ -1006,7 +1014,15 @@ namespace net.vieapps.Services.Portals
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), new Dictionary<string, string>(response.Get("Headers", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase) { ["X-Node"] = Global.NodeID, ["X-Correlation-ID"] = context.GetCorrelationID() });
+							headers = response.Get("Headers", new Dictionary<string, string>());
+							if (headers.TryGetValue("X-Node", out var nodeID))
+								headers["X-SVC-Node"] = nodeID;
+							headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+							{
+								["X-Node"] = Global.NodeID,
+								["X-Correlation-ID"] = context.GetCorrelationID()
+							};
+							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 							var body = response.Get<string>("Body");
 							if (body != null)
 								await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "br")), cts.Token).ConfigureAwait(false);
@@ -1223,10 +1239,10 @@ namespace net.vieapps.Services.Portals
 					var session = context.Session.Get<Session>("Session") ?? context.GetSession();
 					session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@web" : session.DeviceID;
 					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
-							? session.User.SessionID
-							: !string.IsNullOrWhiteSpace(session.SessionID)
-									? session.SessionID
-									: UtilityService.NewUUID;
+						? session.User.SessionID
+						: !string.IsNullOrWhiteSpace(session.SessionID)
+							? session.SessionID
+							: UtilityService.NewUUID;
 					context.Session.Add("Session", session);
 					context.SetSession(session);
 					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
@@ -1235,9 +1251,9 @@ namespace net.vieapps.Services.Portals
 					{
 						Body = body,
 						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-												{
-														{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
-												},
+						{
+							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+						},
 						CorrelationID = correlationID
 					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 					await Task.WhenAll
@@ -1280,18 +1296,18 @@ namespace net.vieapps.Services.Portals
 					// call service to login
 					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 					var body = new JObject
-										{
-												{ "Account", account.Encrypt(Global.EncryptionKey) },
-												{ "Password", password.Encrypt(Global.EncryptionKey) },
-										}.ToString(Formatting.None);
+					{
+						{ "Account", account.Encrypt(Global.EncryptionKey) },
+						{ "Password", password.Encrypt(Global.EncryptionKey) },
+					}.ToString(Formatting.None);
 
 					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "PUT")
 					{
 						Body = body,
 						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-												{
-														{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
-												},
+						{
+							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+						},
 						CorrelationID = correlationID
 					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
@@ -1300,11 +1316,11 @@ namespace net.vieapps.Services.Portals
 
 					if (require2FA)
 						response = new JObject
-												{
-														{ "ID", response.Get<string>("ID") },
-														{ "Require2FA", true },
-														{ "Providers", response["Providers"] as JArray }
-												};
+						{
+							{ "ID", response.Get<string>("ID") },
+							{ "Require2FA", true },
+							{ "Providers", response["Providers"] as JArray }
+						};
 
 					else
 					{
@@ -1318,9 +1334,9 @@ namespace net.vieapps.Services.Portals
 						{
 							Body = body,
 							Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-														{
-																{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
-														},
+							{
+								{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+							},
 							CorrelationID = correlationID
 						}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
@@ -1335,9 +1351,9 @@ namespace net.vieapps.Services.Portals
 					// response
 					await Task.WhenAll
 					(
-							Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-							context.WriteAsync(response, Formatting.Indented, correlationID, cts.Token),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in {response}") : Task.CompletedTask
+						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
+						context.WriteAsync(response, Formatting.Indented, correlationID, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
@@ -1378,11 +1394,11 @@ namespace net.vieapps.Services.Portals
 					// call service to validate
 					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 					var body = new JObject
-										{
-												{ "ID", id.Encrypt(Global.EncryptionKey) },
-												{ "OTP", otp.Encrypt(Global.EncryptionKey) },
-												{ "Info", info.Encrypt(Global.EncryptionKey) }
-										}.ToString(Formatting.None);
+					{
+						{ "ID", id.Encrypt(Global.EncryptionKey) },
+						{ "OTP", otp.Encrypt(Global.EncryptionKey) },
+						{ "Info", info.Encrypt(Global.EncryptionKey) }
+					}.ToString(Formatting.None);
 					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "OTP", "POST")
 					{
 						Body = body,
@@ -1400,9 +1416,9 @@ namespace net.vieapps.Services.Portals
 					{
 						Body = body,
 						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-												{
-														{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
-												},
+						{
+							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+						},
 						CorrelationID = correlationID
 					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
@@ -1414,9 +1430,9 @@ namespace net.vieapps.Services.Portals
 					// response
 					await Task.WhenAll
 					(
-							Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-							context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in with OTP {response}") : Task.CompletedTask
+						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
+						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in with OTP {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
@@ -1448,27 +1464,27 @@ namespace net.vieapps.Services.Portals
 					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Account", "PUT")
 					{
 						Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-												{
-														{ "object-identity", "Reset" },
-														{ "related-service", "Portals" },
-														{ "language", language },
-														{ "organization", systemIdentityJson.Get<string>("Alias") }
-												},
+						{
+							{ "object-identity", "Reset" },
+							{ "related-service", "Portals" },
+							{ "language", language },
+							{ "organization", systemIdentityJson.Get<string>("Alias") }
+						},
 						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-												{
-														{ "Account", account.Encrypt(Global.EncryptionKey) },
-														{ "Password", password.Encrypt(Global.EncryptionKey) },
-														{ "Uri", renewURI.Encrypt(Global.EncryptionKey) }
-												},
+						{
+							{ "Account", account.Encrypt(Global.EncryptionKey) },
+							{ "Password", password.Encrypt(Global.EncryptionKey) },
+							{ "Uri", renewURI.Encrypt(Global.EncryptionKey) }
+						},
 						CorrelationID = correlationID
 					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 					// response
 					await Task.WhenAll
 					(
-							Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-							context.WriteAsync(response, Formatting.Indented, correlationID, cts.Token),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully send a renew password request {response}") : Task.CompletedTask
+						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
+						context.WriteAsync(response, Formatting.Indented, correlationID, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully send a renew password request {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
@@ -1532,9 +1548,9 @@ namespace net.vieapps.Services.Portals
 					if (ex is WampException wampException)
 					{
 						var details = wampException.GetDetails();
-						code = details.Item1;
-						message = details.Item2;
-						type = details.Item3;
+						code = details.Code;
+						message = details.Message;
+						type = details.Type;
 					}
 					context.ShowError(code, message, type, correlationID, ex, Global.IsDebugLogEnabled);
 				}
@@ -1616,9 +1632,9 @@ namespace net.vieapps.Services.Portals
 					if (ex is WampException wampException)
 					{
 						var details = wampException.GetDetails();
-						code = details.Item1;
-						message = details.Item2;
-						type = details.Item3;
+						code = details.Code;
+						message = details.Message;
+						type = details.Type;
 					}
 					context.ShowError(code, message, type, correlationID, ex, Global.IsDebugLogEnabled);
 				}

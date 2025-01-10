@@ -1280,6 +1280,7 @@ namespace net.vieapps.Services.Portals
 					{ "Headers", new Dictionary<string, string>
 						{
 							{ "Content-Type", $"{contentType}; charset=utf-8" },
+							{ "X-Node", this.NodeID },
 							{ "X-Correlation-ID", requestInfo.CorrelationID }
 						}.ToJson()
 					},
@@ -1417,7 +1418,8 @@ namespace net.vieapps.Services.Portals
 					{ "StatusCode", (int)HttpStatusCode.NotModified },
 					{ "Headers", new Dictionary<string, string>
 						{
-							{ "X-Cache", $"SVC-304/{typeof(ServiceComponent).Assembly.GetVersion(false)}" },
+							{ "X-Cache", "SVC-304" },
+							{ "X-Node", this.NodeID },
 							{ "X-Correlation-ID", requestInfo.CorrelationID },
 							{ "ETag", eTag },
 							{ "Last-Modified", lastModified }
@@ -1467,7 +1469,8 @@ namespace net.vieapps.Services.Portals
 					{ "StatusCode", (int)HttpStatusCode.OK },
 					{ "Headers", new Dictionary<string, string>
 						{
-							{ "X-Cache", $"SVC-200/{typeof(ServiceComponent).Assembly.GetVersion(false)}" },
+							{ "X-Cache", "SVC-200" },
+							{ "X-Node", this.NodeID },
 							{ "X-Correlation-ID", requestInfo.CorrelationID },
 							{ "Content-Type", $"{contentType}; charset=utf-8" },
 							{ "ETag", eTag },
@@ -1504,6 +1507,7 @@ namespace net.vieapps.Services.Portals
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
 					{ "Content-Type", $"{contentType}; charset=utf-8" },
+					{ "X-Node", this.NodeID },
 					{ "X-Cache", "None" },
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
@@ -1597,6 +1601,7 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "Content-Type", "text/css; charset=utf-8" },
 					{ "X-Cache", "None" },
+					{ "X-Node", this.NodeID },
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
 
@@ -1700,6 +1705,7 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "Content-Type", "application/javascript; charset=utf-8" },
 					{ "X-Cache", "None" },
+					{ "X-Node", this.NodeID },
 					{ "X-Correlation-ID", requestInfo.CorrelationID }
 				};
 
@@ -1884,7 +1890,13 @@ namespace net.vieapps.Services.Portals
 				return new JObject
 				{
 					{ "StatusCode", redirectCode },
-					{ "Headers", new JObject { ["Location"] = redirectURL.NormalizeURLs(requestURI, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")) } }
+					{ "Headers", new JObject
+						{
+							["Location"] = redirectURL.NormalizeURLs(requestURI, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")),
+							["X-Node"] = this.NodeID,
+							["X-Correlation-ID"] = requestInfo.CorrelationID
+						}
+					}
 				};
 			}
 
@@ -1906,6 +1918,7 @@ namespace net.vieapps.Services.Portals
 			var headers = new Dictionary<string, string>
 			{
 				{ "Content-Type", "text/html; charset=utf-8" },
+				{ "X-Node", this.NodeID },
 				{ "X-Correlation-ID", requestInfo.CorrelationID }
 			};
 
@@ -1917,7 +1930,7 @@ namespace net.vieapps.Services.Portals
 				{
 					headers = new Dictionary<string, string>(headers)
 					{
-						{ "X-Cache", $"SVC-304/{typeof(ServiceComponent).Assembly.GetVersion(false)}" },
+						{ "X-Cache", "SVC-304" },
 						{ "ETag", eTag },
 						{ "Last-Modified", lastModified },
 						{ "Cache-Control", "public" }
@@ -1982,7 +1995,7 @@ namespace net.vieapps.Services.Portals
 				expiresAt = !string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) ? expirationTime.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString();
 				headers = new Dictionary<string, string>(headers)
 				{
-					{ "X-Cache", $"SVC-200/{typeof(ServiceComponent).Assembly.GetVersion(false)}" },
+					{ "X-Cache", "SVC-200" },
 					{ "ETag", eTag },
 					{ "Last-Modified", lastModified },
 					{ "Expires", expiresAt },
