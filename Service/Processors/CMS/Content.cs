@@ -911,7 +911,7 @@ namespace net.vieapps.Services.Portals
 									element.Element("EndDate")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
 									element.Element("PublishedTime")?.UpdateDateTime(cultureInfo, customDateTimeFormat);
 									if (!string.IsNullOrWhiteSpace(@object.Summary))
-										element.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
+										element.Element("Summary").Value = @object.Summary.RemoveTags().NormalizeHTMLBreaks();
 									element.Add(new XElement("Category", @object.Category?.Title ?? "", new XAttribute("URL", @object.Category?.GetURL(desktop) ?? "")));
 									element.Add(new XElement("URL", @object.GetURL(desktop) ?? ""));
 									element.AddThumbnail(thumbnails?.GetThumbnailURL(@object.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails), pngThumbnails);
@@ -945,7 +945,7 @@ namespace net.vieapps.Services.Portals
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", category.Title),
-							new XElement("Description", category.Description?.NormalizeHTMLBreaks() ?? ""),
+							new XElement("Description", category.Description?.RemoveTags().NormalizeHTMLBreaks() ?? ""),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", category.GetURL(desktop) ?? ""),
 							(categoryThumbnails?.GetThumbnailURL(category.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "").GetThumbnail(pngThumbnails),
@@ -1034,7 +1034,7 @@ namespace net.vieapps.Services.Portals
 				{
 					var cacheKeyOfAlias = contentTypeID.GetCacheKeyOfAliasedContent(category?.ID, contentAlias);
 					var contentIdentity = string.IsNullOrWhiteSpace(cacheKeyOfAlias) ? null : await Utility.Cache.GetAsync<string>(cacheKeyOfAlias, cancellationToken).ConfigureAwait(false);
-					await Utility.Cache.RemoveAsync(new[] { cacheKeyOfAlias, contentIdentity?.GetCacheKey<Content>() }, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.RemoveAsync([cacheKeyOfAlias, contentIdentity?.GetCacheKey<Content>()], cancellationToken).ConfigureAwait(false);
 				}
 
 				// get the requested object
@@ -1147,7 +1147,7 @@ namespace net.vieapps.Services.Portals
 						}
 
 						if (!string.IsNullOrWhiteSpace(@object.Summary))
-							xml.Element("Summary").Value = @object.Summary.NormalizeHTMLBreaks();
+							xml.Element("Summary").Value = @object.Summary.RemoveTags().NormalizeHTMLBreaks();
 
 						xml.Add(new XElement("Category", @object.Category?.Title ?? "", new XAttribute("URL", @object.Category?.GetURL(desktop) ?? "")));
 						xml.Add(new XElement("URL", @object.GetURL(desktop) ?? ""));
@@ -1181,7 +1181,7 @@ namespace net.vieapps.Services.Portals
 						relateds.OrderByDescending(related => related.StartDate).ThenByDescending(related => related.PublishedTime).ForEach(related =>
 						{
 							var relatedXml = new XElement("Content", new XElement("ID", related.ID));
-							relatedXml.Add(new XElement("Title", related.Title), new XElement("Author", related.Author ?? ""), new XElement("Summary", related.Summary?.NormalizeHTMLBreaks() ?? ""));
+							relatedXml.Add(new XElement("Title", related.Title), new XElement("Author", related.Author ?? ""), new XElement("Summary", related.Summary?.RemoveTags().NormalizeHTMLBreaks() ?? ""));
 							relatedXml.Add(new XElement("PublishedTime", related.PublishedTime != null ? related.PublishedTime.Value : DateTime.Now).UpdateDateTime(cultureInfo, customDateTimeFormat));
 							relatedXml.Add(new XElement("Category", related.Category?.Title ?? "", new XAttribute("URL", related.Category?.GetURL(desktop) ?? "")));
 							relatedXml.Add(new XElement("URL", related.GetURL(desktop) ?? ""));
@@ -1231,7 +1231,7 @@ namespace net.vieapps.Services.Portals
 						dataXml.Add(new XElement(
 							"Parent",
 							new XElement("Title", category.Title),
-							new XElement("Description", category.Description?.NormalizeHTMLBreaks() ?? ""),
+							new XElement("Description", category.Description?.RemoveTags().NormalizeHTMLBreaks() ?? ""),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
 							new XElement("URL", category.GetURL(desktop) ?? ""),
 							(categoryThumbnails?.GetThumbnailURL(category.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "").GetThumbnail(pngThumbnails),
@@ -1285,7 +1285,7 @@ namespace net.vieapps.Services.Portals
 			seoInfo = new JObject
 			{
 				{ "Title", seoTitle },
-				{ "Description", string.IsNullOrWhiteSpace(seoDescription) || seoDescription.IsStartsWith("~~/") || seoDescription.IsStartsWith("http://") || seoDescription.IsStartsWith("https://") ? null : seoDescription },
+				{ "Description", string.IsNullOrWhiteSpace(seoDescription) || seoDescription.IsStartsWith("~~/") || seoDescription.IsStartsWith("http://") || seoDescription.IsStartsWith("https://") ? null : seoDescription.RemoveTags() },
 				{ "Keywords", seoKeywords },
 				{ "Og:URL", ogURL },
 				{ "Og:Title", ogTitle },
