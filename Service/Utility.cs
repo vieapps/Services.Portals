@@ -42,10 +42,10 @@ namespace net.vieapps.Services.Portals
 			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
 
 		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo)
-			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false")) || requestInfo.TryGetParameter("x-logs", out var _);
+			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false")) || requestInfo.ContainsKey("x-logs");
 
 		internal static bool IsWriteMessageLogs(this RequestInfo requestInfo)
-			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false")) || requestInfo.TryGetParameter("x-logs", out var _);
+			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false")) || requestInfo.ContainsKey("x-logs");
 
 		internal static bool AllowInlineImages
 			=> "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));
@@ -228,7 +228,7 @@ namespace net.vieapps.Services.Portals
 			return await RepositoryMediator.GetAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false) as T;
 		}
 
-		static FileExtensionContentTypeProvider MimeTypeProvider { get; } = new FileExtensionContentTypeProvider();
+		static FileExtensionContentTypeProvider MimeTypeProvider => new FileExtensionContentTypeProvider();
 
 		/// <summary>
 		/// Gets the MIME type of a file
@@ -739,7 +739,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<IBusinessObject> UploadInlineImagesAsync(this RequestInfo requestInfo, Dictionary<string, (string Identifier, string Filename)> inlineImages, IBusinessObject @object, CancellationToken cancellationToken)
 		{
 			// upload the images
-			var isDebugLogEnabled = Utility.IsDebugLogEnabled || requestInfo.GetParameter("x-logs") != null;
+			var isDebugLogEnabled = Utility.IsDebugLogEnabled || requestInfo.ContainsKey("x-logs");
 			await inlineImages.ForEachAsync(async kvp =>
 			{
 				try

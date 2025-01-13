@@ -107,7 +107,7 @@ namespace net.vieapps.Services.Portals
 
 			// data cache keys
 			var dataCacheKeys = clearDataCache && content != null
-				? Extensions.GetRelatedCacheKeys(content.GetCacheKey()).Concat(new[] { content.GetCacheKeyOfAliasedContent() }).Where(key => key != null).ToList()
+				? Extensions.GetRelatedCacheKeys(content.GetCacheKey()).Concat([content.GetCacheKeyOfAliasedContent()]).Where(key => key != null).ToList()
 				: new List<string>();
 			if (clearDataCache && content?.ContentType != null)
 			{
@@ -162,7 +162,7 @@ namespace net.vieapps.Services.Portals
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
 			var cacheKeyOfTotalObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfTotalObjects(filter, sort) : null;
-			var cacheKeys = string.IsNullOrWhiteSpace(query) ? new List<string> { cacheKeyOfObjects, cacheKeyOfTotalObjects } : new List<string>();
+			var cacheKeys = string.IsNullOrWhiteSpace(query) ? [cacheKeyOfObjects, cacheKeyOfTotalObjects] : new List<string>();
 
 			// count
 			totalRecords = totalRecords > -1
@@ -194,7 +194,7 @@ namespace net.vieapps.Services.Portals
 			if (objects.Count > 0 && searchThumbnails)
 			{
 				requestInfo.Header["x-thumbnails-as-attachments"] = "true";
-				if (requestInfo.GetParameter("x-logs") != null)
+				if (requestInfo.ContainsKey("x-logs"))
 					requestInfo.Header["x-logs"] = "true";
 				if (requestInfo.GetParameter("x-force-cache") != null)
 					requestInfo.Header["x-force-cache"] = "true";
@@ -227,8 +227,8 @@ namespace net.vieapps.Services.Portals
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Content>() ?? Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime") : null;
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var pageSize = pagination.PageSize;
+			var pageNumber = pagination.PageNumber;
 
 			var organizationID = filter?.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
@@ -263,15 +263,15 @@ namespace net.vieapps.Services.Portals
 			filter.Prepare(requestInfo);
 
 			// other parameters
-			var showAttachments = "true".IsEquals(requestInfo.GetParameter("x-object-attachments")) || requestInfo.GetParameter("ShowAttachments") != null;
-			var showURLs = "true".IsEquals(requestInfo.GetParameter("x-object-urls")) || requestInfo.GetParameter("ShowURLs") != null;
-			var showCategories = "true".IsEquals(requestInfo.GetParameter("x-object-categories")) || requestInfo.GetParameter("ShowCategories") != null;
-			var showDetails = "false".IsEquals(requestInfo.GetParameter("x-object-details")) || requestInfo.GetParameter("NoDetails") != null ? false : true;
+			var showAttachments = "true".IsEquals(requestInfo.GetParameter("x-object-attachments")) || requestInfo.ContainsKey("ShowAttachments");
+			var showURLs = "true".IsEquals(requestInfo.GetParameter("x-object-urls")) || requestInfo.ContainsKey("ShowURLs");
+			var showCategories = "true".IsEquals(requestInfo.GetParameter("x-object-categories")) || requestInfo.ContainsKey("ShowCategories");
+			var showDetails = "false".IsEquals(requestInfo.GetParameter("x-object-details")) || requestInfo.ContainsKey("NoDetails") ? false : true;
 
 			// process cache
 			var suffix = string.IsNullOrWhiteSpace(query) ? (showAttachments ? ":a" : "") + (showURLs ? ":u" : "") + (showCategories ? ":c" : "") + (showDetails ? "" : ":d") : null;
 			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber, string.IsNullOrWhiteSpace(suffix) ? null : suffix) : null;
-			if (requestInfo.GetParameter("x-force-cache") != null || requestInfo.GetParameter("x-no-cache") != null)
+			if (requestInfo.GetParameter("x-force-cache") != null || requestInfo.ContainsKey("x-no-cache"))
 				await Utility.Cache.RemoveAsync(new[] { cacheKeyOfObjectsJson, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), Extensions.GetCacheKeyOfTotalObjects(filter, sort) }, cancellationToken).ConfigureAwait(false);
 			else if (cacheKeyOfObjectsJson != null)
 			{
@@ -281,7 +281,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// search if has no cache
-			var (objects, totalRecords, _, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
+			var (objects, totalRecords, _, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, cancellationToken).ConfigureAwait(false);
 
 			JToken attachments = null;
 			if (objects.Count > 0 && showAttachments)
@@ -334,12 +334,12 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(query))
 			{
 				//await	Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
-				cacheKeys = cacheKeys.Concat(new[] { cacheKeyOfObjectsJson }).ToList();
+				cacheKeys = cacheKeys.Concat([cacheKeyOfObjectsJson]).ToList();
 				Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
 					contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken) : Task.CompletedTask,
-					Utility.IsCacheLogEnabled || requestInfo.GetParameter("x-logs") != null ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n{(contentType != null ? $"- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n" : "")}- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
+					Utility.IsCacheLogEnabled || requestInfo.ContainsKey("x-logs") ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS contents\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n{(contentType != null ? $"- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n" : "")}- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
 				).Run();
 			}
 
@@ -778,7 +778,7 @@ namespace net.vieapps.Services.Portals
 
 			var showBreadcrumbs = options.Get("ShowBreadcrumbs", false);
 			var showPagination = options.Get("ShowPagination", false);
-			var forceCache = requestInfo.GetParameter("x-force-cache") != null || requestInfo.GetParameter("x-no-cache") != null;
+			var forceCache = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache");
 
 			// generate list
 			if (isList)
@@ -1097,9 +1097,9 @@ namespace net.vieapps.Services.Portals
 
 					// get files
 					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
-					if (requestInfo.GetParameter("x-logs") != null)
+					if (requestInfo.ContainsKey("x-logs"))
 						requestInfo.Header["x-logs"] = "true";
-					if (requestInfo.GetParameter("x-force-cache") != null)
+					if (requestInfo.ContainsKey("x-force-cache"))
 						requestInfo.Header["x-force-cache"] = "true";
 					thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 					var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
@@ -1333,7 +1333,7 @@ namespace net.vieapps.Services.Portals
 			var objectCacheKey = @object.GetCacheKey();
 
 			if (forceCache)
-				await Utility.Cache.RemoveAsync(new[] { $"{objectCacheKey}:others", $"{objectCacheKey}:newers", $"{objectCacheKey}:olders" }, cancellationToken).ConfigureAwait(false);
+				await Utility.Cache.RemoveAsync([$"{objectCacheKey}:others", $"{objectCacheKey}:newers", $"{objectCacheKey}:olders"], cancellationToken).ConfigureAwait(false);
 
 			var relatedCacheKeys = new List<string>
 			{

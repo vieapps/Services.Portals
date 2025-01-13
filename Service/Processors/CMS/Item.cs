@@ -176,8 +176,8 @@ namespace net.vieapps.Services.Portals
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Item>() ?? Sorts<Item>.Descending("Created").ThenByAscending("Title") : null;
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var pageSize = pagination.PageSize;
+			var pageNumber = pagination.PageNumber;
 
 			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
@@ -219,9 +219,9 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// search if has no cache
-			var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
+			var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, cancellationToken).ConfigureAwait(false);
 			JToken attachments = null;
-			var showAttachments = requestInfo.GetParameter("ShowAttachments") != null;
+			var showAttachments = requestInfo.ContainsKey("ShowAttachments");
 			if (objects.Count > 0 && showAttachments)
 			{
 				attachments = objects.Count == 1
@@ -234,7 +234,7 @@ namespace net.vieapps.Services.Portals
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
-			var showURLs = requestInfo.GetParameter("ShowURLs") != null;
+			var showURLs = requestInfo.ContainsKey("ShowURLs");
 			var siteURL = showURLs ? organization.DefaultSite?.GetURL(requestInfo.GetHeaderParameter("x-srp-host"), requestInfo.GetParameter("x-url")) + "/" : null;
 
 			var response = new JObject()
@@ -261,7 +261,7 @@ namespace net.vieapps.Services.Portals
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
 			{
-				cacheKeys = cacheKeys.Concat(new[] { cacheKeyOfObjectsJson }).ToList();
+				cacheKeys = cacheKeys.Concat([cacheKeyOfObjectsJson]).ToList();
 				Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None)),
