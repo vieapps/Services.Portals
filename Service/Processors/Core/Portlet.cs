@@ -640,14 +640,15 @@ namespace net.vieapps.Services.Portals
 			var oldDesktopID = portlet.DesktopID;
 			var oldZone = portlet.Zone;
 			var request = requestInfo.GetBodyExpando();
-			portlet.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,OriginalPortletID,Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			portlet.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,OriginalPortletID,Privileges,ExpressionID,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
+				portlet.ExpressionID = request.Get<string>("ExpressionID");
+				portlet.LastModified = DateTime.Now;
+				portlet.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
 			if ("true".IsEquals(requestInfo.GetParameter("IsAdvancedMode")))
-				portlet.RepositoryEntityID = request.Get("RepositoryEntityID", portlet.RepositoryEntityID);
+				portlet.RepositoryEntityID = request.Get<string>("RepositoryEntityID");
 
 			if (!portlet.DesktopID.IsEquals(oldDesktopID) || !portlet.Zone.IsEquals(oldZone))
 				portlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(portlet.DesktopID, portlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
@@ -655,7 +656,7 @@ namespace net.vieapps.Services.Portals
 			await Portlet.UpdateAsync(portlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
-			var otherDesktops = request.Get<List<string>>("OtherDesktops").Except(new[] { portlet.DesktopID }).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
+			var otherDesktops = request.Get<List<string>>("OtherDesktops").Except([portlet.DesktopID]).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
 			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, otherDesktops, cancellationToken).ConfigureAwait(false);
 
 			// send update messages

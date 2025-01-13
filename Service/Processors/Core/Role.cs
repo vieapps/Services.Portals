@@ -411,13 +411,12 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetBodyExpando();
 			var oldParentID = role.ParentID;
 			var oldUserIDs = role.UserIDs ?? new List<string>();
-
-			role.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,ParentID,Created,CreatedID,LastModified,LastModifiedID", async obj =>
+			role.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,ParentID,Created,CreatedID,LastModified,LastModifiedID", async _ =>
 			{
-				obj.ParentID = request.Get<string>("ParentID");
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				await obj.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
+				role.ParentID = request.Get<string>("ParentID");
+				role.LastModified = DateTime.Now;
+				role.LastModifiedID = requestInfo.Session.User.ID;
+				await role.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 			});
 
 			await Role.UpdateAsync(role, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);

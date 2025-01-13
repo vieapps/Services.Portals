@@ -622,10 +622,10 @@ namespace net.vieapps.Services.Portals
 			var oldStatus = content.Status;
 
 			Dictionary<string, (string Identifier, string Filename)> inlineImages = null;
-			content.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", out inlineImages, obj =>
+			content.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", out inlineImages, _ =>
 			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
+				content.LastModified = DateTime.Now;
+				content.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
 			var existing = await Content.GetContentByAliasAsync(content.RepositoryEntityID, content.Alias, content.CategoryID, cancellationToken).ConfigureAwait(false);

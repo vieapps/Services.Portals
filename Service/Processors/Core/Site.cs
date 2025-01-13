@@ -574,8 +574,10 @@ namespace net.vieapps.Services.Portals
 			request.Get("MetaTags", "").ValidateTags();
 
 			// gathering information
-			site.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
+			site.Update(request, "ID,SystemID,HomeDesktopID,SearchDesktopID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
+				site.HomeDesktopID = request.Get<string>("HomeDesktopID");
+				site.HomeDesktopID = request.Get<string>("SearchDesktopID");
 				site.LastModified = DateTime.Now;
 				site.LastModifiedID = requestInfo.Session.User.ID;
 			});

@@ -552,10 +552,12 @@ namespace net.vieapps.Services.Portals
 
 			// gathering formation
 			var privileges = contentType.OriginalPrivileges?.Copy();
-			contentType.Update(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,ContentTypeDefinitionID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var request = requestInfo.GetBodyExpando();
+			contentType.Update(request, "ID,SystemID,RepositoryID,ContentTypeDefinitionID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
+				contentType.DesktopID = request.Get<string>("DesktopID");
+				contentType.LastModified = DateTime.Now;
+				contentType.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
 			// validate

@@ -24,7 +24,7 @@ namespace net.vieapps.Services.Portals
 		public static Item CreateItem(this ExpandoObject data, string excluded = null, Action<Item> onCompleted = null)
 			=> Item.CreateInstance(data, excluded?.ToHashSet(), item =>
 			{
-				item.NormalizeHTMLs(out var inlineImages);
+				item.NormalizeHTMLs(out var _);
 				item.Alias = (string.IsNullOrWhiteSpace(item.Alias) ? item.Title : item.Alias).NormalizeAlias();
 				item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				item.Tags = string.IsNullOrWhiteSpace(item.Tags) ? null : item.Tags;
@@ -34,7 +34,7 @@ namespace net.vieapps.Services.Portals
 		public static Item Update(this Item item, ExpandoObject data, string excluded = null, Action<Item> onCompleted = null)
 			=> item.Fill(data, excluded?.ToHashSet(), _ =>
 			{
-				item.NormalizeHTMLs(out var inlineImages);
+				item.NormalizeHTMLs(out var _);
 				item.Alias = (string.IsNullOrWhiteSpace(item.Alias) ? item.Title : item.Alias).NormalizeAlias();
 				item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
 				item.Tags = string.IsNullOrWhiteSpace(item.Tags) ? null : item.Tags;

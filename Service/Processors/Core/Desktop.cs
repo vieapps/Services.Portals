@@ -587,12 +587,12 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			var oldAliases = (desktop.Aliases ?? "").ToArray(";", true).Concat(new[] { oldAlias }).ToList();
-			desktop.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,ParentID,Created,CreatedID,LastModified,LastModifiedID", async obj =>
+			desktop.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,ParentID,Created,CreatedID,LastModified,LastModifiedID", async _ =>
 			{
-				obj.ParentID = request.Get<string>("ParentID");
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-				await obj.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				desktop.ParentID = request.Get<string>("ParentID");
+				desktop.LastModified = DateTime.Now;
+				desktop.LastModifiedID = requestInfo.Session.User.ID;
+				await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			});
 
 			await Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);

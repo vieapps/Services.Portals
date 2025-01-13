@@ -422,10 +422,12 @@ namespace net.vieapps.Services.Portals
 
 			// gathering information
 			var privileges = module.OriginalPrivileges?.Copy();
-			module.Update(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var request = requestInfo.GetBodyExpando();
+			module.Update(request, "ID,SystemID,DesktopID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
+				module.DesktopID = request.Get<string>("DesktopID");
+				module.LastModified = DateTime.Now;
+				module.LastModifiedID = requestInfo.Session.User.ID;
 			});
 			module.Notifications?.WebHooks?.Validate(requestInfo, module.Organization, module);
 

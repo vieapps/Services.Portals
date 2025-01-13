@@ -23,14 +23,14 @@ namespace net.vieapps.Services.Portals
 		public static Link CreateLink(this ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 			=> Link.CreateInstance(data, excluded?.ToHashSet(), link =>
 			{
-				link.NormalizeHTMLs(out var inlineImages);
+				link.NormalizeHTMLs(out var _);
 				onCompleted?.Invoke(link);
 			});
 
 		public static Link Update(this Link link, ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 			=> link.Fill(data, excluded?.ToHashSet(), _ =>
 			{
-				link.NormalizeHTMLs(out var inlineImages);
+				link.NormalizeHTMLs(out var _);
 				onCompleted?.Invoke(link);
 			});
 
@@ -638,11 +638,11 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetBodyExpando();
 			var oldParentID = link.ParentID;
 			var oldStatus = link.Status;
-			link.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,ParentID,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			link.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,ParentID,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				obj.ParentID = request.Get<string>("ParentID");
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
+				link.ParentID = request.Get<string>("ParentID");
+				link.LastModified = DateTime.Now;
+				link.LastModifiedID = requestInfo.Session.User.ID;
 			});
 
 			if (link.ChildrenMode.Equals(ChildrenMode.Normal) || string.IsNullOrWhiteSpace(link.LookupRepositoryID) || string.IsNullOrWhiteSpace(link.LookupRepositoryEntityID) || string.IsNullOrWhiteSpace(link.LookupRepositoryObjectID))
@@ -1042,7 +1042,7 @@ namespace net.vieapps.Services.Portals
 			var maxLevel = options.Get("MaxLevel", 0);
 			var addChildren = options.Get("ShowChildrens", options.Get("ShowChildren", options.Get("AddChildrens", options.Get("AddChildren", false))));
 
-			var forceCache = requestInfo.GetParameter("x-force-cache") != null || requestInfo.GetParameter("x-no-cache") != null;
+			var forceCache = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache");
 			string data = null;
 
 			var requestedURL = requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri");

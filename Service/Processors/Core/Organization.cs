@@ -676,11 +676,13 @@ namespace net.vieapps.Services.Portals
 
 			// gathering information
 			var privileges = organization.OriginalPrivileges?.Copy();
-			organization.Update(request, "ID,OwnerID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
+			organization.Update(request, "ID,OwnerID,HomeDesktopID,SearchDesktopID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
 				organization.OwnerID = isSystemAdministrator ? request.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
 				organization.Status = isSystemAdministrator ? request.Get("Status", organization.Status.ToString()).ToEnum<ApprovalStatus>() : organization.Status;
 				organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias;
+				organization.HomeDesktopID = request.Get<string>("HomeDesktopID");
+				organization.HomeDesktopID = request.Get<string>("SearchDesktopID");
 				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
 				organization.LastModified = DateTime.Now;
 				organization.LastModifiedID = requestInfo.Session.User.ID;
