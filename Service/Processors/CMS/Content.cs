@@ -622,7 +622,7 @@ namespace net.vieapps.Services.Portals
 			var oldStatus = content.Status;
 
 			Dictionary<string, (string Identifier, string Filename)> inlineImages = null;
-			content.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", out inlineImages, _ =>
+			content.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,StartDate,EndDate,PublishedTime,Privileges,Created,CreatedID,LastModified,LastModifiedID", out inlineImages, _ =>
 			{
 				content.LastModified = DateTime.Now;
 				content.LastModifiedID = requestInfo.Session.User.ID;
