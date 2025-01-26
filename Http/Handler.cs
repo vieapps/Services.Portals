@@ -181,9 +181,19 @@ namespace net.vieapps.Services.Portals
 
 			var correlationID = UtilityService.NewUUID;
 			var stopwatch = Stopwatch.StartNew();
-			var requestObj = requestMsg.ToExpandoObject();
-			var requestID = requestObj.Get<string>("ID");
 
+			var requestObj = new JObject().ToExpandoObject();
+			try
+			{
+				requestObj = requestMsg.ToExpandoObject();
+			}
+			catch (Exception ex)
+			{
+				await Global.WriteLogsAsync(Global.Logger, "WebSockets", $"Invalid message => {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+				return;
+			}
+
+			var requestID = requestObj.Get<string>("ID");
 			var serviceName = requestObj.Get("ServiceName", "").GetANSIUri(true, true);
 			var objectName = requestObj.Get("ObjectName", "").GetANSIUri(true, true);
 			var verb = requestObj.Get("Verb", "GET").ToUpper();
@@ -993,6 +1003,7 @@ namespace net.vieapps.Services.Portals
 							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 							await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID"), systemIdentityJson?.Get<string>("ObjectID"), systemIdentityJson?.Get<string>("RepositoryEntityID") ?? systemIdentityJson?.Get<string>("ObjectName")).ConfigureAwait(false);
 						}
+						catch (OperationCanceledException) { }
 						catch (Exception ex)
 						{
 							if (ex is WampException wampException)
@@ -1027,6 +1038,7 @@ namespace net.vieapps.Services.Portals
 							if (body != null)
 								await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "br")), cts.Token).ConfigureAwait(false);
 						}
+						catch (OperationCanceledException) { }
 						catch (Exception ex)
 						{
 							if (ex is WampException wampException)
@@ -1064,6 +1076,7 @@ namespace net.vieapps.Services.Portals
 								isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Services", $"Successfully process request of a service {response}") : Task.CompletedTask
 							).ConfigureAwait(false);
 						}
+						catch (OperationCanceledException) { }
 						catch (Exception ex)
 						{
 							context.WriteError(Global.Logger, ex, requestInfo, $"Error occurred while calling a service => {ex.Message}", true, "Http.Services");

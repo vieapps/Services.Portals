@@ -324,8 +324,7 @@ namespace net.vieapps.Services.Portals
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
-			var isDebugEnabled = this.IsDebugLogEnabled || this.IsDebugResultsEnabled || requestInfo.TryGetParameter("x-logs", out var _);
-			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
+			await this.WriteLogsAsync(requestInfo, $"Begin request {requestInfo.Verb} {requestInfo.GetURI()}").ConfigureAwait(false);
 			try
 			{
 				JToken json = null;
@@ -333,7 +332,7 @@ namespace net.vieapps.Services.Portals
 				switch (requestInfo.ObjectName.ToLower())
 				{
 
-					#region process the request of Portals objects
+					#region process the request of Portals Core objects
 					case "organization":
 					case "core.organization":
 						json = await this.ProcessOrganizationAsync(requestInfo, cts.Token).ConfigureAwait(false);
@@ -389,7 +388,7 @@ namespace net.vieapps.Services.Portals
 						break;
 					#endregion
 
-					#region process the request of CMS objects
+					#region process the request of Portals CMS objects
 					case "category":
 					case "cms.category":
 						json = await this.ProcessCategoryAsync(requestInfo, cts.Token).ConfigureAwait(false);
@@ -423,7 +422,7 @@ namespace net.vieapps.Services.Portals
 						break;
 					#endregion
 
-					#region process request of Portals HTTP service
+					#region process the request of Portals HTTP service
 					case "identify.system":
 						json = await this.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
@@ -601,12 +600,12 @@ namespace net.vieapps.Services.Portals
 
 				}
 				stopwatch.Stop();
-				await Task.WhenAll
-				(
-					this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}"),
-					isDebugEnabled ? this.WriteLogsAsync(requestInfo, (requestInfo.TryGetParameter("x-request", out var xrequest) ? $"- Request (Encoded): {xrequest}\r\n" : "") + $"- Request (JSON): {requestInfo.ToString(this.JsonFormat)}\r\n- Response (JSON): {json?.ToString(this.JsonFormat)}") : Task.CompletedTask
-				).ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo, $"Success response - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs") ? $"\r\n\r\n- Request: {requestInfo.ToString(this.JsonFormat)}{(requestInfo.TryGetParameter("x-request", out var xrequest) ? $"\r\n\r\n- Decoded X-Request: {xrequest.Url64Decode()}" : "")}\r\n\r\n- Response: {json?.ToString(this.JsonFormat)}" : "")).ConfigureAwait(false);
 				return json;
+			}
+			catch (RepositoryOperationException ex)
+			{
+				throw ex.InnerException is not OperationCanceledException ? this.GetRuntimeException(requestInfo, ex, stopwatch) : ex;
 			}
 			catch (Exception ex)
 			{

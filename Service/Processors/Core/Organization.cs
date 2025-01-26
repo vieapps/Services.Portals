@@ -682,7 +682,7 @@ namespace net.vieapps.Services.Portals
 				organization.Status = isSystemAdministrator ? request.Get("Status", organization.Status.ToString()).ToEnum<ApprovalStatus>() : organization.Status;
 				organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias;
 				organization.HomeDesktopID = request.Get<string>("HomeDesktopID");
-				organization.HomeDesktopID = request.Get<string>("SearchDesktopID");
+				organization.SearchDesktopID = request.Get<string>("SearchDesktopID");
 				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
 				organization.LastModified = DateTime.Now;
 				organization.LastModifiedID = requestInfo.Session.User.ID;

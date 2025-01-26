@@ -8,6 +8,7 @@ using System.Diagnostics;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
+using MongoDB.Driver;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -245,8 +246,12 @@ namespace net.vieapps.Services.Portals
 		/// <param name="pageSize"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		public static Task SetCacheOfPageSizeAsync<T>(IFilterBy<T> filter, SortBy<T> sort, int pageSize, CancellationToken cancellationToken = default) where T : class
-			=> Utility.Cache.SetAsync($"{Extensions.GetCacheKey(filter, sort)}:size", pageSize, cancellationToken);
+		public static async Task<string> SetCacheOfPageSizeAsync<T>(IFilterBy<T> filter, SortBy<T> sort, int pageSize, CancellationToken cancellationToken = default) where T : class
+		{
+			var cacheKey = $"{Extensions.GetCacheKey(filter, sort)}:size";
+			await Utility.Cache.SetAsync(cacheKey, pageSize, cancellationToken).ConfigureAwait(false);
+			return cacheKey;
+		}
 
 		internal static async Task RefreshWebPageAsync(this string url, int delay, string correlationID = null, string log = null)
 		{

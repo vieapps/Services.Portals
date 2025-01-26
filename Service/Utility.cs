@@ -42,10 +42,10 @@ namespace net.vieapps.Services.Portals
 			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
 
 		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo)
-			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false")) || requestInfo.ContainsKey("x-logs");
+			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false")) || (requestInfo != null && requestInfo.ContainsKey("x-logs"));
 
 		internal static bool IsWriteMessageLogs(this RequestInfo requestInfo)
-			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false")) || requestInfo.ContainsKey("x-logs");
+			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false")) || (requestInfo != null && requestInfo.ContainsKey("x-logs"));
 
 		internal static bool AllowInlineImages
 			=> "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));

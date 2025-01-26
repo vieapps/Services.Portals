@@ -231,7 +231,9 @@ namespace net.vieapps.Services.Portals
 		}
 
 		public static Task<List<Site>> FindSitesAsync(this string systemID, CancellationToken cancellationToken = default, bool updateCache = true)
-			=> string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID() ? Task.FromResult(new List<Site>()) : SiteProcessor.FindSitesAsync(systemID, null, updateCache, cancellationToken);
+			=> string.IsNullOrWhiteSpace(systemID) || !systemID.IsValidUUID()
+				? Task.FromResult(new List<Site>())
+				: SiteProcessor.FindSitesAsync(systemID, null, updateCache, cancellationToken);
 
 		internal static async Task<List<Site>> FindSitesAsync(string systemID, string cacheKey, bool updateCache, CancellationToken cancellationToken)
 		{
@@ -313,7 +315,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Cache") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{site.Organization.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]") : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
@@ -329,7 +331,7 @@ namespace net.vieapps.Services.Portals
 					Data = site.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", "Caches") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", "Cache") : Task.CompletedTask
 			);
 
 		internal static async Task<JObject> SearchSitesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -342,8 +344,8 @@ namespace net.vieapps.Services.Portals
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Site>() ?? Sorts<Site>.Ascending("Title") : null;
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var pageSize = pagination.PageSize;
+			var pageNumber = pagination.PageNumber;
 
 			// check permission
 			var gotRights = isSystemAdministrator;
@@ -361,32 +363,47 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// process cache
+			var isCacheLogEnabled = Utility.IsCacheLogEnabled || requestInfo.ContainsKey("x-logs");
+			var cacheKeyOfObjectsJson = Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber);
+
 			var json = string.IsNullOrWhiteSpace(query)
-				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+				? await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsJson, cancellationToken).ConfigureAwait(false)
 				: null;
+			
 			if (!string.IsNullOrWhiteSpace(json))
+			{
+				if (isCacheLogEnabled)
+					await requestInfo.WriteLogAsync($"Got JSON of sites\r\n{cacheKeyOfObjectsJson}", "Cache").ConfigureAwait(false);
 				return JObject.Parse(json);
+			}
+
+			var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, pageSize, pageNumber);
+			var cacheKeyOfTotalObjects = Extensions.GetCacheKeyOfTotalObjects(filter, sort);
+
+			var cacheKeys = new[] { cacheKeyOfObjects, cacheKeyOfTotalObjects };
+			if (Utility.IsDebugLogEnabled || requestInfo.ContainsKey("x-logs"))
+				await requestInfo.WriteLogAsync($"Search for sites\r\n- Filter: {filter?.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache keys: {cacheKeys.Join(", ")}", "Site").ConfigureAwait(false);
 
 			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
+			var totalRecords = pagination.TotalRecords > -1 ? pagination.TotalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Site.CountAsync(filter, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await Site.CountAsync(filter, cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false)
 					: await Site.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			var totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Site.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await Site.FindAsync(filter, sort, pageSize, pageNumber, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
 					: await Site.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Site>();
+				: [];
 
 			// build response
-			var response = new JObject()
+			var response = new JObject
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
@@ -396,7 +413,11 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.Indented)).Run();
+				await Task.WhenAll
+				(
+					isCacheLogEnabled ? requestInfo.WriteLogAsync($"Update cache of sites => {cacheKeys.Concat([cacheKeyOfObjectsJson]).Join(", ")}", "Cache") : Task.CompletedTask,
+					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Utility.IsDebugLogEnabled ? Formatting.Indented : Formatting.None), cancellationToken)
+				).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -577,7 +598,7 @@ namespace net.vieapps.Services.Portals
 			site.Update(request, "ID,SystemID,HomeDesktopID,SearchDesktopID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
 				site.HomeDesktopID = request.Get<string>("HomeDesktopID");
-				site.HomeDesktopID = request.Get<string>("SearchDesktopID");
+				site.SearchDesktopID = request.Get<string>("SearchDesktopID");
 				site.LastModified = DateTime.Now;
 				site.LastModifiedID = requestInfo.Session.User.ID;
 			});

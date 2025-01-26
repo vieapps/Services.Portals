@@ -281,7 +281,7 @@ namespace net.vieapps.Services.Portals
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
 			var cacheKeyOfTotalObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfTotalObjects(filter, sort) : null;
-			var cacheKeys = string.IsNullOrWhiteSpace(query) ? new List<string> { cacheKeyOfObjects, cacheKeyOfTotalObjects } : new List<string>();
+			var cacheKeys = string.IsNullOrWhiteSpace(query) ? [cacheKeyOfObjects, cacheKeyOfTotalObjects] : new List<string>();
 
 			// count
 			totalRecords = totalRecords > -1
