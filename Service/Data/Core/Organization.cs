@@ -219,13 +219,13 @@ namespace net.vieapps.Services.Portals
 		internal async Task<List<Site>> FindSitesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._siteIDs == null
 				? this.FindSites(await (this.ID ?? "").FindSitesAsync(cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
-				: this._siteIDs.Select(siteID => siteID.GetSiteByID()).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
+				: this._siteIDs.Select(siteID => siteID.GetSiteByID()).Where(site => site != null).OrderBy(site => site.PrimaryDomain).ThenBy(site => site.SubDomain).ThenBy(site => site.Title).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Site> Sites => this.FindSites();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public Site DefaultSite => this.Sites?.FirstOrDefault(site => "*".Equals(site.SubDomain)) ?? this.Sites?.FirstOrDefault();
+		public Site DefaultSite => this.Sites?.FirstOrDefault(site => site.IsDefault) ?? this.Sites?.FirstOrDefault(site => "*".Equals(site.SubDomain)) ?? this.Sites?.FirstOrDefault();
 
 		internal List<string> _moduleIDs;
 
@@ -252,7 +252,7 @@ namespace net.vieapps.Services.Portals
 		internal async Task<List<Module>> FindModulesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._moduleIDs == null
 				? this.FindModules(await (this.ID ?? "").FindModulesAsync(null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
-				: this._moduleIDs.Select(id => id.GetModuleByID()).ToList();
+				: this._moduleIDs.Select(id => id.GetModuleByID()).Where(module => module != null).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Module> Modules => this.FindModules();
@@ -277,8 +277,8 @@ namespace net.vieapps.Services.Portals
 				var instructions = kvp.Value?.Select(pair => KeyValuePair.Create(pair.Key, pair.Value?.Normalize())).Where(pair => pair.Value != null).ToDictionary();
 				return KeyValuePair.Create(kvp.Key, instructions);
 			}).Where(kvp => kvp.Value != null).ToDictionary();
-			this.Instructions = this.Instructions != null && this.Instructions.Any() ? this.Instructions : null;
-			this.Socials = this.Socials != null && this.Socials.Any() ? this.Socials : null;
+			this.Instructions = this.Instructions != null && this.Instructions.Count > 0 ? this.Instructions : null;
+			this.Socials = this.Socials != null && this.Socials.Count > 0 ? this.Socials : null;
 			this.Trackings = (this.Trackings ?? new Dictionary<string, string>()).Where(kvp => !string.IsNullOrWhiteSpace(kvp.Value)).ToDictionary();
 			this.Trackings = this.Trackings.Any() ? this.Trackings : null;
 			this.MetaTags = string.IsNullOrWhiteSpace(this.MetaTags) ? null : this.MetaTags.Trim();
@@ -289,7 +289,7 @@ namespace net.vieapps.Services.Portals
 			this.EmailSettings = this.EmailSettings?.Normalize();
 			this.WebHookSettings = this.WebHookSettings?.Normalize();
 			this.HttpIndicators = this.HttpIndicators?.Select(indicator => indicator.Normalize()).Where(indicator => indicator != null).ToList();
-			this.HttpIndicators = this.HttpIndicators != null && this.HttpIndicators.Any() ? this.HttpIndicators : null;
+			this.HttpIndicators = this.HttpIndicators != null && this.HttpIndicators.Count > 0 ? this.HttpIndicators : null;
 			try
 			{
 				var uri = new Uri(this.FakeFilesHttpURI);
@@ -359,42 +359,46 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		List<Tuple<string, string, string>> _redirectAddresses;
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		List<(string SourceURL, string DestinationURL, string Code)> RedirectAddresses { get; set; }
 
 		void PrepareRedirectAddresses()
-			=> this._redirectAddresses = this.RedirectUrls?.Addresses?.Select(address =>
+			=> this.RedirectAddresses = this.RedirectUrls?.Addresses?.Select(address =>
 			{
-				var addresses = address.ToArray('|');
-				return addresses.Length > 1 ? new Tuple<string, string, string>(addresses[0], addresses[1], addresses.Length > 2 ? Int32.TryParse(addresses[2], out var code) ? code.ToString() : "302" : "302") : null;
-			}).Where(addresses => addresses != null).ToList();
+				var info = address.ToArray('|');
+				return info.Length > 1 ? (SourceURL: info[0], DestinationURL: info[1], Code: info.Length > 2 ? Int32.TryParse(info[2], out var code) ? code.ToString() : "302" : "302") : (SourceURL: null, DestinationURL: null, Code: null);
+			}).Where(address => address.SourceURL != null && address.DestinationURL != null).ToList() ?? new List<(string SourceURL, string DestinationURL, string Code)>();
 
 		internal string GetRedirectURL(string requestedURL, out int redirectCode)
 		{
-			redirectCode = 302;
+			redirectCode = (int)System.Net.HttpStatusCode.Redirect;
 			if (!string.IsNullOrWhiteSpace(requestedURL))
 			{
-				var url = this._redirectAddresses?.FirstOrDefault(addresses => requestedURL.IsStartsWith(addresses.Item1))?.Item2;
-				if (url != null)
-					redirectCode = this._redirectAddresses.FirstOrDefault(addresses => requestedURL.IsStartsWith(addresses.Item1)).Item3.As<int>();
+				var redirectURL = this.RedirectAddresses.FindIndex(address => requestedURL.IsStartsWith(address.SourceURL)) > -1 ? this.RedirectAddresses.First(address => requestedURL.IsStartsWith(address.SourceURL)).DestinationURL : null;
+				if (redirectURL != null)
+				{
+					redirectCode = this.RedirectAddresses.First(address => requestedURL.IsStartsWith(address.SourceURL)).Code.As<int>();
+					return redirectURL;
+				}
 				else
 				{
-					var regexAddresses = this._redirectAddresses?.Where(addresses => addresses.Item1.IsStartsWith("@regex")).ToList() ?? new List<Tuple<string, string, string>>();
+					var regexAddresses = this.RedirectAddresses.Where(address => address.SourceURL.IsStartsWith("@regex")).ToList() ?? new List<(string SourceURL, string DestinationURL, string Code)>();
 					var regexIndex = 0;
 					while (regexIndex < regexAddresses.Count)
 					{
-						var addresses = regexAddresses[regexIndex];
-						var regex = addresses.Item1.IsStartsWith("@regex(") && addresses.Item1.IsEndsWith(")")
-							? addresses.Item1.Left(addresses.Item1.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, "@regex(", "")
-							: addresses.Item1.Replace(StringComparison.OrdinalIgnoreCase, "@regex:", "");
+						var address = regexAddresses[regexIndex];
+						var regex = address.SourceURL.IsStartsWith("@regex(") && address.SourceURL.IsEndsWith(")")
+							? address.SourceURL.Left(address.SourceURL.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, "@regex(", "")
+							: address.SourceURL.Replace(StringComparison.OrdinalIgnoreCase, "@regex:", "");
 						var match = new Regex(regex, RegexOptions.IgnoreCase).Match(requestedURL);
 						if (match.Success)
 						{
-							var isRegEx = addresses.Item2.IsStartsWith("@regex");
-							var redirectURL = isRegEx
-								? addresses.Item2.IsStartsWith("@regex(") && addresses.Item2.IsEndsWith(")")
-									? addresses.Item2.Left(addresses.Item2.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, "@regex(", "")
-									: addresses.Item2.Replace(StringComparison.OrdinalIgnoreCase, "@regex:", "")
-								:addresses.Item2;
+							var isRegEx = address.DestinationURL.IsStartsWith("@regex");
+							redirectURL = isRegEx
+								? address.DestinationURL.IsStartsWith("@regex(") && address.DestinationURL.IsEndsWith(")")
+									? address.DestinationURL.Left(address.DestinationURL.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, "@regex(", "")
+									: address.DestinationURL.Replace(StringComparison.OrdinalIgnoreCase, "@regex:", "")
+								: address.DestinationURL;
 							if (isRegEx)
 							{
 								var matchIndex = 1;
@@ -404,7 +408,7 @@ namespace net.vieapps.Services.Portals
 									matchIndex++;
 								}
 							}
-							redirectCode = addresses.Item3.As<int>();
+							redirectCode = address.Code.As<int>();
 							return redirectURL;
 						}
 						regexIndex++;
@@ -415,7 +419,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public bool IsHasJavascriptLibraries => (this.Socials != null && this.Socials.Any()) || (this.Trackings != null && this.Trackings.Any()) || !string.IsNullOrWhiteSpace(this.ScriptLibraries);
+		public bool IsHasJavascriptLibraries => (this.Socials != null && this.Socials.Count > 0) || (this.Trackings != null && this.Trackings.Count > 0) || !string.IsNullOrWhiteSpace(this.ScriptLibraries);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string JavascriptLibraries
@@ -423,14 +427,14 @@ namespace net.vieapps.Services.Portals
 			get
 			{
 				var scripts = "";
-				if (this.Socials != null && this.Socials.Any())
+				if (this.Socials != null && this.Socials.Count > 0)
 				{
 					if (this.Socials.IndexOf("Facebook") > -1)
 						scripts += $"<script src=\"https://connect.facebook.net/en_US/sdk.js\" async defer></script>";
 					if (this.Socials.IndexOf("Twitter") > -1)
 						scripts += "<script src=\"https://platform.twitter.com/widgets.js\" async defer></script>";
 				}
-				if (this.Trackings != null && this.Trackings.Any())
+				if (this.Trackings != null && this.Trackings.Count > 0)
 				{
 					if (this.Trackings.TryGetValue("GoogleAnalytics", out var googleAnalytics) && !string.IsNullOrWhiteSpace(googleAnalytics))
 						scripts += "<script src=\"https://www.googletagmanager.com/gtag/js?id=" + googleAnalytics.ToArray(";", true).First() + "\" async defer></script>";
@@ -442,7 +446,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public bool IsHasJavascripts => (this.Trackings != null && this.Trackings.Any()) || !string.IsNullOrWhiteSpace(this.Scripts);
+		public bool IsHasJavascripts => (this.Trackings != null && this.Trackings.Count > 0) || !string.IsNullOrWhiteSpace(this.Scripts);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string Javascripts
@@ -450,7 +454,7 @@ namespace net.vieapps.Services.Portals
 			get
 			{
 				var scripts = "";
-				if (this.Trackings != null && this.Trackings.Any())
+				if (this.Trackings != null && this.Trackings.Count > 0)
 				{
 					if (this.Trackings.TryGetValue("GoogleAnalytics", out var googleAnalytics) && !string.IsNullOrWhiteSpace(googleAnalytics))
 					{

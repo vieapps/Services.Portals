@@ -70,8 +70,7 @@ namespace net.vieapps.Services.Portals
 		internal static List<string> LegacyParameters
 			=> UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop,catName,contId,page").ToList();
 
-		internal static HashSet<string> BlackIPs
-			=> UtilityService.GetAppSetting("Portals:BlackIPs", "").ToHashSet();
+		internal static HashSet<string> BlackIPs { get; set; } = UtilityService.GetAppSetting("Portals:BlackIPs", "").ToHashSet();
 
 		static string PortalsHttpURI
 			=> UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
@@ -800,39 +799,50 @@ namespace net.vieapps.Services.Portals
 						else if (!"~indicators".IsEquals(systemIdentity))
 						{
 							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-							var organizationID = systemIdentityJson.Get<string>("ID");
+
 							var organizationAlias = systemIdentityJson.Get<string>("Alias");
 							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
+							var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
+
+							var desktopAlias = queryString["x-desktop"].ToLower();
+							var path = homeDesktopAlias.IsEquals(desktopAlias) || homeDesktopAliases.IsContains(desktopAlias) || "-default".IsEquals(desktopAlias) ? "-default" : null;
+							if (path == null)
+							{
+								path = requestURI.AbsolutePath.ToLower();
+								while (path.EndsWith("/") || path.EndsWith("."))
+									path = path.Left(path.Length - 1).Trim();
+								if (path.IsStartsWith($"/~{organizationAlias}"))
+								{
+									path = path.Right(path.Length - organizationAlias.Length - 2);
+									baseURL = $"{portalsHttpURI}/~{organizationAlias}/";
+									rootURL = "";
+								}
+								path = path.IsEndsWith("/default.aspx") ? path.Left(path.Length - 13) : path;
+								path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
+								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? "-default" : path;
+							}
+
+							var organizationID = systemIdentityJson.Get<string>("ID");
+							var siteID = systemIdentityJson.Get<string>("SiteID");
+							cacheKey = $"{organizationID}:{(string.IsNullOrWhiteSpace(siteID) ? "" : $"{siteID}:")}{path.GenerateUUID()}";
+							eTag = $"v#{cacheKey}";
 
 							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
 							alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
 							redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
-
-							var desktopAlias = queryString["x-desktop"].ToLower();
-							var path = requestURI.AbsolutePath.ToLower();
-							while (path.EndsWith("/") || path.EndsWith("."))
-								path = path.Left(path.Length - 1).Trim();
-							if (path.IsStartsWith($"/~{organizationAlias}"))
-							{
-								path = path.Right(path.Length - organizationAlias.Length - 2);
-								baseURL = $"{portalsHttpURI}/~{organizationAlias}/";
-								rootURL = "";
-							}
-							path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
-							path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
-
-							cacheKey = $"{organizationID}:{(desktopAlias.IsEquals("-default") || desktopAlias.IsEquals(homeDesktopAlias) ? "-default" : path).GenerateUUID()}";
-							eTag = $"v#{cacheKey}";
 						}
 
 						if (!string.IsNullOrWhiteSpace(cacheKey))
 						{
-							// redirect (always HTTPS or None WWW)
+							// redirect (HTTPS or None-WWW)
 							if (contentType.IsEquals("text/html") && ((alwaysUseHTTPs && !requestURI.Scheme.IsEquals("https")) || (redirectToNoneWWW && requestURI.Host.IsStartsWith("www."))))
 							{
 								context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 								{
-									{ "Location", $"{(alwaysUseHTTPs ? "https" : requestURI.Scheme)}://{(redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host)}{requestURI.PathAndQuery}{requestURI.Fragment}" }
+									{ "Location", $"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{(redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host)}{requestURI.PathAndQuery}{requestURI.Fragment}" },
+									{ "X-Node", Global.NodeID },
+									{ "X-Correlation-ID", requestInfo.CorrelationID },
+									{ "X-Redirector", "CMS HTTP Portals" }
 								});
 								return;
 							}
@@ -1784,7 +1794,22 @@ namespace net.vieapps.Services.Portals
 							async exception => await Global.WriteLogsAsync(Global.Logger, "Http.Updates", exception.Message, exception).ConfigureAwait(false)
 						);
 				},
-				async (sender, arguments) => await Global.RegisterServiceAsync().ConfigureAwait(false),
+				async (sender, arguments) =>
+				{
+					await Global.RegisterServiceAsync().ConfigureAwait(false);
+					try
+					{
+						while (Router.IncomingChannel == null)
+							await Task.Delay(UtilityService.GetRandomNumber(13, 123), Global.CancellationToken).ConfigureAwait(false);
+						await Global.CallServiceAsync(new RequestInfo
+						{
+							ServiceName = "Portals",
+							ObjectName = "Black.IPs",
+							Verb = "HEAD"
+						}, Global.CancellationToken, Global.Logger, "Http.Updates").ConfigureAwait(false);
+					}
+					catch { }
+				},
 				waitingTimes
 			);
 		}
@@ -1798,6 +1823,10 @@ namespace net.vieapps.Services.Portals
 		}
 
 		internal static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
-			=> Task.CompletedTask;
+		{
+			if (message.Type.IsEquals("BlackIPs#Update") || message.Type.IsEquals("BlackIPs#Reset"))
+				Handler.BlackIPs = (message.Type.IsEquals("BlackIPs#Reset") ? [] : Handler.BlackIPs).Concat((message.Data as JArray).ToList<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToHashSet();
+			return Task.CompletedTask;
+		}
 	}
 }

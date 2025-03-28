@@ -188,11 +188,11 @@ namespace net.vieapps.Services.Portals
 			// data cache keys
 			var dataCacheKeys = clearDataCache && category != null
 				? Extensions.GetRelatedCacheKeys(category.GetCacheKey())
-				: new List<string>();
+				: [];
 
 			var childrenContentTypes = clearDataCache && category != null
-				? category.ContentType?.GetChildren() ?? new List<ContentType>()
-				: new List<ContentType>();
+				? category.ContentType?.GetChildren() ?? []
+				: [];
 			await childrenContentTypes.ForEachAsync(async contentType =>
 			{
 				var cacheKeys = await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
@@ -244,7 +244,7 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = new List<string>();
 			if (clearHtmlCache)
 			{
-				htmlCacheKeys = category?.Organization?.GetDesktopCacheKey() ?? new List<string>();
+				htmlCacheKeys = category?.Organization?.GetDesktopCacheKeys() ?? new List<string>();
 				await linkContentTypes.ForEachAsync(async linkContentType =>
 				{
 					var desktopSetCacheKeys = await linkContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false);
@@ -1035,7 +1035,7 @@ namespace net.vieapps.Services.Portals
 			var desktop = desktopsJson.Get<string>("Specified");
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("ContentType");
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Module");
-			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Default");
+			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("IsDefault");
 
 			// check permission
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -1089,10 +1089,7 @@ namespace net.vieapps.Services.Portals
 			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 
-			var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
-			var totalRecords = results.Item1;
-			var objects = results.Item2;
-			var thumbnails = results.Item3;
+			var (totalRecords, objects, thumbnails, _) = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
 
 			// build response
 			var level = options.Get("Level", 1);

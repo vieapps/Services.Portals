@@ -145,18 +145,18 @@ namespace net.vieapps.Services.Portals
 			if (this._contentTypeIDs == null || this._contentTypeIDs.Count < 1)
 			{
 				contentTypes = contentTypes ?? (this.SystemID ?? "").FindContentTypes(this.ID);
-				this._contentTypeIDs = contentTypes.Select(contentType => contentType.ID).ToList();
+				this._contentTypeIDs = contentTypes.Select(contentType => contentType.ID).Where(id => id != null && id.IsValidUUID()).ToList();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("ContentTypes");
 				return contentTypes;
 			}
-			return this._contentTypeIDs.Select(id => id.GetContentTypeByID()).ToList();
+			return this._contentTypeIDs.Select(id => id.GetContentTypeByID()).Where(contentType => contentType != null).ToList();
 		}
 
 		internal async Task<List<ContentType>> FindContentTypesAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._contentTypeIDs == null
 				? this.FindContentTypes(await (this.SystemID ?? "").FindContentTypesAsync(this.ID, null, cancellationToken).ConfigureAwait(false), notifyPropertyChanged)
-				: this._contentTypeIDs.Select(id => id.GetContentTypeByID()).ToList();
+				: this._contentTypeIDs.Select(id => id.GetContentTypeByID()).Where(contentType => contentType != null).ToList();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<ContentType> ContentTypes => this.FindContentTypes();

@@ -167,8 +167,8 @@ namespace net.vieapps.Services.Portals
 						{ "Name", form.Name },
 						{ "Email", form.Email }
 					}
-				: (await requestInfo.GetUserProfilesAsync(new[] { requestInfo.Session.User.ID }, false, cancellationToken).ConfigureAwait(false) as JArray)?.FirstOrDefault();
-			var recipientIDs = await @object.GetRecipientsAsync(status, organization, cancellationToken, new[] { requestInfo.Session.User.ID }).ConfigureAwait(false);
+				: (await requestInfo.GetUserProfilesAsync([requestInfo.Session.User.ID], false, cancellationToken).ConfigureAwait(false) as JArray)?.FirstOrDefault();
+			var recipientIDs = await @object.GetRecipientsAsync(status, organization, cancellationToken, [requestInfo.Session.User.ID]).ConfigureAwait(false);
 
 			// send app notifications
 			if (sendAppNotifications && recipientIDs.Any())
@@ -220,12 +220,12 @@ namespace net.vieapps.Services.Portals
 				{
 					["Organization"] = organization?.ToJson(false, false, json =>
 					{
-						OrganizationProcessor.ExtraProperties.Concat(new[] { "Privileges" }).ForEach(name => json.Remove(name));
+						OrganizationProcessor.ExtraProperties.Concat(["Privileges"]).ForEach(name => json.Remove(name));
 						json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
 					}),
 					["Site"] = site?.ToJson(json =>
 					{
-						SiteProcessor.ExtraProperties.Concat(new[] { "Privileges" }).ForEach(name => json.Remove(name));
+						SiteProcessor.ExtraProperties.Concat(["Privileges"]).ForEach(name => json.Remove(name));
 						json["Domain"] = siteDomain;
 						json["URL"] = siteURL;
 					}),
@@ -235,9 +235,9 @@ namespace net.vieapps.Services.Portals
 						(json as JObject).Remove("ContentTypeDefinitions");
 						(json as JObject).Remove("ObjectDefinitions");
 					}),
-					["Module"] = contentType?.Module?.ToJson(false, false, json => new[] { "Privileges", "OriginalPrivileges" }.Concat(ModuleProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
-					["ContentType"] = contentType?.ToJson(false, json => new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
-					["ParentContentType"] = contentType?.GetParent()?.ToJson(false, json => new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
+					["Module"] = contentType?.Module?.ToJson(false, false, json => ModuleProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name))),
+					["ContentType"] = contentType?.ToJson(false, json => ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]).ForEach(name => json.Remove(name))),
+					["ParentContentType"] = contentType?.GetParent()?.ToJson(false, json => ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]).ForEach(name => json.Remove(name))),
 					["URLs"] = new JObject
 					{
 						{ "Public", objectURL.GetWebURL(siteURL) },
@@ -263,7 +263,7 @@ namespace net.vieapps.Services.Portals
 				if (category != null)
 					@params["Category"] = category.ToJson(false, false, json =>
 					{
-						new[] { "Privileges", "OriginalPrivileges" }.Concat(CategoryProcessor.ExtraProperties).ForEach(name => json.Remove(name));
+						CategoryProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
 						json["URL"] = category.GetURL().GetWebURL(siteURL);
 					});
 
@@ -454,10 +454,10 @@ namespace net.vieapps.Services.Portals
 				var requestInfoJson = requestInfo.AsJson;
 				var paramsJson = new JObject
 				{
-					["Organization"] = organization?.ToJson(false, false, json => new[] { "Privileges", "OriginalPrivileges" }.Concat(OrganizationProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
-					["Module"] = contentType?.Module?.ToJson(json => new[] { "Privileges", "OriginalPrivileges" }.Concat(ModuleProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
-					["ContentType"] = contentType?.ToJson(json => new[] { "Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions" }.Concat(ContentTypeProcessor.ExtraProperties).ForEach(name => json.Remove(name))),
-					["Category"] = category?.ToJson(json => new[] { "Privileges", "OriginalPrivileges" }.Concat(CategoryProcessor.ExtraProperties).ForEach(name => json.Remove(name)))
+					["Organization"] = organization?.ToJson(false, false, json => OrganizationProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name))),
+					["Module"] = contentType?.Module?.ToJson(json => ModuleProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name))),
+					["ContentType"] = contentType?.ToJson(json => ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]).ForEach(name => json.Remove(name))),
+					["Category"] = category?.ToJson(json => CategoryProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name)))
 				};
 				await webhookNotifications.ForEachAsync(async webhookNotification =>
 				{

@@ -57,6 +57,10 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public bool AlwaysReturnHTTPs { get; set; } = false;
 
+		[Ignore, BsonIgnore]
+		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
+		public bool IsDefault { get; set; } = false;
+
 		[Property(MaxLength = 5)]
 		[FormControl(Segment = "display", ControlType = "Select", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public string Language { get; set; } = "vi-VN";
@@ -231,6 +235,7 @@ namespace net.vieapps.Services.Portals
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this.AlwaysUseHTTPs = this._json["AlwaysUseHTTPs"] != null && this._json["AlwaysUseHTTPs"].As<bool>();
 				this.AlwaysReturnHTTPs = this._json["AlwaysReturnHTTPs"] != null && this._json["AlwaysReturnHTTPs"].As<bool>();
+				this.IsDefault = this._json["IsDefault"] != null && this._json["IsDefault"].As<bool>();
 				this.UISettings = this._json["UISettings"]?.As<Settings.UI>();
 				this.IconURI = this._json["IconURI"]?.As<string>();
 				this.CoverURI = this._json["CoverURI"]?.As<string>();

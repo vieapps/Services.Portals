@@ -90,7 +90,7 @@ namespace net.vieapps.Services.Portals
 			// data cache keys
 			var dataCacheKeys = clearDataCache && link != null
 				? Extensions.GetRelatedCacheKeys(link.GetCacheKey())
-				: new List<string>();
+				: [];
 
 			if (clearDataCache)
 			{
@@ -118,7 +118,7 @@ namespace net.vieapps.Services.Portals
 			if (clearHtmlCache)
 			{
 				desktop = link?.ContentType?.Desktop;
-				htmlCacheKeys = link?.Organization?.GetDesktopCacheKey() ?? new List<string>();
+				htmlCacheKeys = link?.Organization?.GetDesktopCacheKeys() ?? new List<string>();
 				await new[] { desktop?.GetSetCacheKey() }
 					.Concat(link?.ContentType != null ? await link.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
 					.Where(id => !string.IsNullOrWhiteSpace(id))
@@ -983,7 +983,7 @@ namespace net.vieapps.Services.Portals
 			var desktop = desktopsJson.Get<string>("Specified");
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("ContentType");
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Module");
-			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Default");
+			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("IsDefault");
 
 			// check permission
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);

@@ -46,20 +46,20 @@ namespace net.vieapps.Services.Portals.Settings
 	{
 		public WebHookNotification() : base() { }
 
-		public List<string> EndpointURLs { get; set; } = new List<string>();
+		public List<string> EndpointURLs { get; set; } = [];
 
 		public bool SignatureInQuery { get; set; } = false;
 
 		public override WebHookNotification Normalize(Action onCompleted = null)
 		{
 			base.Normalize();
-			this.EndpointURLs = (this.EndpointURLs ?? new List<string>())
+			this.EndpointURLs = (this.EndpointURLs ?? [])
 				.Where(url => !string.IsNullOrWhiteSpace(url))
 				.Select(url => url.Replace("\t", "").Replace("\r", "").ToList("\n"))
 				.SelectMany(urls => urls)
 				.Where(url => !string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("http://") || url.IsStartsWith("https://")))
 				.ToList();
-			this.EndpointURLs = this.EndpointURLs.Any() ? this.EndpointURLs : null;
+			this.EndpointURLs = this.EndpointURLs.Count > 0 ? this.EndpointURLs : null;
 			onCompleted?.Invoke();
 			return this.EndpointURLs != null ? this : null;
 		}
@@ -88,9 +88,9 @@ namespace net.vieapps.Services.Portals.Settings
 	{
 		public Notifications() { }
 
-		public List<string> Events { get; set; } = new List<string>();
+		public List<string> Events { get; set; } = [];
 
-		public List<string> Methods { get; set; } = new List<string>();
+		public List<string> Methods { get; set; } = [];
 
 		public EmailNotification Emails { get; set; } = new EmailNotification();
 
@@ -102,11 +102,11 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public Notifications Normalize()
 		{
-			this.Events = this.Events != null && this.Events.Any() ? this.Events : null;
-			this.Methods = this.Methods != null && this.Methods.Any() ? this.Methods : null;
+			this.Events = this.Events != null && this.Events.Count > 0 ? this.Events : null;
+			this.Methods = this.Methods != null && this.Methods.Count > 0 ? this.Methods : null;
 			this.Emails = this.Emails?.Normalize();
 			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus?.Select(kvp => KeyValuePair.Create(kvp.Key, kvp.Value?.Normalize())).Where(kvp => kvp.Value != null).ToDictionary();
-			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus != null && this.EmailsByApprovalStatus.Any() ? this.EmailsByApprovalStatus : null;
+			this.EmailsByApprovalStatus = this.EmailsByApprovalStatus != null && this.EmailsByApprovalStatus.Count > 0 ? this.EmailsByApprovalStatus : null;
 			this.EmailsWhenPublish = this.EmailsWhenPublish?.Normalize();
 			this.WebHooks = this.WebHooks?.Normalize();
 			return this.Events == null && this.Methods == null && this.Emails == null && this.EmailsByApprovalStatus == null && this.EmailsWhenPublish == null && this.WebHooks == null ? null : this;
@@ -154,19 +154,19 @@ namespace net.vieapps.Services.Portals.Settings
 	{
 		public RefreshUrls() { }
 
-		public List<string> Addresses { get; set; } = new List<string>();
+		public List<string> Addresses { get; set; } = [];
 
 		public int Interval { get; set; } = 15;
 
 		public RefreshUrls Normalize()
 		{
-			this.Addresses = (this.Addresses ?? new List<string>())
+			this.Addresses = (this.Addresses ?? [])
 				.Where(address => !string.IsNullOrWhiteSpace(address))
 				.Select(address => address.Trim().Replace("\r", "").ToArray("\n"))
 				.SelectMany(addresses => addresses)
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
-			this.Addresses = this.Addresses.Any() ? this.Addresses : null;
+			this.Addresses = this.Addresses.Count > 0 ? this.Addresses : null;
 			this.Interval = this.Interval < 1 ? 15 : this.Interval;
 			return this.Addresses != null ? this : null;
 		}
@@ -178,20 +178,20 @@ namespace net.vieapps.Services.Portals.Settings
 	{
 		public RedirectUrls() { }
 
-		public List<string> Addresses { get; set; } = new List<string>();
+		public List<string> Addresses { get; set; } = [];
 
 		public bool AllHttp404 { get; set; } = false;
 
 		public RedirectUrls Normalize()
 		{
-			this.Addresses = (this.Addresses ?? new List<string>())
+			this.Addresses = (this.Addresses ?? [])
 				.Where(address => !string.IsNullOrWhiteSpace(address))
 				.Select(address => address.Trim().Replace("\r", "").ToArray("\n"))
 				.SelectMany(addresses => addresses)
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
-			this.Addresses = this.Addresses.Any() ? this.Addresses : null;
-			return this.Addresses != null ? this : null;
+			this.Addresses = this.Addresses.Count > 0 ? this.Addresses : null;
+			return this.Addresses != null || this.AllHttp404 ? this : null;
 		}
 	}
 

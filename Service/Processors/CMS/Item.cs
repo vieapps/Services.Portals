@@ -87,7 +87,7 @@ namespace net.vieapps.Services.Portals
 			if (clearHtmlCache)
 			{
 				desktop = item?.ContentType?.Desktop;
-				htmlCacheKeys = item?.Organization?.GetDesktopCacheKey() ?? new List<string>();
+				htmlCacheKeys = item?.Organization?.GetDesktopCacheKeys() ?? new List<string>();
 				await new[] { desktop?.GetSetCacheKey() }
 					.Concat(item?.ContentType != null ? await item.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
 					.Where(id => !string.IsNullOrWhiteSpace(id))
@@ -565,7 +565,7 @@ namespace net.vieapps.Services.Portals
 			var desktop = desktopsJson.Get<string>("Specified");
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("ContentType");
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Module");
-			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Default");
+			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("IsDefault");
 
 			JObject pagination = null, seoInfo, filterBy = null, sortBy = null;
 			string coverURI = null, data = null, ids = null;

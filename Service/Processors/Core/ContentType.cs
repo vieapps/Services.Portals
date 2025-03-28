@@ -172,7 +172,7 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = new List<string>();
 			if (clearHtmlCache)
 			{
-				htmlCacheKeys = contentType.Organization?.GetDesktopCacheKey() ?? new List<string>();
+				htmlCacheKeys = contentType.Organization?.GetDesktopCacheKeys() ?? new List<string>();
 				await new[] { contentType.Desktop?.GetSetCacheKey() }
 					.Concat(await contentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? new List<string>())
 					.Where(id => !string.IsNullOrWhiteSpace(id))

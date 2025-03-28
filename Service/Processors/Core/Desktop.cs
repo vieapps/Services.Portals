@@ -24,7 +24,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,MainPortletID,SEOSettings".ToHashSet();
 
-		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Images,Thumbnails,ThumbnailPngs,ThumbnailBigs,ThumbnailBigPngs,Default,Index,Feed,Atom,Rss").ToLower().ToHashSet();
+		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Images,Thumbnails,ThumbnailPngs,ThumbnailBigs,ThumbnailBigPngs,IsDefault,Index,Feed,Atom,Rss").ToLower().ToHashSet();
 
 		public static Desktop CreateDesktop(this ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
 			=> Desktop.CreateInstance(data, excluded?.ToHashSet(), desktop =>

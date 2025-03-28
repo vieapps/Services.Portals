@@ -160,7 +160,7 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = new List<string>();
 			if (clearHtmlCache)
 			{
-				htmlCacheKeys = new[] { module.Desktop?.GetSetCacheKey() }.Concat(module.Organization?.GetDesktopCacheKey() ?? new List<string>()).ToList();
+				htmlCacheKeys = new[] { module.Desktop?.GetSetCacheKey() }.Concat(module.Organization?.GetDesktopCacheKeys() ?? new List<string>()).ToList();
 				var desktopSetCacheKeys = new List<string>();
 				await module.ContentTypes.ForEachAsync(async contentType =>
 				{

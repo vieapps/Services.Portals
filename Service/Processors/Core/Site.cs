@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, Site> SitesByDomain { get; } = new ConcurrentDictionary<string, Site>(StringComparer.OrdinalIgnoreCase);
 
-		internal static HashSet<string> ExtraProperties { get; } = "AlwaysUseHTTPs,AlwaysReturnHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,UseInlineStylesheets,UseInlineScripts,CanonicalHost,SEOInfo".ToHashSet();
+		internal static HashSet<string> ExtraProperties { get; } = "IsDefault,AlwaysUseHTTPs,AlwaysReturnHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,UseInlineStylesheets,UseInlineScripts,CanonicalHost,SEOInfo".ToHashSet();
 
 		public static Site CreateSite(this ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
 			=> Site.CreateInstance(data, excluded?.ToHashSet(), site =>
@@ -304,12 +304,12 @@ namespace net.vieapps.Services.Portals
 					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
-				: new List<string>();
+				: [];
 
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = clearHtmlCache
-				? site.Organization.GetDesktopCacheKey().Concat(await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList()
-				: new List<string>();
+				? site.Organization.GetDesktopCacheKeys().Concat(await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList()
+				: [];
 
 			// clear related cache
 			await Task.WhenAll

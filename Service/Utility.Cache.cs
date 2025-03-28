@@ -160,79 +160,71 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
 		/// </summary>
-		/// <param name="organization"></param>
+		/// <param name="desktop"></param>
 		/// <param name="requestURI"></param>
-		/// <param name="desktopAlias"></param>
+		/// <param name="site"></param>
 		/// <returns></returns>
-		public static string GetDesktopCacheKey(this Organization organization, Uri requestURI, string desktopAlias)
+		public static string GetDesktopCacheKey(this Desktop desktop, Uri requestURI, Site site = null)
 		{
-			var path = requestURI.AbsolutePath.ToLower();
-			while (path.EndsWith("/") || path.EndsWith("."))
-				path = path.Left(path.Length - 1).Trim();
-			path = path.IsStartsWith($"/~{organization.Alias}") ? path.Right(path.Length - organization.Alias.Length - 2) : path;
-			path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
-			path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? desktopAlias : path;
-			return $"{organization.ID}:" + (desktopAlias.IsEquals("-default") || desktopAlias.IsEquals(organization.HomeDesktop?.Alias) ? "-default" : path).GenerateUUID();
+			var organization = desktop.Organization;
+			var path = desktop.Alias.IsEquals("-default") || desktop.ID.IsEquals((site?.HomeDesktop ?? organization.HomeDesktop)?.ID) ? "-default" : null;
+			if (path == null)
+			{
+				path = requestURI.AbsolutePath.ToLower();
+				while (path.EndsWith("/") || path.EndsWith("."))
+					path = path.Left(path.Length - 1).Trim();
+				path = path.IsStartsWith($"/~{organization.Alias}") ? path.Right(path.Length - organization.Alias.Length - 2) : path;
+				path = path.IsEndsWith("/default.aspx") ? path.Left(path.Length - 13) : path;
+				path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
+				if (path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default"))
+					path = "-default";
+				else
+				{
+					path = $"/{desktop.Alias}/{path.ToArray("/", true).Skip(1).Join("/")}";
+					while (path.EndsWith('/'))
+						path = path.Left(path.Length - 1);
+				}
+			}
+			return $"{organization.ID}:{(site == null || string.IsNullOrWhiteSpace(site?.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? "" : $"{site.ID}:")}{path.GenerateUUID()}";
 		}
 
 		/// <summary>
 		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
 		/// </summary>
-		/// <param name="desktop"></param>
-		/// <param name="requestURI"></param>
-		/// <returns></returns>
-		public static string GetDesktopCacheKey(this Desktop desktop, Uri requestURI)
-			=> desktop.Organization.GetDesktopCacheKey(requestURI, desktop.Alias);
-
-		/// <summary>
-		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
-		/// </summary>
-		/// <param name="desktop"></param>
+		/// <param name="desktop"></param>B
 		/// <param name="requestURL"></param>
+		/// <param name="site"></param>
 		/// <returns></returns>
-		public static string GetDesktopCacheKey(this Desktop desktop, string requestURL)
-			=> desktop.GetDesktopCacheKey(new Uri(requestURL.IsStartsWith("http://") || requestURL.IsStartsWith("https://") ? requestURL : "https://site.vieapps.net/" + (requestURL.Equals("#") ? "" : requestURL.Replace("~/", ""))));
-
-		/// <summary>
-		/// Gets all the keys for storing HTML code of a desktop that specified by alias and requested URL
-		/// </summary>
-		/// <param name="organization"></param>
-		/// <param name="desktopAlias"></param>
-		/// <param name="requestURI"></param>
-		/// <returns></returns>
-		public static List<string> GetDesktopCacheKeys(this Organization organization, Uri requestURI, string desktopAlias)
-		{
-			var cacheKey = organization.GetDesktopCacheKey(requestURI, desktopAlias);
-			return new List<string> { cacheKey, $"{cacheKey}:time", $"{cacheKey}:expiration" };
-		}
-
-		/// <summary>
-		/// Gets all the keys for storing HTML code of a desktop that specified by alias and requested URL
-		/// </summary>
-		/// <param name="desktop"></param>
-		/// <param name="requestURI"></param>
-		/// <returns></returns>
-		public static List<string> GetDesktopCacheKeys(this Desktop desktop, Uri requestURI)
-			=> desktop.Organization.GetDesktopCacheKeys(requestURI, desktop.Alias);
+		public static string GetDesktopCacheKey(this Desktop desktop, string requestURL, Site site = null)
+			=> desktop.GetDesktopCacheKey(new Uri(requestURL.IsStartsWith("http://") || requestURL.IsStartsWith("https://") ? requestURL : "https://site.vieapps.net/" + (requestURL.Equals("#") ? "" : requestURL.Replace("~/", ""))), site);
 
 		/// <summary>
 		/// Gets all the keys for storing HTML code of a desktop that specified by alias and requested URL
 		/// </summary>
 		/// <param name="desktop"></param>
 		/// <param name="requestURL"></param>
+		/// <param name="site"></param>
 		/// <returns></returns>
-		public static List<string> GetDesktopCacheKeys(this Desktop desktop, string requestURL)
-			=> desktop.GetDesktopCacheKeys(new Uri(requestURL.IsStartsWith("http://") || requestURL.IsStartsWith("https://") ? requestURL : "https://site.vieapps.net/" + (requestURL.Equals("#") ? "" : requestURL.Replace("~/", ""))));
+		public static List<string> GetDesktopCacheKeys(this Desktop desktop, string requestURL, Site site = null)
+		{
+			var cacheKey = desktop.GetDesktopCacheKey(requestURL, site);
+			return [cacheKey, $"{cacheKey}:time", $"{cacheKey}:expiration"];
+		}
 
-		internal static List<string> GetDesktopCacheKey(this Organization organization)
+		/// <summary>
+		/// Gets all the keys for storing HTML code of home desktops (of all sites)
+		/// </summary>
+		/// <param name="organization"></param>
+		/// <returns></returns>
+		internal static List<string> GetDesktopCacheKeys(this Organization organization)
 		{
 			var cacheKeys = new List<string>
 			{
 				organization.HomeDesktop?.GetDesktopCacheKey($"{organization.URL}/{organization.HomeDesktop?.Alias}"),
 				$"{organization.ID}:{organization.HomeDesktop?.Alias.GenerateUUID()}"
 			};
-			if (organization.Sites != null && organization.Sites.Count > 0)
-				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey($"{organization.URL}/{site.HomeDesktop?.Alias}"))).ToList();
+			if (organization.Sites != null && organization.Sites.Count > 1)
+				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey($"{organization.URL}/{site.HomeDesktop?.Alias}", site))).ToList();
 			cacheKeys = cacheKeys.Where(cacheKey => cacheKey != null).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			return cacheKeys.Concat(cacheKeys.Select(cacheKey => new[] { $"{cacheKey}:time", $"{cacheKey}:expiration" }).SelectMany(keys => keys)).ToList();
 		}

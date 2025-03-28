@@ -52,6 +52,12 @@ namespace net.vieapps.Services.Portals
 				});
 			}
 		}
+
+		HashSet<string> BlackIPs { get; set; } = UtilityService.GetAppSetting("Portals:BlackIPs", "").ToHashSet();
+
+		bool RedirectNotFoundDesktopsToHome { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:NotFound:RedirectToHome"));
+
+		bool RewriteNotFoundDesktopsToHome { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:NotFound:RewriteToHome"));
 		#endregion
 
 		#region Register/Start
@@ -434,6 +440,10 @@ namespace net.vieapps.Services.Portals
 					case "process.http.request":
 						json = await this.ProcessHttpRequestAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
+
+					case "black.ips":
+						json = await this.ProcessBlackIPsAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
 					#endregion
 
 					#region process the request of definitions, instructions, files, profiles and all known others
@@ -596,7 +606,7 @@ namespace net.vieapps.Services.Portals
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-					#endregion
+						#endregion
 
 				}
 				stopwatch.Stop();
@@ -1156,15 +1166,22 @@ namespace net.vieapps.Services.Portals
 				site = site.Prepare(host, false);
 
 			organization = organization ?? site?.Organization;
-			if (organization != null && requestInfo.TryGetParameter("x-force-refresh", out var _))
+			if (organization != null && requestInfo.ContainsKey("x-force-refresh"))
 				await organization.RefreshAsync(cancellationToken).ConfigureAwait(false);
+
+			var homeDesktopAlias = (site?.HomeDesktop ?? organization?.HomeDesktop ?? organization?.DefaultDesktop)?.Alias ?? "-default";
+			var homeDesktopAliases = (site?.HomeDesktop ?? organization?.HomeDesktop ?? organization?.DefaultDesktop)?.Aliases;
 
 			var identityJson = organization != null
 				? new JObject
 				{
 					{ "ID", organization.ID },
 					{ "Alias", organization.Alias },
-					{ "HomeDesktopAlias", (site?.HomeDesktop ?? organization.HomeDesktop ?? organization.DefaultDesktop)?.Alias ?? "-default" },
+					{ "HomeDesktopAlias", homeDesktopAlias },
+					{ "HomeDesktopAliases", string.IsNullOrWhiteSpace(homeDesktopAliases) ? homeDesktopAlias : $"{homeDesktopAlias};{homeDesktopAliases}" },
+					{ "SiteID", site == null || string.IsNullOrWhiteSpace(site?.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? null : site.ID },
+					{ "SiteDomain", site != null ? $"{site.SubDomain}.{site.PrimaryDomain}" : null },
+					{ "SiteHost", site != null ? host : null },
 					{ "FilesHttpURI", this.GetFilesHttpURI(organization) },
 					{ "PortalsHttpURI", this.GetPortalsHttpURI(organization) },
 					{ "PortalsWebSocketURI", Utility.PortalsWebSocketURI },
@@ -1778,9 +1795,12 @@ namespace net.vieapps.Services.Portals
 		async Task<JToken> ProcessHttpDesktopRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// prepare required information
+			var writeDesktopLogs = requestInfo.IsWriteDesktopLogs();
+
 			var identity = requestInfo.GetParameter("x-system");
 			if (string.IsNullOrWhiteSpace(identity))
 				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+
 			var stopwatch = Stopwatch.StartNew();
 			var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cancellationToken) : identity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false);
 			if (organization == null || string.IsNullOrWhiteSpace(organization.ID))
@@ -1788,7 +1808,11 @@ namespace net.vieapps.Services.Portals
 
 			// prepare sites and desktops (at the first-time only)
 			if (SiteProcessor.Sites.IsEmpty)
+			{
 				await organization.ReloadAsync(cancellationToken).ConfigureAwait(false);
+				if (writeDesktopLogs)
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Reload organization & all sites - Organization: {organization.Title}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+			}
 
 			if (DesktopProcessor.Desktops.IsEmpty || !DesktopProcessor.Desktops.Any(kvp => kvp.Value.SystemID == organization.ID))
 			{
@@ -1796,6 +1820,8 @@ namespace net.vieapps.Services.Portals
 				var sort = Sorts<Desktop>.Ascending("Title");
 				var desktops = await Desktop.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
 				await desktops.ForEachAsync(async webdesktop => await webdesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+				if (writeDesktopLogs)
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Fetch root desktops - Organization: {organization.Title}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 			}
 
 			// get site
@@ -1839,6 +1865,9 @@ namespace net.vieapps.Services.Portals
 			var redirectCode = (int)HttpStatusCode.Redirect;
 			var redirectURL = "";
 
+			var isRewriteHttp404 = false;
+			var isRedirectHttp404 = false;
+
 			var alias = requestInfo.GetParameter("x-desktop");
 			var desktop = "-default".IsEquals(alias)
 				? site.HomeDesktop ?? organization.DefaultDesktop
@@ -1848,16 +1877,28 @@ namespace net.vieapps.Services.Portals
 			if (desktop == null)
 			{
 				redirectURL = organization.GetRedirectURL(requestURI.AbsoluteUri, out redirectCode) ?? organization.GetRedirectURL($"~{requestURI.PathAndQuery}".Replace($"/~{organization.Alias}/", "/"), out redirectCode);
-				if (string.IsNullOrWhiteSpace(redirectURL) && organization.RedirectUrls != null && organization.RedirectUrls.AllHttp404)
-					redirectURL = organization.GetRedirectURL("*", out redirectCode) ?? "~/index";
-
 				if (string.IsNullOrWhiteSpace(redirectURL))
-					throw new DesktopNotFoundException($"The requested desktop ({alias ?? "unknown"}) is not found");
-
-				redirectURL += (organization.AlwaysUseHtmlSuffix && !redirectURL.IsEndsWith(".html") && !redirectURL.IsEndsWith(".aspx") && !redirectURL.IsEndsWith(".php") ? ".html" : "") + $"{requestURI.Query}{requestURI.Fragment}";
+				{
+					if (this.RewriteNotFoundDesktopsToHome)
+					{
+						desktop = site.HomeDesktop ?? organization.HomeDesktop;
+						isRewriteHttp404 = true;
+					}
+					else if (this.RedirectNotFoundDesktopsToHome || (organization.RedirectUrls != null && organization.RedirectUrls.AllHttp404))
+					{
+						redirectURL = organization.GetRedirectURL("*", out redirectCode) ?? $"~/index{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
+						isRedirectHttp404 = true;
+					}
+				}
+				if (!string.IsNullOrWhiteSpace(redirectURL))
+					redirectURL += $"{requestURI.Query}{(isRedirectHttp404 ? $"{(requestURI.Query.Contains('?') ? "&" : "?")}redirectHttp404=true" : "")}{requestURI.Fragment}";
 			}
 
-			// normalize the redirectinng url
+			// re-check
+			if (desktop == null && string.IsNullOrWhiteSpace(redirectURL))
+				throw new DesktopNotFoundException($"The requested desktop ({alias ?? "unknown"}) is not found");
+
+			// normalize URL
 			if (site.AlwaysUseHTTPs || site.RedirectToNoneWWW)
 			{
 				if (string.IsNullOrWhiteSpace(redirectURL))
@@ -1867,7 +1908,7 @@ namespace net.vieapps.Services.Portals
 				}
 				else
 				{
-					if (site.AlwaysUseHTTPs)
+					if (site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs)
 						redirectURL = redirectURL.Replace("http://", "https://");
 					if (site.RedirectToNoneWWW)
 					{
@@ -1878,9 +1919,11 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// do redirect
-			var writeDesktopLogs = requestInfo.IsWriteDesktopLogs();
-			if (!string.IsNullOrWhiteSpace(redirectURL) && !requestURL.Equals(redirectURL))
+			if (!string.IsNullOrWhiteSpace(redirectURL) && !redirectURL.IsStartsWith(requestURL))
 			{
+				redirectURL = redirectURL.NormalizeURLs(requestURI, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host"));
+				if (site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs)
+					redirectURL = redirectURL.Replace("http://", "https://");
 				if (writeDesktopLogs)
 				{
 					stopwatch.Stop();
@@ -1891,24 +1934,26 @@ namespace net.vieapps.Services.Portals
 					{ "StatusCode", redirectCode },
 					{ "Headers", new JObject
 						{
-							["Location"] = redirectURL.NormalizeURLs(requestURI, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")),
-							["X-Node"] = this.NodeID,
-							["X-Correlation-ID"] = requestInfo.CorrelationID
+							{ "Location", redirectURL },
+							{ "X-Node", this.NodeID },
+							{ "X-Correlation-ID", requestInfo.CorrelationID },
+							{ "X-Redirector", "CMS Portals" }
 						}
 					}
 				};
 			}
 
 			// start process
+			var isHomeDesktop = desktop.ID.IsEquals(site.HomeDesktopID ?? organization.HomeDesktopID);
 			var desktopInfo = $"the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]";
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to process {desktopInfo} of '{site.Title} [{organization.Title}]' => {requestURL}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 			JObject response = null;
 
 			// prepare the caching
-			var cacheKey = desktop.GetDesktopCacheKey(requestURI);
+			var cacheKey = desktop.GetDesktopCacheKey(isRewriteHttp404 ? new Uri($"https://{requestURI.Host}/{desktop.Alias}"): requestURI, site);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
 			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
-			var processCache = this.CacheDesktopHtmls && requestInfo.GetParameter("x-no-cache") == null && requestInfo.GetParameter("x-force-cache") == null;
+			var processCache = this.CacheDesktopHtmls && !requestInfo.ContainsKey("x-no-cache") && !requestInfo.ContainsKey("x-force-cache");
 
 			// check "If-Modified-Since" request to reduce traffict
 			var eTag = $"v#{cacheKey}";
@@ -1927,7 +1972,7 @@ namespace net.vieapps.Services.Portals
 				lastModified = processCache ? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false) : null;
 				if (!string.IsNullOrWhiteSpace(lastModified) && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 				{
-					headers = new Dictionary<string, string>(headers)
+					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
 						{ "X-Cache", "SVC-304" },
 						{ "ETag", eTag },
@@ -1964,7 +2009,7 @@ namespace net.vieapps.Services.Portals
 				var expiresAt = await Utility.Cache.GetAsync<string>(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(expiresAt))
 				{
-					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified }.Concat(new[] { DateTime.TryParse(expiresAt, out var expirationTime) ? "" : cacheKeyOfExpiration }).Where(key => !string.IsNullOrWhiteSpace(key)), cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.RemoveAsync(new[] { cacheKey, cacheKeyOfLastModified, DateTime.TryParse(expiresAt, out var expirationTime) ? "" : cacheKeyOfExpiration }.Where(key => !string.IsNullOrWhiteSpace(key)), cancellationToken).ConfigureAwait(false);
 					html = null;
 				}
 
@@ -1992,7 +2037,7 @@ namespace net.vieapps.Services.Portals
 				}
 				var expiresAt = await Utility.Cache.GetAsync<string>(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false);
 				expiresAt = !string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) ? expirationTime.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString();
-				headers = new Dictionary<string, string>(headers)
+				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
 					{ "X-Cache", "SVC-200" },
 					{ "ETag", eTag },
@@ -2141,11 +2186,11 @@ namespace net.vieapps.Services.Portals
 				// prepare HTML of portlets
 				await generatePortletsTask.ConfigureAwait(false);
 				if (!gotErrorOnGenerateDesktop)
-					portletHtmls.Where(kvp => !kvp.Value.Item2).Select(kvp => kvp.Key).ToList().ForEach(portletID =>
+					portletHtmls.Where(kvp => !kvp.Value.GotError).Select(kvp => kvp.Key).ToList().ForEach(portletID =>
 					{
 						var portletDataInfo = portletHtmls[portletID];
-						var portletHtml = portletDataInfo.Item1;
-						var portletCacheExpiration = portletDataInfo.Item3;
+						var portletHtml = portletDataInfo.HTML;
+						var portletCacheExpiration = portletDataInfo.CacheExpiration;
 
 						// prepare all STYLE tags
 						try
@@ -2281,57 +2326,85 @@ namespace net.vieapps.Services.Portals
 				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
 
 				// canonical URL
-				var canonicalURL = site.GetURL(string.IsNullOrWhiteSpace(site.CanonicalHost) ? site.Host : site.CanonicalHost) + (mainPortlet?.Get<JObject>("SEOInfo")?.Get<string>("Og:URL")?.Replace("~/", "/") ?? requestURI.AbsolutePath.Replace($"/~{organization.Alias}", ""));
+				var canonicalURL = isRewriteHttp404 || isHomeDesktop
+					? $"/index{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}"
+					: requestURL.IsContains("redirectHttp404=")
+						? organization.GetRedirectURL("*", out redirectCode) ?? $"/{(isHomeDesktop ? "index" : desktop.Alias)}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}"
+						: mainPortlet?.Get<JObject>("SEOInfo")?.Get<string>("Og:URL")?.Replace("~/", "/") ?? requestURI.AbsolutePath.Replace($"/~{organization.Alias}", "").ToLower();
+				canonicalURL = canonicalURL.IsEndsWith("/default.aspx") ? canonicalURL.Replace("/default.aspx", organization.AlwaysUseHtmlSuffix ? ".html" : "") : canonicalURL;
+				if (!isHomeDesktop)
+				{
+					canonicalURL = $"/{desktop.Alias}/{canonicalURL.ToArray("/", true).Skip(1).Join("/")}";
+					while (canonicalURL.EndsWith('/'))
+						canonicalURL = canonicalURL.Left(canonicalURL.Length - 1);
+					canonicalURL += organization.AlwaysUseHtmlSuffix && !canonicalURL.IsEndsWith(".html") ? ".html" : "";
+				}
+				canonicalURL = site.GetURL(string.IsNullOrWhiteSpace(site.CanonicalHost) ? site.Host : site.CanonicalHost) + canonicalURL;
+
 				html = html.Insert(html.IndexOf("<link rel="), $"<link rel=\"canonical\" href=\"{canonicalURL}\"/>");
 				if (!html.IsContains("<meta property=\"og:url") && html.IsContains("<meta property=\"og:locale"))
 					html = html.Insert(html.IndexOf("<meta", html.IndexOf("<meta property=\"og:locale") + 1), $"<meta property=\"og:url\" content=\"{canonicalURL}\"/>");
+				await (writeDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update canonical URL of {desktopInfo} ({requestURL} => {canonicalURL})", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask).ConfigureAwait(false);
 
 				// prepare caching
-				if (requestInfo.TryGetParameter("x-force-cache", out var _))
-					await Utility.Cache.RemoveAsync([cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken).ConfigureAwait(false);
-
-				if (processCache && !gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.GotError))
+				if (this.CacheDesktopHtmls)
 				{
-					var expirationTime = 0;
-					DateTime? expiresAt = null;
-					portletHtmls.Values.Where(data => data.CacheExpiration != null).ForEach(data =>
+					if (requestInfo.ContainsKey("x-force-cache"))
+						await Task.WhenAll
+						(
+							Utility.Cache.RemoveAsync([cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
+							writeDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove HTML cache of {desktopInfo} ({requestURL}) => {cacheKey}", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask
+						).ConfigureAwait(false);
+
+					if (!gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.GotError))
 					{
-						if (Int32.TryParse(data.CacheExpiration, out var minutes) && minutes > 0)
+						var expirationTime = 0;
+						DateTime? expiresAt = null;
+						portletHtmls.Values.Where(data => data.CacheExpiration != null).ForEach(data =>
 						{
-							if (expirationTime < minutes)
-								expirationTime = minutes;
-						}
-						else if (DateTime.TryParse(data.CacheExpiration, out var time))
-							expiresAt = expiresAt == null || expiresAt < time
-								? time
-								: expiresAt;
-					});
-					lastModified = DateTime.Now.ToHttpString();
-					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-					{
-						{ "ETag", eTag },
-						{ "Last-Modified", lastModified },
-						{ "Expires", expiresAt != null ? expiresAt.Value.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString() },
-						{ "X-Cache", "None" },
-						{ "Cache-Control", "public" }
-					};
-					if (expiresAt != null)
+							if (Int32.TryParse(data.CacheExpiration, out var minutes) && minutes > 0)
+							{
+								if (expirationTime < minutes)
+									expirationTime = minutes;
+							}
+							else if (DateTime.TryParse(data.CacheExpiration, out var time))
+								expiresAt = expiresAt == null || expiresAt < time
+									? time
+									: expiresAt;
+						});
+						lastModified = DateTime.Now.ToHttpString();
+						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+						{
+							{ "ETag", eTag },
+							{ "Last-Modified", lastModified },
+							{ "Expires", expiresAt != null ? expiresAt.Value.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString() },
+							{ "X-Cache", "None" },
+							{ "Cache-Control", "public" }
+						};
+
+						if (expiresAt != null)
+							await Task.WhenAll
+							(
+								Utility.Cache.SetAsync(cacheKey, this.NormalizeDesktopHtml(html, organization, site, desktop), expiresAt.Value, cancellationToken),
+								Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, expiresAt.Value, cancellationToken),
+								Utility.Cache.SetAsync(cacheKeyOfExpiration, expiresAt.Value.ToDTString(), expiresAt.Value, cancellationToken)
+							).ConfigureAwait(false);
+						else
+							await Task.WhenAll
+							(
+								Utility.Cache.SetAsync(cacheKey, this.NormalizeDesktopHtml(html, organization, site, desktop), expirationTime, cancellationToken),
+								Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, expirationTime, cancellationToken),
+								expirationTime > 0
+									? Utility.Cache.SetAsync(cacheKeyOfExpiration, DateTime.Now.AddMinutes(expirationTime).ToDTString(), expirationTime, cancellationToken)
+									: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken)
+							).ConfigureAwait(false);
+
 						await Task.WhenAll
 						(
-							Utility.Cache.SetAsync(cacheKey, this.NormalizeDesktopHtml(html, organization, site, desktop), expiresAt.Value, cancellationToken),
-							Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, expiresAt.Value, cancellationToken),
-							Utility.Cache.SetAsync(cacheKeyOfExpiration, expiresAt.Value.ToDTString(), expiresAt.Value, cancellationToken)
+							Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
+							writeDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask
 						).ConfigureAwait(false);
-					else
-						await Task.WhenAll
-						(
-							Utility.Cache.SetAsync(cacheKey, this.NormalizeDesktopHtml(html, organization, site, desktop), expirationTime, cancellationToken),
-							Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, expirationTime, cancellationToken),
-							expirationTime > 0
-								? Utility.Cache.SetAsync(cacheKeyOfExpiration, DateTime.Now.AddMinutes(expirationTime).ToDTString(), expirationTime, cancellationToken)
-								: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken)
-						).ConfigureAwait(false);
-					await Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken).ConfigureAwait(false);
+					}
 				}
 
 				// normalize
@@ -3190,7 +3263,7 @@ namespace net.vieapps.Services.Portals
 			metaTags += string.IsNullOrWhiteSpace(site.IconURI) ? "" : $"<link rel=\"icon\" type=\"image/{(site.IconURI.IsEndsWith(".ico") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/><link rel=\"shortcut icon\" type=\"image/{(site.IconURI.IsEndsWith(".ico") ? "x-icon" : site.IconURI.IsEndsWith(".png") ? "png" : "jpeg")}\" href=\"{site.IconURI}\"/>";
 
 			// social network meta tags
-			metaTags += "<meta property=\"og:locale\" content=\"{{locale}}\"/>" + (desktop.ID.IsEquals(site?.HomeDesktop?.ID) ? "<meta property=\"og:type\" content=\"website\"/>" : "");			
+			metaTags += "<meta property=\"og:locale\" content=\"{{locale}}\"/>" + (desktop.ID.IsEquals(site?.HomeDesktop?.ID) ? "<meta property=\"og:type\" content=\"website\"/>" : "");
 			metaTags += $"<meta property=\"og:title\" content=\"{seoInfo?.Get<string>("Og:Title") ?? titleOfPortlet ?? titleOfDesktop ?? titleOfSite}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(description) ? "" : $"<meta property=\"og:description\" content=\"{descriptionOfPortlet ?? descriptionOfDesktop ?? descriptionOfSite ?? description}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(coverURI) ? "" : $"<meta property=\"og:image\" content=\"{coverURI}\"/>";
@@ -3618,7 +3691,7 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
-				throw this.GetRuntimeException(requestInfo, ex, stopwatch, $"Error occurred while generating data of CMS Portals => {ex.Message}");
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch, "Error occurred while generating data of CMS Portals");
 			}
 		}
 
@@ -3709,7 +3782,7 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
-				throw this.GetRuntimeException(requestInfo, ex, stopwatch, $"Error occurred while generating data of CMS Portals (as menu) => {ex.Message}");
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch, "Error occurred while generating menu data of CMS Portals");
 			}
 		}
 		#endregion
@@ -4935,7 +5008,7 @@ namespace net.vieapps.Services.Portals
 				else if (@object is ContentType contentType)
 				{
 					await RepositoryMediator.RestoreAsync<Module>(trashContent, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-					await this.ClearCacheAsync(contentType,requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+					await this.ClearCacheAsync(contentType, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 				}
 				else if (@object is Site site)
 				{
@@ -5031,16 +5104,21 @@ namespace net.vieapps.Services.Portals
 
 		#region Process web-hook messages
 		public override async Task<JToken> ProcessWebHookMessageAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
-	{
-		var stopwatch = Stopwatch.StartNew();
-		var isDebug = this.IsDebugLogEnabled || this.IsDebugResultsEnabled || requestInfo.Query.TryGetValue("x-logs", out var _);
-		try
 		{
-			// prepare
+			var isForwarder = requestInfo.Header.TryGetValue("x-webhook-type", out var webhookType) && webhookType.IsEquals("forwarder");
+			if (!"POST".IsEquals(requestInfo.Verb) && !isForwarder)
+				throw new MethodNotAllowedException(requestInfo.Verb);
+
+			var stopwatch = Stopwatch.StartNew();
+			var isDebug = this.IsDebugLogEnabled || this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs");
+
+			try
+			{
+				// prepare
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
 
 				var identity = requestInfo.GetParameter("x-webhook-system") ?? "";
-				var organization = await (identity.IsValidUUID () ? identity.GetOrganizationByIDAsync(cts.Token) : identity.GetOrganizationByAliasAsync(cts.Token)).ConfigureAwait(false) ?? throw new InformationInvalidException("Invalid (system)");
+				var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cts.Token) : identity.GetOrganizationByAliasAsync(cts.Token)).ConfigureAwait(false) ?? throw new InformationInvalidException("Invalid (system)");
 				identity = requestInfo.GetParameter("x-webhook-entity") ?? "";
 				var contentType = await identity.GetContentTypeByIDAsync(cts.Token).ConfigureAwait(false);
 				if (contentType != null && !organization.ID.IsEquals(contentType.SystemID))
@@ -5069,11 +5147,11 @@ namespace net.vieapps.Services.Portals
 				};
 
 				// forward the web-hook message
-				if (requestInfo.Header.TryGetValue("x-webhook-type", out var webhookType) && webhookType.IsEquals("forwarder"))
+				if (isForwarder)
 					return await requestInfo.ForwardAsWebHookMessageAsync(settings, paramsJson, settings.SecretToken, "x-webhook-secret-token", (ex, logs) => this.WriteLogsAsync(requestInfo.CorrelationID, logs, ex, this.ServiceName, "WebHooks", ex != null ? LogLevel.Error : LogLevel.Information), cts.Token).ConfigureAwait(false);
 
 				// sync the message to an object
-				var message = requestInfo.ToWebHookMessage(settings.SecretToken, "x-webhook-secret-token", settings.SignAlgorithm, settings.SignKey ?? requestInfo.GetAppID() ?? requestInfo.GetDeveloperID() ?? organization.ID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, settings.QueryAsJson, settings.HeaderAsJson, settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes());
+				var message = requestInfo.ToWebHookMessage(settings.SecretToken, "x-webhook-secret-token", settings.SignAlgorithm, settings.SignKey ?? requestInfo.GetAppID() ?? requestInfo.GetDeveloperID() ?? organization.ID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, settings.SignaturePrefix, settings.SignatureSuffix, settings.QueryAsJson, settings.HeaderAsJson, settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes());
 				var bodyJson = requestInfo.BodyAsJson;
 				bodyJson["SystemID"] = organization.ID;
 				if (contentType != null)
@@ -5162,6 +5240,10 @@ namespace net.vieapps.Services.Portals
 			// messages of a CMS crawler
 			else if (message.Type.IsStartsWith("Crawler#") || message.Type.IsStartsWith("CMS.Crawler#"))
 				await message.ProcessInterCommunicateMessageOfCrawlerAsync(cancellationToken).ConfigureAwait(false);
+
+			// black IPs
+			else if (message.Type.IsEquals("BlackIPs#Update") || message.Type.IsEquals("BlackIPs#Reset"))
+				this.BlackIPs = (message.Type.IsEquals("BlackIPs#Reset") ? [] : this.BlackIPs).Concat((message.Data as JArray).ToList<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToHashSet();
 
 			stopwatch.Stop();
 			if (Utility.IsWriteMessageLogs(null))
@@ -5570,6 +5652,24 @@ namespace net.vieapps.Services.Portals
 				};
 			}
 			return response;
+		}
+		#endregion
+
+		#region Black IPs
+		Task<JToken> ProcessBlackIPsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			switch (requestInfo.Verb.ToUpper())
+			{
+				case "HEAD":
+					new CommunicateMessage
+					{
+						ServiceName = this.ServiceName,
+						Type = "BlackIPs#Update",
+						Data = this.BlackIPs.ToJArray()
+					}.Send();
+					break;
+			}
+			return Task.FromResult<JToken>(new JObject());
 		}
 		#endregion
 
