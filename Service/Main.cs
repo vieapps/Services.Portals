@@ -1856,7 +1856,7 @@ namespace net.vieapps.Services.Portals
 			// normalize & check site
 			site = site != null && !organization.ID.IsEquals(site.OrganizationID) ? organization.DefaultSite : site;
 			if (site?.Prepare(host, false) == null)
-				throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(this.IsDebugLogEnabled ? $" because the organization ({organization.Title}) has no site [{organization.Sites?.Count}]" : "")}");
+				throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(writeDesktopLogs ? $" because the organization ({organization.Title}) has no site [{organization.Sites?.Count}]" : "")}");
 
 			// get desktop and prepare the redirecting url
 			var useShortURLs = "true".IsEquals(requestInfo.GetParameter("x-use-short-urls"));
@@ -1924,11 +1924,11 @@ namespace net.vieapps.Services.Portals
 				redirectURL = redirectURL.NormalizeURLs(requestURI, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host"));
 				if (site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs)
 					redirectURL = redirectURL.Replace("http://", "https://");
+
+				stopwatch.Stop();
 				if (writeDesktopLogs)
-				{
-					stopwatch.Stop();
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Redirect for matching with the settings - Execution times: {stopwatch.GetElapsedTimes()}\r\n{requestURL} => {redirectURL}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
-				}
+
 				return new JObject
 				{
 					{ "StatusCode", redirectCode },
@@ -1984,11 +1984,9 @@ namespace net.vieapps.Services.Portals
 						{ "StatusCode", (int)HttpStatusCode.NotModified },
 						{ "Headers", headers.ToJson() }
 					};
+					stopwatch.Stop();
 					if (writeDesktopLogs)
-					{
-						stopwatch.Stop();
-						await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of {desktopInfo} => Got 'If-Modified-Since'/'If-None-Match' request headers - ETag: {eTag} - Timestamp: {lastModified} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
-					}
+						await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of {desktopInfo} => Got 'If-Modified-Since'/'If-None-Match' request headers (ETag: {eTag} - Timestamp: {lastModified}) - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 					return response;
 				}
 			}
@@ -2052,11 +2050,9 @@ namespace net.vieapps.Services.Portals
 					{ "Body", html.Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
 				};
+				stopwatch.Stop();
 				if (writeDesktopLogs)
-				{
-					stopwatch.Stop();
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of {desktopInfo} => Got cached of XHTML - Key: {cacheKey} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
-				}
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of {desktopInfo} => Got HTML cache ({cacheKey}) - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				return response;
 			}
 
@@ -2080,7 +2076,8 @@ namespace net.vieapps.Services.Portals
 				}
 
 				stepwatch.Restart();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {desktop.Portlets?.Count} portlet(s) of {desktopInfo} => {desktop.Portlets?.Select(p => p.Title).Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (writeDesktopLogs)
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {desktop.Portlets?.Count} portlet(s) of {desktopInfo} => {desktop.Portlets?.Select(p => p.Title).Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 				var organizationJson = organization.ToJson(false, false, json =>
 				{
@@ -2142,7 +2139,8 @@ namespace net.vieapps.Services.Portals
 						await (data?.ToString(Newtonsoft.Json.Formatting.Indented) ?? "NULL").ToBytes().SaveAsTextAsync(Path.Combine(Utility.TempFilesDirectory, $"{$"{portlet.Title}_{portlet.ID}".GetANSIUri()}{fileSuffixName}_response.json"), cancellationToken).ConfigureAwait(false);
 				}, true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
 				stepwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete prepare portlets' data of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (writeDesktopLogs)
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete prepare portlets' data of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 				// generate HTML of portlets
 				stepwatch.Restart();
@@ -2422,9 +2420,8 @@ namespace net.vieapps.Services.Portals
 				html = html.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"canonical\" href=\"//", $"<link rel=\"canonical\" href=\"{(site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs ? "https" : requestURI.Scheme)}://");
 
 				stepwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {desktopInfo} has been generated & normalized:\r\n{html}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\nNormalized HTML:\r\n{html}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
