@@ -1378,7 +1378,7 @@ namespace net.vieapps.Services.Portals
 			string filesHttpURI = null, portalsHttpURI = null;
 
 			// special headers
-			var forceCacheRequested = requestInfo.GetParameter("x-force-cache") != null;
+			var forceCacheRequested = requestInfo.ContainsKey("x-force-cache");
 			var noneMatch = requestInfo.GetHeaderParameter("If-None-Match");
 			var modifiedSince = requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since");
 			var eTag = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
@@ -1953,9 +1953,9 @@ namespace net.vieapps.Services.Portals
 			var cacheKey = desktop.GetDesktopCacheKey(isRewriteHttp404 ? new Uri($"https://{requestURI.Host}/{desktop.Alias}"): requestURI, site);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
 			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
-			var processCache = this.CacheDesktopHtmls && !requestInfo.ContainsKey("x-no-cache") && !requestInfo.ContainsKey("x-force-cache");
+			var processCache = this.CacheDesktopHtmls && !requestInfo.ContainsKey("x-force-cache");
 
-			// check "If-Modified-Since" request to reduce traffict
+			// check "If-Modified-Since" request to reduce traffic
 			var eTag = $"v#{cacheKey}";
 			var noneMatch = processCache ? requestInfo.GetHeaderParameter("If-None-Match") : null;
 			var modifiedSince = processCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
