@@ -33,7 +33,7 @@ namespace net.vieapps.Services.Portals
 			// mandatory services
 			services
 				.AddHttpContextAccessor()
-				.AddResponseCompression(options => options.EnableForHttps = true)
+				.AddResponseCompression(options => Global.PrepareResponseCompression(options))
 				.AddLogging(builder => builder.SetMinimumLevel(this.LogLevel))
 				.AddCache(options => this.Configuration.GetSection("Cache").Bind(options))
 				.AddSession(options => Global.PrepareSessionOptions(options, 30))

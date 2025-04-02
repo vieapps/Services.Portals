@@ -419,7 +419,13 @@ namespace net.vieapps.Services.Portals
 		}
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public bool IsHasJavascriptLibraries => (this.Socials != null && this.Socials.Count > 0) || (this.Trackings != null && this.Trackings.Count > 0) || !string.IsNullOrWhiteSpace(this.ScriptLibraries);
+		public bool IsHasSocialLibraries => this.Socials != null && this.Socials.Count > 0;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public bool IsHasTrackingLibraries => this.Trackings != null && this.Trackings.Count > 0;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public bool IsHasJavascriptLibraries => this.IsHasSocialLibraries || this.IsHasTrackingLibraries || !string.IsNullOrWhiteSpace(this.ScriptLibraries);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string JavascriptLibraries
@@ -427,14 +433,14 @@ namespace net.vieapps.Services.Portals
 			get
 			{
 				var scripts = "";
-				if (this.Socials != null && this.Socials.Count > 0)
+				if (this.IsHasSocialLibraries)
 				{
 					if (this.Socials.IndexOf("Facebook") > -1)
 						scripts += $"<script src=\"https://connect.facebook.net/en_US/sdk.js\" async defer></script>";
 					if (this.Socials.IndexOf("Twitter") > -1)
 						scripts += "<script src=\"https://platform.twitter.com/widgets.js\" async defer></script>";
 				}
-				if (this.Trackings != null && this.Trackings.Count > 0)
+				if (this.IsHasTrackingLibraries)
 				{
 					if (this.Trackings.TryGetValue("GoogleAnalytics", out var googleAnalytics) && !string.IsNullOrWhiteSpace(googleAnalytics))
 						scripts += "<script src=\"https://www.googletagmanager.com/gtag/js?id=" + googleAnalytics.ToArray(";", true).First() + "\" async defer></script>";
@@ -446,7 +452,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public bool IsHasJavascripts => (this.Trackings != null && this.Trackings.Count > 0) || !string.IsNullOrWhiteSpace(this.Scripts);
+		public bool IsHasJavascripts => this.IsHasTrackingLibraries || !string.IsNullOrWhiteSpace(this.Scripts);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string Javascripts
@@ -454,7 +460,7 @@ namespace net.vieapps.Services.Portals
 			get
 			{
 				var scripts = "";
-				if (this.Trackings != null && this.Trackings.Count > 0)
+				if (this.IsHasTrackingLibraries)
 				{
 					if (this.Trackings.TryGetValue("GoogleAnalytics", out var googleAnalytics) && !string.IsNullOrWhiteSpace(googleAnalytics))
 					{

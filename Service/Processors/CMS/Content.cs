@@ -14,8 +14,6 @@ using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
-using System.IO;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
