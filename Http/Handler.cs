@@ -702,7 +702,9 @@ namespace net.vieapps.Services.Portals
 							var filesHttpURI = this.RemoveURITrail(systemIdentityJson?.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
 							context.SetResponseHeaders((int)HttpStatusCode.MovedPermanently, new Dictionary<string, string>
 							{
-								["Location"] = $"{filesHttpURI}/{requestSegments.Join("/")}"
+								["Location"] = $"{filesHttpURI}/{requestSegments.Join("/")}",
+								["X-Node"] = Global.NodeID,
+								["X-Correlation-ID"] = correlationID
 							});
 							return;
 						}
@@ -806,9 +808,8 @@ namespace net.vieapps.Services.Portals
 								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? "-default" : path;
 							}
 
-							var organizationID = systemIdentityJson.Get<string>("ID");
-							var siteID = systemIdentityJson.Get<string>("SiteID");
-							cacheKey = $"{organizationID}:{(string.IsNullOrWhiteSpace(siteID) ? "" : $"{siteID}:")}{path.GenerateUUID()}";
+							var siteKey = systemIdentityJson.Get<string>("SiteKey");
+							cacheKey = $"{systemIdentityJson.Get<string>("ID")}:{(string.IsNullOrWhiteSpace(siteKey) ? "" : $"{siteKey}:")}{path.GenerateUUID()}";
 							eTag = $"v#{cacheKey}";
 
 							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
@@ -824,12 +825,11 @@ namespace net.vieapps.Services.Portals
 								var redirectURL = $"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{(redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host)}{requestURI.PathAndQuery}{requestURI.Fragment}";
 								context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 								{
-									{ "Location", redirectURL },
-									{ "X-Node", Global.NodeID },
-									{ "X-Correlation-ID", requestInfo.CorrelationID },
-									{ "X-Redirector", "CMS HTTP Portals" }
+									["Location"] = redirectURL,
+									["X-Node"] = Global.NodeID,
+									["X-Correlation-ID"] = correlationID,
+									["X-Redirector"] = "CMS Portals HTTP"
 								});
-
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Redirect for matching with the settings\r\n{requestURI} => {redirectURL}").ConfigureAwait(false);
 								return;
@@ -848,14 +848,13 @@ namespace net.vieapps.Services.Portals
 							{
 								context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 								{
-									{ "X-Cache", "HTTP-304" },
-									{ "X-Correlation-ID", correlationID },
-									{ "X-Node", Global.NodeID },
-									{ "Content-Type", $"{contentType}; charset=utf-8" },
-									{ "ETag", eTag },
-									{ "Last-Modified", lastModified }
+									["Content-Type"] = $"{contentType}; charset=utf-8",
+									["ETag"] = eTag,
+									["Last-Modified"] = lastModified,
+									["X-Cache"] = "HTTP-304",
+									["X-Node"] = Global.NodeID,
+									["X-Correlation-ID"] = correlationID
 								});
-
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag}/{lastModified}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 								return;
@@ -867,24 +866,11 @@ namespace net.vieapps.Services.Portals
 
 							if (!string.IsNullOrWhiteSpace(cached))
 							{
-								lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
-								var expiresAt = contentType.IsEquals("text/html") ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
-								context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-								{
-									{ "X-Cache", "HTTP-200" },
-									{ "X-Correlation-ID", correlationID },
-									{ "X-Node", Global.NodeID },
-									{ "Content-Type", $"{contentType}; charset=utf-8" },
-									{ "ETag", eTag },
-									{ "Last-Modified", lastModified },
-									{ "Expires", (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString() },
-									{ "Cache-Control", "public" }
-								});
-
 								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
-								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
+								var isHtml = !isBase64 && contentType.IsEquals("text/html");
 
-								if (contentType.IsEquals("text/html"))
+								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
+								if (isHtml)
 								{
 									var osPlatform = osInfo.GetANSIUri();
 									var osMode = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os";
@@ -916,7 +902,21 @@ namespace net.vieapps.Services.Portals
 										cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
 								}
 
+								lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
+								var expiresAt = isHtml ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
+								context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+								{
+									["Content-Type"] = $"{contentType}; charset=utf-8",
+									["ETag"] = eTag,
+									["Last-Modified"] = lastModified,
+									["Expires"] = (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString(),
+									["Cache-Control"] = "public",
+									["X-Cache"] = "HTTP-200",
+									["X-Node"] = Global.NodeID,
+									["X-Correlation-ID"] = correlationID
+								});
 								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
+
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 								return;
@@ -931,18 +931,20 @@ namespace net.vieapps.Services.Portals
 						if (isDebugLogEnabled)
 							await Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+						
 						headers = response.Get("Headers", new Dictionary<string, string>());
 						if (headers.TryGetValue("X-Node", out var nodeID))
 							headers["X-Service-Node"] = nodeID;
 						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 						{
-							["X-Node"] = Global.NodeID,
-							["X-Correlation-ID"] = context.GetCorrelationID()
+							["X-Correlation-ID"] = correlationID,
+							["X-Node"]  = Global.NodeID
 						};
-						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 						var body = response.Get<string>("Body");
+
+						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 						if (body != null)
-							await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
+							await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
 					}
 					catch (Exception)
 					{
@@ -1026,18 +1028,20 @@ namespace net.vieapps.Services.Portals
 							if (isDebugLogEnabled)
 								await Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+
 							headers = response.Get("Headers", new Dictionary<string, string>());
 							if (headers.TryGetValue("X-Node", out var nodeID))
 								headers["X-Service-Node"] = nodeID;
 							headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 							{
-								["X-Node"] = Global.NodeID,
-								["X-Correlation-ID"] = context.GetCorrelationID()
+								["X-Correlation-ID"] = correlationID,
+								["X-Node"] = Global.NodeID
 							};
-							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 							var body = response.Get<string>("Body");
+							
+							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 							if (body != null)
-								await context.WriteAsync(response.Get("BodyAsPlainText", false) ? body.ToBytes() : body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "br")), cts.Token).ConfigureAwait(false);
+								await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
 						}
 						catch (OperationCanceledException) { }
 						catch (Exception ex)
@@ -1045,7 +1049,7 @@ namespace net.vieapps.Services.Portals
 							if (ex is WampException wampException)
 							{
 								var wampDetails = wampException.GetDetails(requestInfo);
-								context.ShowError(wampDetails.Item1, wampDetails.Item2, wampDetails.Item3, correlationID, wampDetails.Item4 + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
+								context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
 							}
 							else
 								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, isDebugLogEnabled);
@@ -1080,8 +1084,8 @@ namespace net.vieapps.Services.Portals
 								headers["X-Service-Node"] = nodeID;
 							headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 							{
-								["X-Node"] = Global.NodeID,
-								["X-Correlation-ID"] = context.GetCorrelationID()
+								["X-Correlation-ID"] = correlationID,
+								["X-Node"] = Global.NodeID
 							};
 							await Task.WhenAll
 							(

@@ -1182,10 +1182,11 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", organization.Alias },
 					{ "HomeDesktopAlias", homeDesktopAlias },
 					{ "HomeDesktopAliases", $"{homeDesktopAlias}{(string.IsNullOrWhiteSpace(homeDesktopAliases) ? "" : $";{homeDesktopAliases}")}" },
-					{ "SiteHost", site != null ? host : null },
-					{ "SiteID", site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? null : site.ID },
+					{ "SiteID", site?.ID },
+					{ "SiteKey", site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? null : site.ID },
 					{ "SiteDomain", site != null ? $"{site.SubDomain}.{site.PrimaryDomain}" : null },
 					{ "SiteDomains", site != null ? $"{site.SubDomain}.{site.PrimaryDomain}{(string.IsNullOrWhiteSpace(site.OtherDomains) ? "" : $";{site.OtherDomains}")}" : null },
+					{ "SiteHost", site != null ? host : null },
 					{ "FilesHttpURI", this.GetFilesHttpURI(organization) },
 					{ "PortalsHttpURI", this.GetPortalsHttpURI(organization) },
 					{ "PortalsWebSocketURI", Utility.PortalsWebSocketURI },
@@ -1297,12 +1298,12 @@ namespace net.vieapps.Services.Portals
 				? new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
-					{ "Headers", new Dictionary<string, string>
+					{ "Headers", new JObject
 						{
 							{ "Content-Type", $"{contentType}; charset=utf-8" },
 							{ "X-Node", this.NodeID },
 							{ "X-Correlation-ID", requestInfo.CorrelationID }
-						}.ToJson()
+						}
 					},
 					{ "Body", (name.IsEquals("favicon.ico") ? indicator.Content.ToList().Last().Base64ToBytes() : indicator.Content.ToBytes()).Compress(this.BodyEncoding).ToBase64() },
 					{ "BodyEncoding", this.BodyEncoding }
@@ -1343,7 +1344,13 @@ namespace net.vieapps.Services.Portals
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.Redirect },
-					{ "Headers", new JObject { ["Location"] = url.NormalizeURLs(uri, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")) } }
+					{ "Headers", new JObject
+						{
+							{ "Location", url.NormalizeURLs(uri, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")) },
+							{ "X-Node", this.NodeID },
+							{ "X-Correlation-ID", requestInfo.CorrelationID }
+						}
+					}
 				};
 			}
 
@@ -1436,14 +1443,14 @@ namespace net.vieapps.Services.Portals
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.NotModified },
-					{ "Headers", new Dictionary<string, string>
+					{ "Headers", new JObject
 						{
 							{ "X-Cache", "SVC-304" },
 							{ "X-Node", this.NodeID },
 							{ "X-Correlation-ID", requestInfo.CorrelationID },
 							{ "ETag", eTag },
 							{ "Last-Modified", lastModified }
-						}.ToJson()
+						}
 					}
 				};
 
@@ -1487,7 +1494,7 @@ namespace net.vieapps.Services.Portals
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
-					{ "Headers", new Dictionary<string, string>
+					{ "Headers", new JObject
 						{
 							{ "X-Cache", "SVC-200" },
 							{ "X-Node", this.NodeID },
@@ -1497,7 +1504,7 @@ namespace net.vieapps.Services.Portals
 							{ "Last-Modified", lastModified },
 							{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
 							{ "Cache-Control", "public" }
-						}.ToJson()
+						}
 					},
 					{ "Body", resources.Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
@@ -1922,6 +1929,14 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 
+			// common
+			JObject response = null;
+			var headers = new Dictionary<string, string>
+			{
+				{ "X-Node", this.NodeID },
+				{ "X-Correlation-ID", requestInfo.CorrelationID }
+			};
+
 			// do redirect
 			if (!string.IsNullOrWhiteSpace(redirectURL) && !redirectURL.IsStartsWith(requestURL))
 			{
@@ -1929,22 +1944,21 @@ namespace net.vieapps.Services.Portals
 				if (site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs)
 					redirectURL = redirectURL.Replace("http://", "https://");
 
+				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+				{
+					["Location"] = redirectURL,
+					["X-Redirector"] = "CMS Portals"
+				};
+				response = new JObject
+				{
+					["StatusCode"] = redirectCode,
+					["Headers"] = headers.ToJson()
+				};
+
 				stopwatch.Stop();
 				if (writeDesktopLogs)
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Redirect for matching with the settings - Execution times: {stopwatch.GetElapsedTimes()}\r\n{requestURL} => {redirectURL}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
-
-				return new JObject
-				{
-					{ "StatusCode", redirectCode },
-					{ "Headers", new JObject
-						{
-							{ "Location", redirectURL },
-							{ "X-Node", this.NodeID },
-							{ "X-Correlation-ID", requestInfo.CorrelationID },
-							{ "X-Redirector", "CMS Portals" }
-						}
-					}
-				};
+				return response;
 			}
 
 			// start process
@@ -1962,16 +1976,12 @@ namespace net.vieapps.Services.Portals
 			var eTag = $"v#{cacheKey}";
 			var noneMatch = processCache ? requestInfo.GetHeaderParameter("If-None-Match") : null;
 			var modifiedSince = processCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
-			var headers = new Dictionary<string, string>
+			headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 			{
-				{ "Content-Type", "text/html; charset=utf-8" },
-				{ "X-Node", this.NodeID },
-				{ "X-Correlation-ID", requestInfo.CorrelationID }
+				["Content-Type"] = "text/html; charset=utf-8"
 			};
 
 			string lastModified = null;
-			JObject response = null;
-
 			if (modifiedSince != null && eTag.IsEquals(noneMatch))
 			{
 				lastModified = processCache ? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false) : null;
@@ -1979,15 +1989,15 @@ namespace net.vieapps.Services.Portals
 				{
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
-						{ "X-Cache", "SVC-304" },
-						{ "ETag", eTag },
-						{ "Last-Modified", lastModified },
-						{ "Cache-Control", "public" }
+						["ETag"] = eTag,
+						["Last-Modified"] = lastModified,
+						["Cache-Control"] = "public",
+						["X-Cache"] = "SVC-304"
 					};
 					response = new JObject
 					{
-						{ "StatusCode", (int)HttpStatusCode.NotModified },
-						{ "Headers", headers.ToJson() }
+						["StatusCode"] = (int)HttpStatusCode.NotModified,
+						["Headers"] = headers.ToJson()
 					};
 					stopwatch.Stop();
 					if (writeDesktopLogs)
@@ -2043,18 +2053,18 @@ namespace net.vieapps.Services.Portals
 				expiresAt = !string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) ? expirationTime.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString();
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
-					{ "X-Cache", "SVC-200" },
-					{ "ETag", eTag },
-					{ "Last-Modified", lastModified },
-					{ "Expires", expiresAt },
-					{ "Cache-Control", "public" }
+					["ETag"] = eTag,
+					["Last-Modified"] = lastModified,
+					["Cache-Control"] = "public",
+					["Expires"] = expiresAt,
+					["X-Cache"] = "SVC-200"
 				};
 				response = new JObject
 				{
-					{ "StatusCode", (int)HttpStatusCode.OK },
-					{ "Headers", headers.ToJson() },
-					{ "Body", html.Compress(this.BodyEncoding) },
-					{ "BodyEncoding", this.BodyEncoding }
+					["StatusCode"] = (int)HttpStatusCode.OK,
+					["Headers"] = headers.ToJson(),
+					["Body"] = html.Compress(this.BodyEncoding),
+					["BodyEncoding"] = this.BodyEncoding
 				};
 				stopwatch.Stop();
 				if (writeDesktopLogs)
@@ -2365,11 +2375,11 @@ namespace net.vieapps.Services.Portals
 						lastModified = DateTime.Now.ToHttpString();
 						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 						{
-							{ "ETag", eTag },
-							{ "Last-Modified", lastModified },
-							{ "Expires", expiresAt != null ? expiresAt.Value.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString() },
-							{ "Cache-Control", "public" },
-							{ "X-Cache", "None" }
+							["ETag"] = eTag,
+							["Last-Modified"] = lastModified,
+							["Expires"] = expiresAt != null ? expiresAt.Value.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString(),
+							["Cache-Control"] = "public",
+							["X-Cache"] = "None"
 						};
 
 						if (expiresAt != null)
@@ -2428,11 +2438,10 @@ namespace net.vieapps.Services.Portals
 			// response
 			response = new JObject
 			{
-				{ "StatusCode", (int)HttpStatusCode.OK },
-				{ "Headers", headers.ToJson() },
-				{ "Body", writeDesktopLogs ? html : html.Compress(this.BodyEncoding) },
-				{ "BodyEncoding", this.BodyEncoding },
-				{ "BodyAsPlainText", writeDesktopLogs }
+				["StatusCode"] = (int)HttpStatusCode.OK,
+				["Headers"] = headers.ToJson(),
+				["Body"] = html.Compress(this.BodyEncoding),
+				["BodyEncoding"] = this.BodyEncoding
 			};
 			stopwatch.Stop();
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete process of {desktopInfo} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
@@ -5822,7 +5831,13 @@ namespace net.vieapps.Services.Portals
 						return new JObject
 						{
 							{ "StatusCode", site.AlwaysUseHTTPs && !requestURI.Scheme.IsEquals("https") ? (int)HttpStatusCode.Redirect : (int)HttpStatusCode.MovedPermanently },
-							{ "Headers", new JObject { ["Location"] = redirectURL.NormalizeURLs(requestURI, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")) } }
+							{ "Headers", new JObject
+								{
+									{ "Location", redirectURL.NormalizeURLs(requestURI, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")) },
+									{ "X-Node", this.NodeID },
+									{ "X-Correlation-ID", requestInfo.CorrelationID }
+								}
+							}
 						};
 				}
 
@@ -5885,7 +5900,7 @@ namespace net.vieapps.Services.Portals
 					new XElement("id", $"tag:{host},{lastModified:yyyy-MM-dd}:site/{site.ID}{(category != null ? $"/category/{category.ID}" : "")}"),
 					new XElement("updated", lastModified.ToIsoString()),
 					new XElement("title", (category != null ? $"{category.Title} :: " : "") + site.Title),
-					new XElement("link", new XAttribute("rel", "alternate"), new XAttribute("type", "text/html"), new XAttribute("href", $"{href}{category?.GetURL().Replace("~/", baseHref) ?? baseHref}"))
+					new XElement("link", new XAttribute("rel", "alternate"), new XAttribute("type", "text/html"), new XAttribute("href", $"{href}{category?.GetURL()?.Replace("~/", baseHref) ?? baseHref}"))
 				);
 
 				await contents.ForEachAsync(async content =>
@@ -5963,7 +5978,13 @@ namespace net.vieapps.Services.Portals
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.OK },
-					{ "Headers", new JObject { [ "Content-Type"] = $"application/{(asJson ? "json" : "atom+xml")}; charset=utf-8", ["X-Correlation-ID"] = requestInfo.CorrelationID } },
+					{ "Headers", new JObject
+						{
+							{ "Content-Type", $"application/{(asJson ? "json" : "atom+xml")}; charset=utf-8" },
+							{ "X-Correlation-ID", requestInfo.CorrelationID },
+							{ "X-Node", this.NodeID }
+						}
+					},
 					{ "Body", body.Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
 				};
@@ -5975,7 +5996,13 @@ namespace net.vieapps.Services.Portals
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.InternalServerError },
-					{ "Headers", new JObject { [ "Content-Type"] = $"application/{(asJson ? "json" : "atom+xml")}; charset=utf-8", ["X-Correlation-ID"] = requestInfo.CorrelationID } },
+					{ "Headers", new JObject
+						{
+							{ "Content-Type", $"application/{(asJson ? "json" : "atom+xml")}; charset=utf-8" },
+							{ "X-Correlation-ID", requestInfo.CorrelationID },
+							{ "X-Node", this.NodeID }
+						}
+					},
 					{ "Body", body.Compress(this.BodyEncoding) },
 					{ "BodyEncoding", this.BodyEncoding }
 				};
