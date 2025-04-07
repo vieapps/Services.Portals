@@ -1518,7 +1518,8 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(filePath))
 					throw new InformationNotFoundException();
 
-				var fileInfo = new FileInfo(Path.Combine(Utility.DataFilesDirectory, type.IsEquals("assets") ? type : "themes", filePath));
+				var isRequestOfWebpImage = isThemeResource && type.IsEquals("images") && (filePath.IsEndsWith(".png.webp") || filePath.IsEndsWith(".jpg.webp"));				
+				var fileInfo = new FileInfo(Path.Combine(Utility.DataFilesDirectory, type.IsEquals("assets") ? type : "themes", isRequestOfWebpImage ? filePath.Left(filePath.Length - 5) : filePath));
 				if (!fileInfo.Exists)
 					throw new InformationNotFoundException(filePath);
 
@@ -1528,9 +1529,18 @@ namespace net.vieapps.Services.Portals
 						? this.MinifyJs(await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false)).NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI()).ToBytes()
 						: await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 
+				if (isRequestOfWebpImage)
+				{
+					using var webpStream = UtilityService.CreateMemoryStream();
+					using var imageStream = data.ToMemoryStream();
+					using var imageObj = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
+					await imageObj.SaveAsync(webpStream, new SixLabors.ImageSharp.Formats.Webp.WebpEncoder(), cancellationToken).ConfigureAwait(false);
+					data = webpStream.ToBytes();
+				}
+
 				// response
 				lastModified = fileInfo.LastWriteTime.ToHttpString();
-				var contentType = fileInfo.GetMimeType();
+				var contentType = isRequestOfWebpImage ? "image/webp" : fileInfo.GetMimeType();
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
 					{ "Content-Type", $"{contentType}; charset=utf-8" },
