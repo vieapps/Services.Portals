@@ -8,7 +8,6 @@ using System.Diagnostics;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
-using MongoDB.Driver;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -64,7 +63,7 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static async Task<List<string>> GetSetCacheKeysAsync(this Desktop desktop, CancellationToken cancellationToken = default, bool staticIncluded = false)
 			=> (staticIncluded ? new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" } : Array.Empty<string>())
-				.Concat(desktop != null ? await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) : new HashSet<string>())
+				.Concat(desktop != null ? await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) : [])
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 
@@ -79,7 +78,7 @@ namespace net.vieapps.Services.Portals
 		{
 			var keys = new List<string>();
 			if (desktops != null)
-				await desktops.Where(desktop => desktop != null).ForEachAsync(async desktop => keys = keys.Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, staticIncluded).ConfigureAwait(false) ?? new List<string>()).ToList(), true, false).ConfigureAwait(false);
+				await desktops.Where(desktop => desktop != null).ForEachAsync(async desktop => keys = keys.Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, staticIncluded).ConfigureAwait(false) ?? []).ToList(), true, false).ConfigureAwait(false);
 			return keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
 
@@ -98,7 +97,7 @@ namespace net.vieapps.Services.Portals
 			await portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 			{
 				var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
-				keys = keys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? new List<string>()).ToList();
+				keys = keys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? []).ToList();
 			}, true, false).ConfigureAwait(false);
 			return keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
@@ -118,7 +117,7 @@ namespace net.vieapps.Services.Portals
 			await portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 			{
 				var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
-				keys = keys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? new List<string>()).ToList();
+				keys = keys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? []).ToList();
 			}, true, false).ConfigureAwait(false);
 			return keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
@@ -134,8 +133,8 @@ namespace net.vieapps.Services.Portals
 			var theme = site.WorkingTheme ?? "defaut";
 			return new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }
 				.Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time" })
-				.Concat(await Utility.Cache.GetSetMembersAsync($"statics:{theme}", cancellationToken).ConfigureAwait(false) ?? new HashSet<string>())
-				.Concat(site.Organization != null ? await site.Organization.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
+				.Concat(await Utility.Cache.GetSetMembersAsync($"statics:{theme}", cancellationToken).ConfigureAwait(false) ?? [])
+				.Concat(site.Organization != null ? await site.Organization.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : [])
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 		}
@@ -151,8 +150,8 @@ namespace net.vieapps.Services.Portals
 			var theme = organization.Theme ?? "defaut";
 			return new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }
 				.Concat(new[] { $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" })
-				.Concat(await Utility.Cache.GetSetMembersAsync($"statics:{theme}", cancellationToken).ConfigureAwait(false) ?? new HashSet<string>())
-				.Concat(await Utility.Cache.GetSetMembersAsync("statics", cancellationToken).ConfigureAwait(false) ?? new HashSet<string>())
+				.Concat(await Utility.Cache.GetSetMembersAsync($"statics:{theme}", cancellationToken).ConfigureAwait(false) ?? [])
+				.Concat(await Utility.Cache.GetSetMembersAsync("statics", cancellationToken).ConfigureAwait(false) ?? [])
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 		}

@@ -958,7 +958,7 @@ namespace net.vieapps.Services.Portals
 		public static async Task<List<string>> GetUserIDsAsync(this Privileges privileges, PrivilegeRole privilegeRole, CancellationToken cancellationToken = default)
 		{
 			if (privileges == null)
-				return new List<string>();
+				return [];
 
 			List<Role> roles;
 			switch (privilegeRole)
@@ -966,41 +966,41 @@ namespace net.vieapps.Services.Portals
 				case PrivilegeRole.Administrator:
 					roles = privileges.AdministrativeRoles != null && privileges.AdministrativeRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.AdministrativeRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
-						: new List<Role>();
-					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.AdministrativeUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+						: [];
+					return roles.SelectMany(role => role.UserIDs ?? []).Concat(privileges.AdministrativeUsers ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				case PrivilegeRole.Moderator:
 					roles = privileges.ModerateRoles != null && privileges.ModerateRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.ModerateRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
-						: new List<Role>();
-					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.ModerateUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+						: [];
+					return roles.SelectMany(role => role.UserIDs ?? []).Concat(privileges.ModerateUsers ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				case PrivilegeRole.Editor:
 					roles = privileges.EditableRoles != null && privileges.EditableRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.EditableRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
-						: new List<Role>();
-					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.EditableUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+						: [];
+					return roles.SelectMany(role => role.UserIDs ?? []).Concat(privileges.EditableUsers ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				case PrivilegeRole.Contributor:
 					roles = privileges.ContributiveRoles != null && privileges.ContributiveRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.ContributiveRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
-						: new List<Role>();
-					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.ContributiveUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+						: [];
+					return roles.SelectMany(role => role.UserIDs ?? []).Concat(privileges.ContributiveUsers ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				case PrivilegeRole.Viewer:
 					roles = privileges.ViewableRoles != null && privileges.ViewableRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.ViewableRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
-						: new List<Role>();
-					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.ViewableUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+						: [];
+					return roles.SelectMany(role => role.UserIDs ?? []).Concat(privileges.ViewableUsers ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				case PrivilegeRole.Downloader:
 					roles = privileges.DownloadableRoles != null && privileges.DownloadableRoles.Any()
 						? await Role.FindAsync(Filters<Role>.Or(privileges.DownloadableRoles.Select(roleID => Filters<Role>.Equals("ID", roleID))), null, 0, 1, null, cancellationToken).ConfigureAwait(false)
-						: new List<Role>();
-					return roles.SelectMany(role => role.UserIDs ?? new List<string>()).Concat(privileges.DownloadableUsers ?? new HashSet<string>()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+						: [];
+					return roles.SelectMany(role => role.UserIDs ?? []).Concat(privileges.DownloadableUsers ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 				default:
-					return new List<string>();
+					return [];
 			}
 		}
 
@@ -1014,7 +1014,7 @@ namespace net.vieapps.Services.Portals
 				case ApprovalStatus.Rejected:
 					recipientIDs = @object is Form
 						? await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Editor, cancellationToken).ConfigureAwait(false)
-						: new[] { @object.CreatedID }.ToList();
+						: [@object.CreatedID];
 					break;
 
 				case ApprovalStatus.Pending:
@@ -1024,7 +1024,7 @@ namespace net.vieapps.Services.Portals
 					if (!recipientIDs.Any())
 						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
 					if (!recipientIDs.Any())
-						recipientIDs = new[] { organization.OwnerID }.ToList();
+						recipientIDs = [organization.OwnerID];
 					break;
 
 				case ApprovalStatus.Approved:
@@ -1032,23 +1032,23 @@ namespace net.vieapps.Services.Portals
 					if (!recipientIDs.Any())
 						recipientIDs = await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false);
 					if (!recipientIDs.Any())
-						recipientIDs = new[] { organization.OwnerID }.ToList();
+						recipientIDs = [organization.OwnerID];
 					break;
 
 				case ApprovalStatus.Published:
 					recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
 						.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
-						.Concat(new[] { @object.CreatedID }).ToList();
+						.Concat([@object.CreatedID]).ToList();
 					if (!recipientIDs.Any())
-						recipientIDs = new[] { organization.OwnerID }.ToList();
+						recipientIDs = [organization.OwnerID];
 					break;
 
 				case ApprovalStatus.Archieved:
 					recipientIDs = (await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Moderator, cancellationToken).ConfigureAwait(false))
 						.Concat(await @object.WorkingPrivileges.GetUserIDsAsync(PrivilegeRole.Administrator, cancellationToken).ConfigureAwait(false))
-						.Concat(new[] { @object.CreatedID, @object.LastModifiedID }).ToList();
+						.Concat([@object.CreatedID, @object.LastModifiedID]).ToList();
 					if (!recipientIDs.Any())
-						recipientIDs = new[] { organization.OwnerID }.ToList();
+						recipientIDs = [organization.OwnerID];
 					break;
 			}
 			return (excluded != null && excluded.Any() ? recipientIDs.Except(excluded) : recipientIDs).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();

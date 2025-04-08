@@ -476,7 +476,7 @@ namespace net.vieapps.Services.Portals
 							Header = webhookNotification.HeaderAsJson?.ToDictionary<string>(),
 							Body = body,
 							CorrelationID = requestInfo.CorrelationID
-						}.Normalize(webhookNotification.SignAlgorithm, webhookNotification.SignKey ?? requestInfo.Session.AppID ?? @object.OrganizationID, webhookNotification.SignKeyIsHex, webhookNotification.SignatureName, webhookNotification.SignatureAsHex, webhookNotification.SignatureInQuery, webhookNotification.QueryAsJson?.ToDictionary<string>(), header, webhookNotification.EncryptionKey?.HexToBytes(), webhookNotification.EncryptionIV?.HexToBytes());
+						}.Normalize(webhookNotification.SignAlgorithm, webhookNotification.SignKey ?? requestInfo.Session.AppID ?? @object.OrganizationID, webhookNotification.SignKeyIsHex, webhookNotification.SignatureName, webhookNotification.SignatureAsHex, webhookNotification.SignatureInQuery, webhookNotification.SignaturePrefix, webhookNotification.SignatureSuffix, webhookNotification.QueryAsJson?.ToDictionary<string>(), header, webhookNotification.EncryptionKey?.HexToBytes(), webhookNotification.EncryptionIV?.HexToBytes());
 						await webhookNotification.EndpointURLs.ForEachAsync(async endpointURL =>
 						{
 							message.ID = message.Header["X-Original-Message-ID"] = UtilityService.NewUUID;

@@ -138,7 +138,7 @@ namespace net.vieapps.Services.Portals
 					{
 						var parameters = url.Replace(StringComparison.OrdinalIgnoreCase, "@desktop(", "").Replace(")", "").ToList();
 						var desktops = new[] { parameters.First().GetDesktopByID() }.ToList();
-						desktops.Concat(desktops.FirstOrDefault()?.Children).Where(desktop => desktop != null).ToList().ForEach(desktop => urls.Add($"~/{desktop.Alias}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}"));
+						desktops.Concat(desktops.FirstOrDefault()?.Children).Where(desktop => desktop != null).ToList().ForEach(desktop => urls.Add($"~/{desktop.Alias}"));
 					}
 					else if (url.IsStartsWith("@link("))
 					{
@@ -180,7 +180,7 @@ namespace net.vieapps.Services.Portals
 			var refreshURLs = new[] { "~/" }.ToList();
 			var sites = organization.Sites ?? new List<Site>();
 			if (sites.Count > 1)
-				refreshURLs = refreshURLs.Concat(sites.Select(site => site.GetURL())).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+				refreshURLs = refreshURLs.Concat(sites.Where(site => !site.IsDefault).Select(site => site.GetURL())).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			var schedulingTasks = new[] { new SchedulingTask(3)
 			{
@@ -212,7 +212,7 @@ namespace net.vieapps.Services.Portals
 					SystemID = organization.ID,
 					Title = "Force refresh all pre-defined URLs",
 					SchedulingType = SchedulingType.Refresh,
-					Data = (schedulingTasks.First().DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).Concat(refreshURLs).Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=x").ToJArray().ToString(Formatting.None),
+					Data = (schedulingTasks.First().DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).Concat(refreshURLs).Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v").ToJArray().ToString(Formatting.None),
 					Persistance = false
 				});
 			}

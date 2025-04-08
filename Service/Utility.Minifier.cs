@@ -26,6 +26,7 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string MinifyJs(Stream stream)
 		{
+			using var reader = new BinaryReader(stream, Encoding.UTF8);
 			var lastChar = 1;
 			var isEOF = false;
 			var isInComment = false;
@@ -36,107 +37,106 @@ namespace net.vieapps.Services.Portals
 			var decoder = Encoding.UTF8.GetDecoder();
 			var buffer = new char[1];
 			var minified = "";
-			using (var reader = new BinaryReader(stream, Encoding.UTF8))
-				while (!isEOF)
+			while (!isEOF)
+			{
+				var nextChar = reader.PeekChar();
+				isEOF = nextChar.IsEOF();
+				if (isEOF)
+					break;
+
+				var isIgnore = false;
+				var thisChar = (int)reader.ReadByte();
+
+				if (thisChar == '\t' && !isInLiterialString)
+					thisChar = ' ';
+
+				if (thisChar == '\t' || thisChar == '\n' || thisChar == '\r')
+					isIgnore = true;
+
+				else if (thisChar == ' ' && !isInStringVariable && (!isInLiterialString || isInLiterialExpression))
 				{
-					var nextChar = reader.PeekChar();
-					isEOF = nextChar.IsEOF();
-					if (isEOF)
-						break;
-
-					var isIgnore = false;
-					var thisChar = (int)reader.ReadByte();
-
-					if (thisChar == '\t' && !isInLiterialString)
-						thisChar = ' ';
-
-					if (thisChar == '\t' || thisChar == '\n' || thisChar == '\r')
+					if (lastChar == ' ' || lastChar == '>' || lastChar == '<' || Minifier.IsDelimiter(lastChar))
 						isIgnore = true;
-
-					else if (thisChar == ' ' && !isInStringVariable && (!isInLiterialString || isInLiterialExpression))
-					{
-						if (lastChar == ' ' || lastChar == '>' || lastChar == '<' || Minifier.IsDelimiter(lastChar))
-							isIgnore = true;
-						else
-						{
-							nextChar = reader.PeekChar();
-							isEOF = nextChar.IsEOF();
-							if (!isEOF)
-								isIgnore = nextChar == '>' || nextChar == '<' || nextChar == '}' || nextChar == ')' || Minifier.IsDelimiter(nextChar);
-						}
-					}
-
-					else if (thisChar == '/')
+					else
 					{
 						nextChar = reader.PeekChar();
-						if (nextChar == '*')
-						{
-							isInComment = isIgnore = true;
-							isDoubleSlashComment = false;
-						}
-						else if (nextChar == '/')
-						{
-							isInComment = lastChar != ':' && lastChar != '"' && lastChar != '\'' && lastChar != '\\';
-							isIgnore = isInComment;
-							isDoubleSlashComment = isInComment && nextChar == '/';
-						}
+						isEOF = nextChar.IsEOF();
+						if (!isEOF)
+							isIgnore = nextChar == '>' || nextChar == '<' || nextChar == '}' || nextChar == ')' || Minifier.IsDelimiter(nextChar);
 					}
+				}
 
-					// ignore all characters till we reach end of comment
-					if (isInComment)
+				else if (thisChar == '/')
+				{
+					nextChar = reader.PeekChar();
+					if (nextChar == '*')
 					{
-						isInLiterialString = isInLiterialExpression = isInStringVariable = false;
-						isIgnore = true;
-						while (true)
+						isInComment = isIgnore = true;
+						isDoubleSlashComment = false;
+					}
+					else if (nextChar == '/')
+					{
+						isInComment = lastChar != ':' && lastChar != '"' && lastChar != '\'' && lastChar != '\\';
+						isIgnore = isInComment;
+						isDoubleSlashComment = isInComment && nextChar == '/';
+					}
+				}
+
+				// ignore all characters till we reach end of comment
+				if (isInComment)
+				{
+					isInLiterialString = isInLiterialExpression = isInStringVariable = false;
+					isIgnore = true;
+					while (true)
+					{
+						thisChar = reader.ReadByte();
+						if (thisChar == '*')
 						{
-							thisChar = reader.ReadByte();
-							if (thisChar == '*')
+							nextChar = reader.PeekChar();
+							if (nextChar == '/')
 							{
-								nextChar = reader.PeekChar();
-								if (nextChar == '/')
-								{
-									thisChar = reader.ReadByte();
-									isInComment = false;
-									break;
-								}
-							}
-							if (isDoubleSlashComment && thisChar == '\n')
-							{
+								thisChar = reader.ReadByte();
 								isInComment = false;
 								break;
 							}
 						}
-					}
-
-					// special characters (string)
-					else if (!isIgnore)
-					{
-						if (thisChar == '`')
+						if (isDoubleSlashComment && thisChar == '\n')
 						{
-							isInLiterialString = !isInLiterialString;
-							isInLiterialExpression = isInStringVariable = false;
-						}
-						else if (thisChar == '{' && lastChar == '$' && isInLiterialString)
-						{
-							isInLiterialExpression = true;
-							isInStringVariable = false;
-						}
-						else if (thisChar == '}' && isInLiterialString && isInLiterialExpression)
-						{
-							isInLiterialExpression = isInStringVariable = false;
-						}
-						else if ((thisChar == '\'' || thisChar == '"') && lastChar != '\\')
-						{
-							isInStringVariable = isInLiterialString
-								? isInLiterialExpression && !isInStringVariable
-								: !isInStringVariable;
+							isInComment = false;
+							break;
 						}
 					}
-
-					if (!isIgnore)
-						minified += decoder.GetChars(new[] { (byte)thisChar }, 0, 1, buffer, 0) > 0 ? $"{buffer[0]}" : "";
-					lastChar = thisChar;
 				}
+
+				// special characters (string)
+				else if (!isIgnore)
+				{
+					if (thisChar == '`')
+					{
+						isInLiterialString = !isInLiterialString;
+						isInLiterialExpression = isInStringVariable = false;
+					}
+					else if (thisChar == '{' && lastChar == '$' && isInLiterialString)
+					{
+						isInLiterialExpression = true;
+						isInStringVariable = false;
+					}
+					else if (thisChar == '}' && isInLiterialString && isInLiterialExpression)
+					{
+						isInLiterialExpression = isInStringVariable = false;
+					}
+					else if ((thisChar == '\'' || thisChar == '"') && lastChar != '\\')
+					{
+						isInStringVariable = isInLiterialString
+							? isInLiterialExpression && !isInStringVariable
+							: !isInStringVariable;
+					}
+				}
+
+				if (!isIgnore)
+					minified += decoder.GetChars(new[] { (byte)thisChar }, 0, 1, buffer, 0) > 0 ? $"{buffer[0]}" : "";
+				lastChar = thisChar;
+			}
 			return minified.Replace("; }", ";}");
 		}
 
@@ -147,8 +147,8 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string MinifyJs(byte[] data)
 		{
-			using (var stream = data.ToMemoryStream())
-				return Minifier.MinifyJs(stream);
+			using var stream = data.ToMemoryStream();
+			return Minifier.MinifyJs(stream);
 		}
 
 		/// <summary>
@@ -187,6 +187,7 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string MinifyCss(Stream stream)
 		{
+			using var reader = new BinaryReader(stream, Encoding.UTF8);
 			var lastChar = 1;
 			var isEOF = false;
 			var isInComment = false;
@@ -194,86 +195,85 @@ namespace net.vieapps.Services.Portals
 			var decoder = Encoding.UTF8.GetDecoder();
 			var buffer = new char[1];
 			var minified = "";
-			using (var reader = new BinaryReader(stream, Encoding.UTF8))
-				while (!isEOF)
+			while (!isEOF)
+			{
+				var nextChar = reader.PeekChar();
+				isEOF = nextChar.IsEOF();
+				if (isEOF)
+					break;
+
+				var isIgnore = false;
+				int thisChar = reader.ReadByte();
+
+				if (thisChar == '\t')
+					thisChar = ' ';
+
+				if (thisChar == '\n' || thisChar == '\r')
+					isIgnore = true;
+
+				else if (thisChar == ' ')
 				{
-					var nextChar = reader.PeekChar();
-					isEOF = nextChar.IsEOF();
-					if (isEOF)
-						break;
+					nextChar = reader.PeekChar();
+					if (lastChar == '+' || lastChar == '-' || lastChar == '*' || lastChar == '/' || nextChar == '+' || nextChar == '-' || nextChar == '*' || nextChar == '/')
+						isIgnore = false;
 
-					var isIgnore = false;
-					int thisChar = reader.ReadByte();
-
-					if (thisChar == '\t')
-						thisChar = ' ';
-
-					if (thisChar == '\n' || thisChar == '\r')
+					else if (lastChar == ' ' || lastChar == '>' || lastChar == '}' || Minifier.IsDelimiter(lastChar))
 						isIgnore = true;
 
-					else if (thisChar == ' ')
+					else
 					{
-						nextChar = reader.PeekChar();
-						if (lastChar == '+' || lastChar == '-' || lastChar == '*' || lastChar == '/' || nextChar == '+' || nextChar == '-' || nextChar == '*' || nextChar == '/')
-							isIgnore = false;
-
-						else if (lastChar == ' ' || lastChar == '>' || lastChar == '}' || Minifier.IsDelimiter(lastChar))
-							isIgnore = true;
-
-						else
-						{
-							isEOF = nextChar.IsEOF();
-							if (!isEOF)
-								isIgnore = nextChar != '-' && nextChar != '[' && (nextChar == '>' || Minifier.IsDelimiter(nextChar));
-						}
+						isEOF = nextChar.IsEOF();
+						if (!isEOF)
+							isIgnore = nextChar != '-' && nextChar != '[' && (nextChar == '>' || Minifier.IsDelimiter(nextChar));
 					}
+				}
 
-					else if (thisChar == '/')
+				else if (thisChar == '/')
+				{
+					nextChar = reader.PeekChar();
+					if (nextChar == '*')
 					{
-						nextChar = reader.PeekChar();
-						if (nextChar == '*')
-						{
-							isInComment = isIgnore = true;
-							isDoubleSlashComment = false;
-						}
-						else if (nextChar == '/')
-						{
-							isInComment = lastChar != ':';
-							isIgnore = isInComment;
-							isDoubleSlashComment = isInComment && nextChar == '/';
-						}
+						isInComment = isIgnore = true;
+						isDoubleSlashComment = false;
 					}
-
-					// ignore all characters till we reach end of comment
-					if (isInComment)
+					else if (nextChar == '/')
 					{
-						isIgnore = true;
-						while (true)
+						isInComment = lastChar != ':';
+						isIgnore = isInComment;
+						isDoubleSlashComment = isInComment && nextChar == '/';
+					}
+				}
+
+				// ignore all characters till we reach end of comment
+				if (isInComment)
+				{
+					isIgnore = true;
+					while (true)
+					{
+						thisChar = reader.ReadByte();
+						if (thisChar == '*')
 						{
-							thisChar = reader.ReadByte();
-							if (thisChar == '*')
+							nextChar = reader.PeekChar();
+							if (nextChar == '/')
 							{
-								nextChar = reader.PeekChar();
-								if (nextChar == '/')
-								{
-									thisChar = reader.ReadByte();
-									isInComment = false;
-									break;
-								}
-							}
-							if (isDoubleSlashComment && thisChar == '\n')
-							{
+								thisChar = reader.ReadByte();
 								isInComment = false;
 								break;
 							}
 						}
+						if (isDoubleSlashComment && thisChar == '\n')
+						{
+							isInComment = false;
+							break;
+						}
 					}
-
-					// update the valid data
-					if (!isIgnore)
-						minified += decoder.GetChars(new[] { (byte)thisChar }, 0, 1, buffer, 0) > 0 ? $"{buffer[0]}" : "";
-					lastChar = thisChar;
 				}
+
+				// update the valid data
+				if (!isIgnore)
+					minified += decoder.GetChars(new[] { (byte)thisChar }, 0, 1, buffer, 0) > 0 ? $"{buffer[0]}" : "";
+				lastChar = thisChar;
+			}
 			return minified.Replace("; }", ";}").Replace(";}", "}");
 		}
 
@@ -284,8 +284,8 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string MinifyCss(byte[] data)
 		{
-			using (var stream = data.ToMemoryStream())
-				return Minifier.MinifyCss(stream);
+			using var stream = data.ToMemoryStream();
+			return Minifier.MinifyCss(stream);
 		}
 
 		/// <summary>

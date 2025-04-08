@@ -128,6 +128,10 @@ namespace net.vieapps.Services.Portals
 							throw new TemplateIsInvalidException($"The template is required a zone that identified as '{zoneID}' but not found");
 					});
 				}
+				catch (TemplateIsInvalidException)
+				{
+					throw;
+				}
 				catch (Exception ex)
 				{
 					throw new TemplateIsInvalidException(ex);
@@ -171,10 +175,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					if (ex.Message.IsContains("XSLT compile error"))
-						throw new XslTemplateIsNotCompiledException(ex);
-					else
-						throw new XslTemplateIsInvalidException(ex);
+					throw ex.Message.IsContains("XSLT compile error") ? new XslTemplateIsNotCompiledException(ex) : new XslTemplateIsInvalidException(ex);
 				}
 			return null;
 		}

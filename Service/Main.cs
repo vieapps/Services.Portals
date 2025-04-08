@@ -1233,7 +1233,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			if (requestInfo.IsWriteDesktopLogs())
-				await requestInfo.WriteLogAsync($"Identify the system\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identityJson}").ConfigureAwait(false);
+				await requestInfo.WriteLogAsync($"The system was identified\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identityJson}").ConfigureAwait(false);
 
 			return identityJson;
 		}
@@ -1389,7 +1389,7 @@ namespace net.vieapps.Services.Portals
 			string filesHttpURI = null, portalsHttpURI = null;
 
 			// special headers
-			var forceCacheRequested = requestInfo.ContainsKey("x-force-cache");
+			var isRequestToForceCache = requestInfo.ContainsKey("x-force-cache");
 			var noneMatch = requestInfo.GetHeaderParameter("If-None-Match");
 			var modifiedSince = requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since");
 			var eTag = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
@@ -1397,7 +1397,7 @@ namespace net.vieapps.Services.Portals
 				: $"v#{uri.AbsolutePath.ToLower().GenerateUUID()}";
 
 			// check special headers to reduce traffict
-			var lastModified = this.CacheDesktopResources && !forceCacheRequested ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
+			var lastModified = this.CacheDesktopResources && !isRequestToForceCache ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
 			if (this.CacheDesktopResources && lastModified == null && (type.IsEquals("css") || type.IsEquals("js")))
 			{
 				if (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID())
@@ -1455,7 +1455,7 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// get cached resources
-			var resources = this.CacheDesktopResources && !forceCacheRequested ? await Utility.Cache.GetAsync<string>(eTag, cancellationToken).ConfigureAwait(false) : null;
+			var resources = this.CacheDesktopResources && !isRequestToForceCache ? await Utility.Cache.GetAsync<string>(eTag, cancellationToken).ConfigureAwait(false) : null;
 			if (resources != null)
 			{
 				var contentType = "application/octet-stream";
