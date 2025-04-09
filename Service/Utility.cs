@@ -581,6 +581,71 @@ namespace net.vieapps.Services.Portals
 				start = html.PositionOf("<figure class=\"image\"><a class=\"inline popup", start + offset);
 			}
 
+			// normalize PDF in A tags
+			start = html.PositionOf("<a");
+			while (start > -1)
+			{
+				var offset = 1;
+				var end = html.PositionOf(">", start);
+				if (end > start)
+				{
+					end += 1;
+					var tag = html.Substring(start, end - start);
+					var urlStart = tag.PositionOf("href=");
+					if (urlStart > 0)
+					{
+						urlStart += 6;
+						var urlEnd = tag.IndexOf("\"", urlStart + 1);
+						if (urlEnd < 0)
+							urlEnd = tag.IndexOf("'", urlStart + 1);
+						if (urlEnd > 0)
+						{
+							var url = tag.Substring(urlStart, urlEnd - urlStart);
+							if (url.IsContains("/files/") && url.IsContains("/application=pdf/"))
+							{
+								tag = tag.Replace(StringComparison.OrdinalIgnoreCase, "/files/", "/pdfs/").Replace(StringComparison.OrdinalIgnoreCase, "/application=pdf/", "/");
+								html = html.Substring(0, start) + tag + html.Substring(end);
+								offset = tag.Length;
+							}
+						}
+					}
+				}
+				start = html.PositionOf("<a", start + offset);
+			}
+
+			// normalize VIDEO in SOURCE tags
+			start = html.PositionOf("<video");
+			while (start > -1)
+			{
+				var offset = 1;
+				start = html.PositionOf("<source", start + 1);
+				var end = html.PositionOf(">", start);
+				if (end > start)
+				{
+					end += 1;
+					var tag = html.Substring(start, end - start);
+					var urlStart = tag.PositionOf("src=");
+					if (urlStart > 0)
+					{
+						urlStart += 5;
+						var urlEnd = tag.IndexOf("\"", urlStart + 1);
+						if (urlEnd < 0)
+							urlEnd = tag.IndexOf("'", urlStart + 1);
+						if (urlEnd > 0)
+						{
+							var url = tag.Substring(urlStart, urlEnd - urlStart);
+							if (url.IsContains("/files/") && url.IsContains("/video=mp4/"))
+							{
+								tag = tag.Replace(StringComparison.OrdinalIgnoreCase, "/files/", "/videos/").Replace(StringComparison.OrdinalIgnoreCase, "/video=mp4/", "/");
+								html = html.Substring(0, start) + tag + html.Substring(end);
+								offset = tag.Length;
+							}
+						}
+					}
+				}
+				start = html.PositionOf("<video", start + offset);
+			}
+
 			return html.HtmlDecode();
 		}
 
