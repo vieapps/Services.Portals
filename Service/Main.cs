@@ -1246,23 +1246,25 @@ namespace net.vieapps.Services.Portals
 					: this.ProcessHttpDesktopRequestAsync(requestInfo, cancellationToken);
 
 		#region Process resource requests of Portals HTTP service
-		HashSet<string> DontCacheThemes => UtilityService.GetAppSetting("Portals:Desktops:Resources:DontCacheThemes", "").Trim().ToLower().ToHashSet();
+		HashSet<string> DontCacheThemes { get; } = UtilityService.GetAppSetting("Portals:Desktops:Resources:DontCacheThemes", "").Trim().ToLower().ToHashSet();
 
-		HashSet<string> DontMinifyJsThemes => ((UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyJsThemes") ?? UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyThemes", "")).Trim().ToLower() + ",original").ToHashSet();
+		HashSet<string> DontMinifyJsThemes { get; } = ((UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyJsThemes") ?? UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyThemes", "")).Trim().ToLower() + ",original").ToHashSet();
 
-		HashSet<string> DontMinifyCssThemes => ((UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyCssThemes") ?? UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyThemes", "")).Trim().ToLower() + ",original").ToHashSet();
+		HashSet<string> DontMinifyCssThemes { get; } = ((UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyCssThemes") ?? UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyThemes", "")).Trim().ToLower() + ",original").ToHashSet();
 
-		bool CacheDesktopResources => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:Cache", "true"));
+		bool CacheDesktopResources { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:Cache", "true"));
 
-		bool CacheDesktopHtmls => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:Cache", "true"));
+		bool CacheDesktopHtmls { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:Cache", "true"));
 
-		bool AllowSrcResourceFiles => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:AllowSrcFiles", "true"));
+		bool AllowSrcResourceFiles { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:AllowSrcFiles", "true"));
 
-		bool AllowPreconnect => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:AllowPreconnect", "true"));
+		bool AllowPreconnect { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:AllowPreconnect", "true"));
 
-		bool RemoveDesktopHtmlWhitespaces => "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:RemoveWhitespaces", "true"));
+		bool RemoveDesktopHtmlWhitespaces { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:RemoveWhitespaces", "true"));
 
-		string BodyEncoding => UtilityService.GetAppSetting("Portals:Desktops:Body:Encoding", "zstd");
+		string BodyEncoding { get; } = UtilityService.GetAppSetting("Portals:Desktops:Body:Encoding", "zstd");
+
+		SixLabors.ImageSharp.Formats.IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder();
 
 		string GetPortalsHttpURI(IPortalObject @object = null)
 		{
@@ -1519,22 +1521,22 @@ namespace net.vieapps.Services.Portals
 					throw new InformationNotFoundException();
 
 				var isRequestOfWebpImage = isThemeResource && type.IsEquals("images") && (filePath.IsEndsWith(".png.webp") || filePath.IsEndsWith(".jpg.webp"));				
-				var fileInfo = new FileInfo(Path.Combine(Utility.DataFilesDirectory, type.IsEquals("assets") ? type : "themes", isRequestOfWebpImage ? filePath.Left(filePath.Length - 5) : filePath));
+				var fileInfo = new FileInfo(Path.Combine(Utility.DataFilesDirectory, type.IsEquals("assets") ? type : "themes", isRequestOfWebpImage ? filePath.Left(filePath.Length - 5) : filePath.Replace(StringComparison.OrdinalIgnoreCase, $".min.", ".").Replace(StringComparison.OrdinalIgnoreCase, $".original.", ".")));
 				if (!fileInfo.Exists)
 					throw new InformationNotFoundException(filePath);
 
 				var data = filePath.IsEndsWith(".css")
-					? this.MinifyCss(await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false)).NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI()).ToBytes()
+					? this.MinifyCss(await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false), filePath.IsContains($".original.") ? "original" : null).NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI()).ToBytes()
 					: filePath.IsEndsWith(".js")
-						? this.MinifyJs(await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false)).NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI()).ToBytes()
+						? this.MinifyJs(await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false), filePath.IsContains($".original.") ? "original" : null).NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI()).ToBytes()
 						: await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
 
 				if (isRequestOfWebpImage)
 				{
-					using var webpStream = UtilityService.CreateMemoryStream();
 					using var imageStream = data.ToMemoryStream();
-					using var imageObj = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
-					await imageObj.SaveAsync(webpStream, new SixLabors.ImageSharp.Formats.Webp.WebpEncoder(), cancellationToken).ConfigureAwait(false);
+					using var imageObject = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
+					using var webpStream = UtilityService.CreateMemoryStream();
+					await imageObject.SaveAsync(webpStream, this.WebpEncoder, cancellationToken).ConfigureAwait(false);
 					data = webpStream.ToBytes();
 				}
 
@@ -1563,7 +1565,7 @@ namespace net.vieapps.Services.Portals
 					(
 						Utility.Cache.SetAsFragmentsAsync(eTag, resources, cancellationToken),
 						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), new[] { eTag, $"{eTag}:time" }, cancellationToken)
+						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), [eTag, $"{eTag}:time"], cancellationToken)
 					).ConfigureAwait(false);
 				}
 
@@ -1655,7 +1657,7 @@ namespace net.vieapps.Services.Portals
 					(
 						Utility.Cache.SetAsync(eTag, resources, cancellationToken),
 						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), new[] { eTag, $"{eTag}:time" }, cancellationToken)
+						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), [eTag, $"{eTag}:time"], cancellationToken)
 					).ConfigureAwait(false);
 				}
 
@@ -1759,7 +1761,7 @@ namespace net.vieapps.Services.Portals
 					(
 						Utility.Cache.SetAsync(eTag, resources, cancellationToken),
 						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), new[] { eTag, $"{eTag}:time" }, cancellationToken)
+						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), [eTag, $"{eTag}:time"], cancellationToken)
 					).ConfigureAwait(false);
 				}
 
