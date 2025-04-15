@@ -1183,7 +1183,6 @@ namespace net.vieapps.Services.Portals
 					{ "HomeDesktopAlias", homeDesktopAlias },
 					{ "HomeDesktopAliases", $"{homeDesktopAlias}{(string.IsNullOrWhiteSpace(homeDesktopAliases) ? "" : $";{homeDesktopAliases}")}" },
 					{ "SiteID", site?.ID },
-					{ "SiteKey", site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? null : site.ID },
 					{ "SiteDomain", site != null ? $"{site.SubDomain}.{site.PrimaryDomain}" : null },
 					{ "SiteDomains", site != null ? $"{site.SubDomain}.{site.PrimaryDomain}{(string.IsNullOrWhiteSpace(site.OtherDomains) ? "" : $";{site.OtherDomains}")}" : null },
 					{ "SiteHost", site != null ? host : null },
@@ -1195,7 +1194,8 @@ namespace net.vieapps.Services.Portals
 					{ "AlwaysUseHTTPs", site != null && site.AlwaysUseHTTPs },
 					{ "AlwaysReturnHTTPs", site != null && site.AlwaysReturnHTTPs },
 					{ "RedirectToNoneWWW", site != null && site.RedirectToNoneWWW },
-					{ "Language", requestInfo.GetParameter("Language") ?? site?.Language ?? "en-US" }
+					{ "Language", requestInfo.GetParameter("Language") ?? site?.Language ?? "en-US" },
+					{ "CacheKeyPrefix", organization.ID + (site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? "" : ":" + site.ID) }
 				}
 				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
 
@@ -1258,7 +1258,9 @@ namespace net.vieapps.Services.Portals
 
 		bool AllowSrcResourceFiles { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:AllowSrcFiles", "true"));
 
-		bool AllowPreconnect { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:AllowPreconnect", "true"));
+		bool AllowPreconnect { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:Preconnect:Allow", "true"));
+
+		(IEnumerable<string> Mandatory, IEnumerable<string> Additional) Preconnect { get; } = (UtilityService.GetAppSetting("Portals:Desktops:Resources:Preconnect:MandatoryHosts", "cdnjs.cloudflare.com,fonts.googleapis.com,fonts.gstatic.com").ToList(), UtilityService.GetAppSetting("Portals:Desktops:Resources:Preconnect:AdditionalHosts", "unpkg.com,cdn.jsdelivr.net").ToList());
 
 		bool RemoveDesktopHtmlWhitespaces { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:RemoveWhitespaces", "true"));
 
@@ -1293,7 +1295,7 @@ namespace net.vieapps.Services.Portals
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process HTTP indicator => {requestInfo.GetHeaderParameter("x-url")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
-			var name = $"{requestInfo.Query["x-indicator"]}";
+			var name = requestInfo.Query["x-indicator"];
 			var contentType = name.IsEquals("favicon.ico") ? "image/x-icon" : name.IsEndsWith(".json") ? "application/json" : name.IsEndsWith(".xml") ? "text/xml" : "text/plain";
 			var indicator = organization.HttpIndicators?.FirstOrDefault(httpIndicator => httpIndicator.Name.IsEquals(name));
 			return indicator != null
@@ -1350,7 +1352,8 @@ namespace net.vieapps.Services.Portals
 						{
 							{ "Location", url.NormalizeURLs(uri, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")) },
 							{ "X-Node", this.NodeID },
-							{ "X-Correlation-ID", requestInfo.CorrelationID }
+							{ "X-Correlation-ID", requestInfo.CorrelationID },
+							{ "X-Redirector", "VIEApps NGX CMS Portals" }
 						}
 					}
 				};
@@ -1387,19 +1390,18 @@ namespace net.vieapps.Services.Portals
 					? "images"
 					: type.IsStartsWith("font") ? "fonts" : type;
 
-			// fake URIs
 			string filesHttpURI = null, portalsHttpURI = null;
-
-			// special headers
 			var isRequestToForceCache = requestInfo.ContainsKey("x-force-cache");
-			var noneMatch = requestInfo.GetHeaderParameter("If-None-Match");
-			var modifiedSince = requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since");
-			var eTag = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
-				? $"{type}#{identity}"
-				: $"v#{uri.AbsolutePath.ToLower().GenerateUUID()}";
+			var cacheKey = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
+				? $"{type}:{identity}"
+				: uri.AbsolutePath.ToLower().GenerateUUID();
 
 			// check special headers to reduce traffict
-			var lastModified = this.CacheDesktopResources && !isRequestToForceCache ? await Utility.Cache.GetAsync<string>($"{eTag}:time", cancellationToken).ConfigureAwait(false) : null;
+			var noneMatch = requestInfo.GetHeaderParameter("If-None-Match");
+			var modifiedSince = requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since");
+			var eTag = $"vieapps#{cacheKey.GenerateUUID()}";
+			var lastModified = this.CacheDesktopResources && !isRequestToForceCache ? await Utility.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
+
 			if (this.CacheDesktopResources && lastModified == null && (type.IsEquals("css") || type.IsEquals("js")))
 			{
 				if (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID())
@@ -1436,8 +1438,8 @@ namespace net.vieapps.Services.Portals
 				if (lastModified != null)
 					await Task.WhenAll
 					(
-						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-						Utility.Cache.AddSetMemberAsync("statics" + (isThemeResource ? $":{identity}" : ""), $"{eTag}:time", cancellationToken)
+						Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
+						Utility.Cache.AddSetMemberAsync("statics" + (isThemeResource ? $":{identity}" : ""), $"{cacheKey}:time", cancellationToken)
 					).ConfigureAwait(false);
 			}
 
@@ -1457,7 +1459,7 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// get cached resources
-			var resources = this.CacheDesktopResources && !isRequestToForceCache ? await Utility.Cache.GetAsync<string>(eTag, cancellationToken).ConfigureAwait(false) : null;
+			var resources = this.CacheDesktopResources && !isRequestToForceCache ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 			if (resources != null)
 			{
 				var contentType = "application/octet-stream";
@@ -1563,9 +1565,9 @@ namespace net.vieapps.Services.Portals
 					resources = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") ? data.ToBase64() : data.GetString();
 					await Task.WhenAll
 					(
-						Utility.Cache.SetAsFragmentsAsync(eTag, resources, cancellationToken),
-						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), [eTag, $"{eTag}:time"], cancellationToken)
+						Utility.Cache.SetAsFragmentsAsync(cacheKey, resources, cancellationToken),
+						Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
+						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), [cacheKey, $"{cacheKey}:time"], cancellationToken)
 					).ConfigureAwait(false);
 				}
 
@@ -1655,9 +1657,9 @@ namespace net.vieapps.Services.Portals
 					};
 					await Task.WhenAll
 					(
-						Utility.Cache.SetAsync(eTag, resources, cancellationToken),
-						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), [eTag, $"{eTag}:time"], cancellationToken)
+						Utility.Cache.SetAsync(cacheKey, resources, cancellationToken),
+						Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
+						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), [cacheKey, $"{cacheKey}:time"], cancellationToken)
 					).ConfigureAwait(false);
 				}
 
@@ -1759,9 +1761,9 @@ namespace net.vieapps.Services.Portals
 					};
 					await Task.WhenAll
 					(
-						Utility.Cache.SetAsync(eTag, resources, cancellationToken),
-						Utility.Cache.SetAsync($"{eTag}:time", lastModified, cancellationToken),
-						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), [eTag, $"{eTag}:time"], cancellationToken)
+						Utility.Cache.SetAsync(cacheKey, resources, cancellationToken),
+						Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
+						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), [cacheKey, $"{cacheKey}:time"], cancellationToken)
 					).ConfigureAwait(false);
 				}
 
@@ -1959,7 +1961,7 @@ namespace net.vieapps.Services.Portals
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
 					["Location"] = redirectURL,
-					["X-Redirector"] = "CMS Portals"
+					["X-Redirector"] = "VIEApps NGX CMS Portals"
 				};
 				response = new JObject
 				{
@@ -1979,13 +1981,13 @@ namespace net.vieapps.Services.Portals
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to process {desktopInfo} of '{site.Title} [{organization.Title}]' => {requestURL}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 			// prepare the caching
-			var cacheKey = desktop.GetDesktopCacheKey(isRewriteHttp404 ? new Uri($"https://{requestURI.Host}/{desktop.Alias}"): requestURI, site);
+			var cacheKey = desktop.GetDesktopCacheKey(isRewriteHttp404 ? new Uri($"https://{requestURI.Host}/{desktop.Alias}") : requestURI, site);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
 			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
 			var processCache = this.CacheDesktopHtmls && !requestInfo.ContainsKey("x-force-cache");
 
 			// check "If-Modified-Since" request to reduce traffic
-			var eTag = $"v#{cacheKey}";
+			var eTag = $"vieapps#{cacheKey.GenerateUUID()}";
 			var noneMatch = processCache ? requestInfo.GetHeaderParameter("If-None-Match") : null;
 			var modifiedSince = processCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
 			headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
@@ -2184,10 +2186,12 @@ namespace net.vieapps.Services.Portals
 				{
 					var desktopData = await this.GenerateDesktopAsync(desktop, requestInfo, organization, site, host, mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, cancellationToken).ConfigureAwait(false);
 					title = desktopData.Title;
-					metaTags = desktopData.MetaTags;
 					body = desktopData.Body;
 					stylesheets = desktopData.Stylesheets;
 					scripts = desktopData.Scripts;
+					metaTags = desktopData.MetaTags;
+					if (this.AllowPreconnect)
+						this.Preconnect.Additional.ForEach(domain => metaTags = (stylesheets.IsContains(domain) || body.IsContains(domain) || scripts.IsContains(domain) ? $"<link rel=\"preconnect\" crossorigin href=\"//{domain}\"/>" : "") + metaTags);
 				}
 				catch (Exception ex)
 				{
@@ -3256,7 +3260,7 @@ namespace net.vieapps.Services.Portals
 
 			if (this.AllowPreconnect)
 			{
-				var preconnect = "cdnjs.cloudflare.com,fonts.googleapis.com,fonts.gstatic.com,unpkg.com,cdn.jsdelivr.net".ToList().Select(domain => $"//{domain}").Concat([this.GetPortalsHttpURI(organization).Substring(6), this.GetFilesHttpURI(organization).Substring(6)]).ToList();
+				var preconnect = this.Preconnect.Mandatory.Select(domain => $"//{domain}").Concat([this.GetPortalsHttpURI(organization).Substring(6), this.GetFilesHttpURI(organization).Substring(6)]).ToList();
 				if (organization.IsHasSocialLibraries)
 					preconnect.AddRange(["//connect.facebook.net", "//platform.twitter.com"]);
 				if (organization.IsHasTrackingLibraries)

@@ -32,8 +32,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static ILogger Logger { get; internal set; }
 
-		internal static ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)> Logs
-			=> new ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)>();
+		internal static ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)> Logs { get; } = new ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)>();
 
 		internal static bool IsDebugLogEnabled
 			=> Utility.Logger != null && Utility.Logger.IsEnabled(LogLevel.Debug);
@@ -47,17 +46,13 @@ namespace net.vieapps.Services.Portals
 		internal static bool IsWriteMessageLogs(this RequestInfo requestInfo)
 			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false")) || (requestInfo != null && requestInfo.ContainsKey("x-logs"));
 
-		internal static bool AllowInlineImages
-			=> "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));
+		internal static bool AllowInlineImages { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));
 
-		internal static bool UploadInlineImages
-			=> "upload".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Mode", "Upload"));
+		internal static bool UploadInlineImages	{ get; } = "upload".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Mode", "Upload"));
 
-		internal static bool Preload
-			=> "true".IsEquals(UtilityService.GetAppSetting("Portals:Preload", "true"));
+		internal static bool Preload { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Preload", "true"));
 
-		internal static bool RunProcessorInParallelsMode
-			=> "Parallels".IsEquals(UtilityService.GetAppSetting("Portals:Processor", "Parallels"));
+		internal static bool RunProcessorInParallelsMode { get; } = "Parallels".IsEquals(UtilityService.GetAppSetting("Portals:Processor", "Parallels"));
 
 		internal static CancellationToken CancellationToken
 			=> ServiceBase.ServiceComponent.CancellationToken;
@@ -145,12 +140,12 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the path to the directory that contains all data files of portals (css, images, scripts, templates)
 		/// </summary>
-		public static string DataFilesDirectory => UtilityService.GetAppSetting("Path:Portals");
+		public static string DataFilesDirectory { get; } = UtilityService.GetAppSetting("Path:Portals");
 
 		/// <summary>
 		/// Gets the path to the directory that contains all temporary files
 		/// </summary>
-		public static string TempFilesDirectory => UtilityService.GetAppSetting("Path:Temp");
+		public static string TempFilesDirectory { get; } = UtilityService.GetAppSetting("Path:Temp");
 
 		/// <summary>
 		/// Gets the collection of language resources (i18n)
@@ -581,73 +576,67 @@ namespace net.vieapps.Services.Portals
 				start = html.PositionOf("<figure class=\"image\"><a class=\"inline popup", start + offset);
 			}
 
-			// normalize PDF in A tags
-			start = html.PositionOf("<a");
-			while (start > -1)
+			// normalize tag of special handlers (Files HTTP)
+			FilesHttpTags.ForEach(tag =>
 			{
-				var offset = 1;
-				var end = html.PositionOf(">", start);
-				if (end > start)
+				var startOfTag = html.PositionOf($"<{tag.Name}");
+				while (startOfTag > -1)
 				{
-					end += 1;
-					var tag = html.Substring(start, end - start);
-					var urlStart = tag.PositionOf("href=");
-					if (urlStart > 0)
+					startOfTag = tag.SubName != null ? html.PositionOf($"<{tag.SubName}", startOfTag + 1) : startOfTag;
+					var offset = 1;
+					var endOfTag = html.PositionOf(">", startOfTag);
+					if (endOfTag > startOfTag)
 					{
-						urlStart += 6;
-						var urlEnd = tag.IndexOf("\"", urlStart + 1);
-						if (urlEnd < 0)
-							urlEnd = tag.IndexOf("'", urlStart + 1);
-						if (urlEnd > 0)
+						endOfTag += 1;
+						var htmlTag = html.Substring(startOfTag, endOfTag - startOfTag);
+						var startOfURL = htmlTag.PositionOf($"{tag.Attribute}=");
+						if (startOfURL > 0)
 						{
-							var url = tag.Substring(urlStart, urlEnd - urlStart);
-							if (url.IsContains("/files/") && url.IsContains("/application=pdf/"))
+							startOfURL += tag.Attribute.Length + 1;
+							var endOfURL = htmlTag.IndexOf("\"", startOfURL + 1);
+							endOfURL = endOfURL < 0 ? htmlTag.IndexOf("'", startOfURL + 1) : endOfURL;
+							if (endOfURL > 0)
 							{
-								tag = tag.Replace(StringComparison.OrdinalIgnoreCase, "/files/", "/pdfs/").Replace(StringComparison.OrdinalIgnoreCase, "/application=pdf/", "/");
-								html = html.Substring(0, start) + tag + html.Substring(end);
-								offset = tag.Length;
+								var url = htmlTag.Substring(startOfURL, endOfURL - startOfURL);
+								var matched = FilesHttpMIMEs.Any(mime => url.IsContains("/files/") && url.IsContains($"/{mime.MIMEType}/"))
+									? FilesHttpMIMEs.First(mime => url.IsContains("/files/") && url.IsContains($"/{mime.MIMEType}/"))
+									: (null, null);
+								if (matched.Handler != null && matched.MIMEType != null)
+								{
+									htmlTag = htmlTag.Replace(StringComparison.OrdinalIgnoreCase, "/files/", $"/{matched.Handler}/").Replace(StringComparison.OrdinalIgnoreCase, $"/{matched.MIMEType}/", "/");
+									html = html.Substring(0, startOfTag) + htmlTag + html.Substring(endOfTag);
+									offset = htmlTag.Length;
+								}
 							}
 						}
 					}
+					startOfTag = html.PositionOf($"<{tag.Name}", startOfTag + offset);
 				}
-				start = html.PositionOf("<a", start + offset);
-			}
-
-			// normalize VIDEO in SOURCE tags
-			start = html.PositionOf("<video");
-			while (start > -1)
-			{
-				var offset = 1;
-				start = html.PositionOf("<source", start + 1);
-				var end = html.PositionOf(">", start);
-				if (end > start)
-				{
-					end += 1;
-					var tag = html.Substring(start, end - start);
-					var urlStart = tag.PositionOf("src=");
-					if (urlStart > 0)
-					{
-						urlStart += 5;
-						var urlEnd = tag.IndexOf("\"", urlStart + 1);
-						if (urlEnd < 0)
-							urlEnd = tag.IndexOf("'", urlStart + 1);
-						if (urlEnd > 0)
-						{
-							var url = tag.Substring(urlStart, urlEnd - urlStart);
-							if (url.IsContains("/files/") && url.IsContains("/video=mp4/"))
-							{
-								tag = tag.Replace(StringComparison.OrdinalIgnoreCase, "/files/", "/videos/").Replace(StringComparison.OrdinalIgnoreCase, "/video=mp4/", "/");
-								html = html.Substring(0, start) + tag + html.Substring(end);
-								offset = tag.Length;
-							}
-						}
-					}
-				}
-				start = html.PositionOf("<video", start + offset);
-			}
+			});
 
 			return html.HtmlDecode();
 		}
+
+		static IEnumerable<(string Name, string SubName, string Attribute)> FilesHttpTags { get; } =
+		[
+			("a", null, "href"),
+			("img", null, "src"),
+			("audio", "source", "src"),
+			("video", "source", "src")
+		];
+
+		static IEnumerable<(string Handler, string MIMEType)> FilesHttpMIMEs { get; } =
+		[
+			("pngs", "image=png"),
+			("jpgs", "image=jpeg"),
+			("jpegs", "image=jpeg"),
+			("mp3s", "audio=mp3"),
+			("m4as", "audio=m4a"),
+			("mp4s", "video=mp4"),
+			("pdfs", "application=pdf"),
+			("docs", "application=msword"),
+			("docxs", "application=vnd.openxmlformats-officedocument.wordprocessingml.document")
+		];
 
 		static string NormalizeHTML(this string html, IBusinessObject @object)
 		{

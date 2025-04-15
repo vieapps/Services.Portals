@@ -184,7 +184,7 @@ namespace net.vieapps.Services.Portals
 						path = path.Left(path.Length - 1);
 				}
 			}
-			return $"{organization.ID}:{(site == null || string.IsNullOrWhiteSpace(site?.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? "" : $"{site.ID}:")}{path.GenerateUUID()}";
+			return organization.ID + (site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? "" : ":" + site.ID) + ":" + path.GenerateUUID();
 		}
 
 		/// <summary>

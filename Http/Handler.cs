@@ -704,14 +704,16 @@ namespace net.vieapps.Services.Portals
 							{
 								["Location"] = $"{filesHttpURI}/{requestSegments.Join("/")}",
 								["X-Node"] = Global.NodeID,
-								["X-Correlation-ID"] = correlationID
+								["X-Correlation-ID"] = correlationID,
+								["X-Redirector"] = "VIEApps NGX CMS Portals HTTP"
 							});
 							return;
 						}
 					}
 
 					// working with cache (of portal desktops/resources)
-					if (Handler.AllowCache && !Handler.RefresherURL.IsEquals(context.GetReferUrl()) && !requestInfo.ContainsKey("x-force-cache") && !requestInfo.ContainsKey("x-no-cache") && !requestInfo.ContainsKey("x-bypass-cache"))
+					var bypassCache = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache") || (requestInfo.TryGetHeaderParameter("Cache-Control", out var cacheControl) && cacheControl.IsContains("no-cache"));
+					if (Handler.AllowCache && !Handler.RefresherURL.IsEquals(context.GetReferUrl()) && !bypassCache)
 					{
 						var cacheKey = "";
 						var eTag = "";
@@ -776,10 +778,12 @@ namespace net.vieapps.Services.Portals
 								contentType = $"image/{(contentType.IsEquals("svg") ? "svg+xml" : contentType.IsEquals("jpg") || contentType.IsEquals("jpeg") ? "jpeg" : contentType)}";
 							}
 
-							eTag = cacheKey = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
-								? $"{type}#{identity}"
-								: $"v#{requestURI.AbsolutePath.ToLower().GenerateUUID()}";
+							cacheKey = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
+								? $"{type}:{identity}"
+								: requestURI.AbsolutePath.ToLower().GenerateUUID();
+
 							expires = DateTime.Now.AddDays(366);
+							eTag = $"vieapps#{cacheKey.GenerateUUID()}";
 						}
 
 						else if (!"~indicators".IsEquals(systemIdentity))
@@ -808,9 +812,8 @@ namespace net.vieapps.Services.Portals
 								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? "-default" : path;
 							}
 
-							var siteKey = systemIdentityJson.Get<string>("SiteKey");
-							cacheKey = $"{systemIdentityJson.Get<string>("ID")}:{(string.IsNullOrWhiteSpace(siteKey) ? "" : $"{siteKey}:")}{path.GenerateUUID()}";
-							eTag = $"v#{cacheKey}";
+							cacheKey = systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID();
+							eTag = $"vieapps#{cacheKey.GenerateUUID()}";
 
 							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
 							alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
@@ -828,7 +831,7 @@ namespace net.vieapps.Services.Portals
 									["Location"] = redirectURL,
 									["X-Node"] = Global.NodeID,
 									["X-Correlation-ID"] = correlationID,
-									["X-Redirector"] = "CMS Portals HTTP"
+									["X-Redirector"] = "VIEApps NGX CMS Portals HTTP"
 								});
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Redirect for matching with the settings\r\n{requestURI} => {redirectURL}").ConfigureAwait(false);
