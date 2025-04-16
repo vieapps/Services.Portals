@@ -339,12 +339,11 @@ namespace net.vieapps.Services.Portals
 				else if ((filter as FilterBys<Category>).Children.FirstOrDefault(exp => (exp as FilterBy<Category>).Attribute.IsEquals("ParentID")) == null)
 					(filter as FilterBys<Category>).Children.Add(Filters<Category>.IsNull("ParentID"));
 			}
-
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Category>() ?? Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title") : null;
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var pageSize = pagination.PageSize;
+			var pageNumber = pagination.PageNumber;
 
 			// get organization
 			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
@@ -354,12 +353,12 @@ namespace net.vieapps.Services.Portals
 
 			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id") ?? requestInfo.GetParameter("ModuleID");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (module == null || !module.SystemID.IsEquals(organization.ID))
+			if ((module == null && string.IsNullOrWhiteSpace(query)) || (module != null && !organization.ID.IsEquals(module.SystemID)))
 				throw new InformationInvalidException("The module is invalid");
 
 			var contentTypeID = filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id") ?? requestInfo.GetParameter("ContentTypeID");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
+			if ((contentType == null && string.IsNullOrWhiteSpace(query)) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission
@@ -384,7 +383,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// search if has no cache
-			var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentTypeID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken, showThumbnails).ConfigureAwait(false);
+			var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, cancellationToken, showThumbnails).ConfigureAwait(false);
 
 			// build response
 			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();

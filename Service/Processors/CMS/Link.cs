@@ -198,7 +198,9 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
+			var query = request.Get<string>("FilterBy.Query");
 			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Link>() ?? Filters<Link>.And();
+			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Link>() ?? Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title") : null;
 
 			// get organization/module/content-type
 			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
@@ -208,12 +210,12 @@ namespace net.vieapps.Services.Portals
 
 			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id") ?? requestInfo.GetParameter("ModuleID");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (module == null || !module.SystemID.IsEquals(organization.ID))
+			if ((module == null && string.IsNullOrWhiteSpace(query)) || (module != null && !organization.ID.IsEquals(module.SystemID)))
 				throw new InformationInvalidException("The module is invalid");
 
 			var contentTypeID = filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id") ?? requestInfo.GetParameter("ContentTypeID");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
+			if ((contentType == null && string.IsNullOrWhiteSpace(query)) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission
@@ -222,7 +224,6 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// normalize
-			var query = request.Get<string>("FilterBy.Query");
 			if (filter is FilterBys<Link> filterBy)
 			{
 				if (!string.IsNullOrWhiteSpace(query))
@@ -248,13 +249,12 @@ namespace net.vieapps.Services.Portals
 			filter = filterBy == null || filterBy.Children == null || filterBy.Children.Count < 1
 				? LinkProcessor.GetLinksFilter(organization.ID, module.ID, contentType.ID)
 				: filter.Prepare(requestInfo);
-			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Link>() ?? Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title") : null;
 
 			var pagination = string.IsNullOrWhiteSpace(query)
 				? (-1, 0, 0, 1)
 				: request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var pageSize = pagination.PageSize;
+			var pageNumber = pagination.PageNumber;
 
 			if (Utility.IsDebugLogEnabled)
 				await requestInfo.WriteLogAsync($"Search links (APIs)\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Pagination: {pagination.GetPagination()}", "Link").ConfigureAwait(false);
@@ -275,7 +275,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// search if has no cache
-			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
+			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, cancellationToken).ConfigureAwait(false);
 			var totalRecords = results.Item1;
 			var objects = results.Item2;
 			var thumbnails = results.Item3;
