@@ -257,6 +257,24 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Module> Modules => this.FindModules();
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypes => this.Modules.Select(module => module.ContentTypes).SelectMany(contentTypes => contentTypes).ToList();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypesOfCategory => this.Modules.Select(module => module.ContentTypesOfCategory).SelectMany(contentTypes => contentTypes).ToList();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypesOfContent => this.Modules.Select(module => module.ContentTypesOfContent).SelectMany(contentTypes => contentTypes).ToList();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypesOfItem => this.Modules.Select(module => module.ContentTypesOfItem).SelectMany(contentTypes => contentTypes).ToList();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypesOfLink => this.Modules.Select(module => module.ContentTypesOfLink).SelectMany(contentTypes => contentTypes).ToList();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypesOfForm => this.Modules.Select(module => module.ContentTypesOfForm).SelectMany(contentTypes => contentTypes).ToList();
+
 		public override JObject ToJson(bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 

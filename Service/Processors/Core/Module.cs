@@ -81,7 +81,7 @@ namespace net.vieapps.Services.Portals
 		{
 			var filter = Filters<Module>.And(Filters<Module>.Equals("SystemID", systemID));
 			if (!string.IsNullOrWhiteSpace(definitionID))
-				filter.Add(Filters<Module>.Equals("DefinitionID", definitionID));
+				filter.Add(Filters<Module>.Equals("ModuleDefinitionID", definitionID));
 			return filter;
 		}
 

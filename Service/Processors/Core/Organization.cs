@@ -58,9 +58,9 @@ namespace net.vieapps.Services.Portals
 
 				OrganizationProcessor.Organizations[organization.ID] = organization;
 				OrganizationProcessor.OrganizationsByAlias[organization.Alias] = organization;
-				Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
+				Utility.NotRecognizedAliases.TryRemove($"Organization:{organization.Alias}");
 				if (!string.IsNullOrWhiteSpace(oldAlias) && !oldAlias.IsEquals(organization.Alias) && OrganizationProcessor.OrganizationsByAlias.Remove(oldAlias))
-					Utility.NotRecognizedAliases.Remove($"Organization:{oldAlias}");
+					Utility.NotRecognizedAliases.TryRemove($"Organization:{oldAlias}");
 			}
 			return organization;
 		}
@@ -81,7 +81,8 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			OrganizationProcessor.OrganizationsByAlias.Remove(organization.Alias);
-			Utility.NotRecognizedAliases.Remove($"Organization:{organization.Alias}");
+			Utility.NotRecognizedAliases.TryRemove($"Organization:{organization.Alias}");
+
 			return organization;
 		}
 
@@ -128,36 +129,54 @@ namespace net.vieapps.Services.Portals
 			return organization;
 		}
 
-		internal static List<string> GetRefreshingURLs(this Organization organization, IEnumerable<string> addresses = null, string rootURL = null)
+		internal static List<string> GetRefreshingURLs(this Organization organization, IEnumerable<string> addresses, bool onlyDetailsOfCategories = false)
 			=> (addresses ?? organization.RefreshUrls?.Addresses ?? new List<string>()).Select(address =>
 			{
-				var urls = new[] { "~/rss" }.ToList();
-				address.Replace("\r", "").ToArray("\n").ForEach(url =>
+				var urls = onlyDetailsOfCategories ? [] : new[] { "~/rss" }.ToList();
+				address.Replace("\r", "").ToArray("\n")
+				.Where(url => onlyDetailsOfCategories ? url.IsStartsWith("@category:") || url.IsStartsWith("@category(") : true)
+				.ForEach(url =>
 				{
-					if (url.IsStartsWith("@desktop("))
+					if (url.IsStartsWith("@desktop:") || url.IsStartsWith("@desktop("))
 					{
-						var parameters = url.Replace(StringComparison.OrdinalIgnoreCase, "@desktop(", "").Replace(")", "").ToList();
-						var desktops = new[] { parameters.First().GetDesktopByID() }.ToList();
-						desktops.Concat(desktops.FirstOrDefault()?.Children).Where(desktop => desktop != null).ToList().ForEach(desktop => urls.Add($"~/{desktop.Alias}"));
+						var desktops = new[] { url.Replace(StringComparison.OrdinalIgnoreCase, "@desktop:", "").Replace(StringComparison.OrdinalIgnoreCase, "@desktop(", "").Replace(")", "").Trim().GetDesktopByID() }.ToList();
+						desktops.Concat(desktops.FirstOrDefault()?.Children ?? []).Where(desktop => desktop != null).ToList().ForEach(desktop => urls.Add($"~/{desktop.Alias}{(desktop.Organization != null && desktop.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"));
 					}
-					else if (url.IsStartsWith("@link("))
+					else if (url.IsStartsWith("@link:") || url.IsStartsWith("@link("))
 					{
-						var parameters = url.Replace(StringComparison.OrdinalIgnoreCase, "@link(", "").Replace(")", "").ToList();
-						var links = new[] { Link.Get<Link>(parameters.First()) }.ToList();
-						links.Concat(links.FirstOrDefault()?.Children).Where(link => link != null).ToList().ForEach(link => urls.Add(link.GetURL()));
+						var links = new[] { Link.Get<Link>(url.Replace(StringComparison.OrdinalIgnoreCase, "@link:", "").Replace(StringComparison.OrdinalIgnoreCase, "@link(", "").Replace(")", "").Trim()) }.ToList();
+						links.Concat(links.FirstOrDefault()?.Children ?? []).Where(link => link != null).ToList().ForEach(link => urls.Add(link.GetURL()));
 					}
-					else if (url.IsStartsWith("@category("))
+					else if (url.IsStartsWith("@category:") || url.IsStartsWith("@category("))
 					{
-						var parameters = url.Replace(StringComparison.OrdinalIgnoreCase, "@category(", "").Replace(")", "").ToList();
-						var categories = new[] { parameters.First().GetCategoryByID() }.ToList();
-						categories.Concat(categories.FirstOrDefault()?.Children).Where(category => category != null).ToList().ForEach(category =>
+						var categories = new[] { url.Replace(StringComparison.OrdinalIgnoreCase, "@category:", "").Replace(StringComparison.OrdinalIgnoreCase, "@category(", "").Replace(")", "").Trim().GetCategoryByID() }.ToList();
+						categories = categories.Concat(categories.FirstOrDefault()?.Children ?? []).Where(category => category != null).ToList();
+						var contentTypes = onlyDetailsOfCategories ? categories.FirstOrDefault()?.Module?.ContentTypesOfContent ?? [] : [];
+						categories.ForEach(category =>
 						{
-							url = category.GetURL(null, true);
-							if (url.IsContains("/{{pageNumber}}"))
-								for (var page = 1; page <= 10; page++)
-									urls.Add(url.Replace(StringComparison.OrdinalIgnoreCase, "/{{pageNumber}}", page > 1 ? $"/{page}" : ""));
+							if (onlyDetailsOfCategories)
+								contentTypes.ForEach(contentType =>
+								{
+									var filter = Filters<Content>.And
+									(
+										Filters<Content>.Equals("SystemID", contentType.SystemID),
+										Filters<Content>.Equals("RepositoryID", contentType.RepositoryID),
+										Filters<Content>.Equals("RepositoryEntityID", contentType.ID),
+										Filters<Content>.Equals("CategoryID", category.ID)
+									);
+									var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
+									var contents = Content.Find(filter, sort, 20, 1, contentType.ID, true, Extensions.GetCacheKey(filter, sort, 20, 1), 0) ?? [];
+									urls.AddRange(contents.Where(content => content.Status.Equals(ApprovalStatus.Published)).Select(content => content.GetURL()));
+								});
 							else
-								urls.Add(url);
+							{
+								url = category.GetURL(null, true);
+								if (url.IsContains("/{{pageNumber}}"))
+									for (var page = 1; page <= 10; page++)
+										urls.Add(url.Replace(StringComparison.OrdinalIgnoreCase, "/{{pageNumber}}", page > 1 ? $"/{page}" : ""));
+								else
+									urls.Add(url);
+							}
 						});
 					}
 					else if (url.IsContains("/{{pageNumber}}"))
@@ -175,12 +194,12 @@ namespace net.vieapps.Services.Portals
 			.Distinct(StringComparer.OrdinalIgnoreCase)
 			.ToList();
 
+		internal static List<string> GetRefreshingURLs(this Organization organization, bool onlyDetailsOfCategories = false)
+			=> organization.GetRefreshingURLs(null, onlyDetailsOfCategories);
+
 		internal static List<SchedulingTask> GetRefreshingTasks(this Organization organization, bool others = true)
 		{
-			var refreshURLs = new[] { "~/" }.ToList();
-			var sites = organization.Sites ?? new List<Site>();
-			if (sites.Count > 1)
-				refreshURLs = refreshURLs.Concat(sites.Where(site => !site.IsDefault).Select(site => site.GetURL())).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var refreshURLs = new[] { "~/" }.Concat((organization.Sites ?? []).Where(site => !site.IsDefault).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			var schedulingTasks = new[] { new SchedulingTask(3)
 			{

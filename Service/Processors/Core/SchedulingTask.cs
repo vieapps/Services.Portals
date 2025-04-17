@@ -1,11 +1,12 @@
 ﻿#region Related components
 using System;
 using System.Linq;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
+using System.Dynamic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Dynamic;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Utility;
@@ -431,26 +432,19 @@ namespace net.vieapps.Services.Portals
 			if (schedulingTask.Organization == null)
 				throw new InformationInvalidException("The organization is invalid");
 
-			// check permission
+			// check
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsModerator(null, null, schedulingTask.Organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
 			// run
 			if (schedulingTask.Status.Equals(Status.Awaiting))
-				try
-				{
-					await schedulingTask.RunAsync(requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					await requestInfo.WriteErrorAsync(ex, $"Error occurred while running a scheduling task => {ex.Message} [{ex.GetType()}]", "Task").ConfigureAwait(false);
-				}
+				schedulingTask.RunAsync(requestInfo.CorrelationID, Utility.CancellationToken).Run(async ex => await requestInfo.WriteErrorAsync(ex, $"Error occurred while running a scheduling task => {ex.Message} [{ex.GetType()}]", "Task").ConfigureAwait(false));
 
 			return new JObject
 			{
 				{ "ID", schedulingTask.ID },
-				{ "Status", Status.Completed.ToString() }
+				{ "Status", Status.Running.ToString() }
 			};
 		}
 
@@ -513,7 +507,8 @@ namespace net.vieapps.Services.Portals
 			if (schedulingTask.Persistance)
 				await SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).ConfigureAwait(false);
 
-			if (Utility.IsDebugLogEnabled)
+			var isForceRefreshPredefinedURLs = schedulingTask.SchedulingType.Equals(SchedulingType.Refresh) && schedulingTask.ID.IsEquals($"{schedulingTask.SystemID}:URLs:Force".GenerateUUID());
+			if (Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs)
 				await Utility.WriteLogAsync(correlationID, $"Run a scheduling task => {schedulingTask.ToJson(json => json.Remove("Privileges"))}", "Task").ConfigureAwait(false);
 
 			// update
@@ -562,10 +557,10 @@ namespace net.vieapps.Services.Portals
 					if (@object.Status.Equals(ApprovalStatus.Published))
 					{
 						var rootURL = $"{schedulingTask.Organization.URL}/";
-						await (@object.Organization as Organization).GetRefreshingURLs(json?.Get<JArray>("URLs")?.Select(value => value as JValue).Select(value => value.ToString()) ?? new List<string>())
+						await (@object.Organization as Organization).GetRefreshingURLs(json?.Get<JArray>("URLs")?.Select(value => value as JValue).Select(value => value.ToString()) ?? [])
 							.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL))
 							.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
-							.Select(url => url.PositionOf("x-force-cache=") > 0 ? url : $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=x")
+							.Select(url => url.PositionOf("x-force-cache=") > 0 ? url : $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v")
 							.Distinct(StringComparer.OrdinalIgnoreCase)
 							.ToList().ForEachAsync(url => url.RefreshWebPageAsync(requestInfo.CorrelationID), true, false).ConfigureAwait(false);
 					}
@@ -579,27 +574,34 @@ namespace net.vieapps.Services.Portals
 			else if (schedulingTask.SchedulingType.Equals(SchedulingType.Refresh))
 				try
 				{
+					var stopwatch = Stopwatch.StartNew();
 					var rootURL = $"{schedulingTask.Organization.URL}/";
-					await (schedulingTask.DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString())
+					var refreshingURLs = (schedulingTask.DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString())
 						.Select(url =>
 						{
-							if (url.IsStartsWith("@organization("))
+							if (url.IsStartsWith("@organization:") || url.IsStartsWith("@organization("))
 							{
-								var parameters = url.Replace(StringComparison.OrdinalIgnoreCase, "@organization(", "").Replace(")", "");
-								var urls = new[] { rootURL }
-									.Concat((schedulingTask.Organization.Sites ?? new List<Site>()).Select(site => site.GetURL()))
-									.Concat(schedulingTask.Organization.GetRefreshingURLs(null, rootURL))
-									.Distinct(StringComparer.OrdinalIgnoreCase)
-									.ToList();
-								return string.IsNullOrWhiteSpace(parameters) ? urls : urls.Select(uri => $"{uri}{(uri.IndexOf("?") > 0 ? "&" : "?")}{parameters}").ToList();
+								var organization = url.Replace(StringComparison.OrdinalIgnoreCase, "@organization:", "").Replace(StringComparison.OrdinalIgnoreCase, "@organization(", "").Replace(")", "").Trim().GetOrganizationByID();
+								return organization != null
+									? new[] { $"{organization.URL}/{(isForceRefreshPredefinedURLs ? "?x-force-cache=v" : "")}" }
+										.Concat((organization.Sites ?? []).Where(site => !site.IsDefault).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}{(isForceRefreshPredefinedURLs ? "?x-force-cache=v" : "")}"))
+										.Concat(organization.GetRefreshingURLs().Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v" : url))
+										.Concat(isForceRefreshPredefinedURLs ? organization.GetRefreshingURLs(true).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v") : [])
+										.ToList()
+									: [];
 							}
-							return new List<string> { url };
+							return new[] { url }.ToList();
 						})
 						.SelectMany(urls => urls)
-						.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL))
+						.Concat(isForceRefreshPredefinedURLs ? schedulingTask.Organization.GetRefreshingURLs(true).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v") : [])
+						.Select(url => string.IsNullOrWhiteSpace(url) ? rootURL : url.Replace("~/", rootURL))
 						.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
 						.Distinct(StringComparer.OrdinalIgnoreCase)
-						.ToList().ForEachAsync(url => url.RefreshWebPageAsync(correlationID), true, false).ConfigureAwait(false);
+						.ToList();
+					await refreshingURLs.ForEachAsync(url => url.RefreshWebPageAsync(correlationID), true, false).ConfigureAwait(false);
+					stopwatch.Stop();
+					if (isForceRefreshPredefinedURLs)
+						await Utility.WriteLogAsync(correlationID, $"Force refresh all pre-defined URLs of '{schedulingTask.Organization.Title}' successful - Execution times: {stopwatch.GetElapsedTimes()}\r\nURLs:\r\n\t- {refreshingURLs.Join("\r\n\t- ")}", "Task").ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{

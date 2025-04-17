@@ -1344,13 +1344,18 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(url) || !(businessObject.Organization is Organization organization))
 					throw new InvalidRequestException();
 
+				url = url.NormalizeURLs(uri, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host"));
+				var site = await (requestInfo.GetParameter("x-host") ?? requestInfo.GetParameter("x-srp-host") ?? "").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false) ?? organization.DefaultSite;
+				if (site != null && (site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs))
+					url = url.Replace("http://", "https://");
+
 				// response
 				return new JObject
 				{
 					{ "StatusCode", (int)HttpStatusCode.Redirect },
 					{ "Headers", new JObject
 						{
-							{ "Location", url.NormalizeURLs(uri, organization.Alias, false, true, null, null, requestInfo.GetHeaderParameter("x-srp-host")) },
+							{ "Location", url },
 							{ "X-Node", this.NodeID },
 							{ "X-Correlation-ID", requestInfo.CorrelationID },
 							{ "X-Redirector", "VIEApps NGX CMS Portals" }
@@ -5861,18 +5866,17 @@ namespace net.vieapps.Services.Portals
 				url = site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs ? url.Replace("http://", "https://") : url;
 
 				// prepare content-type
-				var contentTypes = organization.Modules.Select(module => module.ContentTypes.Where(cntType => cntType.ContentTypeDefinitionID == "B0000000000000000000000000000002")).SelectMany(cntType => cntType).ToList();
+				var contentTypes = organization.ContentTypesOfContent;
 				Category category = null;
 				var categoryAlias = requestInfo.GetParameter("x-feed-category")?.NormalizeAlias();
 				if (!string.IsNullOrWhiteSpace(categoryAlias))
 					for (var index = 0; index < contentTypes.Count; index++)
 					{
-						var categoryContentTypes = organization.Modules.Select(module => module.ContentTypes.Where(cntType => cntType.ContentTypeDefinitionID == "B0000000000000000000000000000001")).SelectMany(cntType => cntType).ToList();
-						var contentType = categoryContentTypes.FirstOrDefault(cntType => cntType.RepositoryID == contentTypes[index].RepositoryID);
+						var contentType = organization.ContentTypesOfCategory.FirstOrDefault(cntType => cntType.RepositoryID == contentTypes[index].RepositoryID);
 						category = string.IsNullOrWhiteSpace(contentType?.ID) ? null : await contentType.ID.GetCategoryByAliasAsync(categoryAlias, cancellationToken).ConfigureAwait(false);
 						if (category != null)
 						{
-							contentTypes = new List<ContentType> { contentTypes[index] };
+							contentTypes = [contentTypes[index]];
 							break;
 						}
 					}

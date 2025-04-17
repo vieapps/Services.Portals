@@ -100,7 +100,7 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the collection of not recognized aliases
 		/// </summary>
-		public static HashSet<string> NotRecognizedAliases { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		public static ConcurrentHashSet<string> NotRecognizedAliases { get; } = new ConcurrentHashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 		/// <summary>
 		/// Gets the collection of OEmbed providers

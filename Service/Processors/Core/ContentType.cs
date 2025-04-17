@@ -83,7 +83,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(repositoryID))
 				filter.Add(Filters<ContentType>.Equals("RepositoryID", repositoryID));
 			if (!string.IsNullOrWhiteSpace(definitionID))
-				filter.Add(Filters<ContentType>.Equals("DefinitionID", definitionID));
+				filter.Add(Filters<ContentType>.Equals("ContentTypeDefinitionID", definitionID));
 			return filter;
 		}
 

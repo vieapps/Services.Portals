@@ -76,7 +76,7 @@ namespace net.vieapps.Services.Portals
 
 				DesktopProcessor.Desktops[desktop.ID] = desktop;
 				DesktopProcessor.DesktopsByAlias[$"{desktop.SystemID}:{desktop.Alias}"] = desktop;
-				Utility.NotRecognizedAliases.Remove($"Desktop:{desktop.SystemID}:{desktop.Alias}");
+				Utility.NotRecognizedAliases.TryRemove($"Desktop:{desktop.SystemID}:{desktop.Alias}");
 
 				var newAliases = (desktop.Aliases ?? "").ToArray(";")
 					.Where(alias => !string.IsNullOrWhiteSpace(alias))
@@ -89,7 +89,7 @@ namespace net.vieapps.Services.Portals
 					if (!success && DesktopProcessor.DesktopsByAlias.TryGetValue($"{desktop.SystemID}:{alias}", out var old))
 						success = DesktopProcessor.DesktopsByAlias.TryUpdate($"{desktop.SystemID}:{alias}", desktop, old);
 					if (success)
-						Utility.NotRecognizedAliases.Remove($"Desktop:{desktop.SystemID}:{alias}");
+						Utility.NotRecognizedAliases.TryRemove($"Desktop:{desktop.SystemID}:{alias}");
 				});
 
 				(oldAliases ?? new List<string>())
@@ -100,7 +100,7 @@ namespace net.vieapps.Services.Portals
 					.ForEach(alias =>
 					{
 						DesktopProcessor.DesktopsByAlias.Remove($"{desktop.SystemID}:{alias}");
-						Utility.NotRecognizedAliases.Remove($"Desktop:{desktop.SystemID}:{alias}");
+						Utility.NotRecognizedAliases.TryRemove($"Desktop:{desktop.SystemID}:{alias}");
 					});
 
 				if (updateCache)

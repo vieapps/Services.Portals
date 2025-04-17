@@ -164,6 +164,23 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		List<IPortalContentType> IPortalModule.ContentTypes => this.ContentTypes.Select(contentType => contentType as IPortalContentType).ToList();
 
+		public List<ContentType> GetContentTypes(string contentTypeDefinitionID = null) => this.ContentTypes.Where(contentType => string.IsNullOrWhiteSpace(contentTypeDefinitionID) ? true : contentType.ContentTypeDefinitionID == contentTypeDefinitionID).ToList();
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypesOfCategory => this.GetContentTypes("B0000000000000000000000000000001");
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypesOfContent => this.GetContentTypes("B0000000000000000000000000000002");
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypesOfItem => this.GetContentTypes("B0000000000000000000000000000003");
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypesOfLink => this.GetContentTypes("B0000000000000000000000000000004");
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public List<ContentType> ContentTypesOfForm => this.GetContentTypes("B0000000000000000000000000000005");
+
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<IBusinessRepositoryEntity> BusinessRepositoryEntities => this.ContentTypes.Select(contentType => contentType as IBusinessRepositoryEntity).ToList();
 

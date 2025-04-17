@@ -52,7 +52,7 @@ namespace net.vieapps.Services.Portals
 			}
 			else if (update)
 			{
-				Utility.NotRecognizedAliases.Remove($"Site:{domain}");
+				Utility.NotRecognizedAliases.TryRemove($"Site:{domain}");
 				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{site.GetObjectName()}#Update",
@@ -88,7 +88,7 @@ namespace net.vieapps.Services.Portals
 					if (!success && SiteProcessor.SitesByDomain.TryGetValue($"*.{domain}", out var old))
 						success = SiteProcessor.SitesByDomain.TryUpdate($"*.{domain}", site, old);
 					if (success)
-						Utility.NotRecognizedAliases.Remove($"Site:{domain}");
+						Utility.NotRecognizedAliases.TryRemove($"Site:{domain}");
 				});
 
 				(oldDomains ?? new List<string>())
@@ -100,7 +100,7 @@ namespace net.vieapps.Services.Portals
 					.ForEach(domain =>
 					{
 						SiteProcessor.SitesByDomain.Remove($"*.{domain}");
-						Utility.NotRecognizedAliases.Remove($"Site:{domain}");
+						Utility.NotRecognizedAliases.TryRemove($"Site:{domain}");
 					});
 			}
 
@@ -130,7 +130,7 @@ namespace net.vieapps.Services.Portals
 					.ForEach(domain =>
 					{
 						SiteProcessor.SitesByDomain.Remove($"*.{domain}");
-						Utility.NotRecognizedAliases.Remove($"Site:{domain}");
+						Utility.NotRecognizedAliases.TryRemove($"Site:{domain}");
 					});
 				return site;
 			}
