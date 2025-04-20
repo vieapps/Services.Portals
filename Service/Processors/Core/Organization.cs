@@ -199,7 +199,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static List<SchedulingTask> GetRefreshingTasks(this Organization organization, bool others = true)
 		{
-			var refreshURLs = new[] { "~/" }.Concat((organization.Sites ?? []).Where(site => !site.IsDefault).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var refreshURLs = new[] { "~/" }.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			var schedulingTasks = new[] { new SchedulingTask(3)
 			{

@@ -811,6 +811,11 @@ namespace net.vieapps.Services.Portals
 								path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
 								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? "-default" : path;
 							}
+							else if (portalsHttpURI.IsEndsWith(systemIdentityJson.Get<string>("SiteHost")))
+							{
+								baseURL = $"{portalsHttpURI}/~{organizationAlias}/";
+								rootURL = "";
+							}
 
 							cacheKey = systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID();
 							eTag = $"vieapps#{cacheKey.GenerateUUID()}";
@@ -870,9 +875,12 @@ namespace net.vieapps.Services.Portals
 							if (!string.IsNullOrWhiteSpace(cached))
 							{
 								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
-								var isHtml = !isBase64 && contentType.IsEquals("text/html");
+								if (!isBase64 && context.ContainsKey("x-cache-logs"))
+									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey})\r\n\r\nRaw cache:\r\n{cached}").ConfigureAwait(false);
 
+								var isHtml = !isBase64 && contentType.IsEquals("text/html");
 								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
+
 								if (isHtml)
 								{
 									var osPlatform = osInfo.GetANSIUri();
@@ -888,7 +896,9 @@ namespace net.vieapps.Services.Portals
 										["osMode"] = osMode,
 										["os-mode"] = osMode,
 										["correlationID"] = correlationID,
-										["correlation-id"] = correlationID
+										["correlation-id"] = correlationID,
+										["timestamp"] = DateTime.Now.ToUnixTimestamp(),
+										["time-stamp"] = DateTime.Now.ToUnixTimestamp()
 									});
 
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"http://", " src=\"//");
@@ -921,7 +931,7 @@ namespace net.vieapps.Services.Portals
 								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
 
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(!isBase64 && context.ContainsKey("x-cache-logs") ? $"\r\n\r\nNormalized cache:\r\n{cached}" : "")}").ConfigureAwait(false);
 								return;
 							}
 						}

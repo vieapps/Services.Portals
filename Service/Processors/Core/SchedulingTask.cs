@@ -584,7 +584,7 @@ namespace net.vieapps.Services.Portals
 								var organization = url.Replace(StringComparison.OrdinalIgnoreCase, "@organization:", "").Replace(StringComparison.OrdinalIgnoreCase, "@organization(", "").Replace(")", "").Trim().GetOrganizationByID();
 								return organization != null
 									? new[] { $"{organization.URL}/{(isForceRefreshPredefinedURLs ? "?x-force-cache=v" : "")}" }
-										.Concat((organization.Sites ?? []).Where(site => !site.IsDefault).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}{(isForceRefreshPredefinedURLs ? "?x-force-cache=v" : "")}"))
+										.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}{(isForceRefreshPredefinedURLs ? "?x-force-cache=v" : "")}"))
 										.Concat(organization.GetRefreshingURLs().Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v" : url))
 										.Concat(isForceRefreshPredefinedURLs ? organization.GetRefreshingURLs(true).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v") : [])
 										.ToList()

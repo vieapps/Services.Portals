@@ -3630,7 +3630,9 @@ namespace net.vieapps.Services.Portals
 				["osMode"] = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os",
 				["os-mode"] = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os",
 				["correlationID"] = correlationID,
-				["correlation-id"] = correlationID
+				["correlation-id"] = correlationID,
+				["timestamp"] = DateTime.Now.ToUnixTimestamp(),
+				["time-stamp"] = DateTime.Now.ToUnixTimestamp()
 			}).NormalizeURLs(requestURI, organization.Alias, useShortURLs, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
 
 		JObject GenerateErrorJson(Exception exception, RequestInfo requestInfo, bool addErrorStack, string errorMessage = null)
