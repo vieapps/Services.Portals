@@ -50,14 +50,14 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Excluded = true)]
 		public string FilterBy { get; set; }
 
-		[Ignore, BsonIgnore, MessagePackIgnore]
-		[FormControl(Excluded = true)]
-		public FilterBys Filter { get; set; }
-
 		[JsonIgnore, XmlIgnore]
 		[Property(IsCLOB = true)]
 		[FormControl(Excluded = true)]
 		public string SortBy { get; set; }
+
+		[Ignore, BsonIgnore, MessagePackIgnore]
+		[FormControl(Excluded = true)]
+		public FilterBys Filter { get; set; }
 
 		[Ignore, BsonIgnore, MessagePackIgnore]
 		[FormControl(Excluded = true)]
@@ -147,14 +147,26 @@ namespace net.vieapps.Services.Portals
 			this.SortBy = this.Sorts.Select(sort => sort.ToJson()).ToJArray().ToString(Formatting.None);
 		}
 
+		[Ignore, BsonIgnore, MessagePackIgnore]
+		[FormControl(Excluded = true)]
+		public (JObject Filter, List<JObject> Sorts, JObject Sort) JSONs
+		{
+			get
+			{
+				var filter = string.IsNullOrWhiteSpace(this.FilterBy) ? null : JObject.Parse(this.FilterBy);
+				var sorts = string.IsNullOrWhiteSpace(this.SortBy) ? null : JArray.Parse(this.SortBy).Select(sort => sort as JObject).ToList();
+				return (filter, sorts, sorts?.FirstOrDefault());
+			}
+		}
+
 		public override void ProcessPropertyChanged(string name)
 		{
 			if ("FilterBy".IsEquals(name))
-				this.Filter = string.IsNullOrWhiteSpace(this.FilterBy) ? null : new FilterBys(JObject.Parse(this.FilterBy));
+				this.Filter = string.IsNullOrWhiteSpace(this.FilterBy) ? null : new FilterBys(this.JSONs.Filter);
 			else if ("Filter".IsEquals(name))
 				this.FilterBy = this.Filter?.ToJson().ToString(Formatting.None);
 			else if ("SortBy".IsEquals(name))
-				this.Sorts = string.IsNullOrWhiteSpace(this.SortBy) ? null : JArray.Parse(this.SortBy).Select(sort => new SortBy(sort as JObject)).ToList();
+				this.Sorts = string.IsNullOrWhiteSpace(this.SortBy) ? null : this.JSONs.Sorts.Select(sort => new SortBy(sort)).ToList();
 			else if ("Sorts".IsEquals(name))
 				this.SortBy = this.Sorts?.Select(sort => sort.ToJson()).ToJArray().ToString(Formatting.None);
 		}
@@ -169,8 +181,8 @@ namespace net.vieapps.Services.Portals
 
 		internal Expression Prepare(JObject json = null, bool set = true)
 		{
-			this.Filter = this.Filter ?? new FilterBys(JObject.Parse(this.FilterBy));
-			this.Sorts = this.Sorts ?? JArray.Parse(this.SortBy).Select(sort => sort as JObject).Select(sort => new SortBy(sort)).ToList();
+			this.Filter = this.Filter ?? new FilterBys(this.JSONs.Filter);
+			this.Sorts = this.Sorts ?? this.JSONs.Sorts.Select(sort => new SortBy(sort)).ToList();
 			if (json != null)
 			{
 				json["Filter"] = this.Filter.ToJson();

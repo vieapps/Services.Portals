@@ -327,44 +327,72 @@ namespace net.vieapps.Services.Portals
 
 			var query = request.Get<string>("FilterBy.Query");
 
-			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Category>() ?? Filters<Category>.And();
-			if (filter is FilterBys<Category>)
-			{
-				if (!string.IsNullOrWhiteSpace(query))
-				{
-					var index = (filter as FilterBys<Category>).Children.FindIndex(exp => (exp as FilterBy<Category>).Attribute.IsEquals("ParentID"));
-					if (index > -1)
-						(filter as FilterBys<Category>).Children.RemoveAt(index);
-				}
-				else if ((filter as FilterBys<Category>).Children.FirstOrDefault(exp => (exp as FilterBy<Category>).Attribute.IsEquals("ParentID")) == null)
-					(filter as FilterBys<Category>).Children.Add(Filters<Category>.IsNull("ParentID"));
-			}
+			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Category>() as FilterBys<Category> ?? Filters<Category>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Category>() ?? Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title") : null;
+
+			var expression = await (requestInfo.GetParameter("x-expression") ?? requestInfo.GetParameter("x-expression-id") ?? requestInfo.GetParameter("expression-id") ?? requestInfo.GetParameter("ExpressionID") ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (expression != null)
+			{
+				filter = expression.GetFilterBy<Category>() as FilterBys<Category> ?? filter;
+				sort = expression.GetSortBy<Category>() ?? sort;
+			}
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 			var pageSize = pagination.PageSize;
 			var pageNumber = pagination.PageNumber;
 
-			// get organization
-			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
+			var organizationID = expression?.SystemID ?? filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("OrganizationID") ?? requestInfo.GetParameter("x-system-id");
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
 
-			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id") ?? requestInfo.GetParameter("ModuleID");
+			var moduleID = expression?.RepositoryID ?? filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("ModuleID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if ((module == null && string.IsNullOrWhiteSpace(query)) || (module != null && !organization.ID.IsEquals(module.SystemID)))
 				throw new InformationInvalidException("The module is invalid");
 
-			var contentTypeID = filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id") ?? requestInfo.GetParameter("ContentTypeID");
+			var contentTypeID = expression?.RepositoryEntityID ?? filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("ContentTypeID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if ((contentType == null && string.IsNullOrWhiteSpace(query)) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
+			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(module.WorkingPrivileges, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
+
+			// normalize filter
+			if (filter == null || filter.Children == null || filter.Children.Count < 1)
+				filter = Filters<Category>.And(Filters<Category>.Equals("SystemID", organization.ID));
+
+			if (filter.GetChild("SystemID") is not FilterBy<Category> filterBySystem)
+				filter.Add(Filters<Category>.Equals("SystemID", organization.ID));
+			else if (filterBySystem.Value == null)
+				filterBySystem.Value = organization.ID;
+
+			if (module != null)
+			{
+				if (filter.GetChild("RepositoryID") is not FilterBy<Category> filterByRepository)
+					filter.Add(Filters<Category>.Equals("RepositoryID", module.ID));
+				else if (filterByRepository.Value == null)
+					filterByRepository.Value = module.ID;
+			}
+
+			if (contentType != null)
+			{
+				if (filter.GetChild("RepositoryEntityID") is not FilterBy<Category> filterByRepositoryEntity)
+					filter.Add(Filters<Category>.Equals("RepositoryEntityID", contentType.ID));
+				else if (filterByRepositoryEntity.Value == null)
+					filterByRepositoryEntity.Value = contentType.ID;
+			}
+
+			if (!string.IsNullOrWhiteSpace(query))
+			{
+				if (filter.GetChild("ParentID") is FilterBy<Category> filterByParent)
+					filter.Children.Remove(filterByParent);
+			}
+			else if (filter.GetChild("ParentID") is not FilterBy<Category> filterByParent || filterByParent == null)
+				filter.Add(Filters<Category>.IsNull("ParentID"));
+
+			filter.Prepare(requestInfo);
 
 			// other parameters
 			var showThumbnails = requestInfo.GetParameter("x-object-thumbnails") != null || requestInfo.GetParameter("ShowThumbnails") != null;

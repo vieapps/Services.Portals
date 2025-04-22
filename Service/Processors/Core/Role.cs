@@ -150,17 +150,6 @@ namespace net.vieapps.Services.Portals
 
 			var query = request.Get<string>("FilterBy.Query");
 			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Role>() ?? Filters<Role>.And();
-			if (filter is FilterBys<Role>)
-			{
-				if (!string.IsNullOrWhiteSpace(query))
-				{
-					var index = (filter as FilterBys<Role>).Children.FindIndex(exp => (exp as FilterBy<Role>).Attribute.IsEquals("ParentID"));
-					if (index > -1)
-						(filter as FilterBys<Role>).Children.RemoveAt(index);
-				}
-				else if ((filter as FilterBys<Role>).Children.FirstOrDefault(exp => (exp as FilterBy<Role>).Attribute.IsEquals("ParentID")) == null)
-					(filter as FilterBys<Role>).Children.Add(Filters<Role>.IsNull("ParentID"));
-			}
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Role>() ?? Sorts<Role>.Ascending("Title") : null;
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
@@ -177,6 +166,19 @@ namespace net.vieapps.Services.Portals
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
+
+			// normalize
+			if (filter is FilterBys<Role>)
+			{
+				if (!string.IsNullOrWhiteSpace(query))
+				{
+					var index = (filter as FilterBys<Role>).Children.FindIndex(exp => (exp as FilterBy<Role>).Attribute.IsEquals("ParentID"));
+					if (index > -1)
+						(filter as FilterBys<Role>).Children.RemoveAt(index);
+				}
+				else if ((filter as FilterBys<Role>).Children.FirstOrDefault(exp => (exp as FilterBy<Role>).Attribute.IsEquals("ParentID")) == null)
+					(filter as FilterBys<Role>).Children.Add(Filters<Role>.IsNull("ParentID"));
+			}
 
 			// process cache
 			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));

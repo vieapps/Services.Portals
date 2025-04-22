@@ -173,6 +173,7 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetRequestExpando();
 
 			var query = request.Get<string>("FilterBy.Query");
+
 			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Portlet>() ?? Filters<Portlet>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Portlet>() ?? Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex") : null;
 

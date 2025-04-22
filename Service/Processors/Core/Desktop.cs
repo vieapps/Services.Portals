@@ -285,18 +285,6 @@ namespace net.vieapps.Services.Portals
 			var query = request.Get<string>("FilterBy.Query");
 
 			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Desktop>() ?? Filters<Desktop>.And();
-			if (filter is FilterBys<Desktop> filterBy)
-			{
-				if (!string.IsNullOrWhiteSpace(query))
-				{
-					var filterByParent = filterBy.GetChild("ParentID");
-					if (filterByParent != null)
-						filterBy.Children.Remove(filterByParent);
-				}
-				else if (filterBy.GetChild("ParentID") == null)
-					filterBy.Children.Add(Filters<Desktop>.IsNull("ParentID"));
-			}
-
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Desktop>() ?? Sorts<Desktop>.Ascending("Title") : null;
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
@@ -313,6 +301,19 @@ namespace net.vieapps.Services.Portals
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
+
+			// normalize
+			if (filter is FilterBys<Desktop> filterBy)
+			{
+				if (!string.IsNullOrWhiteSpace(query))
+				{
+					var filterByParent = filterBy.GetChild("ParentID");
+					if (filterByParent != null)
+						filterBy.Children.Remove(filterByParent);
+				}
+				else if (filterBy.GetChild("ParentID") == null)
+					filterBy.Children.Add(Filters<Desktop>.IsNull("ParentID"));
+			}
 
 			// process cache
 			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));

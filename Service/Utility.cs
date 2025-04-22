@@ -1210,6 +1210,12 @@ namespace net.vieapps.Services.Portals
 			}
 			return json;
 		}
+
+		internal static IFilterBy<T> GetFilterBy<T>(this Expression expression) where T : class
+			=> expression.JSONs.Filter?.ToFilter<T>();
+
+		internal static SortBy<T> GetSortBy<T>(this Expression expression) where T : class
+			=> expression.JSONs.Sort?.ToSort<T>();
 	}
 
 	//  --------------------------------------------------------------------------------------------

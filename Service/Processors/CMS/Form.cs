@@ -52,7 +52,7 @@ namespace net.vieapps.Services.Portals
 				}
 			}));
 
-		public static IFilterBy<Form> GetFormsFilter(string systemID, string repositoryID = null, string repositoryEntityID = null)
+		public static FilterBys<Form> GetFormsFilter(string systemID, string repositoryID = null, string repositoryEntityID = null)
 		{
 			var filter = Filters<Form>.And();
 			if (!string.IsNullOrWhiteSpace(systemID))
@@ -130,27 +130,34 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
+
 			var query = request.Get<string>("FilterBy.Query");
-			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Form>() ?? Filters<Form>.And();
+
+			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Form>() as FilterBys<Form> ?? Filters<Form>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Form>() ?? Sorts<Form>.Descending("Created").ThenByAscending("Title") : null;
+
+			var expression = await (requestInfo.GetParameter("x-expression") ?? requestInfo.GetParameter("x-expression-id") ?? requestInfo.GetParameter("expression-id") ?? requestInfo.GetParameter("ExpressionID") ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (expression != null)
+			{
+				filter = expression.GetFilterBy<Form>() as FilterBys<Form> ?? filter;
+				sort = expression.GetSortBy<Form>() ?? sort;
+			}
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 			var pageSize = pagination.PageSize;
 			var pageNumber = pagination.PageNumber;
 
-			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
+			var organizationID = expression?.SystemID ?? filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("OrganizationID") ?? requestInfo.GetParameter("x-system-id");
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
 
-			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id");
+			var moduleID = expression?.RepositoryID ?? filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("ModuleID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if ((module == null && string.IsNullOrWhiteSpace(query)) || (module != null && !organization.ID.IsEquals(module.SystemID)))
 				throw new InformationInvalidException("The module is invalid");
 
-			var contentTypeID = filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id");
+			var contentTypeID = expression?.RepositoryEntityID ?? filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("ContentTypeID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if ((contentType == null && string.IsNullOrWhiteSpace(query)) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
+			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission
@@ -159,15 +166,38 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// normalize filter
-			if (filter == null || !(filter is FilterBys<Form>) || (filter as FilterBys<Form>).Children == null || (filter as FilterBys<Form>).Children.Count < 1)
+			if (filter == null || filter.Children == null || filter.Children.Count < 1)
 				filter = FormProcessor.GetFormsFilter(organization.ID, module.ID, contentType.ID);
+
+			if (filter.GetChild("SystemID") is not FilterBy<Form> filterBySystem)
+				filter.Add(Filters<Form>.Equals("SystemID", organization.ID));
+			else if (filterBySystem.Value == null)
+				filterBySystem.Value = organization.ID;
+
+			if (module != null)
+			{
+				if (filter.GetChild("RepositoryID") is not FilterBy<Form> filterByRepository)
+					filter.Add(Filters<Form>.Equals("RepositoryID", module.ID));
+				else if (filterByRepository.Value == null)
+					filterByRepository.Value = module.ID;
+			}
+
+			if (contentType != null)
+			{
+				if (filter.GetChild("RepositoryEntityID") is not FilterBy<Form> filterByRepositoryEntity)
+					filter.Add(Filters<Form>.Equals("RepositoryEntityID", contentType.ID));
+				else if (filterByRepositoryEntity.Value == null)
+					filterByRepositoryEntity.Value = contentType.ID;
+			}
+
 			if (!requestInfo.Session.User.IsAuthenticated)
 			{
-				if (!(filter.GetChild("Status") is FilterBy<Form> filterByStatus))
-					(filter as FilterBys<Form>).Add(Filters<Form>.Equals("Status", ApprovalStatus.Published.ToString()));
-				else if (filterByStatus.Value == null || !(filterByStatus.Value as string).IsEquals(ApprovalStatus.Published.ToString()))
+				if (filter.GetChild("Status") is not FilterBy<Form> filterByStatus)
+					filter.Add(Filters<Form>.Equals("Status", ApprovalStatus.Published.ToString()));
+				else
 					filterByStatus.Value = ApprovalStatus.Published.ToString();
 			}
+
 			filter.Prepare(requestInfo);
 
 			// process cache

@@ -32,7 +32,7 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(link);
 			});
 
-		public static IFilterBy<Link> GetLinksFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, Action<FilterBys<Link>> onCompleted = null)
+		public static FilterBys<Link> GetLinksFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, Action<FilterBys<Link>> onCompleted = null)
 		{
 			var filter = Filters<Link>.And();
 			if (!string.IsNullOrWhiteSpace(systemID))
@@ -198,24 +198,30 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
+
 			var query = request.Get<string>("FilterBy.Query");
-			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Link>() ?? Filters<Link>.And();
+
+			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Link>() as FilterBys<Link> ?? Filters<Link>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Link>() ?? Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title") : null;
 
-			// get organization/module/content-type
-			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (organization == null)
-				throw new InformationExistedException("The organization is invalid");
+			var expression = await (requestInfo.GetParameter("x-expression") ?? requestInfo.GetParameter("x-expression-id") ?? requestInfo.GetParameter("expression-id") ?? requestInfo.GetParameter("ExpressionID") ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (expression != null)
+			{
+				filter = expression.GetFilterBy<Link>() as FilterBys<Link> ?? filter;
+				sort = expression.GetSortBy<Link>() ?? sort;
+			}
 
-			var moduleID = filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id") ?? requestInfo.GetParameter("ModuleID");
+			var organizationID = expression?.SystemID ?? filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("OrganizationID") ?? requestInfo.GetParameter("x-system-id");
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
+
+			var moduleID = expression?.RepositoryID ?? filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("ModuleID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
 			if ((module == null && string.IsNullOrWhiteSpace(query)) || (module != null && !organization.ID.IsEquals(module.SystemID)))
 				throw new InformationInvalidException("The module is invalid");
 
-			var contentTypeID = filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id") ?? requestInfo.GetParameter("ContentTypeID");
+			var contentTypeID = expression?.RepositoryEntityID ?? filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("ContentTypeID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if ((contentType == null && string.IsNullOrWhiteSpace(query)) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
+			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission
@@ -223,32 +229,48 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// normalize
-			if (filter is FilterBys<Link> filterBy)
+			// normalize filter
+			if (filter == null || filter.Children == null || filter.Children.Count < 1)
+				filter = LinkProcessor.GetLinksFilter(organization.ID, module.ID, contentType.ID);
+
+			if (filter.GetChild("SystemID") is not FilterBy<Link> filterBySystem)
+				filter.Add(Filters<Link>.Equals("SystemID", organization.ID));
+			else if (filterBySystem.Value == null)
+				filterBySystem.Value = organization.ID;
+
+			if (module != null)
 			{
-				if (!string.IsNullOrWhiteSpace(query))
-				{
-					var parentExp = filterBy.GetChild("ParentID");
-					if (parentExp != null)
-						filterBy.Children.Remove(parentExp);
-				}
-				else
-				{
-					if (filterBy.GetChild("SystemID") == null)
-						filterBy.Add(Filters<Link>.Equals("SystemID", organization.ID));
-					if (filterBy.GetChild("RepositoryID") == null)
-						filterBy.Add(Filters<Link>.Equals("RepositoryID", module.ID));
-					if (filterBy.GetChild("RepositoryEntityID") == null)
-						filterBy.Add(Filters<Link>.Equals("RepositoryEntityID", contentType.ID));
-					if (filterBy.GetChild("ParentID") == null)
-						filterBy.Add(Filters<Link>.IsNull("ParentID"));
-				}
+				if (filter.GetChild("RepositoryID") is not FilterBy<Link> filterByRepository)
+					filter.Add(Filters<Link>.Equals("RepositoryID", module.ID));
+				else if (filterByRepository.Value == null)
+					filterByRepository.Value = module.ID;
 			}
-			else
-				filterBy = null;
-			filter = filterBy == null || filterBy.Children == null || filterBy.Children.Count < 1
-				? LinkProcessor.GetLinksFilter(organization.ID, module.ID, contentType.ID)
-				: filter.Prepare(requestInfo);
+
+			if (contentType != null)
+			{
+				if (filter.GetChild("RepositoryEntityID") is not FilterBy<Link> filterByRepositoryEntity)
+					filter.Add(Filters<Link>.Equals("RepositoryEntityID", contentType.ID));
+				else if (filterByRepositoryEntity.Value == null)
+					filterByRepositoryEntity.Value = contentType.ID;
+			}
+
+			if (!string.IsNullOrWhiteSpace(query))
+			{
+				if (filter.GetChild("ParentID") is FilterBy<Link> filterByParent)
+					filter.Children.Remove(filterByParent);
+			}
+			else if (filter.GetChild("ParentID") is not FilterBy<Link> filterByParent || filterByParent == null)
+				filter.Add(Filters<Link>.IsNull("ParentID"));
+
+			if (!requestInfo.Session.User.IsAuthenticated)
+			{
+				if (filter.GetChild("Status") is not FilterBy<Link> filterByStatus)
+					filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()));
+				else
+					filterByStatus.Value = ApprovalStatus.Published.ToString();
+			}
+
+			filter.Prepare(requestInfo);
 
 			var pagination = string.IsNullOrWhiteSpace(query)
 				? (-1, 0, 0, 1)

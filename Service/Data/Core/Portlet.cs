@@ -24,6 +24,7 @@ namespace net.vieapps.Services.Portals
 		public Portlet() : base() { }
 
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
+		[Searchable]
 		[FormControl(Segment = "common", Label = "{{portals.portlets.controls.[name].label}}", PlaceHolder = "{{portals.portlets.controls.[name].placeholder}}", Description = "{{portals.portlets.controls.[name].description}}")]
 		public override string Title { get; set; }
 

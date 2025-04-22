@@ -463,6 +463,7 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetRequestExpando();
 
 			var query = request.Get<string>("FilterBy.Query");
+
 			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Organization>() ?? Filters<Organization>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Organization>() ?? Sorts<Organization>.Ascending("Title") : null;
 

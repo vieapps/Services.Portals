@@ -600,7 +600,7 @@ namespace net.vieapps.Services.Portals
 						.ToList();
 					await refreshingURLs.ForEachAsync(url => url.RefreshWebPageAsync(correlationID), true, false).ConfigureAwait(false);
 					stopwatch.Stop();
-					if (isForceRefreshPredefinedURLs)
+					if (Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs)
 						await Utility.WriteLogAsync(correlationID, $"Force refresh all pre-defined URLs of '{schedulingTask.Organization.Title}' successful - Execution times: {stopwatch.GetElapsedTimes()}\r\nURLs:\r\n\t- {refreshingURLs.Join("\r\n\t- ")}", "Task").ConfigureAwait(false);
 				}
 				catch (Exception ex)
