@@ -790,6 +790,7 @@ namespace net.vieapps.Services.Portals
 						{
 							systemIdentityJson = systemIdentityJson ?? await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 
+							var siteURI = $"//{systemIdentityJson.Get<string>("SiteHost")}";
 							var organizationAlias = systemIdentityJson.Get<string>("Alias");
 							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
 							var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
@@ -804,16 +805,16 @@ namespace net.vieapps.Services.Portals
 								if (path.IsStartsWith($"/~{organizationAlias}"))
 								{
 									path = path.Right(path.Length - organizationAlias.Length - 2);
-									baseURL = $"{portalsHttpURI}/~{organizationAlias}/";
+									baseURL = $"{(portalsHttpURI.IsEndsWith(siteURI) ? portalsHttpURI : Handler.PortalsHttpURI)}/~{organizationAlias}/";
 									rootURL = "";
 								}
 								path = path.IsEndsWith("/default.aspx") ? path.Left(path.Length - 13) : path;
 								path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
 								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? "-default" : path;
 							}
-							else if (portalsHttpURI.IsEndsWith(systemIdentityJson.Get<string>("SiteHost")))
+							else if (portalsHttpURI.IsEndsWith(siteURI) || Handler.PortalsHttpURI.IsEndsWith(siteURI))
 							{
-								baseURL = $"{portalsHttpURI}/~{organizationAlias}/";
+								baseURL = $"{(portalsHttpURI.IsEndsWith(siteURI) ? portalsHttpURI : Handler.PortalsHttpURI)}/~{organizationAlias}/";
 								rootURL = "";
 							}
 
@@ -836,7 +837,7 @@ namespace net.vieapps.Services.Portals
 									["Location"] = redirectURL,
 									["X-Node"] = Global.NodeID,
 									["X-Correlation-ID"] = correlationID,
-									["X-Redirector"] = "VIEApps NGX CMS Portals HTTP"
+									["X-Redirector"] = "VIEApps NGX HTTP CMS Portals"
 								});
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Redirect for matching with the settings\r\n{requestURI} => {redirectURL}").ConfigureAwait(false);
