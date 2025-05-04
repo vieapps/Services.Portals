@@ -155,7 +155,7 @@ namespace net.vieapps.Services.Portals
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
 			var cacheKeyOfTotalObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfTotalObjects(filter, sort) : null;
-			var cacheKeys = string.IsNullOrWhiteSpace(query) ? new List<string> { cacheKeyOfObjects, cacheKeyOfTotalObjects } : new List<string>();
+			var cacheKeys = string.IsNullOrWhiteSpace(query) ? [cacheKeyOfObjects, cacheKeyOfTotalObjects] : new List<string>();
 
 			// count
 			totalRecords = totalRecords > -1
@@ -169,7 +169,7 @@ namespace net.vieapps.Services.Portals
 				? string.IsNullOrWhiteSpace(query)
 					? await Link.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
 					: await Link.SearchAsync(query, filter, null, pageSize, pageNumber, contentTypeID, cancellationToken).ConfigureAwait(false)
-				: new List<Link>();
+				: [];
 
 			// search thumbnails
 			JToken thumbnails = null;
@@ -458,6 +458,7 @@ namespace net.vieapps.Services.Portals
 			// prepare
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
 			var link = await Link.GetAsync<Link>(identity ?? "", cancellationToken).ConfigureAwait(false);
+
 			if (link == null)
 				throw new InformationNotFoundException();
 			else if (link.Organization == null || link.Module == null || link.ContentType == null)
@@ -477,7 +478,7 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) || link._childrenIDs == null;
+			var isRefresh = ("refresh".IsEquals(requestInfo.GetObjectIdentity()) || link._childrenIDs == null) && requestInfo.Session.User.IsAuthenticated;
 			if (isRefresh)
 			{
 				new CommunicateMessage("Files")
@@ -489,11 +490,15 @@ namespace net.vieapps.Services.Portals
 						{ "CorrelationID", requestInfo.CorrelationID }
 					}
 				}.Send();
+
+				await link.ContentType.ReUpdate().RefreshAsync(cancellationToken).ConfigureAwait(false);
+				await link.Module.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
+				await link.Organization.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
+
 				await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false).ConfigureAwait(false);
-				await Utility.Cache.RemoveAsync(link, cancellationToken).ConfigureAwait(false);
+				await Utility.Cache.RemoveAsync(link.ReUpdate(), cancellationToken).ConfigureAwait(false);
+
 				link = await Link.GetAsync<Link>(link.ID, cancellationToken).ConfigureAwait(false);
-				link._children = null;
-				link._childrenIDs = null;
 				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await Utility.Cache.SetAsync(link, cancellationToken).ConfigureAwait(false);
 			}

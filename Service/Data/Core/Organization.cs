@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Dynamic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
@@ -514,6 +515,16 @@ namespace net.vieapps.Services.Portals
 				}
 				return scripts + (string.IsNullOrWhiteSpace(this.Scripts) ? "" : this.Scripts);
 			}
+		}
+
+		internal Organization ReUpdate(ExpandoObject data = null)
+		{
+			this._workingPrivileges = null;
+			this._siteIDs = null;
+			this._moduleIDs = null;
+			if (data != null)
+				this.Update(data);
+			return this;
 		}
 
 	}

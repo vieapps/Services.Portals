@@ -28,8 +28,10 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,ScriptLibraries,Scripts,AlwaysUseHtmlSuffix,RefreshUrls,RedirectUrls,EmailSettings,WebHookSettings,HttpIndicators,FakeFilesHttpURI,FakePortalsHttpURI".ToHashSet();
 
+		internal static List<string> MustUpdatedProperties { get; } = "HomeDesktopID,SearchDesktopID,MetaTags,Stylesheets,ScriptLibraries,Scripts,FakeFilesHttpURI,FakePortalsHttpURI".ToList();
+
 		public static Organization CreateOrganization(this ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
-			=> Organization.CreateInstance(data, excluded?.ToHashSet(), organization =>
+			=> Organization.CreateInstance(data, excluded, null, organization =>
 			{
 				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
 				organization.Alias = organization.Alias?.NormalizeAlias(false);
@@ -38,7 +40,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static Organization Update(this Organization organization, ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
-			=> organization.Fill(data, excluded?.ToHashSet(), _ =>
+			=> organization.Fill(data, excluded, null, _ =>
 			{
 				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
 				organization.Alias = organization.Alias?.NormalizeAlias(false);
@@ -86,7 +88,7 @@ namespace net.vieapps.Services.Portals
 			return organization;
 		}
 
-		internal static async Task<Organization> ReloadAsync(this Organization organization, CancellationToken cancellationToken = default, bool set = true)
+		internal static async Task<Organization> ReloadAsync(this Organization organization, CancellationToken cancellationToken, bool set = true, bool updateCache = false, string oldAlias = null)
 		{
 			organization._siteIDs = organization._moduleIDs = null;
 			await Task.WhenAll
@@ -94,35 +96,42 @@ namespace net.vieapps.Services.Portals
 				organization.FindSitesAsync(cancellationToken, false),
 				organization.FindModulesAsync(cancellationToken, false)
 			).ConfigureAwait(false);
-			return set ? organization.Set(true) : organization;
+			return set ? organization.Set(true, updateCache, oldAlias) : organization;
 		}
 
-		internal static async Task<Organization> RefreshAsync(this Organization organization, CancellationToken cancellationToken, bool updateCache = true, bool sendCommunicatingMessage = true, bool sendUpdatingMessage = false)
+		internal static async Task<Organization> RefreshAsync(this Organization organization, CancellationToken cancellationToken, bool reloadContentTypes = true, bool updateCache = true, bool sendCommunicatingMessage = true, bool sendUpdatingMessage = false)
 		{
 			// reload organization
 			await Utility.Cache.RemoveAsync(organization, cancellationToken).ConfigureAwait(false);
 			organization = await organization.Remove().ID.GetOrganizationByIDAsync(cancellationToken, true).ConfigureAwait(false);
 
 			// reload sites & modules
-			await organization.ReloadAsync(cancellationToken, false).ConfigureAwait(false);
-			await organization.Modules.ForEachAsync(async module => await (module._contentTypeIDs == null ? module.FindContentTypesAsync(cancellationToken) : Task.CompletedTask).ConfigureAwait(false), true, false).ConfigureAwait(false);
+			if (organization._siteIDs == null || organization._moduleIDs == null)
+				await organization.ReloadAsync(cancellationToken, false).ConfigureAwait(false);
+
+			// reload content-types
+			var modules = (organization.Modules ?? []).Where(module => module != null).ToList();
+			if (reloadContentTypes)
+				modules.ForEach(module => module._contentTypeIDs = null);
+			await modules.ForEachAsync(async module => await (module._contentTypeIDs == null ? module.FindContentTypesAsync(cancellationToken) : Task.CompletedTask).ConfigureAwait(false), true, false).ConfigureAwait(false);
 
 			// update cache
 			await organization.SetAsync(false, updateCache, cancellationToken).ConfigureAwait(false);
 
 			// send messages
+			var json = sendCommunicatingMessage || sendUpdatingMessage ? organization.ToJson() : null;
 			if (sendCommunicatingMessage)
 				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{organization.GetObjectName()}#Update",
-					Data = organization.ToJson(false, false),
+					Data = json,
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
 			if (sendUpdatingMessage)
 				new UpdateMessage
 				{
 					Type = $"{Utility.ServiceName}#{organization.GetObjectName()}#Update",
-					Data = organization.ToJson(),
+					Data = json,
 					DeviceID = "*"
 				}.Send();
 
@@ -326,19 +335,11 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ProcessInterCommunicateMessageOfOrganizationAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			if (message.Type.IsEndsWith("#Create"))
-				await message.Data.ToExpandoObject().CreateOrganization().ReloadAsync(cancellationToken).ConfigureAwait(false);
-
-			else if (message.Type.IsEndsWith("#Update"))
+			if (message.Type.IsEndsWith("#Create") || message.Type.IsEndsWith("#Update"))
 			{
-				var organization = message.Data.Get("ID", "").GetOrganizationByID(false, false);
-				var oldAlias = organization?.Alias;
-				organization = organization == null
-					? message.Data.ToExpandoObject().CreateOrganization()
-					: organization.Update(message.Data.ToExpandoObject());
-				(await organization.ReloadAsync(cancellationToken, false).ConfigureAwait(false)).Set(!organization.Alias.IsEquals(oldAlias), false, oldAlias);
+				var oldAlias = message.Type.IsEndsWith("#Update") ? message.Data.Get("ID", "").GetOrganizationByID(false, false)?.Alias : null;
+				await message.Data.ToExpandoObject().CreateOrganization().ReloadAsync(cancellationToken, true, false, oldAlias).ConfigureAwait(false);
 			}
-
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateOrganization().Remove();
 		}
@@ -353,10 +354,8 @@ namespace net.vieapps.Services.Portals
 					.ToList()
 				: [];
 
-			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = clearHtmlCache
-				? organization.GetDesktopCacheKeys().Concat(await organization.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList()
-				: [];
+			// html cache keys (desktop HTMLs and related resources)
+			var htmlCacheKeys = (clearHtmlCache ? organization.GetDesktopCacheKeys() : []).Concat(await organization.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList();
 
 			// clear related cache
 			await Task.WhenAll
@@ -610,7 +609,7 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// refresh (clear cached and reload) or get sites & modules/content-types
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) || organization._siteIDs == null || organization._moduleIDs == null;
+			var isRefresh = ("refresh".IsEquals(requestInfo.GetObjectIdentity()) || organization._siteIDs == null || organization._moduleIDs == null) && requestInfo.Session.User.IsAuthenticated;
 			organization = isRefresh
 				? await organization.RefreshAsync(cancellationToken).ConfigureAwait(false)
 				: organization;
@@ -618,6 +617,7 @@ namespace net.vieapps.Services.Portals
 			// response
 			var versions = await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = organization.ToJson(true, false);
+
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{organization.GetObjectName()}#Update",
@@ -625,8 +625,29 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
+
 			if (isRefresh)
-				(await organization.GetSchedulingTasksAsync(cancellationToken).ConfigureAwait(false)).ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));
+				(await organization.GetSchedulingTasksAsync(cancellationToken).ConfigureAwait(false) ?? []).ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));
+
+			else
+			{
+				var filter = Filters<Role>.And(Filters<Role>.Equals("SystemID", organization.ID), Filters<Role>.IsNull("ParentID"));
+				var sort = Sorts<Role>.Ascending("Title");
+				(await Role.FindAsync(filter, sort, 20, 1, Extensions.GetCacheKey(filter, sort, 20, 1), cancellationToken).ConfigureAwait(false) ?? []).ForEach(role => new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{role.GetObjectName()}#Update",
+					Data = role.ToJson(false, false),
+					DeviceID = "*"
+				}.Send());
+				if (!requestInfo.Session.User.IsModerator(null, null, organization))
+					new UpdateMessage
+					{
+						Type = $"{requestInfo.ServiceName}#{organization.DefaultSite?.GetObjectName() ?? "Site"}#Update",
+						Data = organization.DefaultSite?.ToJson(),
+						DeviceID = "*"
+					}.Send();
+			}
+
 			return response;
 		}
 
@@ -698,11 +719,10 @@ namespace net.vieapps.Services.Portals
 			var privileges = organization.OriginalPrivileges?.Copy();
 			organization.Update(request, "ID,OwnerID,HomeDesktopID,SearchDesktopID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
+				OrganizationProcessor.MustUpdatedProperties.ForEach(name => organization.SetProperty(name, request.Get(name)));
 				organization.OwnerID = isSystemAdministrator ? request.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
 				organization.Status = isSystemAdministrator ? request.Get("Status", organization.Status.ToString()).ToEnum<ApprovalStatus>() : organization.Status;
 				organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias;
-				organization.HomeDesktopID = request.Get<string>("HomeDesktopID");
-				organization.SearchDesktopID = request.Get<string>("SearchDesktopID");
 				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
 				organization.LastModified = DateTime.Now;
 				organization.LastModifiedID = requestInfo.Session.User.ID;

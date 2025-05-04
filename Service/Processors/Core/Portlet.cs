@@ -16,6 +16,8 @@ namespace net.vieapps.Services.Portals
 {
 	public static class PortletProcessor
 	{
+		static List<string> MustUpdatedProperties { get; } = "ExpressionID,Action,AlternativeAction".ToList();
+
 		public static Portlet CreatePortlet(this ExpandoObject data, string excluded = null, Action<Portlet> onCompleted = null)
 			=> Portlet.CreateInstance(data, excluded?.ToHashSet(), portlet =>
 			{
@@ -134,8 +136,8 @@ namespace net.vieapps.Services.Portals
 			}
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = clearHtmlCache && portlet.Desktop != null ? portlet.Desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop.Alias}") : new List<string>();
+			// html cache keys (desktop HTMLs and related resources)
+			var htmlCacheKeys = clearHtmlCache && portlet.Desktop != null ? portlet.Desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop.Alias}") : [];
 			if (clearHtmlCache)
 			{
 				if (clearAllHtmlCache)
@@ -643,7 +645,7 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetBodyExpando();
 			portlet.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,OriginalPortletID,Privileges,ExpressionID,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				portlet.ExpressionID = request.Get<string>("ExpressionID");
+				PortletProcessor.MustUpdatedProperties.ForEach(name => portlet.SetProperty(name, request.Get(name)));
 				portlet.LastModified = DateTime.Now;
 				portlet.LastModifiedID = requestInfo.Session.User.ID;
 			});

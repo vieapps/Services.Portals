@@ -53,7 +53,9 @@ namespace net.vieapps.Services.Portals
 				});
 			}
 		}
+		#endregion
 
+		#region Properties
 		ConcurrentHashSet<string> BlackIPs { get; set; } = new ConcurrentHashSet<string>(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList());
 
 		ConcurrentHashSet<string> HarmfulRequestIPs { get; set; } = new();
@@ -205,7 +207,7 @@ namespace net.vieapps.Services.Portals
 				this.StartTimer(() => this.SendDefinitionInfo(), 12 * 60 * 60);
 
 				// timer: re-load all orangizations/sites (once per day)
-				this.StartTimer(() => (DateTime.Now.Hour < 4 || DateTime.Now.Hour > 4 ? Task.CompletedTask : this.ReloadOrganizationsAsync()).Run(), 60 * 60);
+				this.StartTimer(() => (DateTime.Now.Hour < 4 || DateTime.Now.Hour > 4 ? Task.CompletedTask : this.ReloadOrganizationsAsync(false, false, false)).Run(), 60 * 60);
 
 				// invoke next action
 				next?.Invoke(this);
@@ -1183,7 +1185,7 @@ namespace net.vieapps.Services.Portals
 					{ "HomeDesktopAlias", homeDesktopAlias },
 					{ "HomeDesktopAliases", $"{homeDesktopAlias}{(string.IsNullOrWhiteSpace(homeDesktopAliases) ? "" : $";{homeDesktopAliases}")}" },
 					{ "SiteID", site?.ID },
-					{ "SiteDomain", site != null ? $"{site.SubDomain}.{site.PrimaryDomain}" : null },
+					{ "SiteDomain", site?.Host },
 					{ "SiteDomains", site != null ? $"{site.SubDomain}.{site.PrimaryDomain}{(string.IsNullOrWhiteSpace(site.OtherDomains) ? "" : $";{site.OtherDomains}")}" : null },
 					{ "SiteHost", site != null ? host : null },
 					{ "FilesHttpURI", this.GetFilesHttpURI(organization) },
@@ -5321,18 +5323,16 @@ namespace net.vieapps.Services.Portals
 		{
 			if (!updateCache && !sendCommunicatingMessage && !sendUpdatingMessage)
 				await SiteProcessor.FindSitesAsync(null, null, false, this.CancellationToken).ConfigureAwait(false);
-			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? new List<Organization>();
+			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
 			await organizations.ForEachAsync(async organization =>
 			{
-				await organization.RefreshAsync(this.CancellationToken, updateCache, sendCommunicatingMessage, sendUpdatingMessage).ConfigureAwait(false);
+				await organization.RefreshAsync(this.CancellationToken, true, updateCache, sendCommunicatingMessage, sendUpdatingMessage).ConfigureAwait(false);
 				if (!updateCache && !sendCommunicatingMessage && !sendUpdatingMessage)
-				{
-					var cacheKey = organization.HomeDesktop?.GetDesktopCacheKey(new Uri($"https://{organization.DefaultSite?.PrimaryDomain ?? "vieapps.net"}"));
-					await (string.IsNullOrWhiteSpace(cacheKey) ? Task.CompletedTask : Utility.Cache.RemoveAsync($"v#{cacheKey}", this.CancellationToken)).ConfigureAwait(false);
-				}
+					await Utility.Cache.RemoveAsync(organization.GetDesktopCacheKeys(), this.CancellationToken).ConfigureAwait(false);
 				else
 					await organization.Sites.ForEachAsync(site => site.RefreshAsync(this.CancellationToken, updateCache, sendCommunicatingMessage, sendUpdatingMessage), true, false).ConfigureAwait(false);
-				(await organization.GetSchedulingTasksAsync(this.CancellationToken).ConfigureAwait(false)).ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));
+				if (sendCommunicatingMessage || sendUpdatingMessage)
+					(await organization.GetSchedulingTasksAsync(this.CancellationToken).ConfigureAwait(false) ?? []).ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));
 			}, true, false).ConfigureAwait(false);
 			await this.WriteLogsAsync(UtilityService.NewUUID, $"All organizations have been re-loaded - Total: {organizations.Count}", null, this.ServiceName, "Caches").ConfigureAwait(false);
 		}

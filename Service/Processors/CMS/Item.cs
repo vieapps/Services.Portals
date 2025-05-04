@@ -404,7 +404,7 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// refresh
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.Session.User.IsAuthenticated;
 			if (isRefresh)
 			{
 				new CommunicateMessage("Files")
@@ -416,6 +416,11 @@ namespace net.vieapps.Services.Portals
 						{ "CorrelationID", requestInfo.CorrelationID }
 					}
 				}.Send();
+
+				await item.ContentType.ReUpdate().RefreshAsync(cancellationToken).ConfigureAwait(false);
+				await item.Module.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
+				await item.Organization.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
+
 				await item.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 				await Utility.Cache.RemoveAsync(item, cancellationToken).ConfigureAwait(false);
 				item = await Item.GetAsync<Item>(item.ID, cancellationToken).ConfigureAwait(false);

@@ -29,7 +29,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static Module Update(this Module module, ExpandoObject data, string excluded = null, Action<Module> onCompleted = null)
-			=> module.Fill(data, excluded?.ToHashSet(), _ =>
+			=> module.Fill(data, excluded, "Description,DesktopID", _ =>
 			{
 				module.NormalizeExtras();
 				onCompleted?.Invoke(module);
@@ -85,6 +85,26 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
+		internal static async Task<Module> RefreshAsync(this Module module, CancellationToken cancellationToken, bool reloadContentTypes = true, bool sendCommunicatingMessage = true)
+		{
+			await Utility.Cache.RemoveAsync(module, cancellationToken).ConfigureAwait(false);
+			module = await module.Remove().ID.GetModuleByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			if (reloadContentTypes || module._contentTypeIDs == null)
+			{
+				module._contentTypeIDs = null;
+				await module.FindContentTypesAsync(cancellationToken).ConfigureAwait(false);
+			}
+			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+			if (sendCommunicatingMessage)
+				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				{
+					Type = $"{module.GetObjectName()}#Update",
+					Data = module.ToJson(true, false),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			return module;
+		}
+
 		public static List<Module> FindModules(this string systemID, string definitionID = null, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
@@ -121,25 +141,12 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ProcessInterCommunicateMessageOfModuleAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			if (message.Type.IsEndsWith("#Create"))
+			if (message.Type.IsEndsWith("#Create") || message.Type.IsEndsWith("#Update"))
 			{
 				var module = message.Data.ToExpandoObject().CreateModule();
-				module._contentTypeIDs = null;
 				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 				module.Set();
 			}
-
-			else if (message.Type.IsEndsWith("#Update"))
-			{
-				var module = message.Data.Get("ID", "").GetModuleByID(false, false);
-				module = module == null
-					? message.Data.ToExpandoObject().CreateModule()
-					: module.Update(message.Data.ToExpandoObject());
-				module._contentTypeIDs = null;
-				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
-				module.Set();
-			}
-
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateModule().Remove();
 		}
@@ -377,15 +384,9 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) || module._contentTypeIDs == null;
+			var isRefresh = ("refresh".IsEquals(requestInfo.GetObjectIdentity()) || module._contentTypeIDs == null) && requestInfo.Session.User.IsAuthenticated;
 			if (isRefresh)
-			{
-				await Utility.Cache.RemoveAsync(module, cancellationToken).ConfigureAwait(false);
-				module = await module.Remove().ID.GetModuleByIDAsync(cancellationToken, true).ConfigureAwait(false);
-				module._contentTypeIDs = null;
-				await module.FindContentTypesAsync(cancellationToken).ConfigureAwait(false);
-				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
-			}
+				await module.RefreshAsync(cancellationToken).ConfigureAwait(false);
 
 			// response
 			var versions = await module.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
@@ -397,13 +398,6 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
-			if (isRefresh)
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{module.GetObjectName()}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
 			return response;
 		}
 
@@ -426,7 +420,6 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetBodyExpando();
 			module.Update(request, "ID,SystemID,DesktopID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				module.DesktopID = request.Get<string>("DesktopID");
 				module.LastModified = DateTime.Now;
 				module.LastModifiedID = requestInfo.Session.User.ID;
 			});

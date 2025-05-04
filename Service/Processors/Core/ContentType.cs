@@ -29,7 +29,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static ContentType Update(this ContentType contentType, ExpandoObject data, string excluded = null, Action<ContentType> onCompleted = null)
-			=> contentType?.Fill(data, excluded?.ToHashSet(), _ =>
+			=> contentType?.Fill(data, excluded, "Description,SubTitleFormula,RepositoryEntityID,DesktopID", _ =>
 			{
 				contentType.NormalizeExtras();
 				onCompleted?.Invoke(contentType);
@@ -87,6 +87,20 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
+		internal static async Task<ContentType> RefreshAsync(this ContentType contentType, CancellationToken cancellationToken, bool sendCommunicatingMessage = true)
+		{
+			await Utility.Cache.RemoveAsync(contentType, cancellationToken).ConfigureAwait(false);
+			contentType = await contentType.Remove().ID.GetContentTypeByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			if (sendCommunicatingMessage)
+				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				{
+					Type = $"{contentType.GetObjectName()}#Update",
+					Data = contentType.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			return contentType;
+		}
+
 		public static List<ContentType> FindContentTypes(this string systemID, string repositoryID = null, string definitionID = null, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
@@ -123,21 +137,10 @@ namespace net.vieapps.Services.Portals
 
 		internal static Task ProcessInterCommunicateMessageOfContentTypeAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			if (message.Type.IsEndsWith("#Create"))
+			if (message.Type.IsEndsWith("#Create") || message.Type.IsEndsWith("#Update"))
 				message.Data.ToExpandoObject().CreateContentType().Set();
-
-			else if (message.Type.IsEndsWith("#Update"))
-			{
-				var contentType = message.Data.Get("ID", "").GetContentTypeByID(false, false);
-				contentType = contentType == null
-					? message.Data.ToExpandoObject().CreateContentType()
-					: contentType.Update(message.Data.ToExpandoObject());
-				contentType.Set();
-			}
-
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateContentType().Remove();
-
 			return Task.CompletedTask;
 		}
 
@@ -479,12 +482,9 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.Session.User.IsAuthenticated;
 			if (isRefresh)
-			{
-				await Utility.Cache.RemoveAsync(contentType, cancellationToken).ConfigureAwait(false);
-				contentType = await contentType.Remove().ID.GetContentTypeByIDAsync(cancellationToken, true).ConfigureAwait(false);
-			}
+				await contentType.RefreshAsync(cancellationToken).ConfigureAwait(false);
 
 			// response
 			var versions = await contentType.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
@@ -496,13 +496,6 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
-			if (isRefresh)
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{contentType.GetObjectName()}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
 			return response;
 		}
 
@@ -555,7 +548,6 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetBodyExpando();
 			contentType.Update(request, "ID,SystemID,RepositoryID,ContentTypeDefinitionID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				contentType.DesktopID = request.Get<string>("DesktopID");
 				contentType.LastModified = DateTime.Now;
 				contentType.LastModifiedID = requestInfo.Session.User.ID;
 			});

@@ -26,13 +26,17 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",Files,Downloads,Images,Thumbnails,ThumbnailPngs,ThumbnailBigs,ThumbnailBigPngs,IsDefault,Index,Feed,Atom,Rss").ToLower().ToHashSet();
 
+		internal static List<string> SEOModes { get; } = "TitleMode,DescriptionMode,KeywordsMode".ToList();
+
+		internal static List<string> MustUpdatedProperties { get; } = "ParentID,Aliases,Language,Theme,Template,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,MainPortletID".ToList();
+
 		public static Desktop CreateDesktop(this ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
 			=> Desktop.CreateInstance(data, excluded?.ToHashSet(), desktop =>
 			{
 				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
 				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToArray(";", true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
 				desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
-				"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
+				SEOModes.ForEach(name =>
 				{
 					var value = data.Get<string>($"SEOSettings.{name}");
 					desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
@@ -48,7 +52,7 @@ namespace net.vieapps.Services.Portals
 				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
 				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToArray(";", true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
 				desktop.SEOSettings = desktop.SEOSettings ?? new Settings.SEO();
-				"TitleMode,DescriptionMode,KeywordsMode".ToList().ForEach(name =>
+				SEOModes.ForEach(name =>
 				{
 					var value = data.Get<string>($"SEOSettings.{name}");
 					desktop.SEOSettings.SetAttributeValue(name, !string.IsNullOrWhiteSpace(value) && value.TryToEnum(out Settings.SEOMode mode) ? mode as object : null);
@@ -195,39 +199,19 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ProcessInterCommunicateMessageOfDesktopAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			if (message.Type.IsEndsWith("#Create"))
+			if (message.Type.IsEndsWith("#Create") || message.Type.IsEndsWith("#Update"))
 			{
-				var desktop = message.Data.ToExpandoObject().CreateDesktop();
-				desktop._portlets = null;
-				desktop._childrenIDs = null;
+				var desktop = message.Type.IsEndsWith("#Update") ? message.Data.Get("ID", "").GetDesktopByID(false, false) : null;
+				var oldAliases = message.Type.IsEndsWith("#Update") ? (desktop?.Aliases ?? "").ToArray(";", true).Concat(new[] { desktop?.Alias }).ToList() : null;
+				desktop = message.Data.ToExpandoObject().CreateDesktop();
 				await Task.WhenAll
 				(
 					desktop.FindPortletsAsync(cancellationToken, false),
 					desktop.FindChildrenAsync(cancellationToken, false)
 				).ConfigureAwait(false);
 				await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async portlet => portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
-				desktop.Set(true);
-			}
-
-			else if (message.Type.IsEndsWith("#Update"))
-			{
-				var desktop = message.Data.Get("ID", "").GetDesktopByID(false, false);
-				var oldAliases = (desktop?.Aliases ?? "").ToArray(";", true).Concat(new[] { desktop?.Alias }).ToList();
-				desktop = desktop == null
-					? message.Data.ToExpandoObject().CreateDesktop()
-					: desktop.Update(message.Data.ToExpandoObject());
-				desktop._portlets = null;
-				desktop._childrenIDs = null;
-				await Task.WhenAll
-				(
-					desktop.FindPortletsAsync(cancellationToken, false),
-					desktop.FindChildrenAsync(cancellationToken, false)
-				).ConfigureAwait(false);
-				if (desktop.Portlets != null)
-					await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async portlet => portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 				desktop.Set(true, false, oldAliases);
 			}
-
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateDesktop().Remove();
 		}
@@ -247,15 +231,12 @@ namespace net.vieapps.Services.Portals
 				dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Concat(new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" }).ToList();
 			}
 
-			// html cache keys (desktop HTMLs)
-			var setKeys = clearHtmlCache ? await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false) : new List<string>();
-			var htmlCacheKeys = clearHtmlCache
-				? desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}").Concat(setKeys).ToList()
-				: new List<string>();
+			// html cache keys (desktop HTMLs and related resources)
+			var htmlCacheKeys = (clearHtmlCache ? desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}") : []).Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false)).ToList();
 
+			// clear related cache
 			await Task.WhenAll
 			(
-				clearHtmlCache && setKeys.Any() ? Utility.Cache.RemoveSetMembersAsync(desktop.GetSetCacheKey(), setKeys, cancellationToken) : Task.CompletedTask,
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh ? $"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]") : Task.CompletedTask
@@ -284,12 +265,10 @@ namespace net.vieapps.Services.Portals
 
 			var query = request.Get<string>("FilterBy.Query");
 
-			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Desktop>() ?? Filters<Desktop>.And();
+			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Desktop>() as FilterBys<Desktop> ?? Filters<Desktop>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Desktop>() ?? Sorts<Desktop>.Ascending("Title") : null;
 
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var (totalRecords, totalPages, pageSize, pageNumber) = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 
 			// get organization
 			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
@@ -303,34 +282,32 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// normalize
-			if (filter is FilterBys<Desktop> filterBy)
+			if (!string.IsNullOrWhiteSpace(query))
 			{
-				if (!string.IsNullOrWhiteSpace(query))
-				{
-					var filterByParent = filterBy.GetChild("ParentID");
-					if (filterByParent != null)
-						filterBy.Children.Remove(filterByParent);
-				}
-				else if (filterBy.GetChild("ParentID") == null)
-					filterBy.Children.Add(Filters<Desktop>.IsNull("ParentID"));
+				var filterByParent = filter.GetChild("ParentID");
+				if (filterByParent != null)
+					filter.Children.Remove(filterByParent);
 			}
+			else if (filter.GetChild("ParentID") == null)
+				filter.Children.Add(Filters<Desktop>.IsNull("ParentID"));
 
 			// process cache
 			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));
 			var cachedJson = string.IsNullOrWhiteSpace(query) && !addChildren
 				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 				: null;
+
 			if (!string.IsNullOrWhiteSpace(cachedJson))
 				return JObject.Parse(cachedJson);
 
 			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
+			totalRecords = totalRecords > -1 ? totalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
 					? await Desktop.CountAsync(filter, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Desktop.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
@@ -339,7 +316,7 @@ namespace net.vieapps.Services.Portals
 				? string.IsNullOrWhiteSpace(query)
 					? await Desktop.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Desktop.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Desktop>();
+				: [];
 
 			// build response
 			if (addChildren)
@@ -590,7 +567,7 @@ namespace net.vieapps.Services.Portals
 			var oldAliases = (desktop.Aliases ?? "").ToArray(";", true).Concat(new[] { oldAlias }).ToList();
 			desktop.Update(request, "ID,SystemID,Privileges,OriginalPrivileges,ParentID,Created,CreatedID,LastModified,LastModifiedID", async _ =>
 			{
-				desktop.ParentID = request.Get<string>("ParentID");
+				DesktopProcessor.MustUpdatedProperties.ForEach(name => desktop.SetProperty(name, request.Get(name)));
 				desktop.LastModified = DateTime.Now;
 				desktop.LastModifiedID = requestInfo.Session.User.ID;
 				await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);

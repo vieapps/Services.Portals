@@ -224,8 +224,8 @@ namespace net.vieapps.Services.Portals
 			};
 			if (organization.Sites != null && organization.Sites.Count > 1)
 				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey($"{organization.URL}/{site.HomeDesktop?.Alias}", site))).ToList();
-			cacheKeys = cacheKeys.Where(cacheKey => cacheKey != null).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			return cacheKeys.Concat(cacheKeys.Select(cacheKey => new[] { $"{cacheKey}:time", $"{cacheKey}:expiration" }).SelectMany(keys => keys)).ToList();
+			cacheKeys = cacheKeys.Where(cacheKey => cacheKey != null).ToList();
+			return cacheKeys.Concat(cacheKeys.Select(cacheKey => new[] { $"{cacheKey}:time", $"{cacheKey}:expiration" }).SelectMany(keys => keys)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
 
 		/// <summary>
@@ -254,7 +254,7 @@ namespace net.vieapps.Services.Portals
 					await Task.Delay(delay * 1000, Utility.CancellationToken).ConfigureAwait(false);
 				await new Uri(url).FetchHttpAsync(Utility.RefresherHeaders, 30, Utility.CancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
-				if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache=x"))
+				if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache="))
 					await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {url}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 			}
 			catch (RemoteServerMovedException ex)
@@ -263,7 +263,7 @@ namespace net.vieapps.Services.Portals
 				{
 					await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, 30, Utility.CancellationToken).ConfigureAwait(false);
 					stopwatch.Stop();
-					if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache=x"))
+					if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache="))
 						await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {ex.URI}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 				}
 				catch (Exception mex)

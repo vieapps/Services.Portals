@@ -149,12 +149,11 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetRequestExpando();
 
 			var query = request.Get<string>("FilterBy.Query");
-			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Role>() ?? Filters<Role>.And();
+
+			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Role>() as FilterBys<Role> ?? Filters<Role>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Role>() ?? Sorts<Role>.Ascending("Title") : null;
 
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var (totalRecords, totalPages, pageSize, pageNumber) = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 
 			// get organization
 			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("OrganizationID");
@@ -168,32 +167,31 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// normalize
-			if (filter is FilterBys<Role>)
+			if (!string.IsNullOrWhiteSpace(query))
 			{
-				if (!string.IsNullOrWhiteSpace(query))
-				{
-					var index = (filter as FilterBys<Role>).Children.FindIndex(exp => (exp as FilterBy<Role>).Attribute.IsEquals("ParentID"));
-					if (index > -1)
-						(filter as FilterBys<Role>).Children.RemoveAt(index);
-				}
-				else if ((filter as FilterBys<Role>).Children.FirstOrDefault(exp => (exp as FilterBy<Role>).Attribute.IsEquals("ParentID")) == null)
-					(filter as FilterBys<Role>).Children.Add(Filters<Role>.IsNull("ParentID"));
+				var filterByParent = filter.GetChild("ParentID");
+				if (filterByParent != null)
+					filter.Children.Remove(filterByParent);
 			}
+			else if (filter.GetChild("ParentID") == null)
+				filter.Children.Add(Filters<Role>.IsNull("ParentID"));
 
 			// process cache
 			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));
-			var cachedJson = string.IsNullOrWhiteSpace(query) && !addChildren ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
+			var cacheKeyOfJson = Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber);
+			var cachedJson = string.IsNullOrWhiteSpace(query) && !addChildren ? await Utility.Cache.GetAsync<string>(cacheKeyOfJson, cancellationToken).ConfigureAwait(false) : null;
+
 			if (!string.IsNullOrWhiteSpace(cachedJson))
 				return JObject.Parse(cachedJson);
 
 			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
+			totalRecords = totalRecords > -1 ? totalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
 					? await Role.CountAsync(filter, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Role.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
@@ -202,7 +200,7 @@ namespace net.vieapps.Services.Portals
 				? string.IsNullOrWhiteSpace(query)
 					? await Role.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Role.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Role>();
+				: [];
 
 			// build result
 			if (addChildren)
@@ -218,7 +216,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query) && !addChildren)
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Run();
+				Utility.Cache.SetAsync(cacheKeyOfJson, response.ToString(Formatting.None)).Run();
 
 			// response
 			return response;

@@ -1,6 +1,7 @@
 ﻿#region Related components
 using System;
 using System.Linq;
+using System.Dynamic;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Threading;
@@ -281,6 +282,17 @@ namespace net.vieapps.Services.Portals
 
 		public async Task<IAliasEntity> GetByAliasAsync(string repositoryEntityID, string alias, string parentIdentity = null, CancellationToken cancellationToken = default)
 			=> await (repositoryEntityID ?? "").GetCategoryByAliasAsync(alias, cancellationToken).ConfigureAwait(false);
+
+		internal Category ReUpdate(ExpandoObject data = null)
+		{
+			this._workingPrivileges = null;
+			this._children = null;
+			this._childrenIDs = null;
+			if (data != null)
+				this.Update(data);
+			return this;
+		}
+
 	}
 
 	public enum OpenBy

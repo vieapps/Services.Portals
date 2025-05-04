@@ -2,9 +2,10 @@
 using System;
 using System.Linq;
 using System.Diagnostics;
-using System.Collections.Generic;
+using System.Dynamic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using System.Xml.Serialization;
 using MsgPack.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
@@ -225,6 +226,17 @@ namespace net.vieapps.Services.Portals
 				? this.Organization.AlwaysUseHtmlSuffix ? "~/index.html" : "~/"
 				: url;
 		}
+
+		internal Link ReUpdate(ExpandoObject data = null)
+		{
+			this._workingPrivileges = null;
+			this._children = null;
+			this._childrenIDs = null;
+			if (data != null)
+				this.Update(data);
+			return this;
+		}
+
 	}
 
 	public enum ChildrenMode

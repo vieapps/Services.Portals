@@ -35,7 +35,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static Category Update(this Category category, ExpandoObject data, string excluded = null, Action<Category> onCompleted = null)
-			=> category.Fill(data, excluded?.ToHashSet(), _ =>
+			=> category.Fill(data, excluded, "Description,DesktopID,SpecifiedURI,Notes", _ =>
 			{
 				category.Alias = category.Alias?.NormalizeAlias();
 				category.NormalizeExtras();
@@ -126,6 +126,26 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
+		internal static async Task<Category> RefreshAsync(this Category category, CancellationToken cancellationToken, bool reloadChildren = true, bool sendCommunicatingMessage = true)
+		{
+			await Utility.Cache.RemoveAsync(reloadChildren ? category.ReUpdate() : category, cancellationToken).ConfigureAwait(false);
+			category = await category.Remove().ID.GetCategoryByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			if (reloadChildren || category._childrenIDs == null)
+			{
+				category._childrenIDs = null;
+				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			}
+			await category.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			if (sendCommunicatingMessage)
+				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				{
+					Type = $"{category.GetObjectName()}#Update",
+					Data = category.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			return category;
+		}
+
 		public static List<Category> FindCategories(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
@@ -156,26 +176,13 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ProcessInterCommunicateMessageOfCategoryAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			if (message.Type.IsEndsWith("#Create"))
+			if (message.Type.IsEndsWith("#Create") || message.Type.IsEndsWith("#Update"))
 			{
+				var oldAlias = message.Type.IsEndsWith("#Update") ? message.Data.Get("ID", "").GetCategoryByID(false, false)?.Alias : null;
 				var category = message.Data.ToExpandoObject().CreateCategory();
-				category._childrenIDs = null;
 				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				category.Set();
+				category.Set(true, false, oldAlias);
 			}
-
-			else if (message.Type.IsEndsWith("#Update"))
-			{
-				var category = message.Data.Get("ID", "").GetCategoryByID(false, false);
-				var oldAlias = category?.Alias;
-				category = category == null
-					? message.Data.ToExpandoObject().CreateCategory()
-					: category.Update(message.Data.ToExpandoObject());
-				category._childrenIDs = null;
-				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				category.Set(false, false, oldAlias);
-			}
-
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateCategory().Remove();
 		}
@@ -627,24 +634,25 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.Session.User.IsAuthenticated;
 			if (isRefresh || category._childrenIDs == null)
 			{
-				new CommunicateMessage("Files")
+				if (isRefresh)
 				{
-					Type = "ClearCache",
-					Data = new JObject
+					new CommunicateMessage("Files")
 					{
-						{ "ObjectID", category.ID },
-						{ "CorrelationID", requestInfo.CorrelationID }
-					}
-				}.Send();
-				await Utility.Cache.RemoveAsync(category, cancellationToken).ConfigureAwait(false);
-				category = await category.Remove().ID.GetCategoryByIDAsync(cancellationToken, true).ConfigureAwait(false);
-				category._childrenIDs = null;
-				if (category._childrenIDs == null)
-					await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				await category.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+						Type = "ClearCache",
+						Data = new JObject
+						{
+							{ "ObjectID", category.ID },
+							{ "CorrelationID", requestInfo.CorrelationID }
+						}
+					}.Send();
+					await category.ContentType.ReUpdate().RefreshAsync(cancellationToken).ConfigureAwait(false);
+					await category.Module.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
+					await category.Organization.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
+				}
+				await category.RefreshAsync(cancellationToken).ConfigureAwait(false);
 			}
 
 			// store object cache key to clear related cached
@@ -660,13 +668,6 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
-			if (isRefresh)
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{category.GetObjectName()}#Update",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
 			return response;
 		}
 

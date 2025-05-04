@@ -1,6 +1,7 @@
 ﻿#region Related components
 using System;
 using System.Linq;
+using System.Dynamic;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Xml.Serialization;
@@ -213,5 +214,14 @@ namespace net.vieapps.Services.Portals
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 		}
+
+		internal ContentType ReUpdate(ExpandoObject data = null)
+		{
+			this._workingPrivileges = null;
+			if (data != null)
+				this.Update(data);
+			return this;
+		}
+
 	}
 }

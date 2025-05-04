@@ -12,6 +12,8 @@ using MongoDB.Bson.Serialization.Attributes;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using System.Dynamic;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -261,6 +263,15 @@ namespace net.vieapps.Services.Portals
 			=> string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias) || string.IsNullOrWhiteSpace(parentIdentity)
 				? null
 				: await Content.GetContentByAliasAsync(await repositoryEntityID.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false), alias, parentIdentity, cancellationToken).ConfigureAwait(false);
+
+		internal Content ReUpdate(ExpandoObject data = null)
+		{
+			this._workingPrivileges = null;
+			if (data != null)
+				this.Update(data, null, out var _);
+			return this;
+		}
+
 	}
 
 	public sealed class ExternalRelated

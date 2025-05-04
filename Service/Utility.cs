@@ -34,17 +34,21 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)> Logs { get; } = new ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)>();
 
-		internal static bool IsDebugLogEnabled
-			=> Utility.Logger != null && Utility.Logger.IsEnabled(LogLevel.Debug);
+		internal static bool IsDebugLogEnabled => Utility.Logger != null && Utility.Logger.IsEnabled(LogLevel.Debug);
 
-		internal static bool IsCacheLogEnabled
-			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Caches"));
+		internal static bool IsWriteDebugLogs(this RequestInfo requestInfo, string component = null) => Utility.IsDebugLogEnabled || (requestInfo != null && requestInfo.ContainsKey("x-logs")) || (component != null && "true".IsEquals(UtilityService.GetAppSetting($"Logs:Portals:{component}")));
 
-		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo)
-			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Desktops", "false")) || (requestInfo != null && requestInfo.ContainsKey("x-logs"));
+		internal static bool IsWriteCacheLogs(this RequestInfo requestInfo) => Utility.IsWriteDebugLogs(requestInfo, "Caches");
 
-		internal static bool IsWriteMessageLogs(this RequestInfo requestInfo)
-			=> Utility.IsDebugLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Logs:Portals:Messages", "false")) || (requestInfo != null && requestInfo.ContainsKey("x-logs"));
+		internal static bool IsCacheLogEnabled => Utility.IsWriteCacheLogs(null);
+
+		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo) => Utility.IsWriteDebugLogs(requestInfo, "Desktops");
+
+		internal static bool IsDesktopLogEnabled => Utility.IsWriteDesktopLogs(null);
+
+		internal static bool IsWriteMessageLogs(this RequestInfo requestInfo) => Utility.IsWriteDebugLogs(requestInfo, "Messages");
+
+		internal static bool IsMessageLogEnabled => Utility.IsWriteMessageLogs(null);
 
 		internal static bool AllowInlineImages { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));
 
@@ -54,8 +58,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool RunProcessorInParallelsMode { get; } = "Parallels".IsEquals(UtilityService.GetAppSetting("Portals:Processor", "Parallels"));
 
-		internal static CancellationToken CancellationToken
-			=> ServiceBase.ServiceComponent.CancellationToken;
+		internal static CancellationToken CancellationToken => ServiceBase.ServiceComponent.CancellationToken;
 
 		/// <summary>
 		/// Gets the key for encrypting/decrypting data with AES
@@ -1183,23 +1186,23 @@ namespace net.vieapps.Services.Portals
 			return uri;
 		}
 
-		internal static bool IsAdministrator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
-			=> user.ID.IsEquals(organization?.OwnerID) || user.IsAdministrator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+		internal static bool IsAdministrator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, bool checkAsOwner = true)
+			=> (checkAsOwner && user.ID.IsEquals(organization?.OwnerID)) || user.IsAdministrator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
-		internal static bool IsModerator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
-			=> user.ID.IsEquals(organization?.OwnerID) || user.IsModerator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+		internal static bool IsModerator(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, bool checkAsOwner = true)
+			=> (checkAsOwner && user.ID.IsEquals(organization?.OwnerID)) || user.IsModerator(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
-		internal static bool IsEditor(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
-			=> user.ID.IsEquals(organization?.OwnerID) || user.IsEditor(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+		internal static bool IsEditor(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, bool checkAsOwner = true)
+			=> (checkAsOwner && user.ID.IsEquals(organization?.OwnerID)) || user.IsEditor(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
-		internal static bool IsContributor(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
-			=> user.ID.IsEquals(organization?.OwnerID) || user.IsContributor(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+		internal static bool IsContributor(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, bool checkAsOwner = true)
+			=> (checkAsOwner && user.ID.IsEquals(organization?.OwnerID)) || user.IsContributor(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
-		internal static bool IsViewer(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
-			=> user.ID.IsEquals(organization?.OwnerID) || user.IsViewer(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+		internal static bool IsViewer(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, bool checkAsOwner = true)
+			=> (checkAsOwner && user.ID.IsEquals(organization?.OwnerID)) || user.IsViewer(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
-		internal static bool IsDownloader(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization)
-			=> user.ID.IsEquals(organization?.OwnerID) || user.IsDownloader(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+		internal static bool IsDownloader(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, bool checkAsOwner = true)
+			=> (checkAsOwner && user.ID.IsEquals(organization?.OwnerID)) || user.IsDownloader(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
 
 		internal static JObject UpdateVersions(this JObject json, List<VersionContent> versions)
 		{

@@ -23,8 +23,10 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "IsDefault,AlwaysUseHTTPs,AlwaysReturnHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,UseInlineStylesheets,UseInlineScripts,CanonicalHost,SEOInfo".ToHashSet();
 
+		internal static List<string> MustUpdatedProperties { get; } = "HomeDesktopID,SearchDesktopID,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,CanonicalHost".ToList();
+
 		public static Site CreateSite(this ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
-			=> Site.CreateInstance(data, excluded?.ToHashSet(), site =>
+			=> Site.CreateInstance(data, excluded, null, site =>
 			{
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
@@ -33,8 +35,8 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(site);
 			});
 
-		public static Site Update(this Site site, ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
-			=> site.Fill(data, excluded?.ToHashSet(), _ =>
+		public static Site Update(this Site site, ExpandoObject data, string excluded, Action<Site> onCompleted = null)
+			=> site.Fill(data, excluded, null, _ =>
 			{
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
@@ -274,22 +276,14 @@ namespace net.vieapps.Services.Portals
 
 		internal static Task ProcessInterCommunicateMessageOfSiteAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			if (message.Type.IsEndsWith("#Create"))
-				message.Data.ToExpandoObject().CreateSite().Set(true);
-
-			else if (message.Type.IsEndsWith("#Update"))
+			if (message.Type.IsEndsWith("#Create") || message.Type.IsEndsWith("#Update"))
 			{
-				var site = message.Data.Get("ID", "").GetSiteByID(false, false);
-				var oldDomains = site != null ? new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }.Concat((site.OtherDomains ?? "").ToArray(";", true)).ToList() : new List<string>();
-				site = site == null
-					? message.Data.ToExpandoObject().CreateSite()
-					: site.Update(message.Data.ToExpandoObject());
-				site.Set(true, false, oldDomains);
+				var site = message.Type.IsEndsWith("#Update") ? message.Data.Get("ID", "").GetSiteByID(false, false) : null;
+				var oldDomains = site != null ? $"{site.SubDomain}.{site.PrimaryDomain};{site.OtherDomains ?? ""}".ToList(";", true) : [];
+				message.Data.ToExpandoObject().CreateSite().Set(true, false, oldDomains);
 			}
-
 			else if (message.Type.IsEndsWith("#Delete"))
 				message.Data.ToExpandoObject().CreateSite().Remove();
-
 			return Task.CompletedTask;
 		}
 
@@ -306,10 +300,8 @@ namespace net.vieapps.Services.Portals
 					.ToList()
 				: [];
 
-			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = clearHtmlCache
-				? site.Organization.GetDesktopCacheKeys().Concat(await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList()
-				: [];
+			// html cache keys (desktop HTMLs and related resources)
+			var htmlCacheKeys = (clearHtmlCache	? site.Organization.GetDesktopCacheKeys() : []).Concat(await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList();
 
 			// clear related cache
 			await Task.WhenAll
@@ -597,8 +589,7 @@ namespace net.vieapps.Services.Portals
 			// gathering information
 			site.Update(request, "ID,SystemID,HomeDesktopID,SearchDesktopID,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				site.HomeDesktopID = request.Get<string>("HomeDesktopID");
-				site.SearchDesktopID = request.Get<string>("SearchDesktopID");
+				SiteProcessor.MustUpdatedProperties.ForEach(name => site.SetProperty(name, request.Get(name)));
 				site.LastModified = DateTime.Now;
 				site.LastModifiedID = requestInfo.Session.User.ID;
 			});
@@ -696,7 +687,7 @@ namespace net.vieapps.Services.Portals
 					await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 				}
 				else
-					await Site.UpdateAsync(site.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
+					await Site.UpdateAsync(site.Update(data, site.GetPublicAttributes().Select(attribute => attribute.Name).ToString(","), obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (site != null)
 				await Site.DeleteAsync<Site>(site.ID, site.LastModifiedID, cancellationToken).ConfigureAwait(false);
