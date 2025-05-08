@@ -50,6 +50,8 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool IsMessageLogEnabled => Utility.IsWriteMessageLogs(null);
 
+		internal static bool IsForceCache(this RequestInfo requestInfo) => requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache");
+
 		internal static bool AllowInlineImages { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));
 
 		internal static bool UploadInlineImages	{ get; } = "upload".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Mode", "Upload"));
@@ -422,6 +424,12 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("~~/") || url.IsStartsWith(filesHttpURI ?? Utility.FilesHttpURI)))
 			{
 				var segments = new Uri(url.Replace("~~/", $"{filesHttpURI ?? Utility.FilesHttpURI}/")).AbsolutePath.ToList("/").Skip(1).ToList();
+				var mime = FilesHttpMIMEs.Any(info => info.Handler.IsEquals(segments[0])) ? FilesHttpMIMEs.First(info => info.Handler.IsEquals(segments[0])) : (null, null);
+				if (mime.Handler != null && mime.MIMEType != null)
+				{
+					segments[0] = "files";
+					segments.Insert(2, mime.MIMEType);
+				}
 				var handler = segments[0].IsStartsWith("thumbnail") ? segments[0].ToLower() : "images";
 				handler = segments[0].IsStartsWith("thumbnail") ? handler.IsEndsWith("pngs") ? handler.Replace("pngs", "webps") : "thumbnailwebps" : handler;
 				url = (url.IsStartsWith("~~/") ? "~~" : filesHttpURI ?? Utility.FilesHttpURI) + $"/{handler}/";

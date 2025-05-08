@@ -61,9 +61,9 @@ namespace net.vieapps.Services.Portals
 		/// <param name="cancellationToken"></param>
 		/// <param name="staticIncluded"></param>
 		/// <returns></returns>
-		public static async Task<List<string>> GetSetCacheKeysAsync(this Desktop desktop, CancellationToken cancellationToken = default, bool staticIncluded = false)
-			=> (staticIncluded ? new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" } : Array.Empty<string>())
-				.Concat(desktop != null ? await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) : [])
+		public static async Task<List<string>> GetSetCacheKeysAsync(this Desktop desktop, CancellationToken cancellationToken = default, bool includeStaticResources = false)
+			=> (includeStaticResources ? new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" } : Array.Empty<string>())
+				.Concat(await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? [])
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 
@@ -74,11 +74,11 @@ namespace net.vieapps.Services.Portals
 		/// <param name="cancellationToken"></param>
 		/// <param name="staticIncluded"></param>
 		/// <returns></returns>
-		public static async Task<List<string>> GetSetCacheKeysAsync(this IEnumerable<Desktop> desktops, CancellationToken cancellationToken = default, bool staticIncluded = false)
+		public static async Task<List<string>> GetSetCacheKeysAsync(this IEnumerable<Desktop> desktops, CancellationToken cancellationToken = default, bool includeStaticResources = false)
 		{
 			var keys = new List<string>();
 			if (desktops != null)
-				await desktops.Where(desktop => desktop != null).ForEachAsync(async desktop => keys = keys.Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, staticIncluded).ConfigureAwait(false) ?? []).ToList(), true, false).ConfigureAwait(false);
+				await desktops.Where(desktop => desktop != null).ForEachAsync(async desktop => keys = keys.Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, includeStaticResources).ConfigureAwait(false) ?? []).ToList(), true, false).ConfigureAwait(false);
 			return keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
 

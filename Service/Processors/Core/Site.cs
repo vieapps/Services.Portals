@@ -295,8 +295,7 @@ namespace net.vieapps.Services.Portals
 				? Extensions.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title"))
 					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), sort))
 					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), sort))
-					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")))
-					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")))					
 					.ToList()
 				: [];
 
@@ -307,8 +306,13 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Cache") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{site.Organization.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Cache") : Task.CompletedTask,
+				doRefresh ? Task.WhenAll(
+					site.IsDefault ? Task.CompletedTask : $"{site.GetURL()}/?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]"),
+					$"{Utility.PortalsHttpURI}/~{site.Organization.Alias}?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]"),
+					$"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/s_{site.ID}.css?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh site CSS when related cache of a site was clean [{site.Title} - ID: {site.ID}]"),
+					$"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/s_{site.ID}.js?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh site JS when related cache of a site was clean [{site.Title} - ID: {site.ID}]")
+				) : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -492,8 +496,9 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetSiteAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
+			var isForceCache = requestInfo.IsForceCache();
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
-			var site = await (identity.IsValidUUID() ? identity.GetSiteByIDAsync(cancellationToken) : identity.GetSiteByDomainAsync(cancellationToken)).ConfigureAwait(false);
+			var site = await (identity.IsValidUUID() ? identity.GetSiteByIDAsync(cancellationToken, isForceCache) : identity.GetSiteByDomainAsync(cancellationToken)).ConfigureAwait(false);
 			if (site == null)
 				throw new InformationNotFoundException();
 			else if (site.Organization == null)
@@ -505,18 +510,17 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			var isRefresh = requestInfo.Session.User.IsAuthenticated && (isForceCache || "refresh".IsEquals(requestInfo.GetObjectIdentity()));
 			site = isRefresh
 				? await site.RefreshAsync(cancellationToken).ConfigureAwait(false)
 				: site;
 
 			// response
-			var versions = await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var response = site.ToJson();
+			var response = site.ToJson().UpdateVersions(await site.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false));
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{site.GetObjectName()}#Update",
-				Data = response.UpdateVersions(versions),
+				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();

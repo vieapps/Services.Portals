@@ -216,7 +216,7 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateDesktop().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID = null, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
+		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
 		{
 			// data cache keys
 			var sort = Sorts<Desktop>.Ascending("Title");
@@ -228,7 +228,6 @@ namespace net.vieapps.Services.Portals
 					dataCacheKeys = Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), sort).Concat(dataCacheKeys).ToList();
 				if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
 					dataCacheKeys = Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, oldParentID), sort).Concat(dataCacheKeys).ToList();
-				dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Concat(new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" }).ToList();
 			}
 
 			// html cache keys (desktop HTMLs and related resources)
@@ -238,8 +237,13 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches") : Task.CompletedTask,
+				doRefresh ? Task.WhenAll
+				(
+					$"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]"),
+					$"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh desktop CSS when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]"),
+					$"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh desktop JS when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]")
+				) : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -474,8 +478,9 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
+			var isForceCache = requestInfo.IsForceCache();
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
-			var desktop = await (identity.IsValidUUID() ? identity.GetDesktopByIDAsync(cancellationToken) : identity.GetDesktopByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
+			var desktop = await (identity.IsValidUUID() ? identity.GetDesktopByIDAsync(cancellationToken, isForceCache) : identity.GetDesktopByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
 			if (desktop == null)
 				throw new InformationNotFoundException();
 			else if (desktop.Organization == null)
@@ -495,7 +500,7 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity());
+			var isRefresh = requestInfo.Session.User.IsAuthenticated && (isForceCache || "refresh".IsEquals(requestInfo.GetObjectIdentity()));
 			if (isRefresh || desktop._childrenIDs == null || desktop._portlets == null)
 			{
 				if (isRefresh)
@@ -514,12 +519,11 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// response
-			var versions = await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var response = desktop.ToJson(true, false);
+			var response = desktop.ToJson(true, false).UpdateVersions(await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false));
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{desktop.GetObjectName()}#Update",
-				Data = response.UpdateVersions(versions),
+				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
@@ -527,7 +531,7 @@ namespace net.vieapps.Services.Portals
 				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{desktop.GetObjectName()}#Update",
-					Data = response,
+					Data = desktop.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
 			return response;

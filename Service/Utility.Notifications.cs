@@ -410,7 +410,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// send web-hook notifications
-			var webhookNotifications = (contentType?.WebHookNotifications ?? new List<Settings.WebHookNotification>()).Concat(sendWebHookNotifications ? new[] { webhooks } : Array.Empty<Settings.WebHookNotification>()).Where(webhookNotification => webhookNotification != null).ToList();
+			var webhookNotifications = (contentType?.WebHookNotifications ?? []).Concat(sendWebHookNotifications ? [webhooks] : Array.Empty<Settings.WebHookNotification>()).Where(webhookNotification => webhookNotification != null).ToList();
 			if (webhookNotifications.Any())
 			{
 				var header = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)

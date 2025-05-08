@@ -5104,18 +5104,20 @@ namespace net.vieapps.Services.Portals
 			var repositoryEntityID = requestInfo.GetParameter("x-repository-entity-id") ?? requestInfo.GetParameter("x-content-type-id");
 			var userID = requestInfo.GetParameter("x-user-id") ?? requestInfo.GetParameter("x-account-id");
 
-			var organization = await (systemID ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false);
+			var organization = await (systemID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
 			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.IsAdministrator(null, null, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			var (_, _, pageSize, pageNumber) = requestInfo.GetRequestExpando().Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var totalRecords = await RepositoryMediator.CountTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, cancellationToken).ConfigureAwait(false);
-			var totalPages = (totalRecords, pageSize).GetTotalPages();
+			var (totalRecords, totalPages, pageSize, pageNumber) = requestInfo.GetRequestExpando().Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
+			totalRecords = await RepositoryMediator.CountTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, cancellationToken).ConfigureAwait(false);
+			totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
-			var objects = totalRecords < 1 ? new List<TrashContent>() : await RepositoryMediator.FindTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, pageSize, pageNumber, cancellationToken).ConfigureAwait(false);
+			var objects = totalRecords > 0
+				? await RepositoryMediator.FindTrashContentsAsync<Organization>(this.ServiceName.ToLower(), systemID, repositoryID, repositoryEntityID, userID, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
+				: [];
 
 			return new JObject
 			{

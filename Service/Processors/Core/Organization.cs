@@ -283,14 +283,22 @@ namespace net.vieapps.Services.Portals
 		}
 
 		public static Organization GetOrganizationByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && OrganizationProcessor.Organizations.ContainsKey(id)
+		{
+			var organization = !force && !string.IsNullOrWhiteSpace(id) && OrganizationProcessor.Organizations.ContainsKey(id)
 				? OrganizationProcessor.Organizations[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Organization.Get<Organization>(id)?.Set()
-					: null;
+				: null;
+			if (organization == null || organization.OriginalPrivileges == null || organization.OriginalPrivileges.AdministrativeRoles == null || organization.OriginalPrivileges.AdministrativeRoles.Count < 1)
+				organization = Organization.Get<Organization>(id)?.Set();
+			return organization;
+		}
 
 		public static async Task<Organization> GetOrganizationByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetOrganizationByID(force, false) ?? (await Organization.GetAsync<Organization>(id, cancellationToken).ConfigureAwait(false))?.Set();
+		{
+			var organization = (id ?? "").GetOrganizationByID(force, false);
+			if (organization == null || organization.OriginalPrivileges == null || organization.OriginalPrivileges.AdministrativeRoles == null || organization.OriginalPrivileges.AdministrativeRoles.Count < 1)
+				organization = (await Organization.GetAsync<Organization>(id, cancellationToken).ConfigureAwait(false))?.Set();
+			return organization;
+		}
 
 		public static Organization GetOrganizationByAlias(this string alias, bool fetchRepository = true)
 		{
@@ -311,6 +319,8 @@ namespace net.vieapps.Services.Portals
 					}.Send();
 			}
 
+			if (organization != null && (organization.OriginalPrivileges == null || organization.OriginalPrivileges.AdministrativeRoles == null || organization.OriginalPrivileges.AdministrativeRoles.Count < 1))
+				organization = Organization.Get<Organization>(organization.ID)?.Set();
 			return organization;
 		}
 
@@ -330,6 +340,8 @@ namespace net.vieapps.Services.Portals
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
 
+			if (organization != null && (organization.OriginalPrivileges == null || organization.OriginalPrivileges.AdministrativeRoles == null || organization.OriginalPrivileges.AdministrativeRoles.Count < 1))
+				organization = (await Organization.GetAsync<Organization>(organization.ID, cancellationToken).ConfigureAwait(false))?.Set();
 			return organization;
 		}
 
@@ -350,7 +362,6 @@ namespace net.vieapps.Services.Portals
 			var dataCacheKeys = clearDataCache
 				? Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
 					.Concat(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(Filters<Organization>.Equals("OwnerID", organization.OwnerID)), Sorts<Organization>.Ascending("Title")))
-					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
 				: [];
 
@@ -361,8 +372,11 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Count} messageData keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh ? $"{organization.URL}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} messageData keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches") : Task.CompletedTask,
+				doRefresh ? Task.WhenAll(
+					$"{organization.URL}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]"),
+					$"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/o_{organization.ID}.js?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh organization JS when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]")
+				) : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
 
@@ -507,7 +521,8 @@ namespace net.vieapps.Services.Portals
 						{ "Alias", @object.Alias },
 						{ "Title", @object.Title }
 					}).ToJArray()
-					: objects.ToJsonArray() }
+					: objects.ToJsonArray()
+				}
 			};
 
 			// update cache
@@ -592,8 +607,9 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetOrganizationAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// get the organization
+			var isForceCache = requestInfo.IsForceCache();
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
-			var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cancellationToken) : identity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cancellationToken, isForceCache) : identity.GetOrganizationByAliasAsync(cancellationToken)).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 
 			// check permission
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, organization);
@@ -608,20 +624,21 @@ namespace net.vieapps.Services.Portals
 					{ "Alias", organization.Alias }
 				};
 
-			// refresh (clear cached and reload) or get sites & modules/content-types
-			var isRefresh = ("refresh".IsEquals(requestInfo.GetObjectIdentity()) || organization._siteIDs == null || organization._moduleIDs == null) && requestInfo.Session.User.IsAuthenticated;
+			// refresh (clear cache and reload) or get sites & modules/content-types
+			var isRefresh = requestInfo.Session.User.IsAuthenticated && (isForceCache || "refresh".IsEquals(requestInfo.GetObjectIdentity()) || organization._siteIDs == null || organization._moduleIDs == null);
 			organization = isRefresh
 				? await organization.RefreshAsync(cancellationToken).ConfigureAwait(false)
 				: organization;
 
 			// response
-			var versions = await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			var response = organization.ToJson(true, false);
+			var response = organization.ToJson(true, false).UpdateVersions(await organization.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false));
+			if (requestInfo.ContainsKey("x-sites"))
+				response["Sites"] = organization.Sites.ToJsonArray();
 
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{organization.GetObjectName()}#Update",
-				Data = response.UpdateVersions(versions),
+				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
@@ -636,7 +653,7 @@ namespace net.vieapps.Services.Portals
 				(await Role.FindAsync(filter, sort, 20, 1, Extensions.GetCacheKey(filter, sort, 20, 1), cancellationToken).ConfigureAwait(false) ?? []).ForEach(role => new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{role.GetObjectName()}#Update",
-					Data = role.ToJson(false, false),
+					Data = role.ToJson(true, false),
 					DeviceID = "*"
 				}.Send());
 				if (!requestInfo.Session.User.IsModerator(null, null, organization))
@@ -647,6 +664,9 @@ namespace net.vieapps.Services.Portals
 						DeviceID = "*"
 					}.Send();
 			}
+
+			if (requestInfo.IsWriteDebugLogs())
+				await requestInfo.WriteLogAsync($"An organization was fetched => {organization.Title} [{isSystemAdministrator} / {isRefresh || isForceCache}]\r\n- JSON: {response}").ConfigureAwait(false);
 
 			return response;
 		}
