@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Portals
 		internal static List<string> MustUpdatedProperties { get; } = "ParentID,Aliases,Language,Theme,Template,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,MainPortletID".ToList();
 
 		public static Desktop CreateDesktop(this ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
-			=> Desktop.CreateInstance(data, excluded?.ToHashSet(), desktop =>
+			=> Desktop.CreateInstance(data, excluded, desktop =>
 			{
 				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
 				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToArray(";", true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
@@ -47,7 +47,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static Desktop Update(this Desktop desktop, ExpandoObject data, string excluded = null, Action<Desktop> onCompleted = null)
-			=> desktop.Fill(data, excluded?.ToHashSet(), _ =>
+			=> desktop.Fill(data, excluded, _ =>
 			{
 				desktop.Alias = string.IsNullOrWhiteSpace(desktop.Alias) ? desktop.Title.NormalizeAlias() : desktop.Alias.NormalizeAlias();
 				desktop.Aliases = string.IsNullOrWhiteSpace(desktop.Aliases) ? null : desktop.Aliases.Replace(",", ";").ToArray(";", true).Select(alias => alias.NormalizeAlias()).Where(alias => !DesktopProcessor.ExcludedAliases.Contains(alias) && !alias.IsEquals(desktop.Alias)).Join(";");
@@ -238,7 +238,7 @@ namespace net.vieapps.Services.Portals
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh ? Task.WhenAll
+				doRefresh && (desktop.Organization.ExamineURLs == null || desktop.Organization.ExamineURLs.Count < 1) ? Task.WhenAll
 				(
 					$"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]"),
 					$"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh desktop CSS when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]"),
@@ -248,7 +248,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		internal static Task ClearCacheAsync(this Desktop desktop, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool clearChildrenCache = false, bool doRefresh = false)
-			=> Task.WhenAll((desktop._portlets ?? new List<Portlet>()).Select(portlet => portlet.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh)).Concat(new[]
+			=> Task.WhenAll((desktop._portlets ?? []).Select(portlet => portlet.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh)).Concat(new[]
 			{
 				desktop.ClearRelatedCacheAsync(null, cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh),
 				Utility.Cache.RemoveAsync(desktop.Remove(), cancellationToken),
@@ -259,7 +259,7 @@ namespace net.vieapps.Services.Portals
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", "Caches") : Task.CompletedTask,
-				clearChildrenCache ? Task.WhenAll((desktop.Children ?? new List<Desktop>()).Select(webdesktop => webdesktop.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, clearChildrenCache, doRefresh))) : Task.CompletedTask
+				clearChildrenCache ? Task.WhenAll((desktop.Children ?? []).Select(webdesktop => webdesktop.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, clearChildrenCache, doRefresh))) : Task.CompletedTask
 			}));
 
 		internal static async Task<JObject> SearchDesktopsAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
@@ -819,7 +819,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (desktop == null)
 				{
-					desktop = Desktop.CreateInstance(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
+					desktop = Desktop.CreateInstance(data, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
 					await Desktop.CreateAsync(desktop, cancellationToken).ConfigureAwait(false);
 				}
 				else

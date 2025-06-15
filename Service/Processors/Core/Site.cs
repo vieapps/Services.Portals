@@ -26,7 +26,7 @@ namespace net.vieapps.Services.Portals
 		internal static List<string> MustUpdatedProperties { get; } = "HomeDesktopID,SearchDesktopID,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,CanonicalHost".ToList();
 
 		public static Site CreateSite(this ExpandoObject data, string excluded = null, Action<Site> onCompleted = null)
-			=> Site.CreateInstance(data, excluded, null, site =>
+			=> Site.CreateInstance(data, excluded, site =>
 			{
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
@@ -36,7 +36,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static Site Update(this Site site, ExpandoObject data, string excluded, Action<Site> onCompleted = null)
-			=> site.Fill(data, excluded, null, _ =>
+			=> site.Fill(data, excluded, _ =>
 			{
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
@@ -339,9 +339,7 @@ namespace net.vieapps.Services.Portals
 			var filter = request.Get<ExpandoObject>("FilterBy", null)?.ToFilterBy<Site>() ?? Filters<Site>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Site>() ?? Sorts<Site>.Ascending("Title") : null;
 
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.PageSize;
-			var pageNumber = pagination.PageNumber;
+			var (totalRecords, totalPages, pageSize, pageNumber) = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 
 			// check permission
 			var gotRights = isSystemAdministrator;
@@ -381,13 +379,12 @@ namespace net.vieapps.Services.Portals
 				await requestInfo.WriteLogAsync($"Search for sites\r\n- Filter: {filter?.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache keys: {cacheKeys.Join(", ")}", "Site").ConfigureAwait(false);
 
 			// prepare pagination
-			var totalRecords = pagination.TotalRecords > -1 ? pagination.TotalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
 					? await Site.CountAsync(filter, cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false)
 					: await Site.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
-			var totalPages = (totalRecords, pageSize).GetTotalPages();
+			totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
@@ -687,7 +684,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (site == null)
 				{
-					site = Site.CreateInstance(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
+					site = Site.CreateInstance(data, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
 					await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 				}
 				else

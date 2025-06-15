@@ -27,10 +27,11 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\Base.Libs\VIEApps.Services.Base.Libs.csproj" />
+		<ProjectReference Include="..\Abstractions\VIEApps.Services.Portals.Abstractions.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.9.2505.1" />
+		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.9.2506.1" />
 	</ItemGroup>
 
 </Project>

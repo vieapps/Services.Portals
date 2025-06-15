@@ -61,7 +61,7 @@ namespace net.vieapps.Services.Portals
 			=> xdocTemplate?.XPathSelectElements("//*/*[@zone-id]");
 
 		/// <summary>
-		/// Gets the attribute that contains the identity of the zone (attriubte that named 'zone-id')
+		/// Gets the attribute that contains the identity of the zone (attribute that named 'zone-id')
 		/// </summary>
 		/// <param name="zone"></param>
 		/// <returns></returns>

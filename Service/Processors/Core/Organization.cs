@@ -26,27 +26,32 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",APIs,Portals,CMS,CRM,Dashboard,Dashboards,Temp,Feed,Feeds,Atom,Rss").ToLower().ToHashSet();
 
-		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,ScriptLibraries,Scripts,AlwaysUseHtmlSuffix,RefreshUrls,RedirectUrls,EmailSettings,WebHookSettings,HttpIndicators,FakeFilesHttpURI,FakePortalsHttpURI".ToHashSet();
+		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,ScriptLibraries,Scripts,AlwaysUseHtmlSuffix,RefreshURLs,RedirectURLs,ExamineURLs,EmailSettings,WebHookSettings,HttpIndicators,FakeFilesHttpURI,FakePortalsHttpURI".ToHashSet();
 
 		internal static List<string> MustUpdatedProperties { get; } = "HomeDesktopID,SearchDesktopID,MetaTags,Stylesheets,ScriptLibraries,Scripts,FakeFilesHttpURI,FakePortalsHttpURI".ToList();
 
-		public static Organization CreateOrganization(this ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
-			=> Organization.CreateInstance(data, excluded, null, organization =>
+		static Organization Normalize(this Organization organization, ExpandoObject data, Action<Organization> onCompleted = null)
+		{
+			organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
+			organization.Alias = organization.Alias?.NormalizeAlias(false);
+			organization.Theme = string.IsNullOrWhiteSpace(organization.Theme) ? "default" : organization.Theme;
+			try
 			{
-				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
-				organization.Alias = organization.Alias?.NormalizeAlias(false);
-				organization.Theme = string.IsNullOrWhiteSpace(organization.Theme) ? "default" : organization.Theme;
-				onCompleted?.Invoke(organization);
-			});
+				organization.ExamineURLs = data.Get<List<ExpandoObject>>("ExamineURLs")?.Select(examineURLs => examineURLs.Copy<ExamineURLs>()).Where(examineURLs => examineURLs != null).ToList();
+			}
+			catch
+			{
+				organization.ExamineURLs = null;
+			}
+			onCompleted?.Invoke(organization);
+			return organization;
+		}
+
+		public static Organization CreateOrganization(this ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
+			=> Organization.CreateInstance(data, excluded, null).Normalize(data, onCompleted);
 
 		public static Organization Update(this Organization organization, ExpandoObject data, string excluded = null, Action<Organization> onCompleted = null)
-			=> organization.Fill(data, excluded, null, _ =>
-			{
-				organization.Instructions = Settings.Instruction.Parse(data.Get<ExpandoObject>("Instructions"));
-				organization.Alias = organization.Alias?.NormalizeAlias(false);
-				organization.Theme = string.IsNullOrWhiteSpace(organization.Theme) ? "default" : organization.Theme;
-				onCompleted?.Invoke(organization);
-			});
+			=> organization.Fill(data, excluded, null).Normalize(data, onCompleted);
 
 		internal static Organization Set(this Organization organization, bool clear = false, bool updateCache = false, string oldAlias = null)
 		{
@@ -139,7 +144,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		internal static List<string> GetRefreshingURLs(this Organization organization, IEnumerable<string> addresses, bool onlyDetailsOfCategories = false)
-			=> (addresses ?? organization.RefreshUrls?.Addresses ?? new List<string>()).Select(address =>
+			=> (addresses ?? organization.RefreshURLs?.Addresses ?? []).Select(address =>
 			{
 				var urls = onlyDetailsOfCategories ? [] : new[] { "~/rss" }.ToList();
 				address.Replace("\r", "").ToArray("\n")
@@ -223,8 +228,8 @@ namespace net.vieapps.Services.Portals
 			if (others)
 			{
 				refreshURLs = organization.GetRefreshingURLs();
-				if (refreshURLs.Any())
-					schedulingTasks.Add(new SchedulingTask(organization.RefreshUrls.Interval > 0 ? organization.RefreshUrls.Interval : 7)
+				if (refreshURLs.Count > 0)
+					schedulingTasks.Add(new SchedulingTask(organization.RefreshURLs.Interval > 0 ? organization.RefreshURLs.Interval : 7)
 					{
 						ID = $"{organization.ID}:URLs:Other".GenerateUUID(),
 						SystemID = organization.ID,
@@ -275,8 +280,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var filter = Filters<SchedulingTask>.And(Filters<SchedulingTask>.Equals("SystemID", organization.ID));
 				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(filter, Sorts<SchedulingTask>.Ascending("Time")), cancellationToken).ConfigureAwait(false);
-				schedulingTasks = await SchedulingTaskProcessor.SearchAsync(filter, cancellationToken).ConfigureAwait(false);
-				schedulingTasks = organization.GetRefreshingTasks().Concat(schedulingTasks).OrderBy(schedulingTask => schedulingTask.Time).ToList();
+				schedulingTasks = organization.GetRefreshingTasks().Concat(await SchedulingTaskProcessor.SearchAsync(filter, cancellationToken).ConfigureAwait(false) ?? []).OrderBy(schedulingTask => schedulingTask.Time).ToList();
 				schedulingTasks.ForEach(schedulingTask => SchedulingTaskProcessor.SchedulingTasks[schedulingTask.ID] = schedulingTask);
 			}
 			return schedulingTasks;
@@ -373,8 +377,8 @@ namespace net.vieapps.Services.Portals
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} messageData keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh ? Task.WhenAll(
-					$"{organization.URL}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]"),
+				doRefresh && (organization.ExamineURLs == null || organization.ExamineURLs.Count < 1) ? Task.WhenAll(
+					$"{organization.URL}?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]"),
 					$"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/o_{organization.ID}.js?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh organization JS when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]")
 				) : Task.CompletedTask
 			).ConfigureAwait(false);
@@ -458,17 +462,18 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 			await homedesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
-			await Task.WhenAll
-			(
-				$"{organization.URL}/".RefreshWebPageAsync(correlationID, $"Refresh the home desktop when all cache of an organization were clean [{organization.Title} - ID: {organization.ID}]"),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"The organization was reloaded when all cache were clean\r\n{organization.ToJson()}", "Caches") : Task.CompletedTask
-			).ConfigureAwait(false);
+			if (doRefresh && (organization.ExamineURLs == null || organization.ExamineURLs.Count < 1))
+				await Task.WhenAll
+				(
+					$"{organization.URL}/".RefreshWebPageAsync(correlationID, $"Refresh the home desktop when all cache of an organization were clean [{organization.Title} - ID: {organization.ID}]"),
+					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"The organization was reloaded when all cache were clean\r\n{organization.ToJson()}", "Caches") : Task.CompletedTask
+				).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> SearchOrganizationsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// check permissions
-			var asFetch = requestInfo.Query.TryGetValue("x-fetch", out var asxFetch) && ("vieapps-ngx".IsEquals(asxFetch) || "ngx-apps".IsEquals(asxFetch));
+			var asFetch = requestInfo.TryGetParameter("x-fetch", out var asxFetch) && ("vieapps-ngx".IsEquals(asxFetch) || "ngx-apps".IsEquals(asxFetch));
 			if (!isSystemAdministrator && !asFetch)
 				throw new AccessDeniedException();
 
@@ -480,9 +485,7 @@ namespace net.vieapps.Services.Portals
 			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Organization>() ?? Filters<Organization>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Organization>() ?? Sorts<Organization>.Ascending("Title") : null;
 
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var (totalRecords, totalPages, pageSize, pageNumber) = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 
 			// process cache
 			var cacheKey = Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber);
@@ -491,13 +494,12 @@ namespace net.vieapps.Services.Portals
 				return JObject.Parse(json);
 
 			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
 					? await Organization.CountAsync(filter, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Organization.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
@@ -506,7 +508,7 @@ namespace net.vieapps.Services.Portals
 				? string.IsNullOrWhiteSpace(query)
 					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Organization.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Organization>();
+				: [];
 
 			// build result
 			var response = new JObject

@@ -17,11 +17,11 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the cache storage
 		/// </summary>
-		public static Cache Cache { get; } = new Cache("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory());
+		public static Cache Cache { get; } = new("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory());
 
 		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
 
-		internal static Dictionary<string, string> RefresherHeaders { get; } = new Dictionary<string, string>
+		internal static Dictionary<string, string> RefresherHeaders { get; } = new()
 		{
 			["AllowAutoRedirect"] = "true",
 			["Referer"] = Utility.RefresherURL,
@@ -62,7 +62,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="staticIncluded"></param>
 		/// <returns></returns>
 		public static async Task<List<string>> GetSetCacheKeysAsync(this Desktop desktop, CancellationToken cancellationToken = default, bool includeStaticResources = false)
-			=> (includeStaticResources ? new[] { $"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time" } : Array.Empty<string>())
+			=> (includeStaticResources ? [$"css#d_{desktop.ID}", $"css#d_{desktop.ID}:time", $"js#d_{desktop.ID}", $"js#d_{desktop.ID}:time"] : Array.Empty<string>())
 				.Concat(await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? [])
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
@@ -131,8 +131,7 @@ namespace net.vieapps.Services.Portals
 		public static async Task<List<string>> GetSetCacheKeysAsync(this Site site, CancellationToken cancellationToken = default)
 		{
 			var theme = site.WorkingTheme ?? "defaut";
-			return new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }
-				.Concat(new[] { $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time" })
+			return new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time", $"css#s_{site.ID}", $"css#s_{site.ID}:time", $"js#s_{site.ID}", $"js#s_{site.ID}:time" }
 				.Concat(await Utility.Cache.GetSetMembersAsync($"statics:{theme}", cancellationToken).ConfigureAwait(false) ?? [])
 				.Concat(site.Organization != null ? await site.Organization.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : [])
 				.Distinct(StringComparer.OrdinalIgnoreCase)
@@ -148,8 +147,7 @@ namespace net.vieapps.Services.Portals
 		public static async Task<List<string>> GetSetCacheKeysAsync(this Organization organization, CancellationToken cancellationToken = default)
 		{
 			var theme = organization.Theme ?? "defaut";
-			return new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time" }
-				.Concat(new[] { $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" })
+			return new[] { "css#defaut", "css#defaut:time", "js#defaut", "js#defaut:time", $"css#{theme}", $"css#{theme}:time", $"js#{theme}", $"js#{theme}:time", $"js#o_{organization.ID}", $"js#o_{organization.ID}:time" }
 				.Concat(await Utility.Cache.GetSetMembersAsync($"statics:{theme}", cancellationToken).ConfigureAwait(false) ?? [])
 				.Concat(await Utility.Cache.GetSetMembersAsync("statics", cancellationToken).ConfigureAwait(false) ?? [])
 				.Distinct(StringComparer.OrdinalIgnoreCase)

@@ -153,9 +153,7 @@ namespace net.vieapps.Services.Portals
 			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<SchedulingTask>() ?? Filters<SchedulingTask>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<SchedulingTask>() ?? Sorts<SchedulingTask>.Ascending("Time") : null;
 
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var (totalOfRecords, _, pageSize, pageNumber) = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
 
 			// check permission
 			var gotRights = isSystemAdministrator;
@@ -180,8 +178,8 @@ namespace net.vieapps.Services.Portals
 				return JObject.Parse(json);
 
 			// search if has no cache
-			var (totalRecords, objects, _) = await SchedulingTaskProcessor.SearchAsync(query, filter, sort, pageSize, pageNumber, pagination.Item1 > -1 ? pagination.Item1 : -1, cancellationToken).ConfigureAwait(false);
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			var (totalRecords, objects, _) = await SchedulingTaskProcessor.SearchAsync(query, filter, sort, pageSize, pageNumber, totalOfRecords, cancellationToken).ConfigureAwait(false);
+			var totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 

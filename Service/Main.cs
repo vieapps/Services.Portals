@@ -1,28 +1,28 @@
 ﻿#region Related components
 using System;
 using System.IO;
-using System.Net;
 using System.Linq;
-using System.Data;
 using System.Xml.Linq;
-using System.Diagnostics;
+using System.Net;
+using System.Data;
 using System.Dynamic;
 using System.Reflection;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
-using net.vieapps.Components.Utility;
-using net.vieapps.Components.Security;
-using net.vieapps.Components.Repository;
 using net.vieapps.Components.Caching;
-using net.vieapps.Services.Portals.Exceptions;
+using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Crawlers;
+using net.vieapps.Services.Portals.Exceptions;
 using net.vieapps.Services.Portals.Settings;
 #endregion
 
@@ -63,6 +63,12 @@ namespace net.vieapps.Services.Portals
 		bool RedirectNotFoundDesktopsToHome { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:NotFound:RedirectToHome"));
 
 		bool RewriteNotFoundDesktopsToHome { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:NotFound:RewriteToHome"));
+
+		string _isDebugAuthorizationsEnabled = null, _isDebugLowAuthorizationsEnabled = null;
+
+		bool IsWriteAuthorizationLogs => this.IsDebugAuthorizationsEnabled || "true".IsEquals(this._isDebugAuthorizationsEnabled ?? (this._isDebugAuthorizationsEnabled = UtilityService.GetAppSetting("Logs:Portals:Authorizations", "false")));
+
+		bool IsWriteLowAuthorizationLogs => this.IsDebugLowAuthorizationsEnabled || (this.IsWriteAuthorizationLogs && "true".IsEquals(this._isDebugLowAuthorizationsEnabled ?? (this._isDebugLowAuthorizationsEnabled = UtilityService.GetAppSetting("Logs:Portals:Authorizations:LowLevel", "false"))));
 		#endregion
 
 		#region Register/Start
@@ -285,51 +291,93 @@ namespace net.vieapps.Services.Portals
 				: await base.IsDownloaderAsync(user, objectName, @object, correlationID, cancellationToken).ConfigureAwait(false);
 
 		public override async Task<bool> CanManageAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
-			=> @object is IPortalObject portalObject
-				? (user != null && user.IsAdministrator(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
-				: await base.CanManageAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		{
+			if (@object is IPortalObject portalObject)
+			{
+				var can = user != null && user.IsAdministrator(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false));
+				if (this.IsWriteAuthorizationLogs)
+					await this.WriteLogsAsync(@object.ID, $"Manage: {can} - {portalObject.Title} [{portalObject.GetTypeName()}#{portalObject.ID}]\r\n\r\nUser: {user?.ID}\r\n\r\nUser Roles: {user?.Roles.Join(", ")}\r\n\r\nPrivileges: {portalObject.WorkingPrivileges.ToJson()}\r\n\r\nIs in: {portalObject.WorkingPrivileges.IsIn(user, "Manage").Join(", ")}", null, this.ServiceName, "Authorizations").ConfigureAwait(false);
+				return can || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false);
+			}
+			return await base.CanManageAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		}
 
 		public override async Task<bool> CanModerateAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
-			=> @object is IPortalObject portalObject
-				? (user != null && user.IsModerator(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
-				: await base.CanModerateAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		{
+			if (@object is IPortalObject portalObject)
+			{
+				var can = user != null && user.IsModerator(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false));
+				if (this.IsWriteAuthorizationLogs)
+					await this.WriteLogsAsync(@object.ID, $"Moderate: {can} - {portalObject.Title} [{portalObject.GetTypeName()}#{portalObject.ID}]\r\n\r\nUser: {user?.ID}\r\n\r\nUser Roles: {user?.Roles.Join(", ")}\r\n\r\nPrivileges: {portalObject.WorkingPrivileges.ToJson()}\r\n\r\nIs in: {portalObject.WorkingPrivileges.IsIn(user, "Moderate").Join(", ")}", null, this.ServiceName, "Authorizations").ConfigureAwait(false);
+				return can || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false);
+			}
+			return await base.CanModerateAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		}
 
 		public override async Task<bool> CanEditAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
-			=> @object is IPortalObject portalObject
-				? (user != null && user.IsEditor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
-				: await base.CanEditAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		{
+			if (@object is IPortalObject portalObject)
+			{
+				var can = user != null && user.IsEditor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false));
+				if (this.IsWriteAuthorizationLogs)
+					await this.WriteLogsAsync(@object.ID, $"Edit: {can} - {portalObject.Title} [{portalObject.GetTypeName()}#{portalObject.ID}]\r\n\r\nUser: {user?.ID}\r\n\r\nUser Roles: {user?.Roles.Join(", ")}\r\n\r\nPrivileges: {portalObject.WorkingPrivileges.ToJson()}\r\n\r\nIs in: {portalObject.WorkingPrivileges.IsIn(user, "Edit").Join(", ")}", null, this.ServiceName, "Authorizations").ConfigureAwait(false);
+				return can || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false);
+			}
+			return await base.CanEditAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		}
 
 		public override async Task<bool> CanContributeAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
-			=> @object is IPortalObject portalObject
-				? (user != null && user.IsContributor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
-				: await base.CanContributeAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		{
+			if (@object is IPortalObject portalObject)
+			{
+				var can = user != null && user.IsContributor(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false));
+				if (this.IsWriteAuthorizationLogs)
+					await this.WriteLogsAsync(@object.ID, $"Contribute: {can} - {portalObject.Title} [{portalObject.GetTypeName()}#{portalObject.ID}]\r\n\r\nUser: {user?.ID}\r\n\r\nUser Roles: {user?.Roles.Join(", ")}\r\n\r\nPrivileges: {portalObject.WorkingPrivileges.ToJson()}\r\n\r\nIs in: {portalObject.WorkingPrivileges.IsIn(user, "Contribute").Join(", ")}", null, this.ServiceName, "Authorizations").ConfigureAwait(false);
+				return can || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false);
+			}
+			return await base.CanContributeAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		}
 
 		public override async Task<bool> CanContributeAsync(User user, string objectName, string systemID, string entityInfo, string objectID, CancellationToken cancellationToken = default)
 		{
-			var canContribute = await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false);
-			if (!canContribute)
+			if (!string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(entityInfo) && !string.IsNullOrWhiteSpace(objectID))
+				return await this.CanContributeAsync(user, objectName, await this.GetBusinessObjectAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+
+			var can = await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false);
+			if (!can && user != null)
 			{
-				if (!string.IsNullOrWhiteSpace(systemID) && !string.IsNullOrWhiteSpace(entityInfo) && !string.IsNullOrWhiteSpace(objectID))
-					canContribute = await this.CanContributeAsync(user, objectName, await this.GetBusinessObjectAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
-				else if (user != null)
-				{
-					var contentType = RepositoryMediator.GetBusinessRepositoryEntity(entityInfo) as ContentType;
-					var organization = contentType?.Organization ?? await (systemID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
-					canContribute = user.IsContributor(contentType?.WorkingPrivileges, contentType?.Parent?.WorkingPrivileges, organization);
-				}
+				var contentType = RepositoryMediator.GetBusinessRepositoryEntity(entityInfo) as ContentType;
+				var organization = contentType?.Organization ?? await (systemID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+				can = user.IsContributor(contentType?.WorkingPrivileges, contentType?.Parent?.WorkingPrivileges, organization);
+				if (this.IsWriteAuthorizationLogs)
+					await this.WriteLogsAsync(contentType?.ID, $"Contribute: {can} - {contentType?.Title} [{contentType?.GetTypeName()}#{contentType?.ID}]\r\n\r\nUser: {user?.ID}\r\n\r\nUser Roles: {user?.Roles.Join(", ")}\r\n\r\nPrivileges: {contentType?.WorkingPrivileges.ToJson()}\r\n\r\nIs in: {contentType?.WorkingPrivileges.IsIn(user, "Contribute").Join(", ")}", null, this.ServiceName, "Authorizations").ConfigureAwait(false);
 			}
-			return canContribute;
+			return can;
 		}
 
 		public override async Task<bool> CanViewAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
-			=> @object is IPortalObject portalObject
-				? (user != null && user.IsViewer(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
-				: await base.CanViewAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		{
+			if (@object is IPortalObject portalObject)
+			{
+				var can = user != null && user.IsViewer(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false));
+				if (this.IsWriteLowAuthorizationLogs)
+					await this.WriteLogsAsync(@object.ID, $"View: {can} - {portalObject.Title} [{portalObject.GetTypeName()}#{portalObject.ID}]\r\n\r\nUser: {user?.ID}\r\n\r\nUser Roles: {user?.Roles.Join(", ")}\r\n\r\nPrivileges: {portalObject.WorkingPrivileges.ToJson()}\r\n\r\nIs in: {portalObject.WorkingPrivileges.IsIn(user, "View").Join(", ")}", null, this.ServiceName, "Authorizations").ConfigureAwait(false);
+				return can || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false);
+			}
+			return await base.CanViewAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		}
 
 		public override async Task<bool> CanDownloadAsync(IUser user, string objectName, RepositoryBase @object, CancellationToken cancellationToken = default)
-			=> @object is IPortalObject portalObject
-				? (user != null && user.IsDownloader(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false))) || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false)
-				: await base.CanDownloadAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		{
+			if (@object is IPortalObject portalObject)
+			{
+				var can = user != null && user.IsDownloader(portalObject.WorkingPrivileges, portalObject.Parent?.WorkingPrivileges, await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false));
+				if (this.IsWriteLowAuthorizationLogs)
+					await this.WriteLogsAsync(@object.ID, $"Download: {can} - {portalObject.Title} [{portalObject.GetTypeName()}#{portalObject.ID}]\r\n\r\nUser: {user?.ID}\r\n\r\nUser Roles: {user?.Roles.Join(", ")}\r\n\r\nPrivileges: {portalObject.WorkingPrivileges.ToJson()}\r\n\r\nIs in: {portalObject.WorkingPrivileges.IsIn(user, "Download").Join(", ")}", null, this.ServiceName, "Authorizations").ConfigureAwait(false);
+				return can || await this.IsSystemAdministratorAsync(user, null, cancellationToken).ConfigureAwait(false);
+			}
+			return await base.CanDownloadAsync(user, objectName, @object, cancellationToken).ConfigureAwait(false);
+		}
 		#endregion
 
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
@@ -1197,7 +1245,8 @@ namespace net.vieapps.Services.Portals
 					{ "AlwaysReturnHTTPs", site != null && site.AlwaysReturnHTTPs },
 					{ "RedirectToNoneWWW", site != null && site.RedirectToNoneWWW },
 					{ "Language", requestInfo.GetParameter("Language") ?? site?.Language ?? "en-US" },
-					{ "CacheKeyPrefix", organization.ID + (site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? "" : ":" + site.ID) }
+					{ "CacheKeyPrefix", organization.ID + (site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? "" : ":" + site.ID) },
+					{ "CacheExaminations", organization.ExamineURLs?.ToJsonArray() }
 				}
 				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
 
@@ -1294,7 +1343,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JToken> ProcessHttpIndicatorRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
-			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process HTTP indicator => {requestInfo.GetHeaderParameter("x-url")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+			await requestInfo.WriteLogAsync($"Process HTTP indicator => {requestInfo.GetHeaderParameter("x-url")}", "Process.Http.Request").ConfigureAwait(false);
 
 			var organization = await (requestInfo.GetParameter("x-system") ?? "").GetOrganizationByAliasAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 			var name = requestInfo.Query["x-indicator"];
@@ -1321,7 +1370,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var uri = new Uri(requestInfo.GetParameter("x-url"));
-			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process HTTP resource => {uri}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+			await	requestInfo.WriteLogAsync($"Process HTTP resource => {uri}", "Process.Http.Request").ConfigureAwait(false);
 
 			// get the type of the resource
 			var type = requestInfo.Query.Get("x-resource", "assets");
@@ -1828,7 +1877,8 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare required information
 			var stopwatch = Stopwatch.StartNew();
-			var writeDesktopLogs = requestInfo.IsWriteDesktopLogs();
+			var isWriteDesktopLogs = requestInfo.IsWriteDesktopLogs();
+			var isForceCache = requestInfo.IsForceCache();
 
 			var identity = requestInfo.GetParameter("x-system");
 			if (string.IsNullOrWhiteSpace(identity))
@@ -1842,8 +1892,8 @@ namespace net.vieapps.Services.Portals
 			if (SiteProcessor.Sites.IsEmpty)
 			{
 				await organization.ReloadAsync(cancellationToken).ConfigureAwait(false);
-				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Reload organization & all sites - Organization: {organization.Title}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (isWriteDesktopLogs)
+					await requestInfo.WriteLogAsync($"Reload organization & all sites - Organization: {organization.Title}", "Process.Http.Request").ConfigureAwait(false);
 			}
 
 			if (DesktopProcessor.Desktops.IsEmpty || !DesktopProcessor.Desktops.Any(kvp => kvp.Value.SystemID == organization.ID))
@@ -1852,8 +1902,8 @@ namespace net.vieapps.Services.Portals
 				var sort = Sorts<Desktop>.Ascending("Title");
 				var desktops = await Desktop.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
 				await desktops.ForEachAsync(async webdesktop => await webdesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
-				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Fetch root desktops - Organization: {organization.Title}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (isWriteDesktopLogs)
+					await requestInfo.WriteLogAsync($"Fetch root desktops - Organization: {organization.Title}", "Process.Http.Request").ConfigureAwait(false);
 			}
 
 			// get site
@@ -1888,7 +1938,7 @@ namespace net.vieapps.Services.Portals
 			// normalize & check site
 			site = site != null && !organization.ID.IsEquals(site.OrganizationID) ? organization.DefaultSite : site;
 			if (site?.Prepare(host, false) == null)
-				throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(writeDesktopLogs ? $" because the organization ({organization.Title}) has no site [{organization.Sites?.Count}]" : "")}");
+				throw new SiteNotRecognizedException($"The requested site is not recognized ({host ?? "unknown"}){(isWriteDesktopLogs ? $" because the organization ({organization.Title}) has no site [{organization.Sites?.Count}]" : "")}");
 
 			// get desktop and prepare the redirecting url
 			var requestURI = new Uri(requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri"));
@@ -1916,7 +1966,7 @@ namespace net.vieapps.Services.Portals
 						desktop = site.HomeDesktop ?? organization.HomeDesktop;
 						isRewriteHttp404 = true;
 					}
-					else if (this.RedirectNotFoundDesktopsToHome || (organization.RedirectUrls != null && organization.RedirectUrls.AllHttp404))
+					else if (this.RedirectNotFoundDesktopsToHome || (organization.RedirectURLs != null && organization.RedirectURLs.AllHttp404))
 					{
 						redirectURL = organization.GetRedirectURL("*", out redirectCode) ?? $"~/index{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
 						isRedirectHttp404 = true;
@@ -1977,21 +2027,21 @@ namespace net.vieapps.Services.Portals
 				};
 
 				stopwatch.Stop();
-				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Redirect for matching with the settings - Execution times: {stopwatch.GetElapsedTimes()}\r\n{requestURL} => {redirectURL}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (isWriteDesktopLogs)
+					await requestInfo.WriteLogAsync($"Redirect for matching with the settings - Execution times: {stopwatch.GetElapsedTimes()}\r\n{requestURL} => {redirectURL}", "Process.Http.Request").ConfigureAwait(false);
 				return response;
 			}
 
 			// start process
 			var isHomeDesktop = desktop.ID.IsEquals(site.HomeDesktopID ?? organization.HomeDesktopID);
 			var desktopInfo = $"the '{desktop.Title}' desktop [Alias: {desktop.Alias} - ID: {desktop.ID}]";
-			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to process {desktopInfo} of '{site.Title} [{organization.Title}]' => {requestURL}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+			await requestInfo.WriteLogAsync($"Start to process {desktopInfo} of '{site.Title} [{organization.Title}]' => {requestURL}", "Process.Http.Request").ConfigureAwait(false);
 
 			// prepare the caching
 			var cacheKey = desktop.GetDesktopCacheKey(isRewriteHttp404 ? new Uri($"https://{requestURI.Host}/{desktop.Alias}") : requestURI, site);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
 			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
-			var processCache = this.CacheDesktopHtmls && !requestInfo.ContainsKey("x-force-cache");
+			var processCache = this.CacheDesktopHtmls && !isForceCache;
 
 			// check "If-Modified-Since" request to reduce traffic
 			var eTag = $"vieapps#{cacheKey.GenerateUUID()}";
@@ -2021,8 +2071,8 @@ namespace net.vieapps.Services.Portals
 						["Headers"] = headers.ToJson()
 					};
 					stopwatch.Stop();
-					if (writeDesktopLogs)
-						await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of {desktopInfo} => Got 'If-Modified-Since'/'If-None-Match' request headers (ETag: {eTag} - Timestamp: {lastModified}) - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+					if (isWriteDesktopLogs)
+						await requestInfo.WriteLogAsync($"By-pass the process of {desktopInfo} => Got 'If-Modified-Since'/'If-None-Match' request headers (ETag: {eTag} - Timestamp: {lastModified}) - Execution times: {stopwatch.GetElapsedTimes()}", "Process.Http.Request").ConfigureAwait(false);
 					return response;
 				}
 			}
@@ -2088,8 +2138,8 @@ namespace net.vieapps.Services.Portals
 					["BodyEncoding"] = this.BodyEncoding
 				};
 				stopwatch.Stop();
-				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the process of {desktopInfo} => Got HTML cache ({cacheKey}) - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (isWriteDesktopLogs)
+					await requestInfo.WriteLogAsync($"By-pass the process of {desktopInfo} => Got HTML cache ({cacheKey}) - Execution times: {stopwatch.GetElapsedTimes()}", "Process.Http.Request").ConfigureAwait(false);
 				return response;
 			}
 
@@ -2097,8 +2147,8 @@ namespace net.vieapps.Services.Portals
 			try
 			{
 				// prepare portlets
-				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare portlets of {desktopInfo}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (isWriteDesktopLogs)
+					await requestInfo.WriteLogAsync($"Start to prepare portlets of {desktopInfo}", "Process.Http.Request").ConfigureAwait(false);
 
 				var stepwatch = Stopwatch.StartNew();
 				if (desktop._portlets == null)
@@ -2106,13 +2156,13 @@ namespace net.vieapps.Services.Portals
 					await desktop.FindPortletsAsync(cancellationToken, false).ConfigureAwait(false);
 					await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 					stepwatch.Stop();
-					if (writeDesktopLogs)
-						await this.WriteLogsAsync(requestInfo.CorrelationID, $"Done load portlets of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+					if (isWriteDesktopLogs)
+						await	requestInfo.WriteLogAsync($"Done load portlets of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", "Process.Http.Request").ConfigureAwait(false);
 				}
 
 				stepwatch.Restart();
-				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {desktop.Portlets?.Count} portlet(s) of {desktopInfo} => {desktop.Portlets?.Select(p => p.Title).Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (isWriteDesktopLogs)
+					await requestInfo.WriteLogAsync($"Start to prepare data of {desktop.Portlets?.Count} portlet(s) of {desktopInfo} => {desktop.Portlets?.Select(p => p.Title).Join(", ")}", "Process.Http.Request").ConfigureAwait(false);
 
 				var organizationJson = organization.ToJson(false, false, json =>
 				{
@@ -2157,27 +2207,27 @@ namespace net.vieapps.Services.Portals
 
 				await (desktop.Portlets ?? []).Where(portlet => portlet != null).ForEachAsync(async portlet =>
 				{
-					var data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, language, parentIdentity, contentIdentity, pageNumber, generateAsync, writeDesktopLogs, cancellationToken).ConfigureAwait(false);
+					var data = await this.PreparePortletAsync(portlet, requestInfo, organizationJson, siteJson, desktopsJson, language, parentIdentity, contentIdentity, pageNumber, generateAsync, isWriteDesktopLogs, cancellationToken).ConfigureAwait(false);
 					if (data != null)
 						portletData[portlet.ID] = data;
 				}, true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
 				stepwatch.Stop();
-				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Done prepare data of {desktop.Portlets?.Count} portlet(s) of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (isWriteDesktopLogs)
+					await requestInfo.WriteLogAsync($"Done prepare data of {desktop.Portlets?.Count} portlet(s) of {desktopInfo} - Execution times: {stepwatch.GetElapsedTimes()}", "Process.Http.Request").ConfigureAwait(false);
 
 				// generate HTML of portlets
 				stepwatch.Restart();
-				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate HTML of {desktopInfo}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (isWriteDesktopLogs)
+					await requestInfo.WriteLogAsync($"Start to generate HTML of {desktopInfo}", "Process.Http.Request").ConfigureAwait(false);
 
 				var portletHtmls = new ConcurrentDictionary<string, (string HTML, bool GotError, string CacheExpiration)>(StringComparer.OrdinalIgnoreCase);
-				var generatePortletsTask = desktop.Portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
+				var generatePortletsTask = (desktop.Portlets ?? []).Where(portlet => portlet != null).ForEachAsync(async portlet =>
 				{
 					try
 					{
 						var action = !string.IsNullOrWhiteSpace(parentIdentity) && !string.IsNullOrWhiteSpace(contentIdentity) ? portlet.OriginalPortlet.AlternativeAction : portlet.OriginalPortlet.Action;
 						var isList = string.IsNullOrWhiteSpace(action) || "List".IsEquals(action);
-						portletHtmls[portlet.ID] = await this.GeneratePortletAsync(requestInfo, portlet, isList, portletData.TryGetValue(portlet.ID, out var data) ? data : null, siteJson, desktopsJson, organization.AlwaysUseHtmlSuffix, language, writeDesktopLogs, cancellationToken).ConfigureAwait(false);
+						portletHtmls[portlet.ID] = await this.GeneratePortletAsync(requestInfo, portlet, isList, portletData.TryGetValue(portlet.ID, out var data) ? data : null, siteJson, desktopsJson, organization.AlwaysUseHtmlSuffix, language, isWriteDesktopLogs, cancellationToken).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
@@ -2191,7 +2241,7 @@ namespace net.vieapps.Services.Portals
 				var mainPortlet = string.IsNullOrWhiteSpace(desktop.MainPortletID) || !portletData.TryGetValue(desktop.MainPortletID, out var value) ? null : value;
 				try
 				{
-					var desktopData = await this.GenerateDesktopAsync(desktop, requestInfo, organization, site, host, mainPortlet, parentIdentity, contentIdentity, writeDesktopLogs, cancellationToken).ConfigureAwait(false);
+					var desktopData = await this.GenerateDesktopAsync(desktop, requestInfo, organization, site, host, mainPortlet, parentIdentity, contentIdentity, isWriteDesktopLogs, cancellationToken).ConfigureAwait(false);
 					title = desktopData.Title;
 					body = desktopData.Body;
 					stylesheets = desktopData.Stylesheets;
@@ -2345,15 +2395,17 @@ namespace net.vieapps.Services.Portals
 				html = html.Insert(html.IndexOf("</body>"), body + scripts);
 
 				// minify
+				html = html.Replace(StringComparison.OrdinalIgnoreCase, $"{organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/", "~#/").Trim();
 				html = html.Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/").Trim();
 				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
 
-				// canonical URL
+				// canonical & prev/next URL
+				var seoInfo = mainPortlet?.Get<JObject>("SEOInfo");
 				var canonicalURL = isRewriteHttp404 || isHomeDesktop
 					? $"/index{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}"
 					: requestURL.IsContains("redirectHttp404=")
 						? organization.GetRedirectURL("*", out redirectCode) ?? $"/{(isHomeDesktop ? "index" : desktop.Alias)}{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}"
-						: mainPortlet?.Get<JObject>("SEOInfo")?.Get<string>("Og:URL")?.Replace("~/", "/") ?? requestURI.AbsolutePath.Replace($"/~{organization.Alias}", "").ToLower();
+						: seoInfo?.Get<string>("Og:URL")?.Replace("~/", "/") ?? requestURI.AbsolutePath.Replace($"/~{organization.Alias}", "").ToLower();
 				canonicalURL = canonicalURL.IsEndsWith("/default.aspx") ? canonicalURL.Replace("/default.aspx", organization.AlwaysUseHtmlSuffix ? ".html" : "") : canonicalURL;
 				if (!isHomeDesktop)
 				{
@@ -2367,16 +2419,26 @@ namespace net.vieapps.Services.Portals
 				html = html.Insert(html.IndexOf("<link rel="), $"<link rel=\"canonical\" href=\"{canonicalURL}\"/>");
 				if (!html.IsContains("<meta property=\"og:url") && html.IsContains("<meta property=\"og:locale"))
 					html = html.Insert(html.IndexOf("<meta", html.IndexOf("<meta property=\"og:locale") + 1), $"<meta property=\"og:url\" content=\"{canonicalURL}\"/>");
-				await (writeDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update canonical URL of {desktopInfo} ({requestURL} => {canonicalURL})", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask).ConfigureAwait(false);
+
+				var pos = html.IndexOf(">", html.IndexOf("<link rel=\"canonical")) + 1;
+				var prevURL = seoInfo?.Get<string>("PrevURL");
+				var nextURL = seoInfo?.Get<string>("NextURL");
+				if (!string.IsNullOrWhiteSpace(nextURL))
+					html = html.Insert(pos, $"<link rel=\"next\" href=\"{nextURL}\"/>");
+				if (!string.IsNullOrWhiteSpace(prevURL))
+					html = html.Insert(pos, $"<link rel=\"prev\" href=\"{prevURL}\"/>");
+
+				if (isWriteDesktopLogs)
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Update canonical URL of {desktopInfo} ({requestURL} => {canonicalURL})", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 				// prepare caching
 				if (this.CacheDesktopHtmls)
 				{
-					if (requestInfo.ContainsKey("x-force-cache"))
+					if (isForceCache)
 						await Task.WhenAll
 						(
 							Utility.Cache.RemoveAsync([cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
-							writeDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove HTML cache of {desktopInfo} ({requestURL}) => {cacheKey}", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask
+							isWriteDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove HTML cache of {desktopInfo} ({requestURL}) => {cacheKey}", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask
 						).ConfigureAwait(false);
 
 					if (!gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.GotError))
@@ -2425,7 +2487,7 @@ namespace net.vieapps.Services.Portals
 						await Task.WhenAll
 						(
 							Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
-							writeDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask
+							isWriteDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask
 						).ConfigureAwait(false);
 					}
 				}
@@ -2443,10 +2505,12 @@ namespace net.vieapps.Services.Portals
 				html = html.Replace(StringComparison.OrdinalIgnoreCase, $"url(http://", "url(//");
 				html = html.Replace(StringComparison.OrdinalIgnoreCase, $"url(https://", "url(//");
 				html = html.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"canonical\" href=\"//", $"<link rel=\"canonical\" href=\"{(site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs ? "https" : requestURI.Scheme)}://");
+				html = html.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"prev\" href=\"/", $"<link rel=\"prev\" href=\"{(site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/");
+				html = html.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"next\" href=\"/", $"<link rel=\"next\" href=\"{(site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/");
 
 				stepwatch.Stop();
-				if (writeDesktopLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\nNormalized HTML:\r\n{html}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				if (isWriteDesktopLogs)
+					await requestInfo.WriteLogAsync($"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\nNormalized HTML:\r\n{html}", "Process.Http.Request").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -2467,7 +2531,7 @@ namespace net.vieapps.Services.Portals
 				["BodyEncoding"] = this.BodyEncoding
 			};
 			stopwatch.Stop();
-			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Complete process of {desktopInfo} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+			await requestInfo.WriteLogAsync($"Complete process of {desktopInfo} - Execution times: {stopwatch.GetElapsedTimes()}", "Process.Http.Request").ConfigureAwait(false);
 			return response;
 		}
 
@@ -2481,7 +2545,7 @@ namespace net.vieapps.Services.Portals
 
 			var portletInfo = $"the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}]";
 			if (writeLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to prepare data of {portletInfo}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await requestInfo.WriteLogAsync($"Start to prepare data of {portletInfo}", "Process.Http.Request").ConfigureAwait(false);
 
 			// get content-type
 			var contentType = await (portlet.RepositoryEntityID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -2492,7 +2556,7 @@ namespace net.vieapps.Services.Portals
 			{
 				stopwatch.Stop();
 				if (writeLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"By-pass the preparing process of {portletInfo} => Static content - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+					await requestInfo.WriteLogAsync($"By-pass the preparing process of {portletInfo} => Static content - Execution times: {stopwatch.GetElapsedTimes()}", "Process.Http.Request").ConfigureAwait(false);
 				return null;
 			}
 
@@ -2515,7 +2579,7 @@ namespace net.vieapps.Services.Portals
 			var desktop = await optionsJson.Get("DesktopID", "").GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false);
 
 			if (writeLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Determine the action/expression for generating content of {portletInfo} - Action: {(isList ? "List" : "View")} - Expression: {portlet.ExpressionID ?? "N/A"} (Title: {expression?.Title ?? "None"}{(expression != null ? $" / Filter: {expression.Filter != null} / Sort: {expression.Sort != null}" : "")}) - Specified desktop: {(desktop != null ? $"{desktop.Title} [ID: {desktop.ID}]" : "(None)")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await requestInfo.WriteLogAsync($"Determine the action/expression for generating content of {portletInfo} - Action: {(isList ? "List" : "View")} - Expression: {portlet.ExpressionID ?? "N/A"} (Title: {expression?.Title ?? "None"}{(expression != null ? $" / Filter: {expression.Filter != null} / Sort: {expression.Sort != null}" : "")}) - Specified desktop: {(desktop != null ? $"{desktop.Title} [ID: {desktop.ID}]" : "(None)")}", "Process.Http.Request").ConfigureAwait(false);
 
 			// prepare the JSON that contains the requesting information for generating content
 			var requestJson = new JObject
@@ -2590,7 +2654,7 @@ namespace net.vieapps.Services.Portals
 			try
 			{
 				if (writeLogs)
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Call the service ({serviceURI}) to prepare data of {portletInfo}\r\n- Request:\r\n{requestJson}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+					await requestInfo.WriteLogAsync($"Call the service ({serviceURI}) to prepare data of {portletInfo}\r\n- Request:\r\n{requestJson}", "Process.Http.Request").ConfigureAwait(false);
 				responseJson = await generateAsync(contentType, requestJson).ConfigureAwait(false);
 			}
 			catch (Exception ex)
@@ -2603,7 +2667,7 @@ namespace net.vieapps.Services.Portals
 			if (exception != null)
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error occurred while preparing data of {portletInfo} - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request:\r\n{requestJson}\r\n- Error:\r\n{responseJson}", exception, this.ServiceName, "Process.Http.Request", LogLevel.Error).ConfigureAwait(false);
 			else if (writeLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Data of {portletInfo} has been prepared - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Response:\r\n{responseJson}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await requestInfo.WriteLogAsync($"Data of {portletInfo} has been prepared - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Response:\r\n{responseJson}", "Process.Http.Request").ConfigureAwait(false);
 
 			return responseJson;
 		}
@@ -2615,7 +2679,7 @@ namespace net.vieapps.Services.Portals
 			var portlet = theportlet.OriginalPortlet;
 			var portletInfo = $"the '{theportlet.Title}' portlet [ID: {theportlet.ID}{(string.IsNullOrWhiteSpace(theportlet.OriginalPortletID) ? "" : $" - alias of '{portlet.Title}' (ID: {portlet.ID})")}]";
 			if (writeLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start to generate HTML code of {portletInfo}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await requestInfo.WriteLogAsync($"Start to generate HTML code of {portletInfo}", "Process.Http.Request").ConfigureAwait(false);
 
 			// prepare container and zones
 			var portletContainer = (await portlet.GetTemplateAsync(cancellationToken).ConfigureAwait(false)).GetXDocument();
@@ -2731,7 +2795,7 @@ namespace net.vieapps.Services.Portals
 						else
 						{
 							// check data of XML
-							if (!(data["Data"] is JValue xmlJson) || xmlJson.Value == null)
+							if (data["Data"] is not JValue xmlJson || xmlJson.Value == null)
 								throw new InformationRequiredException("The response JSON must have the element named 'Data' that contains XML code for transforming via a node that named 'Data'");
 
 							// prepare XSLT
@@ -2747,26 +2811,26 @@ namespace net.vieapps.Services.Portals
 
 								xslTemplate = await Utility.GetTemplateAsync(xslFilename, portlet.Desktop?.WorkingTheme, mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
 								if (writeLogs)
-									await this.WriteLogsAsync(requestInfo.CorrelationID, $"Get XSLT template from file {(xslTemplate != null ? $"({xslFilename.GetTemplateFileInfo(portlet.Desktop?.WorkingTheme, mainDirectory, subDirectory).FullName})" : "(null)")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+									await requestInfo.WriteLogAsync($"Get XSLT template from file {(xslTemplate != null ? $"({xslFilename.GetTemplateFileInfo(portlet.Desktop?.WorkingTheme, mainDirectory, subDirectory).FullName})" : "(null)")}", "Process.Http.Request").ConfigureAwait(false);
 
 								if (string.IsNullOrWhiteSpace(xslTemplate))
 								{
 									xslTemplate = await Utility.GetTemplateAsync(xslFilename, null, mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
 									if (writeLogs)
-										await this.WriteLogsAsync(requestInfo.CorrelationID, $"Get XSLT template from file (2) {(xslTemplate != null ? $"({xslFilename.GetTemplateFileInfo(null, mainDirectory, subDirectory).FullName})" : "(null)")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+										await requestInfo.WriteLogAsync($"Get XSLT template from file (2) {(xslTemplate != null ? $"({xslFilename.GetTemplateFileInfo(null, mainDirectory, subDirectory).FullName})" : "(null)")}", "Process.Http.Request").ConfigureAwait(false);
 								}
 
 								if (string.IsNullOrWhiteSpace(xslTemplate) && !xslFilename.IsEquals("list.xsl"))
 								{
 									xslTemplate = await Utility.GetTemplateAsync("list.xsl", portlet.Desktop?.WorkingTheme, mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
 									if (writeLogs)
-										await this.WriteLogsAsync(requestInfo.CorrelationID, $"Get XSLT template from file (3) {(xslTemplate != null ? $"({"list.xsl".GetTemplateFileInfo(portlet.Desktop?.WorkingTheme, mainDirectory, subDirectory).FullName})" : "(null)")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+										await requestInfo.WriteLogAsync($"Get XSLT template from file (3) {(xslTemplate != null ? $"({"list.xsl".GetTemplateFileInfo(portlet.Desktop?.WorkingTheme, mainDirectory, subDirectory).FullName})" : "(null)")}", "Process.Http.Request").ConfigureAwait(false);
 
 									if (string.IsNullOrWhiteSpace(xslTemplate))
 									{
 										xslTemplate = await Utility.GetTemplateAsync("list.xsl", null, mainDirectory, subDirectory, cancellationToken).ConfigureAwait(false);
 										if (writeLogs)
-											await this.WriteLogsAsync(requestInfo.CorrelationID, $"Get XSLT template from file (4) {(xslTemplate != null ? $"({"list.xsl".GetTemplateFileInfo(null, mainDirectory, subDirectory).FullName})" : "(null)")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+											await requestInfo.WriteLogAsync($"Get XSLT template from file (4) {(xslTemplate != null ? $"({"list.xsl".GetTemplateFileInfo(null, mainDirectory, subDirectory).FullName})" : "(null)")}", "Process.Http.Request").ConfigureAwait(false);
 									}
 								}
 							}
@@ -2974,7 +3038,7 @@ namespace net.vieapps.Services.Portals
 							// transform
 							content = xml.Transform(xslTemplate, optionsJson.Get("EnableDocumentFunctionAndInlineScripts", false));
 							if (writeLogs)
-								await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+								await requestInfo.WriteLogAsync($"HTML of {portletInfo} has been transformed\r\n- XML:\r\n{xml}\r\n- XSL:\r\n{xslTemplate}\r\n- XHTML:\r\n{content}", "Process.Http.Request").ConfigureAwait(false);
 						}
 					}
 					catch (Exception ex)
@@ -3050,7 +3114,7 @@ namespace net.vieapps.Services.Portals
 
 			stopwatch.Stop();
 			if (writeLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"HTML code of {portletInfo} has been generated - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await requestInfo.WriteLogAsync($"HTML code of {portletInfo} has been generated - Execution times: {stopwatch.GetElapsedTimes()}", "Process.Http.Request").ConfigureAwait(false);
 
 			return (html, gotError, cacheExpiration > 0 ? cacheExpiration.ToString() : cacheExpirationTime?.ToDTString());
 		}
@@ -3286,6 +3350,9 @@ namespace net.vieapps.Services.Portals
 
 			// social network meta tags
 			var coverURIs = new[] { coverURI ?? "", desktop.CoverURI ?? "", site.CoverURI ?? "" }.Where(uri => !string.IsNullOrWhiteSpace(uri)).Select(uri => uri.GetWebpImageURL(organization.FakeFilesHttpURI)).ToList();
+			if (writeLogs && coverURIs.Count > 0)
+				await requestInfo.WriteLogAsync($"Prepare cover image URIs of {desktopInfo} => {coverURIs.Join(", ")} [{organization.FakeFilesHttpURI ?? Utility.FilesHttpURI}]", "Process.Http.Request").ConfigureAwait(false);
+
 			metaTags += "<meta property=\"og:locale\" content=\"{{locale}}\"/>";
 			metaTags += $"<meta property=\"og:title\" content=\"{seoInfo?.Get<string>("Og:Title") ?? titleOfPortlet ?? titleOfDesktop ?? titleOfSite}\"/>";
 			metaTags += string.IsNullOrWhiteSpace(description) ? "" : $"<meta property=\"og:description\" content=\"{seoInfo?.Get<string>("Og:Description") ?? descriptionOfPortlet ?? descriptionOfDesktop ?? descriptionOfSite ?? description}\"/>";
@@ -3462,7 +3529,7 @@ namespace net.vieapps.Services.Portals
 			var desktopContainer = (await desktop.GetTemplateAsync(cancellationToken).ConfigureAwait(false)).GetXDocument();
 			var desktopZones = desktopContainer.GetZones().ToList();
 			if (writeLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Prepare the zone(s) of {desktopInfo} => {desktopZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await requestInfo.WriteLogAsync($"Prepare the zone(s) of {desktopInfo} => {desktopZones.GetZoneNames().Join(", ")}", "Process.Http.Request").ConfigureAwait(false);
 
 			var zones = new List<string>();
 			var removedZones = new List<XElement>();
@@ -3500,7 +3567,7 @@ namespace net.vieapps.Services.Portals
 
 			removedZones.ForEach(zone => desktopZones.Remove(zone));
 			if (writeLogs)
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove empty zone(s) of {desktopInfo} => {removedZones.GetZoneNames().Join(", ")}", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
+				await requestInfo.WriteLogAsync($"Remove empty zone(s) of {desktopInfo} => {removedZones.GetZoneNames().Join(", ")}", "Process.Http.Request").ConfigureAwait(false);
 
 			// add css class 'full' to a zone that the parent only got this zone
 			desktopZones.Where(zone => zone.Parent.Elements().Count() == 1).Where(zone => zone.Parent.Attribute("class") == null || !zone.Parent.Attribute("class").Value.IsContains("fixed")).ForEach(zone =>
@@ -3534,6 +3601,8 @@ namespace net.vieapps.Services.Portals
 				xnode = xdoc?.Element("Content");
 				mainPortletContentTitle = xnode?.Element("Title")?.Value ?? "";
 				mainPortletContentURL = xnode?.Element("URL")?.Value ?? "";
+				if (writeLogs)
+					await requestInfo.WriteLogAsync($"Prepare main-portlet of {desktopInfo} => {mainPortletTitle} [{mainPortletType}]", "Process.Http.Request").ConfigureAwait(false);
 			}
 
 			// get the desktop body
@@ -5146,13 +5215,12 @@ namespace net.vieapps.Services.Portals
 			}
 
 			var stopwatch = Stopwatch.StartNew();
-			var isDebug = this.IsDebugLogEnabled || this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs");
+			var jsonFormat = requestInfo.IsWriteDebugLogs() || this.IsDebugResultsEnabled ? Formatting.Indented : this.JsonFormat;
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
 
 			try
 			{
 				// prepare
-				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
-
 				var identity = requestInfo.GetParameter("x-webhook-system") ?? "";
 				var organization = await (identity.IsValidUUID() ? identity.GetOrganizationByIDAsync(cts.Token) : identity.GetOrganizationByAliasAsync(cts.Token)).ConfigureAwait(false) ?? throw new InformationInvalidException("Invalid (system)");
 				identity = requestInfo.GetParameter("x-webhook-entity") ?? "";
@@ -5213,13 +5281,13 @@ namespace net.vieapps.Services.Portals
 
 				var result = await this.SyncObjectAsync(requestInfo, cts.Token).ConfigureAwait(false);
 				stopwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process a web-hook message successful [{requestInfo.Header["x-webhook-uri"]}] - ID: {message.ID} - Execution times: {stopwatch.GetElapsedTimes()}" + (isDebug ? $"\r\n\r\nMessage: {requestInfo.ToString(isDebug ? Formatting.Indented : this.JsonFormat)}\r\n\r\nResult: {result?.ToString(isDebug ? Formatting.Indented : this.JsonFormat)}" : ""), null, this.ServiceName, "WebHooks").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process a web-hook message successful (sync) [{requestInfo.GetHeaderParameter("x-webhook-uri")}] - ID: {message.ID} - Execution times: {stopwatch.GetElapsedTimes()}" + (requestInfo.IsWriteDebugLogs() ? $"\r\n\r\nMessage: {requestInfo.ToString(jsonFormat)}\r\n\r\nResult: {result?.ToString(jsonFormat)}" : ""), null, this.ServiceName, "WebHooks").ConfigureAwait(false);
 				return result;
 			}
 			catch (Exception ex)
 			{
-				var additional = ex is RemoteServerException rse ? $"\r\n\r\nError: {(rse.Body ?? "{}").ToJson().ToString(isDebug ? Formatting.Indented : this.JsonFormat)}" : "";
-				await requestInfo.WriteErrorAsync(ex, $"Web-hook error => {ex.Message}\r\n\r\nURI: {requestInfo.Header["x-webhook-uri"]}\r\n\r\nMessage: {requestInfo.ToString(isDebug ? Formatting.Indented : this.JsonFormat)}{additional}", "WebHooks").ConfigureAwait(false);
+				var additional = ex is RemoteServerException rse ? $"\r\n\r\nError: {(rse.Body ?? "{}").ToJson().ToString(jsonFormat)}" : "";
+				await requestInfo.WriteErrorAsync(ex, $"Web-hook error => {ex.Message}\r\n\r\nURI: {requestInfo.GetHeaderParameter("x-webhook-uri")}\r\n\r\nMessage: {requestInfo.ToString(jsonFormat)}{additional}", "WebHooks").ConfigureAwait(false);
 				throw;
 			}
 		}

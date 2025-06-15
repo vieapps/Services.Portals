@@ -22,7 +22,7 @@ namespace net.vieapps.Services.Portals
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Trackings,EmailSettings".ToHashSet();
 
 		public static Module CreateModule(this ExpandoObject data, string excluded = null, Action<Module> onCompleted = null)
-			=> Module.CreateInstance(data, excluded?.ToHashSet(), module =>
+			=> Module.CreateInstance(data, excluded, module =>
 			{
 				module.NormalizeExtras();
 				onCompleted?.Invoke(module);
@@ -547,7 +547,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (module == null)
 				{
-					module = Module.CreateInstance(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
+					module = Module.CreateInstance(data, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
 					await Module.CreateAsync(module, cancellationToken).ConfigureAwait(false);
 				}
 				else

@@ -801,7 +801,6 @@ namespace net.vieapps.Services.Portals
 			var contentTypeID = contentTypeJson.Get<string>("ID");
 			var parentIdentity = requestJson.Get<string>("ParentIdentity");
 			parentIdentity = string.IsNullOrWhiteSpace(parentIdentity) ? null : parentIdentity.Trim();
-			var category = await parentContentTypeJson.Get("ID", "").GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false);
 
 			var paginationJson = requestJson.Get("Pagination", new JObject());
 			var pageSize = paginationJson.Get("PageSize", 7);
@@ -829,9 +828,12 @@ namespace net.vieapps.Services.Portals
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("Module");
 			desktop = !string.IsNullOrWhiteSpace(desktop) ? desktop : desktopsJson.Get<string>("IsDefault");
 
+			var category = await parentContentTypeJson.Get("ID", "").GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false);
+			var categoryURL = category?.GetURL(desktop, true);
+
 			JArray breadcrumbs = null, metaTags = null;
 			JObject pagination = null, seoInfo = null, filterBy = null, sortBy = null;
-			string coverURI = null, ogURL = null, ogTitle = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null, ids = null;
+			string coverURI = null, ogURL = null, ogTitle = null, prevURL = null, nextURL = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null, ids = null;
 			DateTime? expiresAt = null;
 
 			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", true)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false);
@@ -932,10 +934,11 @@ namespace net.vieapps.Services.Portals
 
 				// get cache
 				long totalRecords = -1;
+				int totalPages = 0;
 				if (randomPage && await Utility.Cache.ExistsAsync(cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false))
 				{
 					totalRecords = await Utility.Cache.GetAsync<long>(cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false);
-					var totalPages = (totalRecords, pageSize).GetTotalPages();
+					totalPages = (totalRecords, pageSize).GetTotalPages();
 					minRandomPage = minRandomPage > 0 && minRandomPage <= totalPages ? minRandomPage : 1;
 					maxRandomPage = maxRandomPage > 0 && maxRandomPage <= totalPages ? maxRandomPage : totalPages;
 					pageNumber = UtilityService.GetRandomNumber(minRandomPage, maxRandomPage);
@@ -1014,9 +1017,9 @@ namespace net.vieapps.Services.Portals
 							new XElement("Title", category.Title),
 							new XElement("Description", category.Description?.RemoveTags().NormalizeHTMLBreaks() ?? ""),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
-							new XElement("URL", category.GetURL(desktop) ?? ""),
+							new XElement("URL", categoryURL.Replace("/{{pageNumber}}", "")),
 							(categoryThumbnails?.GetThumbnailURL(category.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails) ?? "").GetThumbnail(pngThumbnails),
-							new XElement("Root", parentCategory?.Title ?? category.Title, new XAttribute("URL", parentCategory?.GetURL(desktop) ?? category.GetURL(desktop)))
+							new XElement("Root", parentCategory?.Title ?? category.Title, new XAttribute("URL", parentCategory?.GetURL(desktop) ?? categoryURL.Replace("/{{pageNumber}}", "")))
 						));
 					}
 
@@ -1071,26 +1074,24 @@ namespace net.vieapps.Services.Portals
 
 				// prepare breadcrumbs
 				if (showBreadcrumbs)
-					breadcrumbs = category?.GenerateBreadcrumbs(desktop) ?? new JArray();
+					breadcrumbs = category?.GenerateBreadcrumbs(desktop) ?? new();
 
 				// prepare pagination
+				totalPages = totalPages > 0 ? totalPages : (totalRecords, pageSize).GetTotalPages();
+				if (totalPages > 0 && pageNumber > totalPages)
+					pageNumber = totalPages;
 				if (showPagination)
-				{
-					var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
-					if (totalPages > 0 && pageNumber > totalPages)
-						pageNumber = totalPages;
-					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, category?.GetURL(desktop, true), showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => kvp.Key.IsStartsWith("ngx-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
-				}
+					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, categoryURL, showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => kvp.Key.IsStartsWith("ngx-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
 
-				// prepare SEO
+				// prepare SEO info
 				seoTitle = category?.Title;
 				seoDescription = category?.Description;
-
-				// prepare other info
 				categoryThumbnails = category != null ? categoryThumbnails ?? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false) : null;
 				coverURI = (categoryThumbnails as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(thumbnailsWidth, thumbnailsHeight, pngThumbnails);
-				ogURL = category?.GetURL(desktop, true).Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}" : "");
 				ogTitle = category?.Title;
+				ogURL = categoryURL?.Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}" : "");
+				prevURL = pageNumber > 1 ? categoryURL?.Replace("/{{pageNumber}}", pageNumber > 2 ? $"/{pageNumber - 1}" : "") : null;
+				nextURL = pageNumber < totalPages ? categoryURL?.Replace("/{{pageNumber}}", $"/{pageNumber + 1}") : null;
 			}
 
 			// generate details
@@ -1355,6 +1356,8 @@ namespace net.vieapps.Services.Portals
 				{ "Title", seoTitle },
 				{ "Description", string.IsNullOrWhiteSpace(seoDescription) || seoDescription.IsStartsWith("~~/") || seoDescription.IsStartsWith("http://") || seoDescription.IsStartsWith("https://") ? null : seoDescription.RemoveTags() },
 				{ "Keywords", seoKeywords },
+				{ "PrevURL", prevURL },
+				{ "NextURL", nextURL },
 				{ "Og:URL", ogURL },
 				{ "Og:Title", ogTitle },
 			};

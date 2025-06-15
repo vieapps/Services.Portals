@@ -494,7 +494,7 @@ namespace net.vieapps.Services.Portals
 								requestInfo.WriteLogAsync(log, "WebHooks")
 							).ConfigureAwait(false);
 							if (sendAsCall)
-								message.SendAsCallServiceAsync(cancellationToken).Run(ex => requestInfo.WriteErrorAsync(ex, $"Error occurred while calling the service to process a web-hook notification message [{@endpointURL}]", "WebHooks").Run());
+								message.SendAsCallServiceAsync(cancellationToken).Run(ex => requestInfo.WriteErrorAsync(ex, $"Error occurred while calling the service to process a web-hook notification message [{endpointURL}]", "WebHooks").Run());
 						}, true, false).ConfigureAwait(false);
 					}
 					catch (Exception exception)

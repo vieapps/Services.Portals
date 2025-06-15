@@ -193,6 +193,9 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop Desktop => this.Category?.Desktop ?? this.ContentType?.Desktop;
 
+		[Ignore, JsonIgnore, XmlIgnore, BsonIgnore, MessagePackIgnore]
+		public override Privileges WorkingPrivileges => this._workingPrivileges ?? (this._workingPrivileges = (this.OriginalPrivileges ?? new()).Combine((this.Category?.WorkingPrivileges ?? new()).Combine(this.ContentType?.WorkingPrivileges)));
+
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
 			=> $"~/{this.Category?.Desktop?.Alias ?? this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{this.Category?.Alias ?? parentIdentity ?? "-"}/{this.Alias}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}".ToLower();
 

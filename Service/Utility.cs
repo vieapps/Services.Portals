@@ -421,7 +421,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static string GetWebpImageURL(this string url, string filesHttpURI = null, bool transparency = false)
 		{
-			if (!string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("~~/") || url.IsStartsWith(filesHttpURI ?? Utility.FilesHttpURI)))
+			if (!string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("~~/") || url.IsStartsWith(filesHttpURI ?? Utility.FilesHttpURI) || url.IsStartsWith(Utility.FilesHttpURI)))
 			{
 				var segments = new Uri(url.Replace("~~/", $"{filesHttpURI ?? Utility.FilesHttpURI}/")).AbsolutePath.ToList("/").Skip(1).ToList();
 				var mime = FilesHttpMIMEs.Any(info => info.Handler.IsEquals(segments[0])) ? FilesHttpMIMEs.First(info => info.Handler.IsEquals(segments[0])) : (null, null);
@@ -980,10 +980,9 @@ namespace net.vieapps.Services.Portals
 				return html.NormalizeURLs(rootURL, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
 
 			var domains = new List<string>();
-			(organization.Sites ?? new List<Site>()).ForEach(site =>
+			(organization.Sites ?? []).ForEach(site =>
 			{
-				domains.Add($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "www.").Replace("www.www.", "www."));
-				domains.Add($"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", ""));
+				domains.AddRange([site.Host, $"{site.SubDomain}.{site.PrimaryDomain}".Replace("*.", "")]);
 				site.OtherDomains?.ToList(";").ForEach(domain =>
 				{
 					domains.Add(domain);
@@ -992,7 +991,7 @@ namespace net.vieapps.Services.Portals
 				});
 			});
 
-			html = html.Replace($"{Utility.PortalsHttpURI}/_", "~/_");
+			html = html.Replace($"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_", "~/_").Replace($"{Utility.PortalsHttpURI}/_", "~/_");
 			new[] { rootURL, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : new Uri(organization.FakePortalsHttpURI).GetRootURL(organization.Alias, false) }
 				.Concat(domains.Select(domain => $"http://{domain}/"))
 				.Concat(domains.Select(domain => $"https://{domain}/"))
@@ -1211,6 +1210,29 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool IsDownloader(this IUser user, Privileges privileges, Privileges parentPrivileges, Organization organization, bool checkAsOwner = true)
 			=> (checkAsOwner && user.ID.IsEquals(organization?.OwnerID)) || user.IsDownloader(privileges, parentPrivileges ?? organization?.WorkingPrivileges);
+
+		internal static List<string> IsIn(this Privileges privileges, IUser user, string mode)
+		{
+			var roles = mode == "Download" || mode == "View"
+				? (privileges.DownloadableRoles ?? []).Concat(privileges.ViewableUsers ?? []).Concat(privileges.ContributiveRoles ?? []).Concat(privileges.EditableRoles ?? []).Concat(privileges.ModerateRoles ?? []).Concat(privileges.AdministrativeRoles ?? [])
+				: mode == "Contribute"
+					? (privileges.ContributiveRoles ?? []).Concat(privileges.EditableRoles ?? []).Concat(privileges.ModerateRoles ?? []).Concat(privileges.AdministrativeRoles ?? [])
+					: mode == "Edit"
+						? (privileges.EditableRoles ?? []).Concat(privileges.ModerateRoles ?? []).Concat(privileges.AdministrativeRoles ?? [])
+						: mode == "Moderate"
+							? (privileges.ModerateRoles ?? []).Concat(privileges.AdministrativeRoles ?? [])
+							: privileges.AdministrativeRoles ?? [];
+			var users = mode == "Download" || mode == "View"
+				? (privileges.DownloadableUsers ?? []).Concat(privileges.ViewableUsers ?? []).Concat(privileges.ContributiveUsers ?? []).Concat(privileges.EditableUsers ?? []).Concat(privileges.ModerateUsers ?? []).Concat(privileges.AdministrativeUsers ?? [])
+				: mode == "Contribute"
+					? (privileges.ContributiveUsers ?? []).Concat(privileges.EditableUsers ?? []).Concat(privileges.ModerateUsers ?? []).Concat(privileges.AdministrativeUsers ?? [])
+					: mode == "Edit"
+						? (privileges.EditableUsers ?? []).Concat(privileges.ModerateUsers ?? []).Concat(privileges.AdministrativeUsers ?? [])
+						: mode == "Moderate"
+							? (privileges.ModerateUsers ?? []).Concat(privileges.AdministrativeUsers ?? [])
+							: privileges.AdministrativeUsers ?? [];
+			return roles.Intersect(user?.Roles ?? []).Concat(user != null ? users.Intersect([user.ID]) : []).ToList();
+		}
 
 		internal static JObject UpdateVersions(this JObject json, List<VersionContent> versions)
 		{

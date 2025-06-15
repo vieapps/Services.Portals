@@ -150,15 +150,15 @@ namespace net.vieapps.Services.Portals.Settings
 
 	// ---------------------------------------------------------------
 
-	public class RefreshUrls
+	public class RefreshURLs
 	{
-		public RefreshUrls() { }
+		public RefreshURLs() { }
 
 		public List<string> Addresses { get; set; } = [];
 
 		public int Interval { get; set; } = 15;
 
-		public RefreshUrls Normalize()
+		public RefreshURLs Normalize(Action<RefreshURLs> onCompleted = null)
 		{
 			this.Addresses = (this.Addresses ?? [])
 				.Where(address => !string.IsNullOrWhiteSpace(address))
@@ -168,21 +168,22 @@ namespace net.vieapps.Services.Portals.Settings
 				.ToList();
 			this.Addresses = this.Addresses.Count > 0 ? this.Addresses : null;
 			this.Interval = this.Interval < 1 ? 15 : this.Interval;
+			onCompleted?.Invoke(this);
 			return this.Addresses != null ? this : null;
 		}
 	}
 
 	// ---------------------------------------------------------------
 
-	public class RedirectUrls
+	public class RedirectURLs
 	{
-		public RedirectUrls() { }
+		public RedirectURLs() { }
 
 		public List<string> Addresses { get; set; } = [];
 
 		public bool AllHttp404 { get; set; } = false;
 
-		public RedirectUrls Normalize()
+		public RedirectURLs Normalize(Action<RedirectURLs> onCompleted = null)
 		{
 			this.Addresses = (this.Addresses ?? [])
 				.Where(address => !string.IsNullOrWhiteSpace(address))
@@ -191,7 +192,46 @@ namespace net.vieapps.Services.Portals.Settings
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 			this.Addresses = this.Addresses.Count > 0 ? this.Addresses : null;
+			onCompleted?.Invoke(this);
 			return this.Addresses != null || this.AllHttp404 ? this : null;
+		}
+	}
+
+	// ---------------------------------------------------------------
+
+	public class ExamineURLs
+	{
+		public ExamineURLs() { }
+
+		public List<string> URLs { get; set; }
+
+		public DateTime Start { get; set; } = DateTime.Now;
+
+		public DateTime End { get; set; } = DateTime.Now.AddHours(12);
+
+		public int WaitSecondsMin { get; set; } = 180;
+
+		public int WaitSecondsMax { get; set; } = 360;
+
+		public string ResponseMode { get; set; } = "Break";
+
+		public int ResponseCode { get; set; } = 502;
+
+		public string ResponseType { get; set; } = "BadGatewayException";
+
+		public string ResponseMessage { get; set; } = "Bad Gateway";
+
+		public ExamineURLs Normalize(Action<ExamineURLs> onCompleted = null)
+		{
+			this.URLs = this.URLs?.Where(url => !string.IsNullOrWhiteSpace(url)).Select(urls => urls.Trim().ToLower().ToList("|", true)).SelectMany(urls => urls).Where(url => !string.IsNullOrWhiteSpace(url)).ToList();
+			if (this.URLs != null && this.URLs.Count > 0)
+			{
+				this.WaitSecondsMin = this.WaitSecondsMin > 0 ? this.WaitSecondsMin : 180;
+				this.WaitSecondsMax = this.WaitSecondsMax > this.WaitSecondsMin ? this.WaitSecondsMax : this.WaitSecondsMin * 2;
+				onCompleted?.Invoke(this);
+				return this;
+			}
+			return null;
 		}
 	}
 
@@ -521,4 +561,5 @@ namespace net.vieapps.Services.Portals.Settings
 			return this.SEOInfo == null && this.TitleMode == null && this.DescriptionMode == null && this.KeywordsMode == null ? null : this;
 		}
 	}
+
 }

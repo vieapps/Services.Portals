@@ -22,7 +22,7 @@ namespace net.vieapps.Services.Portals
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Trackings,EmailSettings,WebHookNotifications,WebHookAdapters,SubTitleFormula".ToHashSet();
 
 		public static ContentType CreateContentType(this ExpandoObject data, string excluded = null, Action<ContentType> onCompleted = null)
-			=> ContentType.CreateInstance(data, excluded?.ToHashSet(), contentType =>
+			=> ContentType.CreateInstance(data, excluded, contentType =>
 			{
 				contentType.NormalizeExtras();
 				onCompleted?.Invoke(contentType);
@@ -710,7 +710,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (contentType == null)
 				{
-					contentType = ContentType.CreateInstance(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
+					contentType = ContentType.CreateInstance(data, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras);
 					await ContentType.CreateAsync(contentType, cancellationToken).ConfigureAwait(false);
 				}
 				else

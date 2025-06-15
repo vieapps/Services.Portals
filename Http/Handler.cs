@@ -356,7 +356,7 @@ namespace net.vieapps.Services.Portals
 			var requestURI = context.GetRequestUri();
 			var requestMethod = (context.Request.Method ?? "GET").ToUpper();
 			if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-				await Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod}: {requestURI}]", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+				await context.WriteLogsAsync("Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod}: {requestURI}]").ConfigureAwait(false);
 
 			// update user of the session if already signed-in
 			if (context.IsAuthenticated())
@@ -379,7 +379,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully update an user with authenticate ticket {session.ToJson()}").ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Successfully update an user with authenticate ticket {session.ToJson()}").ConfigureAwait(false);
 			}
 
 			// update with authenticate token
@@ -400,14 +400,14 @@ namespace net.vieapps.Services.Portals
 						// authenticate
 						await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Http.Process.Requests", correlationID).ConfigureAwait(false);
 						if (isDebugLogEnabled)
-							await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully authenticate an user with authenticate token {session.ToJson().ToString(Formatting.Indented)}").ConfigureAwait(false);
+							await context.WriteLogsAsync("Http.Process.Requests", $"Successfully authenticate an user with authenticate token {session.ToJson().ToString(Formatting.Indented)}").ConfigureAwait(false);
 
 						// assign user information
 						context.User = new UserPrincipal(session.User);
 					}
 					catch (Exception ex)
 					{
-						await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Failure authenticate an user with authenticate token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+						await context.WriteLogsAsync("Http.Process.Requests", $"Failure authenticate an user with authenticate token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 					}
 
 				// update identities
@@ -646,7 +646,7 @@ namespace net.vieapps.Services.Portals
 			// process the request
 			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
 			if (isDebugLogEnabled)
-				await Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Identify the system in the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+				await context.WriteLogsAsync("Http.Process.Requests", $"Identify the system in the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
 			JObject systemIdentityJson = null;
 			if (string.IsNullOrWhiteSpace(specialRequest))
@@ -705,9 +705,29 @@ namespace net.vieapps.Services.Portals
 								["Location"] = $"{filesHttpURI}/{requestSegments.Join("/")}",
 								["X-Node"] = Global.NodeID,
 								["X-Correlation-ID"] = correlationID,
-								["X-Redirector"] = "VIEApps NGX CMS Portals HTTP"
+								["X-Redirector"] = "VIEApps NGX HTTP CMS Portals"
 							});
 							return;
+						}
+					}
+
+					// examinations
+					var examinations = context.TryGetParameter("x-examiner", out var examiner) && examiner.IsEquals("vieapps-ngx") ? null : systemIdentityJson?.Get<JArray>("CacheExaminations")?.Select(exam => exam as JObject).Where(exam => exam != null).Select(exam => exam?.Copy<Settings.ExamineURLs>()).Where(exam => exam != null).ToList();
+					if (examinations != null && examinations.Count > 0)
+					{
+						var path = requestURI.AbsolutePath.ToLower();
+						var pathWithoutExtention = path.Replace("/default.aspx", "").Replace(".aspx", "").Replace(".php", "").Replace(".html", "");
+						var examination = examinations.FirstOrDefault(exam => exam.Start <= DateTime.Now && exam.End >= DateTime.Now && ((exam.URLs.Any(url => url.IsStartsWith("s:/") ? path.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? path.IsContains(url.Right(url.Length - 2)) : path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/") ? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? pathWithoutExtention.IsContains(url.Right(url.Length - 2)) : pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*"))));
+						if (examination != null)
+						{
+							var seconds = UtilityService.GetRandomNumber(examination.WaitSecondsMin, examination.WaitSecondsMax);
+							await context.WriteLogsAsync("Http.Process.Examinations", $"Do the examination in {seconds} seconds => {requestURI}{("Continue".IsEquals(examination.ResponseMode) ? "" : $" [{examination.ResponseCode}: {examination.ResponseType} - {examination.ResponseMessage}]")}").ConfigureAwait(false);
+							await Task.Delay(seconds * 1000, cts.Token).ConfigureAwait(false);
+							if (!"Continue".IsEquals(examination.ResponseMode))
+							{
+								context.ShowError(examination.ResponseCode, examination.ResponseMessage, examination.ResponseType, correlationID);
+								return;
+							}
 						}
 					}
 
@@ -775,7 +795,7 @@ namespace net.vieapps.Services.Portals
 							else if (type.IsEquals("images"))
 							{
 								contentType = path.ToList(".").Last();
-								contentType = $"image/{(contentType.IsEquals("svg") ? "svg+xml" : contentType.IsEquals("jpg") || contentType.IsEquals("jpeg") ? "jpeg" : contentType)}";
+								contentType = $"image/{(contentType.IsEquals("svg") ? "svg+xml" : contentType.IsEquals("jpg") ? "jpeg" : contentType)}";
 							}
 
 							cacheKey = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
@@ -840,14 +860,14 @@ namespace net.vieapps.Services.Portals
 									["X-Redirector"] = "VIEApps NGX HTTP CMS Portals"
 								});
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Redirect for matching with the settings\r\n{requestURI} => {redirectURL}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"Redirect for matching with the settings\r\n{requestURI} => {redirectURL}").ConfigureAwait(false);
 								return;
 							}
 
 							// process cache
 							var watch = Stopwatch.StartNew();
 							if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-								await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Attempt to process the CMS Portals service cache => {requestURI} ({cacheKey})").ConfigureAwait(false);
+								await context.WriteLogsAsync("Http.Process.Requests", $"Attempt to process the CMS Portals service cache => {requestURI} ({cacheKey})").ConfigureAwait(false);
 
 							// last modified
 							var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
@@ -865,7 +885,7 @@ namespace net.vieapps.Services.Portals
 									["X-Correlation-ID"] = correlationID
 								});
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag}/{lastModified}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag}/{lastModified}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 								return;
 							}
 
@@ -877,7 +897,7 @@ namespace net.vieapps.Services.Portals
 							{
 								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
 								if (!isBase64 && context.ContainsKey("x-cache-logs"))
-									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey})\r\n\r\nRaw cache:\r\n{cached}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey})\r\n\r\nRaw cache:\r\n{cached}").ConfigureAwait(false);
 
 								var isHtml = !isBase64 && contentType.IsEquals("text/html");
 								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
@@ -911,6 +931,8 @@ namespace net.vieapps.Services.Portals
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $"url(http://", "url(//");
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $"url(https://", "url(//");
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"canonical\" href=\"//", $"<link rel=\"canonical\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"prev\" href=\"/", $"<link rel=\"prev\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/");
+									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"next\" href=\"/", $"<link rel=\"next\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/");
 
 									if (!string.IsNullOrWhiteSpace(baseURL))
 										cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
@@ -932,7 +954,7 @@ namespace net.vieapps.Services.Portals
 								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
 
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(!isBase64 && context.ContainsKey("x-cache-logs") ? $"\r\n\r\nNormalized cache:\r\n{cached}" : "")}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(!isBase64 && context.ContainsKey("x-cache-logs") ? $"\r\n\r\nNormalized cache:\r\n{cached}" : "")}").ConfigureAwait(false);
 								return;
 							}
 						}
@@ -943,7 +965,7 @@ namespace net.vieapps.Services.Portals
 					{
 						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
 						if (isDebugLogEnabled)
-							await Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
 						
 						headers = response.Get("Headers", new Dictionary<string, string>());
@@ -1040,7 +1062,7 @@ namespace net.vieapps.Services.Portals
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 							if (isDebugLogEnabled)
-								await Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
 
 							headers = response.Get("Headers", new Dictionary<string, string>());
@@ -1087,7 +1109,7 @@ namespace net.vieapps.Services.Portals
 						}
 
 						if (isDebugLogEnabled)
-							await Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
 						try
 						{
@@ -1104,7 +1126,7 @@ namespace net.vieapps.Services.Portals
 							await Task.WhenAll
 							(
 								context.WriteAsync(response, headers, cts.Token),
-								isDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully process request of a service {response}") : Task.CompletedTask
+								isDebugLogEnabled ? context.WriteLogsAsync("Http.Process.Requests", $"Successfully process request of a service {response}") : Task.CompletedTask
 							).ConfigureAwait(false);
 						}
 						catch (OperationCanceledException) { }
@@ -1122,7 +1144,7 @@ namespace net.vieapps.Services.Portals
 
 			stopwatch.Stop();
 			if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-				await Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Done process a request of CMS Portals - Execution times: {stopwatch.GetElapsedTimes()}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+				await context.WriteLogsAsync("Http.Process.Requests", $"Done process a request of CMS Portals - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 		}
 
 		async Task ProcessInitializerRequestAsync(HttpContext context, JObject systemIdentityJson)
