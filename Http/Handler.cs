@@ -54,7 +54,7 @@ namespace net.vieapps.Services.Portals
 			=> UtilityService.GetAppSetting("LoadBalancer:HealthCheckURL", "/load-balancer-health-check");
 
 		internal static List<string> ExcludedHeaders
-			=> UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop").ToList();
+			=> UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,priority,purpose,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop").ToList();
 
 		internal static Cache Cache
 			=> new (UtilityService.GetAppSetting("Portals:Cache:Name", "VIEApps-Services-Portals"), Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
@@ -348,7 +348,7 @@ namespace net.vieapps.Services.Portals
 			// prepare
 			var stopwatch = Stopwatch.StartNew();
 			var correlationID = context.GetCorrelationID();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs") || context.ContainsKey("x-cache-logs");
 
 			var session = context.Session.Get<Session>("Session") ?? context.GetSession();
 			Handler.NormalizeSession(session, context.GetParameter("x-app-name"), context.GetParameter("x-app-platform"), context.GetParameter("x-device-id"));
@@ -799,7 +799,7 @@ namespace net.vieapps.Services.Portals
 							}
 
 							cacheKey = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
-								? $"{type}:{identity}"
+								? $"{type}#{identity}"
 								: requestURI.AbsolutePath.ToLower().GenerateUUID();
 
 							expires = DateTime.Now.AddDays(366);
@@ -896,7 +896,9 @@ namespace net.vieapps.Services.Portals
 							if (!string.IsNullOrWhiteSpace(cached))
 							{
 								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
-								if (!isBase64 && context.ContainsKey("x-cache-logs"))
+
+								var isCacheLogEnabled = !isBase64 && context.ContainsKey("x-cache-logs");
+								if (isCacheLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey})\r\n\r\nRaw cache:\r\n{cached}").ConfigureAwait(false);
 
 								var isHtml = !isBase64 && contentType.IsEquals("text/html");
@@ -954,7 +956,7 @@ namespace net.vieapps.Services.Portals
 								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
 
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(!isBase64 && context.ContainsKey("x-cache-logs") ? $"\r\n\r\nNormalized cache:\r\n{cached}" : "")}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(isCacheLogEnabled ? $"\r\n\r\nNormalized cache:\r\n{cached}" : "")}").ConfigureAwait(false);
 								return;
 							}
 						}
