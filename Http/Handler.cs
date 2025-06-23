@@ -731,9 +731,11 @@ namespace net.vieapps.Services.Portals
 						}
 					}
 
-					// working with cache (of portal desktops/resources)
-					var bypassCache = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache") || (requestInfo.TryGetHeaderParameter("Cache-Control", out var cacheControl) && cacheControl.IsContains("no-cache"));
-					if (Handler.AllowCache && !Handler.RefresherURL.IsEquals(context.GetReferUrl()) && !bypassCache)
+					// process with cache
+					var processCache = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache") || (requestInfo.TryGetHeaderParameter("Cache-Control", out var cacheControl) && cacheControl.IsContains("no-cache"))
+						? false
+						: Handler.AllowCache;
+					if (processCache && !Handler.RefresherURL.IsEquals(context.GetReferUrl()))
 					{
 						var cacheKey = "";
 						var eTag = "";
@@ -749,6 +751,7 @@ namespace net.vieapps.Services.Portals
 
 						if ("~resources".IsEquals(systemIdentity))
 						{
+							expires = DateTime.Now.AddDays(366);
 							string identity = null;
 							var isThemeResource = false;
 							var path = requestInfo.GetParameter("x-path");
@@ -801,8 +804,6 @@ namespace net.vieapps.Services.Portals
 							cacheKey = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
 								? $"{type}#{identity}"
 								: requestURI.AbsolutePath.ToLower().GenerateUUID();
-
-							expires = DateTime.Now.AddDays(366);
 							eTag = $"vieapps#{cacheKey.GenerateUUID()}";
 						}
 
@@ -897,7 +898,7 @@ namespace net.vieapps.Services.Portals
 							{
 								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
 
-								var isCacheLogEnabled = !isBase64 && context.ContainsKey("x-cache-logs");
+								var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
 								if (isCacheLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey})\r\n\r\nRaw cache:\r\n{cached}").ConfigureAwait(false);
 
@@ -978,9 +979,9 @@ namespace net.vieapps.Services.Portals
 							["X-Correlation-ID"] = correlationID,
 							["X-Node"]  = Global.NodeID
 						};
-						var body = response.Get<string>("Body");
-
 						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
+
+						var body = response.Get<string>("Body");
 						if (body != null)
 							await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
 					}
@@ -1075,9 +1076,9 @@ namespace net.vieapps.Services.Portals
 								["X-Correlation-ID"] = correlationID,
 								["X-Node"] = Global.NodeID
 							};
-							var body = response.Get<string>("Body");
-							
 							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
+
+							var body = response.Get<string>("Body");							
 							if (body != null)
 								await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
 						}

@@ -38,7 +38,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool IsWriteDebugLogs(this RequestInfo requestInfo, string component = null) => Utility.IsDebugLogEnabled || (requestInfo != null && requestInfo.ContainsKey("x-logs")) || (component != null && "true".IsEquals(UtilityService.GetAppSetting($"Logs:Portals:{component}")));
 
-		internal static bool IsWriteCacheLogs(this RequestInfo requestInfo) => Utility.IsWriteDebugLogs(requestInfo, "Caches");
+		internal static bool IsWriteCacheLogs(this RequestInfo requestInfo) => Utility.IsWriteDebugLogs(requestInfo, "Caches") || (requestInfo != null && requestInfo.ContainsKey("x-cache-logs"));
 
 		internal static bool IsCacheLogEnabled => Utility.IsWriteCacheLogs(null);
 
@@ -50,7 +50,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool IsMessageLogEnabled => Utility.IsWriteMessageLogs(null);
 
-		internal static bool IsForceCache(this RequestInfo requestInfo) => requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache");
+		internal static bool IsForceCache(this RequestInfo requestInfo) => requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache");
 
 		internal static bool AllowInlineImages { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));
 
