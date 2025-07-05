@@ -439,7 +439,7 @@ namespace net.vieapps.Services.Portals
 				if (segments[0].IsStartsWith("thumbnail") && (url.IsEndsWith(".png") || url.IsEndsWith(".jpg")))
 					url = (segments[2].Equals("0") ? url.Left(url.Length - 4) : url) + ".webp";
 				url = url.IsEndsWith(".webp.webp") ? url.Left(url.Length - 5) : url;
-				url += transparency ? (url.IndexOf("?") > 0 ? "&" : "?") + "transparent=x" : "";
+				url += transparency ? (url.IndexOf("?") > 0 ? "&" : "?") + "transparent" : "";
 			}
 			return url;
 		}
@@ -823,7 +823,7 @@ namespace net.vieapps.Services.Portals
 						["x-object-id"] = (@object as IPortalObject).ID,
 						["x-object-title"] = (@object as IPortalObject).Title,
 						["x-receive-mode"] = "file",
-						["x-app-name"] = "NGX Uploader",
+						["x-app-name"] = "NGX-Uploader",
 						["x-correlation-id"] = requestInfo.CorrelationID,
 						["x-temp-token"] = requestInfo.Session.User.GetAuthenticateToken(Utility.EncryptionKey, Utility.JWTKey)
 					}, cancellationToken).ConfigureAwait(false);

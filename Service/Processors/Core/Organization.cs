@@ -245,7 +245,7 @@ namespace net.vieapps.Services.Portals
 					SystemID = organization.ID,
 					Title = "Force refresh all pre-defined URLs",
 					SchedulingType = SchedulingType.Refresh,
-					Data = (schedulingTasks.First().DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).Concat(refreshURLs).Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v").ToJArray().ToString(Formatting.None),
+					Data = (schedulingTasks.First().DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).Concat(refreshURLs).Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache").ToJArray().ToString(Formatting.None),
 					Persistance = false
 				});
 			}
@@ -378,8 +378,8 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an organization [{organization.Title} - ID: {organization.ID}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} messageData keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh && (organization.ExamineURLs == null || organization.ExamineURLs.Count < 1) ? Task.WhenAll(
-					$"{organization.URL}?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]"),
-					$"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/o_{organization.ID}.js?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh organization JS when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]")
+					$"{organization.URL}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]"),
+					$"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/o_{organization.ID}.js?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh organization JS when related cache of an organization was clean [{organization.Title} - ID: {organization.ID}]")
 				) : Task.CompletedTask
 			).ConfigureAwait(false);
 		}
@@ -775,7 +775,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
-			organization.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, Utility.CancellationToken).Run(ex => Utility.WriteErrorAsync(ex, $"Error occurred while deleting an organization => {ex.Message}", "Trash", requestInfo.CorrelationID), false, 1234);
+			organization.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, Utility.CancellationToken).Run(false, ex => Utility.WriteErrorAsync(ex, $"Error occurred while deleting an organization => {ex.Message}", "Trash", requestInfo.CorrelationID), 1234);
 
 			// response
 			return organization.ToJson();

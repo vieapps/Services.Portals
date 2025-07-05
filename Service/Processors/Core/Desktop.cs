@@ -240,9 +240,9 @@ namespace net.vieapps.Services.Portals
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh && (desktop.Organization.ExamineURLs == null || desktop.Organization.ExamineURLs.Count < 1) ? Task.WhenAll
 				(
-					$"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]"),
-					$"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh desktop CSS when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]"),
-					$"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh desktop JS when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]")
+					$"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]"),
+					$"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh desktop CSS when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]"),
+					$"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh desktop JS when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]")
 				) : Task.CompletedTask
 			).ConfigureAwait(false);
 		}

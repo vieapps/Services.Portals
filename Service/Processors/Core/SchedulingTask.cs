@@ -558,7 +558,7 @@ namespace net.vieapps.Services.Portals
 						await (@object.Organization as Organization).GetRefreshingURLs(json?.Get<JArray>("URLs")?.Select(value => value as JValue).Select(value => value.ToString()) ?? [])
 							.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL))
 							.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
-							.Select(url => url.PositionOf("x-force-cache=") > 0 ? url : $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v")
+							.Select(url => url.IsContains("?x-force-cache")  || url.IsContains("&x-force-cache") ? url : $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache")
 							.Distinct(StringComparer.OrdinalIgnoreCase)
 							.ToList().ForEachAsync(url => url.RefreshWebPageAsync(requestInfo.CorrelationID), true, false).ConfigureAwait(false);
 					}
@@ -581,17 +581,17 @@ namespace net.vieapps.Services.Portals
 							{
 								var organization = url.Replace(StringComparison.OrdinalIgnoreCase, "@organization:", "").Replace(StringComparison.OrdinalIgnoreCase, "@organization(", "").Replace(")", "").Trim().GetOrganizationByID();
 								return organization != null
-									? new[] { $"{organization.URL}/{(isForceRefreshPredefinedURLs ? "?x-force-cache=v" : "")}" }
-										.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}{(isForceRefreshPredefinedURLs ? "?x-force-cache=v" : "")}"))
-										.Concat(organization.GetRefreshingURLs().Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v" : url))
-										.Concat(isForceRefreshPredefinedURLs ? organization.GetRefreshingURLs(true).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v") : [])
+									? new[] { $"{organization.URL}/{(isForceRefreshPredefinedURLs ? "?x-force-cache" : "")}" }
+										.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}{(isForceRefreshPredefinedURLs ? "?x-force-cache" : "")}"))
+										.Concat(organization.GetRefreshingURLs().Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache" : url))
+										.Concat(isForceRefreshPredefinedURLs ? organization.GetRefreshingURLs(true).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache") : [])
 										.ToList()
 									: [];
 							}
 							return new[] { url }.ToList();
 						})
 						.SelectMany(urls => urls)
-						.Concat(isForceRefreshPredefinedURLs ? schedulingTask.Organization.GetRefreshingURLs(true).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache=v") : [])
+						.Concat(isForceRefreshPredefinedURLs ? schedulingTask.Organization.GetRefreshingURLs(true).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache") : [])
 						.Select(url => string.IsNullOrWhiteSpace(url) ? rootURL : url.Replace("~/", rootURL))
 						.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
 						.Distinct(StringComparer.OrdinalIgnoreCase)

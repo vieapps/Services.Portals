@@ -79,14 +79,5 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static ICmsPortalsService GetService(this IPortalContentType contentType)
 			=> contentType.ContentTypeDefinition.GetService();
-
-		/// <summary>
-		/// Registers the communicator to the commnunicating subject of CMS Portals service (URI: messages.services.cms.portals)
-		/// </summary>
-		/// <param name="onNext"></param>
-		/// <param name="onError"></param>
-		/// <returns></returns>
-		public static IDisposable RegisterServiceCommunicator(Action<CommunicateMessage> onNext, Action<Exception> onError)
-			=> Router.IncomingChannel.RealmProxy.Services.GetSubject<CommunicateMessage>("messages.services.cms.portals").Subscribe(message => onNext?.Invoke(message), exception => onError?.Invoke(exception));
 	}
 }

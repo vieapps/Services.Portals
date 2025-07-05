@@ -94,9 +94,9 @@ namespace net.vieapps.Services.Portals
 				message = (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]";
 				await Task.WhenAll
 				(
-					content.Status.Equals(ApprovalStatus.Published) ? $"{content.GetURL()}?x-force-cache=v".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
-					content.Category != null ? $"{content.Category.GetURL()}?x-force-cache=v".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
-					(content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Where(category => category != null).ForEachAsync(category => $"{category.GetURL()}?x-force-cache=v".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message))
+					content.Status.Equals(ApprovalStatus.Published) ? $"{content.GetURL()}?x-force-cache".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
+					content.Category != null ? $"{content.Category.GetURL()}?x-force-cache".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
+					(content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Where(category => category != null).ForEachAsync(category => $"{category.GetURL()}?x-force-cache".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message))
 				).ConfigureAwait(false);
 			}
 			return content;
@@ -154,7 +154,7 @@ namespace net.vieapps.Services.Portals
 					? Task.WhenAll
 					(
 						content.RefreshAsync(false, cancellationToken, true, correlationID, "Refresh when related cache of a CMS content was clean"),
-						$"{content.Organization?.URL}?x-force-cache=v".RefreshWebPageAsync(1, correlationID, $"Refresh when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]")
+						$"{content.Organization?.URL}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]")
 					) : Task.CompletedTask
 				).ConfigureAwait(false);
 		}
