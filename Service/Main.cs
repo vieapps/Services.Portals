@@ -168,18 +168,18 @@ namespace net.vieapps.Services.Portals
 				Utility.EncryptionKey = this.EncryptionKey;
 				Utility.ValidationKey = this.ValidationKey;
 				Utility.JWTKey = this.JWTKey;
-				Utility.NotificationsKey = UtilityService.GetAppSetting("Keys:Notifications");
+				Utility.NotificationsKey = this.GetKey("Notifications", "VIEApps-59EF0859-NGX-BC1A-Services-4088-Notifications-9743-Key-51663AB720EF");
 
-				this.ReloadOrganizationsAsync(false, false, false).Run();
-				Utility.NotRecognizedAliases.Add($"Site:{new Uri(Utility.PortalsHttpURI).Host}");
-				Task.Run(async () =>
+				async Task prepareAsync()
 				{
+					// organizations
+					await this.ReloadOrganizationsAsync(false, false, false).ConfigureAwait(false);
+					Utility.NotRecognizedAliases.Add($"Site:{new Uri(Utility.PortalsHttpURI).Host}");
+
+					// default site
 					Utility.DefaultSite = await UtilityService.GetAppSetting("Portals:Default:SiteID", "").GetSiteByIDAsync().ConfigureAwait(false);
 					this.Logger?.LogDebug($"The default site: {(Utility.DefaultSite != null ? $"{Utility.DefaultSite.Title} [{Utility.DefaultSite.ID}]" : "None")}");
-				}).ConfigureAwait(false);
 
-				Task.Run(async () =>
-				{
 					// wait for a few times
 					await Task.Delay(UtilityService.GetRandomNumber(678, 789), this.CancellationToken).ConfigureAwait(false);
 
@@ -187,17 +187,10 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll(this.GetOEmbedProvidersAsync(this.CancellationToken), this.PrepareLanguagesAsync(this.CancellationToken)).ConfigureAwait(false);
 
 					// gathering definitions
-					try
+					new CommunicateMessage("CMS.Portals")
 					{
-						await this.SendInterCommunicateMessageAsync(new CommunicateMessage("CMS.Portals")
-						{
-							Type = "Definition#RequestInfo"
-						}, this.CancellationToken).ConfigureAwait(false);
-					}
-					catch (Exception ex)
-					{
-						await this.WriteLogsAsync(UtilityService.NewUUID, $"Error occurred while sending a request for gathering definitions => {ex.Message}", ex, this.ServiceName, "CMS.Portals", LogLevel.Error).ConfigureAwait(false);
-					}
+						Type = "Definition#RequestInfo"
+					}.Send();
 
 					// warm-up the Files HTTP service
 					if (!string.IsNullOrWhiteSpace(Utility.FilesHttpURI))
@@ -206,7 +199,8 @@ namespace net.vieapps.Services.Portals
 							await UtilityService.FetchHttpAsync(Utility.FilesHttpURI).ConfigureAwait(false);
 						}
 						catch { }
-				}).ConfigureAwait(false);
+				}
+				prepareAsync().Run();
 
 				// timer: run scheduling tasks (each 13 seconds)
 				this.StartTimer(async () =>
@@ -231,7 +225,7 @@ namespace net.vieapps.Services.Portals
 				// timer: re-load all orangizations/sites (once per day)
 				this.StartTimer(async () => await (DateTime.Now.Hour < 4 || DateTime.Now.Hour > 4 ? Task.CompletedTask : this.ReloadOrganizationsAsync(false, false, false)).ConfigureAwait(false), 60 * 60);
 
-				// invoke next action
+				// last action
 				next?.Invoke(this);
 			});
 
@@ -5766,16 +5760,16 @@ namespace net.vieapps.Services.Portals
 		{
 			switch (requestInfo.Verb.ToUpper())
 			{
-				case "HEAD":
-					this.SendUpdateBlackIPsMessage();
-					break;
-
 				case "FETCH":
 					return new JObject
 					{
-						["BlackIPs"] = this.BlackIPs.ToJArray(),
-						["HarmfulIPs"] = this.HarmfulRequestIPs.Select(ip => $"{ip}[{(this.HarmfulRequestCounters.TryGetValue(ip, out var counter) ? counter : 1)}]").ToJArray()
+						["BlackIPs"] = this.BlackIPs.OrderBy(ip => ip).ToJArray(),
+						["HarmfulIPs"] = this.HarmfulRequestIPs.OrderBy(ip => ip).Select(ip => $"{ip}[{(this.HarmfulRequestCounters.TryGetValue(ip, out var counter) ? counter : 1)}]").ToJArray()
 					};
+
+				case "HEAD":
+					this.SendUpdateBlackIPsMessage();
+					break;
 
 				case "GET":
 					if (await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false))
@@ -5789,12 +5783,10 @@ namespace net.vieapps.Services.Portals
 							}.Send();
 							this.BlackIPs.Clear();
 						}
-						var ips = requestInfo.ContainsKey("x-reset")
-							? UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList()
-							: (requestInfo.GetParameter("ips") ?? requestInfo.GetParameter("ip") ?? "").ToList(",", true);
+						var ips = (requestInfo.ContainsKey("x-reset") ? UtilityService.GetAppSetting("Portals:BlackIPs", "") : (requestInfo.GetParameter("ips") ?? requestInfo.GetParameter("ip") ?? "")).ToList(";", true);
 						if (ips.Count > 0)
 						{
-							ips.ForEach(ip => this.BlackIPs.Add(ip));
+							ips.Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => this.BlackIPs.Add(ip));
 							this.SendUpdateBlackIPsMessage();
 						}
 					}
