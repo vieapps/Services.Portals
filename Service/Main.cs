@@ -2,14 +2,14 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Xml.Linq;
 using System.Net;
 using System.Data;
 using System.Dynamic;
-using System.Reflection;
 using System.Diagnostics;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
@@ -56,9 +56,15 @@ namespace net.vieapps.Services.Portals
 
 		IAsyncDisposable ServiceInstance { get; set; }
 
-		ConcurrentHashSet<string> BlackIPs { get; } = new(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList());
+		ConcurrentHashSet<string> BlackIPs { get; } = new(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList(",", true));
 
-		ConcurrentHashSet<string> HarmfulRequestIPs { get; } = new();
+		ConcurrentHashSet<string> HarmfulRequestIPs { get; } = new(UtilityService.GetAppSetting("Portals:HarmfulIPs", "").ToList(",", true));
+
+		ConcurrentDictionary<string, int> HarmfulRequestCounters { get; } = new();
+
+		int HarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulIPs:Limits", "13"), out var limits) ? limits : 13;
+
+		List<string> ExcludedHarmfulRequestIPs { get; } = UtilityService.GetAppSetting("Portals:HarmfulIPs:Excluded", "").ToList();
 
 		bool RedirectNotFoundDesktopsToHome { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:NotFound:RedirectToHome"));
 
@@ -5145,14 +5151,57 @@ namespace net.vieapps.Services.Portals
 			var isForwarder = requestInfo.Header.TryGetValue("x-webhook-type", out var webhookType) && webhookType.IsEquals("forwarder");
 			if (!"POST".IsEquals(requestInfo.Verb) && !isForwarder)
 			{
-				if (this.HarmfulRequestIPs.Add(requestInfo.Session.IP))
+				var exception = new MethodNotAllowedException(requestInfo.Verb);
+				var ip = requestInfo.Session.IP;
+
+				if (this.ExcludedHarmfulRequestIPs.Any(excluedIP => ip.IsStartsWith(excluedIP)))
+					throw exception;
+
+				var added = this.HarmfulRequestIPs.Add(ip);
+				if (!this.HarmfulRequestCounters.TryGetValue(ip, out var counter))
+					counter = 0;
+
+				counter++;
+				if (counter > this.HarmfulRequestLimits && this.BlackIPs.Add(ip))
+				{
 					new CommunicateMessage(this.ServiceName)
 					{
-						Type = "HarmfulIPs#Update",
-						Data = new JArray { requestInfo.Session.IP },
-						ExcludedNodeID = this.NodeID
+						Type = "BlackIPs#Update",
+						ExcludedNodeID = this.NodeID,
+						Data = new JArray { ip }
 					}.Send();
-				throw new MethodNotAllowedException(requestInfo.Verb);
+					new CommunicateMessage(this.ServiceName)
+					{
+						Type = "HarmfulIPs#Remove",
+						ExcludedNodeID = this.NodeID,
+						Data = new JArray { ip }
+					}.Send();
+					this.HarmfulRequestIPs.TryRemove(ip);
+					this.HarmfulRequestCounters.Remove(ip);
+				}
+				else
+				{
+					if (added)
+						new CommunicateMessage(this.ServiceName)
+						{
+							Type = "HarmfulIPs#Update",
+							ExcludedNodeID = this.NodeID,
+							Data = new JArray { ip }
+						}.Send();
+					this.HarmfulRequestCounters[ip] = counter;
+					new CommunicateMessage(this.ServiceName)
+					{
+						Type = "HarmfulIPs#UpdateCounter",
+						ExcludedNodeID = this.NodeID,
+						Data = new JObject
+						{
+							["IP"] = ip,
+							["Counter"] = counter
+						}
+					}.Send();
+				}
+
+				throw exception;
 			}
 
 			var stopwatch = Stopwatch.StartNew();
@@ -5288,11 +5337,19 @@ namespace net.vieapps.Services.Portals
 
 			// black/harmful IPs
 			else if (message.Type.IsEquals("BlackIPs#Update"))
-				(message.Data as JArray).ToList<string>().ForEach(ip => this.BlackIPs.Add(ip));
+				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => this.BlackIPs.Add(ip));
 			else if (message.Type.IsEquals("BlackIPs#Reset"))
 				this.BlackIPs.Clear();
 			else if (message.Type.IsEquals("HarmfulIPs#Update"))
-				(message.Data as JArray).ToList<string>().ForEach(ip => this.HarmfulRequestIPs.Add(ip));
+				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => this.HarmfulRequestIPs.Add(ip));
+			else if (message.Type.IsEquals("HarmfulIPs#Remove"))
+				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip =>
+				{
+					this.HarmfulRequestIPs.TryRemove(ip);
+					this.HarmfulRequestCounters.Remove(ip);
+				});
+			else if (message.Type.IsEquals("HarmfulIPs#UpdateCounter"))
+				this.HarmfulRequestCounters[message.Data.Get<string>("IP")] = message.Data.Get<int>("Counter");
 
 			stopwatch.Stop();
 			if (Utility.IsWriteMessageLogs(null))
@@ -5715,7 +5772,7 @@ namespace net.vieapps.Services.Portals
 					return new JObject
 					{
 						["BlackIPs"] = this.BlackIPs.ToJArray(),
-						["HarmfulIPs"] = this.HarmfulRequestIPs.ToJArray()
+						["HarmfulIPs"] = this.HarmfulRequestIPs.Select(ip => $"{ip}[{(this.HarmfulRequestCounters.TryGetValue(ip, out var counter) ? counter : 1)}]").ToJArray()
 					};
 
 				case "GET":

@@ -61,9 +61,15 @@ namespace net.vieapps.Services.Portals
 
 		internal static List<string> LegacyParameters { get; } = UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop,catName,contId,page").ToList();
 
-		internal static ConcurrentHashSet<string> BlackIPs { get; set; } = new ConcurrentHashSet<string>(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList());
+		internal static ConcurrentHashSet<string> BlackIPs { get; } = new ConcurrentHashSet<string>(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList(",", true));
 
-		internal static ConcurrentHashSet<string> HarmfulRequestIPs { get; set; } = new();
+		internal static ConcurrentHashSet<string> HarmfulRequestIPs { get; } = new(UtilityService.GetAppSetting("Portals:HarmfulIPs", "").ToList(",", true));
+
+		internal static ConcurrentDictionary<string, int> HarmfulRequestCounters { get; } = new();
+
+		internal static int HarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulIPs:Limits", "13"), out var limits) ? limits : 13;
+
+		internal static List<string> ExcludedHarmfulRequestIPs { get; } = UtilityService.GetAppSetting("Portals:HarmfulIPs:Excluded", "").ToList();
 
 		static string PortalsHttpURI { get; } = UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
 
@@ -602,14 +608,57 @@ namespace net.vieapps.Services.Portals
 			// check request method (HTTP Verb)
 			if (!requestMethod.IsEquals("GET") && !specialRequest.IsEquals("login") && !specialRequest.IsEquals("service"))
 			{
-				if (Handler.HarmfulRequestIPs.Add(context.GetRemoteIPAddress().ToString()))
+				var exception = new MethodNotAllowedException(context.Request.Method);
+				var ip = context.GetRemoteIPAddress().ToString();
+
+				if (Handler.ExcludedHarmfulRequestIPs.Any(excluedIP => ip.IsStartsWith(excluedIP)))
+					throw exception;
+
+				var added = Handler.HarmfulRequestIPs.Add(ip);
+				if (!Handler.HarmfulRequestCounters.TryGetValue(ip, out var counter))
+					counter = 0;
+
+				counter++;
+				if (counter > Handler.HarmfulRequestLimits && Handler.BlackIPs.Add(ip))
+				{
 					new CommunicateMessage(Global.ServiceName)
 					{
-						Type = "HarmfulIPs#Update",
-						Data = new JArray { context.GetRemoteIPAddress().ToString() },
-						ExcludedNodeID = Global.NodeID
+						Type = "BlackIPs#Update",
+						ExcludedNodeID = Global.NodeID,
+						Data = new JArray { ip }
 					}.Send();
-				throw new MethodNotAllowedException(requestMethod);
+					new CommunicateMessage(Global.ServiceName)
+					{
+						Type = "HarmfulIPs#Remove",
+						ExcludedNodeID = Global.NodeID,
+						Data = new JArray { ip }
+					}.Send();
+					Handler.HarmfulRequestIPs.TryRemove(ip);
+					Handler.HarmfulRequestCounters.Remove(ip);
+				}
+				else
+				{
+					if (added)
+						new CommunicateMessage(Global.ServiceName)
+						{
+							Type = "HarmfulIPs#Update",
+							ExcludedNodeID = Global.NodeID,
+							Data = new JArray { ip }
+						}.Send();
+					Handler.HarmfulRequestCounters[ip] = counter;
+					new CommunicateMessage(Global.ServiceName)
+					{
+						Type = "HarmfulIPs#UpdateCounter",
+						ExcludedNodeID = Global.NodeID,
+						Data = new JObject
+						{
+							["IP"] = ip,
+							["Counter"] = counter
+						}
+					}.Send();
+				}
+
+				throw exception;
 			}
 
 			// prepare headers
@@ -1860,11 +1909,19 @@ namespace net.vieapps.Services.Portals
 		internal static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 		{
 			if (message.Type.IsEquals("BlackIPs#Update"))
-				(message.Data as JArray).ToList<string>().ForEach(ip => Handler.BlackIPs.Add(ip));
+				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => Handler.BlackIPs.Add(ip));
 			else if (message.Type.IsEquals("BlackIPs#Reset"))
 				Handler.BlackIPs.Clear();
 			else if (message.Type.IsEquals("HarmfulIPs#Update"))
-				(message.Data as JArray).ToList<string>().ForEach(ip => Handler.HarmfulRequestIPs.Add(ip));
+				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => Handler.HarmfulRequestIPs.Add(ip));
+			else if (message.Type.IsEquals("HarmfulIPs#Remove"))
+				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip =>
+				{
+					Handler.HarmfulRequestIPs.TryRemove(ip);
+					Handler.HarmfulRequestCounters.Remove(ip);
+				});
+			else if (message.Type.IsEquals("HarmfulIPs#UpdateCounter"))
+				Handler.HarmfulRequestCounters[message.Data.Get<string>("IP")] = message.Data.Get<int>("Counter");
 			return Task.CompletedTask;
 		}
 	}
