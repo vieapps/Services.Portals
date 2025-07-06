@@ -56,9 +56,9 @@ namespace net.vieapps.Services.Portals
 
 		IAsyncDisposable ServiceInstance { get; set; }
 
-		ConcurrentHashSet<string> BlackIPs { get; set; } = new ConcurrentHashSet<string>(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList());
+		ConcurrentHashSet<string> BlackIPs { get; } = new(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList());
 
-		ConcurrentHashSet<string> HarmfulRequestIPs { get; set; } = new();
+		ConcurrentHashSet<string> HarmfulRequestIPs { get; } = new();
 
 		bool RedirectNotFoundDesktopsToHome { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:NotFound:RedirectToHome"));
 
@@ -494,14 +494,16 @@ namespace net.vieapps.Services.Portals
 						json = await this.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
 
-					case "generate.feed":
-						json = await this.GenerateFeedAsync(requestInfo, cts.Token).ConfigureAwait(false);
-						break;
-
 					case "process.http.request":
 						json = await this.ProcessHttpRequestAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
 
+					case "generate.feed":
+						json = await this.GenerateFeedAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						break;
+
+					case "blackip":
+					case "blackips":
 					case "black.ips":
 						json = await this.ProcessBlackIPsAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
@@ -684,7 +686,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		#region Get static data (themes, language resources, providers  of OEmbed media, ...)
+		#region Get static data (themes, language resources, providers of OEmbed media, ...)
 		async Task<JArray> GetThemesAsync(CancellationToken cancellationToken)
 		{
 			var themes = new JArray();
@@ -5701,21 +5703,54 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Black/Harmful IPs
-		Task<JToken> ProcessBlackIPsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+		async Task<JToken> ProcessBlackIPsAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			switch (requestInfo.Verb.ToUpper())
 			{
 				case "HEAD":
-					new CommunicateMessage
+					this.SendUpdateBlackIPsMessage();
+					break;
+
+				case "FETCH":
+					return new JObject
 					{
-						ServiceName = this.ServiceName,
-						Type = "BlackIPs#Update",
-						Data = this.BlackIPs.ToJArray()
-					}.Send();
+						["BlackIPs"] = this.BlackIPs.ToJArray(),
+						["HarmfulIPs"] = this.HarmfulRequestIPs.ToJArray()
+					};
+
+				case "GET":
+					if (await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false))
+					{
+						if (requestInfo.ContainsKey("x-reset"))
+						{
+							new CommunicateMessage(this.ServiceName)
+							{
+								Type = "BlackIPs#Reset",
+								ExcludedNodeID = this.NodeID
+							}.Send();
+							this.BlackIPs.Clear();
+						}
+						var ips = requestInfo.ContainsKey("x-reset")
+							? UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList()
+							: (requestInfo.GetParameter("ips") ?? requestInfo.GetParameter("ip") ?? "").ToList(",", true);
+						if (ips.Count > 0)
+						{
+							ips.ForEach(ip => this.BlackIPs.Add(ip));
+							this.SendUpdateBlackIPsMessage();
+						}
+					}
 					break;
 			}
-			return Task.FromResult<JToken>(new JObject());
+			return new JObject();
 		}
+
+		void SendUpdateBlackIPsMessage()
+			=> new CommunicateMessage(this.ServiceName)
+			{
+				Type = "BlackIPs#Update",
+				ExcludedNodeID = this.NodeID,
+				Data = this.BlackIPs.ToJArray()
+			}.Send();
 		#endregion
 
 		#region Move (update management information)
