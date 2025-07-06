@@ -61,15 +61,17 @@ namespace net.vieapps.Services.Portals
 
 		internal static List<string> LegacyParameters { get; } = UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop,catName,contId,page").ToList();
 
-		internal static ConcurrentHashSet<string> BlackIPs { get; } = new ConcurrentHashSet<string>(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList(",", true));
+		internal static ConcurrentHashSet<string> BlackIPs { get; } = new ConcurrentHashSet<string>(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList(";", true));
 
-		internal static ConcurrentHashSet<string> HarmfulRequestIPs { get; } = new(UtilityService.GetAppSetting("Portals:HarmfulIPs", "").ToList(",", true));
+		internal static ConcurrentHashSet<string> HarmfulRequestIPs { get; } = new(UtilityService.GetAppSetting("Portals:HarmfulIPs", "").ToList(";", true));
 
 		internal static ConcurrentDictionary<string, int> HarmfulRequestCounters { get; } = new();
 
-		internal static int HarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulIPs:Limits", "13"), out var limits) ? limits : 13;
+		internal static bool AutoBlockHarmfulRequest { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:HarmfulIPs:AutoBlock", "true"));
 
-		internal static List<string> ExcludedHarmfulRequestIPs { get; } = UtilityService.GetAppSetting("Portals:HarmfulIPs:Excluded", "").ToList();
+		internal static int AutoBlockHarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulIPs:Limits", "33"), out var limits) ? limits : 33;
+
+		internal static List<string> ExcludedHarmfulRequestIPs { get; } = UtilityService.GetAppSetting("Portals:HarmfulIPs:Excluded", "").ToList(";", true);
 
 		static string PortalsHttpURI { get; } = UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
 
@@ -619,7 +621,7 @@ namespace net.vieapps.Services.Portals
 					counter = 0;
 
 				counter++;
-				if (counter > Handler.HarmfulRequestLimits && Handler.BlackIPs.Add(ip))
+				if (Handler.AutoBlockHarmfulRequest && counter > Handler.AutoBlockHarmfulRequestLimits && Handler.BlackIPs.Add(ip))
 				{
 					new CommunicateMessage(Global.ServiceName)
 					{

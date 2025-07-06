@@ -58,13 +58,15 @@ namespace net.vieapps.Services.Portals
 
 		ConcurrentHashSet<string> BlackIPs { get; } = new(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList(",", true));
 
-		ConcurrentHashSet<string> HarmfulRequestIPs { get; } = new(UtilityService.GetAppSetting("Portals:HarmfulIPs", "").ToList(",", true));
+		ConcurrentHashSet<string> HarmfulRequestIPs { get; } = new(UtilityService.GetAppSetting("Portals:HarmfulIPs", "").ToList(";", true));
 
 		ConcurrentDictionary<string, int> HarmfulRequestCounters { get; } = new();
 
-		int HarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulIPs:Limits", "13"), out var limits) ? limits : 13;
+		bool AutoBlockHarmfulRequest { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:HarmfulIPs:AutoBlock", "true"));
 
-		List<string> ExcludedHarmfulRequestIPs { get; } = UtilityService.GetAppSetting("Portals:HarmfulIPs:Excluded", "").ToList();
+		int AutoBlockHarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulIPs:AutoBlockLimits", "33"), out var limits) ? limits : 33;
+
+		List<string> ExcludedHarmfulRequestIPs { get; } = UtilityService.GetAppSetting("Portals:HarmfulIPs:Excluded", "").ToList(";", true);
 
 		bool RedirectNotFoundDesktopsToHome { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:NotFound:RedirectToHome"));
 
@@ -5162,7 +5164,7 @@ namespace net.vieapps.Services.Portals
 					counter = 0;
 
 				counter++;
-				if (counter > this.HarmfulRequestLimits && this.BlackIPs.Add(ip))
+				if (this.AutoBlockHarmfulRequest && counter > this.AutoBlockHarmfulRequestLimits && this.BlackIPs.Add(ip))
 				{
 					new CommunicateMessage(this.ServiceName)
 					{
