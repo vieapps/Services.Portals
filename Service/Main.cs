@@ -56,18 +56,6 @@ namespace net.vieapps.Services.Portals
 
 		IAsyncDisposable ServiceInstance { get; set; }
 
-		ConcurrentHashSet<string> BlackIPs { get; } = new(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList(",", true));
-
-		ConcurrentHashSet<string> HarmfulRequestIPs { get; } = new(UtilityService.GetAppSetting("Portals:HarmfulIPs", "").ToList(";", true));
-
-		ConcurrentDictionary<string, int> HarmfulRequestCounters { get; } = new();
-
-		bool AutoBlockHarmfulRequest { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:HarmfulIPs:AutoBlock", "true"));
-
-		int AutoBlockHarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulIPs:AutoBlockLimits", "33"), out var limits) ? limits : 33;
-
-		List<string> ExcludedHarmfulRequestIPs { get; } = UtilityService.GetAppSetting("Portals:HarmfulIPs:Excluded", "").ToList(";", true);
-
 		bool RedirectNotFoundDesktopsToHome { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:NotFound:RedirectToHome"));
 
 		bool RewriteNotFoundDesktopsToHome { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:NotFound:RewriteToHome"));
@@ -183,14 +171,24 @@ namespace net.vieapps.Services.Portals
 					// wait for a few times
 					await Task.Delay(UtilityService.GetRandomNumber(678, 789), this.CancellationToken).ConfigureAwait(false);
 
-					// prepare OEmbed providers and i18n Languages
-					await Task.WhenAll(this.GetOEmbedProvidersAsync(this.CancellationToken), this.PrepareLanguagesAsync(this.CancellationToken)).ConfigureAwait(false);
-
-					// gathering definitions
+					// gather/sync definitions
 					new CommunicateMessage("CMS.Portals")
 					{
 						Type = "Definition#RequestInfo"
 					}.Send();
+					new CommunicateMessage(this.ServiceName)
+					{
+						Type = "BlackIPs#Sync",
+						ExcludedNodeID = this.NodeID
+					}.Send();
+					new CommunicateMessage(this.ServiceName)
+					{
+						Type = "HarmfulIPs#Sync",
+						ExcludedNodeID = this.NodeID
+					}.Send();
+
+					// prepare OEmbed providers and i18n Languages
+					await Task.WhenAll(this.GetOEmbedProvidersAsync(this.CancellationToken), this.PrepareLanguagesAsync(this.CancellationToken)).ConfigureAwait(false);
 
 					// warm-up the Files HTTP service
 					if (!string.IsNullOrWhiteSpace(Utility.FilesHttpURI))
@@ -202,7 +200,7 @@ namespace net.vieapps.Services.Portals
 				}
 				prepareAsync().Run();
 
-				// timer: run scheduling tasks (each 13 seconds)
+				// run scheduling tasks (each 13 seconds)
 				this.StartTimer(async () =>
 				{
 					var correlationID = UtilityService.NewUUID;
@@ -216,13 +214,16 @@ namespace net.vieapps.Services.Portals
 					}
 				}, 13);
 
-				// timer: get OEmbed and i18n Languages (each 15 minutes)
+				// refresh black/harmful IPs (each 5 minutes)
+				this.StartTimer(() => new CommunicateMessage(this.ServiceName) { ExcludedNodeID = this.NodeID }.RefreshIPs(), 5 * 60);
+
+				// get OEmbed and i18n Languages (each 15 minutes)
 				this.StartTimer(async () => await Task.WhenAll(this.GetOEmbedProvidersAsync(this.CancellationToken), this.PrepareLanguagesAsync(this.CancellationToken)).ConfigureAwait(false), 15 * 60);
 
-				// timer: send info & reload resources (each 12 hours)
+				// send info & reload resources (each 12 hours)
 				this.StartTimer(() => this.SendDefinitionInfo(), 12 * 60 * 60);
 
-				// timer: re-load all orangizations/sites (once per day)
+				// re-load all orangizations/sites (once per day)
 				this.StartTimer(async () => await (DateTime.Now.Hour < 4 || DateTime.Now.Hour > 4 ? Task.CompletedTask : this.ReloadOrganizationsAsync(false, false, false)).ConfigureAwait(false), 60 * 60);
 
 				// last action
@@ -5146,59 +5147,7 @@ namespace net.vieapps.Services.Portals
 		{
 			var isForwarder = requestInfo.Header.TryGetValue("x-webhook-type", out var webhookType) && webhookType.IsEquals("forwarder");
 			if (!"POST".IsEquals(requestInfo.Verb) && !isForwarder)
-			{
-				var exception = new MethodNotAllowedException(requestInfo.Verb);
-				var ip = requestInfo.Session.IP;
-
-				if (this.ExcludedHarmfulRequestIPs.Any(excluedIP => ip.IsStartsWith(excluedIP)))
-					throw exception;
-
-				var added = this.HarmfulRequestIPs.Add(ip);
-				if (!this.HarmfulRequestCounters.TryGetValue(ip, out var counter))
-					counter = 0;
-
-				counter++;
-				if (this.AutoBlockHarmfulRequest && counter > this.AutoBlockHarmfulRequestLimits && this.BlackIPs.Add(ip))
-				{
-					new CommunicateMessage(this.ServiceName)
-					{
-						Type = "BlackIPs#Update",
-						ExcludedNodeID = this.NodeID,
-						Data = new JArray { ip }
-					}.Send();
-					new CommunicateMessage(this.ServiceName)
-					{
-						Type = "HarmfulIPs#Remove",
-						ExcludedNodeID = this.NodeID,
-						Data = new JArray { ip }
-					}.Send();
-					this.HarmfulRequestIPs.TryRemove(ip);
-					this.HarmfulRequestCounters.Remove(ip);
-				}
-				else
-				{
-					if (added)
-						new CommunicateMessage(this.ServiceName)
-						{
-							Type = "HarmfulIPs#Update",
-							ExcludedNodeID = this.NodeID,
-							Data = new JArray { ip }
-						}.Send();
-					this.HarmfulRequestCounters[ip] = counter;
-					new CommunicateMessage(this.ServiceName)
-					{
-						Type = "HarmfulIPs#UpdateCounter",
-						ExcludedNodeID = this.NodeID,
-						Data = new JObject
-						{
-							["IP"] = ip,
-							["Counter"] = counter
-						}
-					}.Send();
-				}
-
-				throw exception;
-			}
+				throw requestInfo.MonitorHarmfulRequest(this.NodeID, this.ServiceName);
 
 			var stopwatch = Stopwatch.StartNew();
 			var jsonFormat = requestInfo.IsWriteDebugLogs() || this.IsDebugResultsEnabled ? Formatting.Indented : this.JsonFormat;
@@ -5333,19 +5282,15 @@ namespace net.vieapps.Services.Portals
 
 			// black/harmful IPs
 			else if (message.Type.IsEquals("BlackIPs#Update"))
-				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => this.BlackIPs.Add(ip));
+				message.UpdateBlackIPs();
 			else if (message.Type.IsEquals("BlackIPs#Reset"))
-				this.BlackIPs.Clear();
-			else if (message.Type.IsEquals("HarmfulIPs#Update"))
-				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => this.HarmfulRequestIPs.Add(ip));
-			else if (message.Type.IsEquals("HarmfulIPs#Remove"))
-				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip =>
-				{
-					this.HarmfulRequestIPs.TryRemove(ip);
-					this.HarmfulRequestCounters.Remove(ip);
-				});
-			else if (message.Type.IsEquals("HarmfulIPs#UpdateCounter"))
-				this.HarmfulRequestCounters[message.Data.Get<string>("IP")] = message.Data.Get<int>("Counter");
+				message.ResetBlackIPs();
+			else if (message.Type.IsEquals("BlackIPs#Sync"))
+				message.SyncBlackIPs(this.ServiceName, this.NodeID);
+			else if (message.Type.IsEquals("HarmfulIPs#Update") || message.Type.IsEquals("HarmfulIPs#Remove"))
+				message.UpdateHarmfulIPs(message.Type.IsEquals("HarmfulIPs#Remove"));
+			else if (message.Type.IsEquals("HarmfulIPs#Sync"))
+				message.SyncHarmfulIPs(this.ServiceName, this.NodeID);
 
 			stopwatch.Stop();
 			if (Utility.IsWriteMessageLogs(null))
@@ -5761,47 +5706,23 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb.ToUpper())
 			{
 				case "FETCH":
-					return new JObject
-					{
-						["BlackIPs"] = this.BlackIPs.OrderBy(ip => ip).ToJArray(),
-						["HarmfulIPs"] = this.HarmfulRequestIPs.OrderBy(ip => ip).Select(ip => $"{ip}[{(this.HarmfulRequestCounters.TryGetValue(ip, out var counter) ? counter : 1)}]").ToJArray()
-					};
+					return requestInfo.FetchIPs();
 
 				case "HEAD":
-					this.SendUpdateBlackIPsMessage();
+					new CommunicateMessage().SyncBlackIPs(this.ServiceName, this.NodeID);
 					break;
 
 				case "GET":
 					if (await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false))
 					{
 						if (requestInfo.ContainsKey("x-reset"))
-						{
-							new CommunicateMessage(this.ServiceName)
-							{
-								Type = "BlackIPs#Reset",
-								ExcludedNodeID = this.NodeID
-							}.Send();
-							this.BlackIPs.Clear();
-						}
-						var ips = (requestInfo.ContainsKey("x-reset") ? UtilityService.GetAppSetting("Portals:BlackIPs", "") : (requestInfo.GetParameter("ips") ?? requestInfo.GetParameter("ip") ?? "")).ToList(";", true);
-						if (ips.Count > 0)
-						{
-							ips.Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => this.BlackIPs.Add(ip));
-							this.SendUpdateBlackIPsMessage();
-						}
+							new CommunicateMessage().ResetBlackIPs(this.ServiceName, this.NodeID);
+						new CommunicateMessage { Data = (requestInfo.GetParameter("ips") ?? requestInfo.GetParameter("ip") ?? "").ToList(";", true).ToJArray() }.SyncBlackIPs(this.ServiceName, this.NodeID);
 					}
 					break;
 			}
 			return new JObject();
 		}
-
-		void SendUpdateBlackIPsMessage()
-			=> new CommunicateMessage(this.ServiceName)
-			{
-				Type = "BlackIPs#Update",
-				ExcludedNodeID = this.NodeID,
-				Data = this.BlackIPs.ToJArray()
-			}.Send();
 		#endregion
 
 		#region Move (update management information)

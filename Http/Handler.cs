@@ -3,12 +3,12 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.WebSockets;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Net.WebSockets;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
@@ -61,18 +61,6 @@ namespace net.vieapps.Services.Portals
 
 		internal static List<string> LegacyParameters { get; } = UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop,catName,contId,page").ToList();
 
-		internal static ConcurrentHashSet<string> BlackIPs { get; } = new ConcurrentHashSet<string>(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList(";", true));
-
-		internal static ConcurrentHashSet<string> HarmfulRequestIPs { get; } = new(UtilityService.GetAppSetting("Portals:HarmfulIPs", "").ToList(";", true));
-
-		internal static ConcurrentDictionary<string, int> HarmfulRequestCounters { get; } = new();
-
-		internal static bool AutoBlockHarmfulRequest { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:HarmfulIPs:AutoBlock", "true"));
-
-		internal static int AutoBlockHarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulIPs:Limits", "33"), out var limits) ? limits : 33;
-
-		internal static List<string> ExcludedHarmfulRequestIPs { get; } = UtilityService.GetAppSetting("Portals:HarmfulIPs:Excluded", "").ToList(";", true);
-
 		static string PortalsHttpURI { get; } = UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
 
 		static string PortalsHttpHost { get; } = new Uri(Handler.PortalsHttpURI).Host;
@@ -121,7 +109,7 @@ namespace net.vieapps.Services.Portals
 				// process portals' requests
 				else
 				{
-					if (Handler.BlackIPs.Contains($"{context.GetRemoteIPAddress()}"))
+					if (context.IsBlackIP(context.GetRemoteIPAddress().ToString()))
 						context.SetResponseHeaders((int)HttpStatusCode.Forbidden);
 					else
 						await this.ProcessHttpRequestAsync(context).ConfigureAwait(false);
@@ -609,59 +597,7 @@ namespace net.vieapps.Services.Portals
 
 			// check request method (HTTP Verb)
 			if (!requestMethod.IsEquals("GET") && !specialRequest.IsEquals("login") && !specialRequest.IsEquals("service"))
-			{
-				var exception = new MethodNotAllowedException(context.Request.Method);
-				var ip = context.GetRemoteIPAddress().ToString();
-
-				if (Handler.ExcludedHarmfulRequestIPs.Any(excluedIP => ip.IsStartsWith(excluedIP)))
-					throw exception;
-
-				var added = Handler.HarmfulRequestIPs.Add(ip);
-				if (!Handler.HarmfulRequestCounters.TryGetValue(ip, out var counter))
-					counter = 0;
-
-				counter++;
-				if (Handler.AutoBlockHarmfulRequest && counter > Handler.AutoBlockHarmfulRequestLimits && Handler.BlackIPs.Add(ip))
-				{
-					new CommunicateMessage(Global.ServiceName)
-					{
-						Type = "BlackIPs#Update",
-						ExcludedNodeID = Global.NodeID,
-						Data = new JArray { ip }
-					}.Send();
-					new CommunicateMessage(Global.ServiceName)
-					{
-						Type = "HarmfulIPs#Remove",
-						ExcludedNodeID = Global.NodeID,
-						Data = new JArray { ip }
-					}.Send();
-					Handler.HarmfulRequestIPs.TryRemove(ip);
-					Handler.HarmfulRequestCounters.Remove(ip);
-				}
-				else
-				{
-					if (added)
-						new CommunicateMessage(Global.ServiceName)
-						{
-							Type = "HarmfulIPs#Update",
-							ExcludedNodeID = Global.NodeID,
-							Data = new JArray { ip }
-						}.Send();
-					Handler.HarmfulRequestCounters[ip] = counter;
-					new CommunicateMessage(Global.ServiceName)
-					{
-						Type = "HarmfulIPs#UpdateCounter",
-						ExcludedNodeID = Global.NodeID,
-						Data = new JObject
-						{
-							["IP"] = ip,
-							["Counter"] = counter
-						}
-					}.Send();
-				}
-
-				throw exception;
-			}
+				throw context.MonitorHarmfulRequest(context.GetRemoteIPAddress().ToString(), Global.NodeID, Global.ServiceName);
 
 			// prepare headers
 			var headers = context.Request.Headers.ToDictionary(header =>
@@ -1887,12 +1823,16 @@ namespace net.vieapps.Services.Portals
 					{
 						while (Router.IncomingChannel == null)
 							await Task.Delay(UtilityService.GetRandomNumber(13, 123), Global.CancellationToken).ConfigureAwait(false);
-						await Global.CallServiceAsync(new RequestInfo
+						new CommunicateMessage(Global.ServiceName)
 						{
-							ServiceName = "Portals",
-							ObjectName = "Black.IPs",
-							Verb = "HEAD"
-						}, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
+							Type = "BlackIPs#Sync",
+							ExcludedNodeID = Global.NodeID
+						}.Send();
+						new CommunicateMessage(Global.ServiceName)
+						{
+							Type = "HarmfulIPs#Sync",
+							ExcludedNodeID = Global.NodeID
+						}.Send();
 					}
 					catch { }
 				},
@@ -1911,19 +1851,15 @@ namespace net.vieapps.Services.Portals
 		internal static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 		{
 			if (message.Type.IsEquals("BlackIPs#Update"))
-				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => Handler.BlackIPs.Add(ip));
+				message.UpdateBlackIPs();
 			else if (message.Type.IsEquals("BlackIPs#Reset"))
-				Handler.BlackIPs.Clear();
-			else if (message.Type.IsEquals("HarmfulIPs#Update"))
-				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => Handler.HarmfulRequestIPs.Add(ip));
-			else if (message.Type.IsEquals("HarmfulIPs#Remove"))
-				(message.Data as JArray).ToList<string>().Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip =>
-				{
-					Handler.HarmfulRequestIPs.TryRemove(ip);
-					Handler.HarmfulRequestCounters.Remove(ip);
-				});
-			else if (message.Type.IsEquals("HarmfulIPs#UpdateCounter"))
-				Handler.HarmfulRequestCounters[message.Data.Get<string>("IP")] = message.Data.Get<int>("Counter");
+				message.ResetBlackIPs();
+			else if (message.Type.IsEquals("BlackIPs#Sync"))
+				message.SyncBlackIPs(Global.ServiceName, Global.NodeID);
+			else if (message.Type.IsEquals("HarmfulIPs#Update") || message.Type.IsEquals("HarmfulIPs#Remove"))
+				message.UpdateHarmfulIPs(message.Type.IsEquals("HarmfulIPs#Remove"));
+			else if (message.Type.IsEquals("HarmfulIPs#Sync"))
+				message.SyncHarmfulIPs(Global.ServiceName, Global.NodeID);
 			return Task.CompletedTask;
 		}
 	}
