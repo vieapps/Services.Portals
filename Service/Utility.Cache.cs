@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
 
-		internal static Dictionary<string, string> RefresherHeaders { get; } = new()
+		internal static Dictionary<string, string> RefresherHeaders => new()
 		{
 			["AllowAutoRedirect"] = "true",
 			["Referer"] = Utility.RefresherURL,

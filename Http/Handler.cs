@@ -130,8 +130,8 @@ namespace net.vieapps.Services.Portals
 
 		static void DisconnectWebSocket(ManagedWebSocket websocket)
 		{
-			if (websocket != null && websocket.Remove("Session", out Session session) && session != null && Handler.TrackAPISessions)
-				session.SendSessionState("DISCONNECT /session", null, "Users", false);
+			if (websocket != null && websocket.Remove("Session", out Session session) && session != null)
+				session.SendSessionState("Users", "DISCONNECT /session", false, Handler.TrackAPISessions);
 		}
 
 		static async Task ProcessWebSocketRequestAsync(ManagedWebSocket websocket, WebSocketReceiveResult result, byte[] data)
@@ -188,10 +188,9 @@ namespace net.vieapps.Services.Portals
 
 					if (verb.IsEquals("REG"))
 					{
-						session.DeviceID = header.TryGetValue("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID) ? deviceID : string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@web" : session.DeviceID;
+						session.DeviceID = header.TryGetValue("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID) ? deviceID : string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx-portals" : session.DeviceID;
 						websocket.Set("Status", "Registered");
-						if (Handler.TrackAPISessions)
-							session.SendSessionState("REG /session", null, "Users");
+						session.SendSessionState("Users", "REG /session", true, Handler.TrackAPISessions);
 					}
 
 					else
@@ -226,8 +225,7 @@ namespace net.vieapps.Services.Portals
 
 					websocket.Set("Session", session);
 					await websocket.PrepareConnectionInfoAsync(correlationID, session, Global.CancellationToken, Global.Logger).ConfigureAwait(false);
-					if (Handler.TrackAPISessions)
-						session.SendSessionState("AUTH /session", null, "Users");
+					session.SendSessionState("Users", "AUTH /session", true, Handler.TrackAPISessions);
 					if (Global.IsDebugLogEnabled)
 						await Global.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully {(verb.IsEquals("REG") ? "register" : "authenticate")} a WebSocket connection\r\n{websocket.GetConnectionInfo(session)}\r\n- Status: {websocket.Get<string>("Status")}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 				}
@@ -244,8 +242,7 @@ namespace net.vieapps.Services.Portals
 						requestInfo.Verb = "GET";
 					}
 
-					if (Handler.TrackAPISessions)
-						session.SendSessionState($"{requestInfo.Verb} {requestInfo.GetURI()}", requestInfo.GetSystemID(), requestInfo.ServiceName);
+					requestInfo.SendSessionState(Handler.TrackAPISessions);
 
 					var response = new JObject
 					{
@@ -416,7 +413,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// update session
-			session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@web" : session.DeviceID;
+			session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx-portals" : session.DeviceID;
 			session.UpdateSessionCookie(context, true);
 
 			if (context.Session.ContainsKey("Session"))
@@ -709,13 +706,15 @@ namespace net.vieapps.Services.Portals
 						}
 					}
 
-					// track current session					
+					// requester is NGX-Refresher
 					var isRefresher = Handler.RefresherURL.IsEquals(context.GetReferUrl());
-					if (Handler.TrackPortalSessions && !isRefresher && !"~resources".IsEquals(systemIdentity) && !"~indicators".IsEquals(systemIdentity))
-						session.SendSessionState($"{requestMethod} {requestURI.AbsoluteUri}".Replace("http://", alwaysUseHTTPs || alwaysReturnHTTPs ? "https://" : "http://").Replace("//www.", redirectToNoneWWW ? "//" : "//www."), requestInfo.GetSystemID(systemIdentityJson));
+
+					// session state
+					if (!isRefresher && !"~resources".IsEquals(systemIdentity) && !"~indicators".IsEquals(systemIdentity))
+						requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalSessions);
 
 					// examinations
-					var examinations = "~resources".IsEquals(systemIdentity) || "~indicators".IsEquals(systemIdentity) || (context.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx")) ? null : systemIdentityJson?.Get<JArray>("CacheExaminations")?.Select(exam => exam as JObject).Where(exam => exam != null).Select(exam => exam?.Copy<Settings.ExamineURLs>()).Where(exam => exam != null).ToList();
+					var examinations = isRefresher || "~resources".IsEquals(systemIdentity) || "~indicators".IsEquals(systemIdentity) || (context.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx")) ? null : systemIdentityJson?.Get<JArray>("CacheExaminations")?.Select(exam => exam as JObject).Where(exam => exam != null).Select(exam => exam?.Copy<Settings.ExamineURLs>()).Where(exam => exam != null).ToList();
 					if (examinations != null && examinations.Count > 0)
 					{
 						var path = requestURI.AbsolutePath.ToLower();
@@ -1064,13 +1063,8 @@ namespace net.vieapps.Services.Portals
 							systemIdentityJson ??= await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
-							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
-							alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
-							redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
 
-							if (Handler.TrackPortalSessions)
-								session.SendSessionState($"{requestMethod} {requestURI.AbsoluteUri}".Replace("http://", alwaysUseHTTPs || alwaysReturnHTTPs ? "https://" : "http://").Replace("//www.", redirectToNoneWWW ? "//" : "//www."), requestInfo.GetSystemID(systemIdentityJson));
-
+							requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalSessions);
 							if (isDebugLogEnabled)
 								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
@@ -1120,9 +1114,7 @@ namespace net.vieapps.Services.Portals
 							requestInfo.Verb = "GET";
 						}
 
-						if (Handler.TrackAPISessions)
-							session.SendSessionState($"{requestInfo.Verb} {requestInfo.GetURI()}", requestInfo.GetSystemID(), requestInfo.ServiceName);
-
+						requestInfo.SendSessionState(null, null, null, Handler.TrackAPISessions);
 						if (isDebugLogEnabled)
 							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
@@ -1290,12 +1282,12 @@ namespace net.vieapps.Services.Portals
 				{
 					var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
 					await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
-					scripts = $"{callbackFunction ?? "console.warn"}({session.GetSessionJson(payload => payload["did"] = session.DeviceID).ToString(Formatting.None)})";
+					scripts = $"{callbackFunction ?? "console.log"}({session.GetSessionJson(payload => payload["did"] = session.DeviceID).ToString(Formatting.None)})";
 				}
 				else if (!session.User.IsAuthenticated && context.IsAuthenticated())
 				{
 					await context.SignOutAsync().ConfigureAwait(false);
-					scripts = $"{callbackFunction ?? "console.warn"}({session.GetSessionJson(payload => payload["did"] = session.DeviceID).ToString(Formatting.None)})";
+					scripts = $"{callbackFunction ?? "console.log"}({session.GetSessionJson(payload => payload["did"] = session.DeviceID).ToString(Formatting.None)})";
 				}
 
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
@@ -1322,7 +1314,7 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					var session = context.Session.Get<Session>("Session") ?? context.GetSession();
-					session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@web" : session.DeviceID;
+					session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx-portals" : session.DeviceID;
 					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
 						? session.User.SessionID
 						: !string.IsNullOrWhiteSpace(session.SessionID)
@@ -1330,6 +1322,9 @@ namespace net.vieapps.Services.Portals
 							: UtilityService.NewUUID;
 					context.Session.Add("Session", session);
 					context.SetSession(session);
+
+					session.SendSessionState("Users", "POST /session", null, true, Handler.TrackAPISessions, false);
+
 					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 					var body = session.GetSessionBody().ToString(Formatting.None);
 					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
@@ -1341,6 +1336,7 @@ namespace net.vieapps.Services.Portals
 						},
 						CorrelationID = correlationID
 					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
+
 					await Task.WhenAll
 					(
 							context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
@@ -1371,6 +1367,8 @@ namespace net.vieapps.Services.Portals
 					var session = context.Session.Get<Session>("Session");
 					if (session == null || !session.GetEncryptedID().IsEquals(context.Request.Query["x-session-id"]) || !session.DeviceID.Url64Encode().IsEquals(context.Request.Query["x-device-id"]))
 						throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
+
+					session.SendSessionState("Users", "PUT /session", null, true, Handler.TrackAPISessions, false);
 
 					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
 					var account = Global.RSA.Decrypt(request.Get("Account", "")).Trim().ToLower();
@@ -1457,6 +1455,8 @@ namespace net.vieapps.Services.Portals
 					if (session == null || !session.GetEncryptedID().IsEquals(context.Request.Query["x-session-id"]) || !session.DeviceID.Url64Encode().IsEquals(context.Request.Query["x-device-id"]))
 						throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
 
+					session.SendSessionState("Users", "PUT /session/otp", null, true, Handler.TrackAPISessions, false);
+
 					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
 					var id = request.Get<string>("ID");
 					var otp = request.Get<string>("OTP");
@@ -1538,6 +1538,8 @@ namespace net.vieapps.Services.Portals
 					var password = Global.RSA.Decrypt(request.Get("Password", ""));
 					if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
 						throw new InformationInvalidException();
+
+					session.SendSessionState("Users", "PATCH /account", null, true, Handler.TrackAPISessions, false);
 
 					var language = context.GetParameter("language") ?? "vi-VN";
 					var requestURI = context.GetRequestUri();
@@ -1650,8 +1652,11 @@ namespace net.vieapps.Services.Portals
 			var isUserInteract = context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php");
 			try
 			{
-				// call service to delete the session
+				// get session
 				var session = context.GetSession();
+				session.SendSessionState("Users", "DELETE /session", null, false, Handler.TrackAPISessions, false);
+
+				// call service to delete the session
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 				var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "DELETE")
 				{
@@ -1684,7 +1689,7 @@ namespace net.vieapps.Services.Portals
 				}
 				else
 				{
-					session.User = new User("", "", new List<string> { SystemRole.All.ToString() }, new List<Privilege>())
+					session.User = new User("", "", [SystemRole.All.ToString()], new())
 					{
 						SessionID = session.SessionID = UtilityService.NewUUID
 					};
@@ -1698,7 +1703,10 @@ namespace net.vieapps.Services.Portals
 						},
 						CorrelationID = correlationID
 					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
+
 					context.Session.Add("Session", session);
+					session.SendSessionState("Users", "POST /session", null, true, Handler.TrackAPISessions, false);
+
 					await Task.WhenAll
 					(
 						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
@@ -1868,54 +1876,16 @@ namespace net.vieapps.Services.Portals
 	{
 		static NetCrawlerDetect.CrawlerDetect CrawlerDetector { get; } = new NetCrawlerDetect.CrawlerDetect();
 
-		public static string GetSystemID(this RequestInfo requestInfo, JToken systemIdentityJson = null)
-		{
-			var systemID = systemIdentityJson?.Get<string>("ID");
-			if (string.IsNullOrWhiteSpace(systemID) && requestInfo.ServiceName.IsStartsWith("Portals"))
-				try
-				{
-					var body = requestInfo.Verb.IsEquals("POST") || requestInfo.Verb.IsEquals("PUT") || requestInfo.Verb.IsEquals("PATCH") ? requestInfo.BodyAsJson : null;
-					systemID = body?.Get<string>("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("OrganizationID") ?? requestInfo.GetParameter("x-system-id");
-					if (string.IsNullOrWhiteSpace(systemID))
-					{
-						systemID = requestInfo.GetParameter("active-id");
-						if (string.IsNullOrWhiteSpace(systemID) && requestInfo.TryGetParameter("x-request", out var base64Request))
-						{
-							var request = base64Request.Url64Decode();
-							var start = request.PositionOf("\"SystemID\":{\"Equals\":\"");
-							if (start > 0)
-							{
-								start = request.PositionOf(":\"", start) + 2;
-								var end = request.PositionOf("\"", start);
-								systemID = request.Substring(start, end - start);
-							}
-						}
-					}
-				}
-				catch { }
-			return systemID;
-		}
-
-		public static void SendSessionState(this Session session, string uri, string systemID, string serviceName = null, bool isOnline = true)
-			=> new CommunicateMessage("Users")
+		public static void SendSessionState(this RequestInfo requestInfo, JObject systemIdentityJson, string serviceName, string serviceURI, bool trackStatistics)
+			=> requestInfo.SendSessionState(systemIdentityJson, message =>
 			{
-				Type = "Session#State",
-				Data = session.ToJson(json =>
-				{
-					json["SessionID"] = session.SessionID;
-					json["UserID"] = session.User?.ID;
-					json["Online"] = isOnline;
-					json["Crawler"] = CrawlerDetector.IsCrawler(session.AppAgent) || "Generic OS".IsEquals(session.AppAgent.GetOSInfo());
-					json["AppInfo"] = $"{session.AppName} @ {session.AppPlatform}";
-					json["OSInfo"] = $"{session.AppAgent.GetOSInfo()} [{session.AppAgent}]";
-					json["Service"] = new JObject
-					{
-						["Name"] = (serviceName ?? $"{Global.ServiceName}.HTTP").ToLower(),
-						["URI"] = uri,
-						["SystemID"] = string.IsNullOrWhiteSpace(systemID) ? null : systemID
-					};
-				})
-			}.Send();
+				message.Data["Crawler"] = CrawlerDetector.IsCrawler(requestInfo.Session.AppAgent) || "Generic OS".IsEquals(requestInfo.Session.AppAgent.GetOSInfo());
+				var serviceInfo = message.Data.Get<JObject>("Service");
+				if (!string.IsNullOrWhiteSpace(serviceName))
+					serviceInfo["Name"] = serviceName.ToLower();
+				if (!string.IsNullOrWhiteSpace(serviceURI))
+					serviceInfo["URI"] = serviceURI;
+			}, trackStatistics);
 
 		public static Session NormalizeSession(this Session session, HttpContext context = null)
 		{

@@ -394,7 +394,7 @@ namespace net.vieapps.Services.Portals
 		public override async Task<JToken> ProcessRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
-			await this.WriteLogsAsync(requestInfo, $"Begin request {requestInfo.Verb} {requestInfo.GetURI()}").ConfigureAwait(false);
+			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
 			try
 			{
 				JToken json = null;
@@ -5707,10 +5707,6 @@ namespace net.vieapps.Services.Portals
 			{
 				case "FETCH":
 					return requestInfo.FetchIPs();
-
-				case "HEAD":
-					new CommunicateMessage().SyncBlackIPs(this.ServiceName, this.NodeID);
-					break;
 
 				case "GET":
 					if (await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false))
