@@ -215,16 +215,16 @@ namespace net.vieapps.Services.Portals
 				}, 13);
 
 				// refresh black/harmful IPs (each 5 minutes)
-				this.StartTimer(() => new CommunicateMessage(this.ServiceName) { ExcludedNodeID = this.NodeID }.RefreshIPs(), 5 * 60);
+				this.StartTimer(() => new CommunicateMessage(this.ServiceName) { ExcludedNodeID = this.NodeID }.RefreshIPs(), (Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulRequests:RefreshInterval", "5"), out var interval) && interval > 0 ? interval : 5) * 60);
 
 				// get OEmbed and i18n Languages (each 15 minutes)
-				this.StartTimer(async () => await Task.WhenAll(this.GetOEmbedProvidersAsync(this.CancellationToken), this.PrepareLanguagesAsync(this.CancellationToken)).ConfigureAwait(false), 15 * 60);
+				this.StartTimer(() => Task.WhenAll(this.GetOEmbedProvidersAsync(this.CancellationToken), this.PrepareLanguagesAsync(this.CancellationToken)), 15 * 60);
 
 				// send info & reload resources (each 12 hours)
 				this.StartTimer(() => this.SendDefinitionInfo(), 12 * 60 * 60);
 
 				// re-load all orangizations/sites (once per day)
-				this.StartTimer(async () => await (DateTime.Now.Hour < 4 || DateTime.Now.Hour > 4 ? Task.CompletedTask : this.ReloadOrganizationsAsync(false, false, false)).ConfigureAwait(false), 60 * 60);
+				this.StartTimer(() => DateTime.Now.Hour == 4 ? this.ReloadOrganizationsAsync(false, false, false) : Task.CompletedTask, 60 * 60);
 
 				// last action
 				next?.Invoke(this);
@@ -5281,12 +5281,12 @@ namespace net.vieapps.Services.Portals
 				await message.ProcessInterCommunicateMessageOfCrawlerAsync(cancellationToken).ConfigureAwait(false);
 
 			// black/harmful IPs
-			else if (message.Type.IsEquals("BlackIPs#Update"))
-				message.UpdateBlackIPs();
-			else if (message.Type.IsEquals("BlackIPs#Reset"))
-				message.ResetBlackIPs();
+			else if (message.Type.IsEquals("BlackIPs#Update") || message.Type.IsEquals("BlackIPs#Remove"))
+				message.UpdateBlackIPs(message.Type.IsEquals("BlackIPs#Remove"));
 			else if (message.Type.IsEquals("BlackIPs#Sync"))
 				message.SyncBlackIPs(this.ServiceName, this.NodeID);
+			else if (message.Type.IsEquals("BlackIPs#Reset"))
+				message.ResetBlackIPs();
 			else if (message.Type.IsEquals("HarmfulIPs#Update") || message.Type.IsEquals("HarmfulIPs#Remove"))
 				message.UpdateHarmfulIPs(message.Type.IsEquals("HarmfulIPs#Remove"));
 			else if (message.Type.IsEquals("HarmfulIPs#Sync"))

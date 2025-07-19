@@ -61,7 +61,7 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the collection of IP addresses that labeled as black (need to be blocked)
 		/// </summary>
-		public static ConcurrentHashSet<string> BlackIPs { get; } = [.. UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList(";", true)];
+		public static ConcurrentDictionary<string, DateTime> BlackIPs { get; } = new(UtilityService.GetAppSetting("Portals:BlackIPs", "").ToList(";", true).Select(ip => new KeyValuePair<string, DateTime>(ip, DateTime.Now)));
 
 		/// <summary>
 		/// Gets the state that determines the IP address is black or not
@@ -70,7 +70,16 @@ namespace net.vieapps.Services.Portals
 		/// <param name="ip"></param>
 		/// <returns></returns>
 		public static bool IsBlackIP(this HttpContext context, string ip = null)
-			=> BlackIPs.Contains(ip ?? context.GetIP());
+			=> BlackIPs.ContainsKey(ip ?? context.GetIP());
+
+		/// <summary>
+		/// Gets the state that determines the IP address is black or not
+		/// </summary>
+		/// <param name="context"></param>
+		/// <param name="ip"></param>
+		/// <returns></returns>
+		public static bool IsBlackIP(this HttpContext context, System.Net.IPAddress ip)
+			=> ip != null && context.IsBlackIP(ip.ToString());
 
 		/// <summary>
 		/// Gets the state that determines the IP address is black or not
@@ -78,17 +87,23 @@ namespace net.vieapps.Services.Portals
 		/// <param name="requestInfo"></param>
 		/// <returns></returns>
 		public static bool IsBlackIP(this RequestInfo requestInfo)
-			=> BlackIPs.Contains(requestInfo.Session.IP);
+			=> BlackIPs.ContainsKey(requestInfo.Session.IP);
 
 		/// <summary>
 		/// Updates the collection of black IPs
 		/// </summary>
 		/// <param name="message"></param>
 		/// <returns></returns>
-		public static ConcurrentHashSet<string> UpdateBlackIPs(this CommunicateMessage message)
+		public static ConcurrentDictionary<string, DateTime> UpdateBlackIPs(this CommunicateMessage message, bool beRemoved)
 		{
 			if (message?.Data is JArray msg)
-				msg.ToList<string>().ForEach(ip => BlackIPs.Add(ip));
+				msg.ToList<string>().ForEach(ip =>
+				{
+					if (beRemoved)
+						BlackIPs.Remove(ip);
+					else
+						BlackIPs[ip] = DateTime.Now;
+				});
 			return BlackIPs;
 		}
 
@@ -97,15 +112,15 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="message"></param>
 		/// <returns></returns>
-		public static ConcurrentHashSet<string> SyncBlackIPs(this CommunicateMessage message, string serviceName, string excludedNodeID)
+		public static ConcurrentDictionary<string, DateTime> SyncBlackIPs(this CommunicateMessage message, string serviceName, string excludedNodeID)
 		{
 			if (message?.Data is JArray msg)
-				msg.ToList<string>().ForEach(ip => BlackIPs.Add(ip));
+				msg.ToList<string>().ForEach(ip => BlackIPs[ip] = DateTime.Now);
 			new CommunicateMessage(serviceName)
 			{
 				Type = "BlackIPs#Update",
 				ExcludedNodeID = excludedNodeID,
-				Data = BlackIPs.ToJArray()
+				Data = BlackIPs.Select(kvp => kvp.Key).ToJArray()
 			}.Send();
 			return BlackIPs;
 		}
@@ -115,11 +130,11 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="message"></param>
 		/// <returns></returns>
-		public static ConcurrentHashSet<string> ResetBlackIPs(this CommunicateMessage message, string serviceName = null, string excludedNodeID = null)
+		public static ConcurrentDictionary<string, DateTime> ResetBlackIPs(this CommunicateMessage message, string serviceName = null, string excludedNodeID = null)
 		{
 			BlackIPs.Clear();
 			if (message?.Data is JArray msg)
-				msg.ToList<string>().ForEach(ip => BlackIPs.Add(ip));
+				msg.ToList<string>().ForEach(ip => BlackIPs[ip] = DateTime.Now);
 			if (serviceName != null && excludedNodeID != null)
 				new CommunicateMessage(serviceName)
 				{
@@ -142,7 +157,7 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the limits that determines to block harmful requests automatically
 		/// </summary>
-		public static int AutoBlockHarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulRequests:AutoBlock:Limits", "33"), out var limits) ? limits : 33;
+		public static int AutoBlockHarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulRequests:AutoBlock:Limits", "100"), out var limits) ? limits : 100;
 
 		/// <summary>
 		/// Gets the collection of IP addresses that excluded from harmful requests
@@ -158,7 +173,7 @@ namespace net.vieapps.Services.Portals
 			if (HarmfulIPs.TryGetValue(ip, out var info))
 				counter = info.Counter + 1;
 
-			if (AutoBlockHarmfulRequest && counter > AutoBlockHarmfulRequestLimits && BlackIPs.Add(ip))
+			if (AutoBlockHarmfulRequest && counter > AutoBlockHarmfulRequestLimits && BlackIPs.TryAdd(ip, DateTime.Now))
 			{
 				new CommunicateMessage(serviceName)
 				{
@@ -264,27 +279,42 @@ namespace net.vieapps.Services.Portals
 		}
 
 		/// <summary>
-		/// Refreshs the collection of harmful IPs
+		/// Refreshs the collection of black/harmful IPs
 		/// </summary>
 		/// <param name="message"></param>
 		/// <returns></returns>
-		public static (ConcurrentHashSet<string> BlackIPs, ConcurrentDictionary<string, (int Counter, DateTime LastAccess)> HarmfulIPs) RefreshIPs(this CommunicateMessage message)
+		public static (ConcurrentDictionary<string, DateTime> BlackIPs, ConcurrentDictionary<string, (int Counter, DateTime LastAccess)> HarmfulIPs) RefreshIPs(this CommunicateMessage message)
 		{
 			var lastAccess = DateTime.Now.AddMinutes(-45);
-			var ips = HarmfulIPs.Where(kvp => kvp.Value.LastAccess < lastAccess).Select(kvp => kvp.Key).ToList();
-			if (ips.Count > 0)
+
+			var ipAddresses = BlackIPs.Where(kvp => kvp.Value < lastAccess).Select(kvp => kvp.Key).ToList();
+			if (ipAddresses.Count > 0)
 			{
-				ips.ForEach(ip => HarmfulIPs.Remove(ip));
+				ipAddresses.ForEach(ip => BlackIPs.Remove(ip));
+				new CommunicateMessage(message.ServiceName)
+				{
+					Type = "BlackIPs#Remove",
+					ExcludedNodeID = message.ExcludedNodeID,
+					Data = ipAddresses.ToJArray()
+				}.Send();
+			}
+
+			ipAddresses = [.. HarmfulIPs.Where(kvp => kvp.Value.LastAccess < lastAccess).Select(kvp => kvp.Key)];
+			if (ipAddresses.Count > 0)
+			{
+				ipAddresses.ForEach(ip => HarmfulIPs.Remove(ip));
 				new CommunicateMessage(message.ServiceName)
 				{
 					Type = "HarmfulIPs#Remove",
 					ExcludedNodeID = message.ExcludedNodeID,
-					Data = ips.ToJArray()
+					Data = ipAddresses.ToJArray()
 				}.Send();
 			}
+
 			Task.Delay(UtilityService.GetRandomNumber(1234, 2345)).Run(true);
-			message.SyncHarmfulIPs(message.ServiceName, message.ExcludedNodeID);
 			message.SyncBlackIPs(message.ServiceName, message.ExcludedNodeID);
+			message.SyncHarmfulIPs(message.ServiceName, message.ExcludedNodeID);
+
 			return (BlackIPs, HarmfulIPs);
 		}
 
@@ -297,7 +327,7 @@ namespace net.vieapps.Services.Portals
 			=> "FETCH".IsEquals(requestInfo.Verb)
 			? new JObject
 			{
-				["BlackIPs"] = BlackIPs.OrderBy(ip => ip).ToJArray(),
+				["BlackIPs"] = BlackIPs.OrderBy(kvp => kvp.Key).Select(kvp => kvp.Key).ToJArray(),
 				["HarmfulIPs"] = HarmfulIPs.OrderBy(kvp => kvp.Key).Select(kvp => $"{kvp.Key}({kvp.Value.Counter})").ToJArray()
 			}
 			: null;

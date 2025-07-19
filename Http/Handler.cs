@@ -109,7 +109,7 @@ namespace net.vieapps.Services.Portals
 				// process portals' requests
 				else
 				{
-					if (context.IsBlackIP(context.GetRemoteIPAddress().ToString()))
+					if (context.IsBlackIP(context.GetRemoteIPAddress()))
 						context.SetResponseHeaders((int)HttpStatusCode.Forbidden);
 					else
 						await this.ProcessHttpRequestAsync(context).ConfigureAwait(false);
@@ -1858,12 +1858,12 @@ namespace net.vieapps.Services.Portals
 
 		internal static Task ProcessInterCommunicateMessageAsync(CommunicateMessage message)
 		{
-			if (message.Type.IsEquals("BlackIPs#Update"))
-				message.UpdateBlackIPs();
-			else if (message.Type.IsEquals("BlackIPs#Reset"))
-				message.ResetBlackIPs();
+			if (message.Type.IsEquals("BlackIPs#Update") || message.Type.IsEquals("BlackIPs#Remove"))
+				message.UpdateBlackIPs(message.Type.IsEquals("BlackIPs#Remove"));
 			else if (message.Type.IsEquals("BlackIPs#Sync"))
 				message.SyncBlackIPs(Global.ServiceName, Global.NodeID);
+			else if (message.Type.IsEquals("BlackIPs#Reset"))
+				message.ResetBlackIPs();
 			else if (message.Type.IsEquals("HarmfulIPs#Update") || message.Type.IsEquals("HarmfulIPs#Remove"))
 				message.UpdateHarmfulIPs(message.Type.IsEquals("HarmfulIPs#Remove"));
 			else if (message.Type.IsEquals("HarmfulIPs#Sync"))
