@@ -1868,6 +1868,10 @@ namespace net.vieapps.Services.Portals
 				message.UpdateHarmfulIPs(message.Type.IsEquals("HarmfulIPs#Remove"));
 			else if (message.Type.IsEquals("HarmfulIPs#Sync"))
 				message.SyncHarmfulIPs(Global.ServiceName, Global.NodeID);
+			else if (message.Type.IsEquals("HarmfulIPs#Pause"))
+				RequestExtensions.AutoBlockHarmfulRequest = false;
+			else if (message.Type.IsEquals("HarmfulIPs#Resume"))
+				RequestExtensions.AutoBlockHarmfulRequest = true;
 			return Task.CompletedTask;
 		}
 	}

@@ -152,12 +152,12 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the state that determines to block harmful requests automatically
 		/// </summary>
-		public static bool AutoBlockHarmfulRequest { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:HarmfulRequests:AutoBlock", "true"));
+		public static bool AutoBlockHarmfulRequest { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:HarmfulRequests:AutoBlock", "true"));
 
 		/// <summary>
 		/// Gets the limits that determines to block harmful requests automatically
 		/// </summary>
-		public static int AutoBlockHarmfulRequestLimits { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulRequests:AutoBlock:Limits", "100"), out var limits) ? limits : 100;
+		public static int AutoBlockHarmfulRequestLimits { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulRequests:AutoBlock:Limits", "100"), out var limits) ? limits : 100;
 
 		/// <summary>
 		/// Gets the collection of IP addresses that excluded from harmful requests

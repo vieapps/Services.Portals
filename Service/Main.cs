@@ -5291,6 +5291,10 @@ namespace net.vieapps.Services.Portals
 				message.UpdateHarmfulIPs(message.Type.IsEquals("HarmfulIPs#Remove"));
 			else if (message.Type.IsEquals("HarmfulIPs#Sync"))
 				message.SyncHarmfulIPs(this.ServiceName, this.NodeID);
+			else if (message.Type.IsEquals("HarmfulIPs#Pause"))
+				RequestExtensions.AutoBlockHarmfulRequest = false;
+			else if (message.Type.IsEquals("HarmfulIPs#Resume"))
+				RequestExtensions.AutoBlockHarmfulRequest = true;
 
 			stopwatch.Stop();
 			if (Utility.IsWriteMessageLogs(null))
