@@ -97,7 +97,7 @@ namespace net.vieapps.Services.Portals
 		public static ConcurrentDictionary<string, DateTime> UpdateBlackIPs(this CommunicateMessage message, bool beRemoved)
 		{
 			if (message?.Data is JArray msg)
-				msg.ToList<string>().ForEach(ip =>
+				msg.ToList<string>().Select(ips => ips.ToList(";", true)).SelectMany(ips => ips).Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip =>
 				{
 					if (beRemoved)
 						BlackIPs.Remove(ip);
@@ -115,7 +115,7 @@ namespace net.vieapps.Services.Portals
 		public static ConcurrentDictionary<string, DateTime> SyncBlackIPs(this CommunicateMessage message, string serviceName, string excludedNodeID)
 		{
 			if (message?.Data is JArray msg)
-				msg.ToList<string>().ForEach(ip => BlackIPs[ip] = DateTime.Now);
+				msg.ToList<string>().Select(ips => ips.ToList(";", true)).SelectMany(ips => ips).Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => BlackIPs[ip] = DateTime.Now);
 			new CommunicateMessage(serviceName)
 			{
 				Type = "BlackIPs#Update",
@@ -134,7 +134,7 @@ namespace net.vieapps.Services.Portals
 		{
 			BlackIPs.Clear();
 			if (message?.Data is JArray msg)
-				msg.ToList<string>().ForEach(ip => BlackIPs[ip] = DateTime.Now);
+				msg.ToList<string>().Select(ips => ips.ToList(";", true)).SelectMany(ips => ips).Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => BlackIPs[ip] = DateTime.Now);
 			if (serviceName != null && excludedNodeID != null)
 				new CommunicateMessage(serviceName)
 				{
@@ -241,7 +241,7 @@ namespace net.vieapps.Services.Portals
 			if (message?.Data is JArray msg)
 			{
 				if (beRemoved)
-					msg.ToList<string>().ForEach(ip => HarmfulIPs.Remove(ip));
+					msg.ToList<string>().Select(ips => ips.ToList(";", true)).SelectMany(ips => ips).Where(ip => !string.IsNullOrWhiteSpace(ip)).ForEach(ip => HarmfulIPs.Remove(ip));
 				else
 					msg.Select(data => data as JObject).ForEach(data =>
 					{

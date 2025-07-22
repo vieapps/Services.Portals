@@ -5717,7 +5717,15 @@ namespace net.vieapps.Services.Portals
 					{
 						if (requestInfo.ContainsKey("x-reset"))
 							new CommunicateMessage().ResetBlackIPs(this.ServiceName, this.NodeID);
-						new CommunicateMessage { Data = (requestInfo.GetParameter("ips") ?? requestInfo.GetParameter("ip") ?? "").ToList(";", true).ToJArray() }.SyncBlackIPs(this.ServiceName, this.NodeID);
+						else if (requestInfo.ContainsKey("x-remove"))
+							new CommunicateMessage
+							{
+								Data = (requestInfo.GetParameter("ips") ?? requestInfo.GetParameter("ip") ?? "").ToList().ToJArray()
+							}.UpdateBlackIPs(true);
+						new CommunicateMessage
+						{
+							Data = (requestInfo.GetParameter("ips") ?? requestInfo.GetParameter("ip") ?? "").ToList().ToJArray()
+						}.SyncBlackIPs(this.ServiceName, this.NodeID);
 					}
 					break;
 			}
