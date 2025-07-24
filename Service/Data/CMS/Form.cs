@@ -53,7 +53,7 @@ namespace net.vieapps.Services.Portals
 		[Property(MaxLength = 50)]
 		[Sortable(IndexName = "Address")]
 		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
-		public string County { get; set; }
+		public string Unit { get; set; }
 
 		[Searchable]
 		[Property(MaxLength = 50)]
