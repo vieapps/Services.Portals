@@ -51,9 +51,11 @@ namespace net.vieapps.Services.Portals
 
 		static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
-		static bool TrackPortalSessions { get; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true")) && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
+		static bool TrackSessions { get; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
 
-		static bool TrackAPISessions { get; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true")) && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
+		static bool TrackPortalSessions { get; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
+
+		static bool TrackAPISessions { get; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
 
 		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
 
@@ -130,7 +132,7 @@ namespace net.vieapps.Services.Portals
 
 		static void DisconnectWebSocket(ManagedWebSocket websocket)
 		{
-			if (websocket != null && websocket.Remove("Session", out Session session) && session != null)
+			if (websocket != null && websocket.Remove("Session", out Session session) && session != null && Handler.TrackSessions)
 				session.SendSessionState("Users", "DISCONNECT /session", false, Handler.TrackAPISessions);
 		}
 
@@ -190,7 +192,8 @@ namespace net.vieapps.Services.Portals
 					{
 						session.DeviceID = header.TryGetValue("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID) ? deviceID : string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx-portals" : session.DeviceID;
 						websocket.Set("Status", "Registered");
-						session.SendSessionState("Users", "REG /session", true, Handler.TrackAPISessions);
+						if (Handler.TrackSessions)
+							session.SendSessionState("Users", "REG /session", true, Handler.TrackAPISessions);
 					}
 
 					else
@@ -242,7 +245,8 @@ namespace net.vieapps.Services.Portals
 						requestInfo.Verb = "GET";
 					}
 
-					requestInfo.SendSessionState(Handler.TrackAPISessions);
+					if (Handler.TrackSessions)
+						requestInfo.SendSessionState(Handler.TrackAPISessions);
 
 					var response = new JObject
 					{
@@ -710,7 +714,7 @@ namespace net.vieapps.Services.Portals
 					var isRefresher = Handler.RefresherURL.IsEquals(context.GetReferUrl());
 
 					// session state
-					if (!isRefresher && !"~resources".IsEquals(systemIdentity) && !"~indicators".IsEquals(systemIdentity))
+					if (Handler.TrackSessions && !isRefresher && !"~resources".IsEquals(systemIdentity) && !"~indicators".IsEquals(systemIdentity))
 						requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalSessions);
 
 					// examinations
@@ -1064,7 +1068,9 @@ namespace net.vieapps.Services.Portals
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 
-							requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalSessions);
+							if (Handler.TrackSessions)
+								requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalSessions);
+
 							if (isDebugLogEnabled)
 								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
@@ -1114,7 +1120,9 @@ namespace net.vieapps.Services.Portals
 							requestInfo.Verb = "GET";
 						}
 
-						requestInfo.SendSessionState(null, null, null, Handler.TrackAPISessions);
+						if (Handler.TrackSessions)
+							requestInfo.SendSessionState(null, null, null, Handler.TrackAPISessions);
+
 						if (isDebugLogEnabled)
 							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
@@ -1323,7 +1331,8 @@ namespace net.vieapps.Services.Portals
 					context.Session.Add("Session", session);
 					context.SetSession(session);
 
-					session.SendSessionState("Users", "POST /session", null, true, Handler.TrackAPISessions, false);
+					if (Handler.TrackSessions)
+						session.SendSessionState("Users", "POST /session", null, true, Handler.TrackAPISessions, false);
 
 					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 					var body = session.GetSessionBody().ToString(Formatting.None);
@@ -1368,7 +1377,8 @@ namespace net.vieapps.Services.Portals
 					if (session == null || !session.GetEncryptedID().IsEquals(context.Request.Query["x-session-id"]) || !session.DeviceID.Url64Encode().IsEquals(context.Request.Query["x-device-id"]))
 						throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
 
-					session.SendSessionState("Users", "PUT /session", null, true, Handler.TrackAPISessions, false);
+					if (Handler.TrackSessions)
+						session.SendSessionState("Users", "PUT /session", null, true, Handler.TrackAPISessions, false);
 
 					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
 					var account = Global.RSA.Decrypt(request.Get("Account", "")).Trim().ToLower();
@@ -1455,7 +1465,8 @@ namespace net.vieapps.Services.Portals
 					if (session == null || !session.GetEncryptedID().IsEquals(context.Request.Query["x-session-id"]) || !session.DeviceID.Url64Encode().IsEquals(context.Request.Query["x-device-id"]))
 						throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
 
-					session.SendSessionState("Users", "PUT /session/otp", null, true, Handler.TrackAPISessions, false);
+					if (Handler.TrackSessions)
+						session.SendSessionState("Users", "PUT /session/otp", null, true, Handler.TrackAPISessions, false);
 
 					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
 					var id = request.Get<string>("ID");
@@ -1539,7 +1550,8 @@ namespace net.vieapps.Services.Portals
 					if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
 						throw new InformationInvalidException();
 
-					session.SendSessionState("Users", "PATCH /account", null, true, Handler.TrackAPISessions, false);
+					if (Handler.TrackSessions)
+						session.SendSessionState("Users", "PATCH /account", null, true, Handler.TrackAPISessions, false);
 
 					var language = context.GetParameter("language") ?? "vi-VN";
 					var requestURI = context.GetRequestUri();
@@ -1654,7 +1666,8 @@ namespace net.vieapps.Services.Portals
 			{
 				// get session
 				var session = context.GetSession();
-				session.SendSessionState("Users", "DELETE /session", null, false, Handler.TrackAPISessions, false);
+				if (Handler.TrackSessions)
+					session.SendSessionState("Users", "DELETE /session", null, false, Handler.TrackAPISessions, false);
 
 				// call service to delete the session
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
@@ -1705,7 +1718,8 @@ namespace net.vieapps.Services.Portals
 					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
 
 					context.Session.Add("Session", session);
-					session.SendSessionState("Users", "POST /session", null, true, Handler.TrackAPISessions, false);
+					if (Handler.TrackSessions)
+						session.SendSessionState("Users", "POST /session", null, true, Handler.TrackAPISessions, false);
 
 					await Task.WhenAll
 					(
