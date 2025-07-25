@@ -51,7 +51,7 @@ namespace net.vieapps.Services.Portals
 
 		static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
-		static bool TrackSessions { get; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
+		internal static bool TrackSessions { get; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
 
 		static bool TrackPortalSessions { get; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
 
@@ -714,7 +714,7 @@ namespace net.vieapps.Services.Portals
 					var isRefresher = Handler.RefresherURL.IsEquals(context.GetReferUrl());
 
 					// session state
-					if (Handler.TrackSessions && !isRefresher && !"~resources".IsEquals(systemIdentity) && !"~indicators".IsEquals(systemIdentity))
+					if (!isRefresher && !"~resources".IsEquals(systemIdentity) && !"~indicators".IsEquals(systemIdentity))
 						requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalSessions);
 
 					// examinations
@@ -1068,9 +1068,7 @@ namespace net.vieapps.Services.Portals
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 
-							if (Handler.TrackSessions)
-								requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalSessions);
-
+							requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalSessions);
 							if (isDebugLogEnabled)
 								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
@@ -1120,9 +1118,7 @@ namespace net.vieapps.Services.Portals
 							requestInfo.Verb = "GET";
 						}
 
-						if (Handler.TrackSessions)
-							requestInfo.SendSessionState(null, null, null, Handler.TrackAPISessions);
-
+						requestInfo.SendSessionState(null, null, null, Handler.TrackAPISessions);
 						if (isDebugLogEnabled)
 							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
@@ -1895,15 +1891,18 @@ namespace net.vieapps.Services.Portals
 		static NetCrawlerDetect.CrawlerDetect CrawlerDetector { get; } = new NetCrawlerDetect.CrawlerDetect();
 
 		public static void SendSessionState(this RequestInfo requestInfo, JObject systemIdentityJson, string serviceName, string serviceURI, bool trackStatistics)
-			=> requestInfo.SendSessionState(systemIdentityJson, message =>
-			{
-				message.Data["Crawler"] = CrawlerDetector.IsCrawler(requestInfo.Session.AppAgent) || "Generic OS".IsEquals(requestInfo.Session.AppAgent.GetOSInfo());
-				var serviceInfo = message.Data.Get<JObject>("Service");
-				if (!string.IsNullOrWhiteSpace(serviceName))
-					serviceInfo["Name"] = serviceName.ToLower();
-				if (!string.IsNullOrWhiteSpace(serviceURI))
-					serviceInfo["URI"] = serviceURI;
-			}, trackStatistics);
+		{
+			if (Handler.TrackSessions)
+				requestInfo.SendSessionState(systemIdentityJson, message =>
+				{
+					message.Data["Crawler"] = CrawlerDetector.IsCrawler(requestInfo.Session.AppAgent) || "Generic OS".IsEquals(requestInfo.Session.AppAgent.GetOSInfo());
+					var serviceInfo = message.Data.Get<JObject>("Service");
+					if (!string.IsNullOrWhiteSpace(serviceName))
+						serviceInfo["Name"] = serviceName.ToLower();
+					if (!string.IsNullOrWhiteSpace(serviceURI))
+						serviceInfo["URI"] = serviceURI;
+				}, trackStatistics);
+		}
 
 		public static Session NormalizeSession(this Session session, HttpContext context = null)
 		{
