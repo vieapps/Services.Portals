@@ -228,7 +228,8 @@ namespace net.vieapps.Services.Portals
 
 					websocket.Set("Session", session);
 					await websocket.PrepareConnectionInfoAsync(correlationID, session, Global.CancellationToken, Global.Logger).ConfigureAwait(false);
-					session.SendSessionState("Users", "AUTH /session", true, Handler.TrackAPISessions);
+					if (Handler.TrackSessions)
+						session.SendSessionState("Users", "AUTH /session", true, Handler.TrackAPISessions);
 					if (Global.IsDebugLogEnabled)
 						await Global.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully {(verb.IsEquals("REG") ? "register" : "authenticate")} a WebSocket connection\r\n{websocket.GetConnectionInfo(session)}\r\n- Status: {websocket.Get<string>("Status")}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 				}
@@ -247,6 +248,8 @@ namespace net.vieapps.Services.Portals
 
 					if (Handler.TrackSessions)
 						requestInfo.SendSessionState(Handler.TrackAPISessions);
+					else
+						requestInfo.TrackStatistics();
 
 					var response = new JObject
 					{
@@ -1902,6 +1905,8 @@ namespace net.vieapps.Services.Portals
 					if (!string.IsNullOrWhiteSpace(serviceURI))
 						serviceInfo["URI"] = serviceURI;
 				}, trackStatistics);
+			else
+				requestInfo.TrackStatistics();
 		}
 
 		public static Session NormalizeSession(this Session session, HttpContext context = null)
