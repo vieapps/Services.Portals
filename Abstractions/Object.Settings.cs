@@ -73,10 +73,13 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public string SecretToken { get; set; }
 
+		public string SecretTokenName { get; set; }
+
 		public override WebHookSetting Normalize(Action onCompleted = null)
 		{
 			base.Normalize();
 			this.SecretToken = string.IsNullOrWhiteSpace(this.SecretToken) ? null : this.SecretToken.Trim();
+			this.SecretTokenName = string.IsNullOrWhiteSpace(this.SecretToken) || string.IsNullOrWhiteSpace(this.SecretTokenName) ? null : this.SecretTokenName.Trim();
 			onCompleted?.Invoke();
 			return this;
 		}

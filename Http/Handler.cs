@@ -1,14 +1,14 @@
 ﻿#region Related components
 using System;
 using System.IO;
-using System.Linq;
 using System.Net;
-using System.Net.WebSockets;
+using System.Linq;
 using System.Diagnostics;
+using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
@@ -37,7 +37,7 @@ namespace net.vieapps.Services.Portals
 
 		static HashSet<string> LogOuts { get; } = "_logout,logout.aspx,signout.aspx,logout.html,signout.html,logout.php,signout.php".ToHashSet();
 
-		static HashSet<string> CmsPortals { get; } = "_admin,_cms,_edit,_update,admin.aspx,cms.aspx,admin.html,cms.html,admin.php,cms.php".ToHashSet();
+		static HashSet<string> CmsPortals { get; } = "_confirm,_unsubscribe,_image,_visit,_admin,_cms,_edit,_update,admin.aspx,cms.aspx,admin.html,cms.html,admin.php,cms.php".ToHashSet();
 
 		static HashSet<string> Feeds { get; } = "feed,feed.xml,feed.json,atom,atom.xml,atom.json,rss,rss.xml,rss.json".ToHashSet();
 
@@ -190,7 +190,7 @@ namespace net.vieapps.Services.Portals
 
 					if (verb.IsEquals("REG"))
 					{
-						session.DeviceID = header.TryGetValue("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID) ? deviceID : string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx-portals" : session.DeviceID;
+						session.DeviceID = header.TryGetValue("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID) ? deviceID : string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
 						websocket.Set("Status", "Registered");
 						if (Handler.TrackSessions)
 							session.SendSessionState("Users", "REG /session", true, Handler.TrackAPISessions);
@@ -420,7 +420,25 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// update session
-			session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx-portals" : session.DeviceID;
+			if (string.IsNullOrWhiteSpace(session.DeviceID))
+			{
+				if (context.TryGetParameter("x-device-id", out var deviceID))
+					try
+					{
+						session.DeviceID = deviceID.Url64Decode();
+					}
+					catch
+					{
+						session.DeviceID = deviceID;
+					}
+				else if (context.TryGetParameter("x-did", out deviceID))
+					try
+					{
+						session.DeviceID = deviceID.Url64Decode();
+					}
+					catch { }
+				session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
+			}
 			session.UpdateSessionCookie(context, true);
 
 			if (context.Session.ContainsKey("Session"))
@@ -491,7 +509,17 @@ namespace net.vieapps.Services.Portals
 							specialRequest = "cms";
 							query["x-resource"] = "cms";
 							query["x-cms-path"] = requestSegments.Skip(1).Join("/");
+							query["x-cms-mode"] = firstPathSegment.IsStartsWith("_image")
+								? "Tracking"
+								: firstPathSegment.IsStartsWith("_confirm")
+									? "Confirm"
+									: firstPathSegment.IsStartsWith("_unsubscribe")
+										? "Unsubscribe"
+										: firstPathSegment.IsStartsWith("_visit")
+											? "Visit"
+											: "Redirect";
 						}
+						
 
 						// special resources
 						else
@@ -547,6 +575,15 @@ namespace net.vieapps.Services.Portals
 						specialRequest = "cms";
 						query["x-resource"] = "cms";
 						query["x-cms-path"] = requestSegments.Skip(1).Join("/");
+						query["x-cms-mode"] = firstPathSegment.IsStartsWith("_image")
+							? "Tracking"
+							: firstPathSegment.IsStartsWith("_confirm")
+								? "Confirm"
+								: firstPathSegment.IsStartsWith("_unsubscribe")
+									? "Unsubscribe"
+									: firstPathSegment.IsStartsWith("_visit")
+										? "Visit"
+										: "Redirect";
 						requestSegments = Array.Empty<string>();
 					}
 
@@ -594,6 +631,17 @@ namespace net.vieapps.Services.Portals
 				}
 				else if (!systemIdentity.IsEquals("~indicators") && !systemIdentity.IsEquals("~resources") && !specialRequest.IsEquals("service"))
 					query["x-desktop"] = "-default";
+
+				// x-params
+				if (query.TryGetValue("x-params", out var xparams))
+				{
+					query.Remove("x-params");
+					try
+					{
+						(new RequestInfo { Body = xparams.Url64Decode() }.BodyAsJson as JObject).ForEach(kvp => query[kvp.Key] = (kvp.Value as JValue).Value?.ToString());
+					}
+					catch { }
+				}
 
 				// legacy parameters
 				Handler.LegacyParameters.ForEach(key => query.Remove(key));
@@ -709,6 +757,23 @@ namespace net.vieapps.Services.Portals
 								["X-Correlation-ID"] = correlationID,
 								["X-Redirector"] = "VIEApps NGX HTTP CMS Portals"
 							});
+							return;
+						}
+					}
+					else
+					{
+						var redirectURL = systemIdentityJson?.Get<string>("RedirectTo");
+						if (!string.IsNullOrWhiteSpace(redirectURL))
+						{
+							context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+							{
+								["Location"] = redirectURL,
+								["X-Node"] = Global.NodeID,
+								["X-Correlation-ID"] = correlationID,
+								["X-Redirector"] = "VIEApps NGX HTTP CMS Portals"
+							});
+							if (isDebugLogEnabled || Global.IsVisitLogEnabled)
+								await context.WriteLogsAsync("Http.Process.Requests", $"Redirect for matching with the settings\r\n{requestURI} => {redirectURL}").ConfigureAwait(false);
 							return;
 						}
 					}
@@ -925,6 +990,8 @@ namespace net.vieapps.Services.Portals
 										["os-platform"] = osPlatform,
 										["osMode"] = osMode,
 										["os-mode"] = osMode,
+										["device-id"] = requestInfo.Session.DeviceID,
+										["device-id-base64url"] = requestInfo.Session.DeviceID.Url64Encode(),
 										["correlationID"] = correlationID,
 										["correlation-id"] = correlationID,
 										["timestamp"] = DateTime.Now.ToUnixTimestamp(),
@@ -1047,7 +1114,7 @@ namespace net.vieapps.Services.Portals
 						try
 						{
 							systemIdentityJson ??= await context.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-							await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID"), systemIdentityJson?.Get<string>("ObjectID"), systemIdentityJson?.Get<string>("RepositoryEntityID") ?? systemIdentityJson?.Get<string>("ObjectName")).ConfigureAwait(false);
+							await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID"), systemIdentityJson?.Get<string>("ObjectID"), systemIdentityJson?.Get<string>("RepositoryEntityID") ?? systemIdentityJson?.Get<string>("ObjectName"), systemIdentityJson?.Get<string>("Location"), systemIdentityJson?.Get<string>("TrackingContentType"), systemIdentityJson?.Get<string>("TrackingBody"), systemIdentityJson?.Get<string>("TrackingBodyEncoding"), systemIdentityJson?.Get<string>("TrackingCacheControl")).ConfigureAwait(false);
 						}
 						catch (OperationCanceledException) { }
 						catch (Exception ex)
@@ -1059,7 +1126,7 @@ namespace net.vieapps.Services.Portals
 							}
 							else
 								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, isDebugLogEnabled);
-							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while redirecting to CMS Portals => {ex.Message}", ex).ConfigureAwait(false);
+							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing with CMS Portals => {ex.Message}", ex).ConfigureAwait(false);
 						}
 						break;
 
@@ -1321,7 +1388,7 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					var session = context.Session.Get<Session>("Session") ?? context.GetSession();
-					session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx-portals" : session.DeviceID;
+					session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
 					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
 						? session.User.SessionID
 						: !string.IsNullOrWhiteSpace(session.SessionID)
@@ -1749,23 +1816,48 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		async Task ProcessCmsPortalsRequestAsync(HttpContext context, string systemID, string objectID, string objectNameOrContentTypeID)
+		async Task ProcessCmsPortalsRequestAsync(HttpContext context, string systemID, string objectID, string objectNameOrContentTypeID, string location, string trackingContentType, string trackingBody, string trackingBodyEncoding, string trackingCacheControl)
 		{
-			var request = new JObject
+			var headers = new Dictionary<string, string>
 			{
-				["SystemID"] = systemID,
-				["ObjectID"] = objectID
-			};
-			request[!string.IsNullOrWhiteSpace(objectNameOrContentTypeID) && objectNameOrContentTypeID.IsValidUUID() ? "RepositoryEntityID" : "ObjectName"] = objectNameOrContentTypeID;
-			var location = $"/portals/initializer?x-request={request.ToString(Formatting.None).Url64Encode()}".Url64Encode();
-			context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string> {
-				["Location"] = $"{this.RemoveURITrail(Handler.CMSPortalsHttpURI)}/home?redirect={location}&r={UtilityService.GetRandomNumber()}",
-				["Cache-Control"] = "private, no-store, no-cache",
+				["Cache-Control"] = trackingCacheControl ?? "private, no-store, no-cache",
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = context.GetCorrelationID()
-			});
-			if (Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs"))
-				await context.WriteLogsAsync("Http.Process.Requests", $"Redirect to CMS Portals app => {this.RemoveURITrail(Handler.CMSPortalsHttpURI)}/home?redirect={location}").ConfigureAwait(false);
+			};
+			if (string.IsNullOrWhiteSpace(trackingBody))
+			{
+				var request = new JObject
+				{
+					["SystemID"] = systemID,
+					["ObjectID"] = objectID
+				};
+				request[!string.IsNullOrWhiteSpace(objectNameOrContentTypeID) && objectNameOrContentTypeID.IsValidUUID() ? "RepositoryEntityID" : "ObjectName"] = objectNameOrContentTypeID;
+				location ??= $"{this.RemoveURITrail(Handler.CMSPortalsHttpURI)}/home?redirect={$"/portals/initializer?x-request={request.ToString(Formatting.None).Url64Encode()}".Url64Encode()}&r={UtilityService.GetRandomNumber()}";
+				context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+				{
+					["Location"] = location
+				});
+				if (Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs"))
+					await context.WriteLogsAsync("Http.Process.Requests", $"Redirect to a location (of CMS Portals) successful => {location}").ConfigureAwait(false);
+			}
+			else
+			{
+				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+				{
+					["Content-Type"] = trackingContentType ?? "image/webp"
+				};
+				if (!string.IsNullOrWhiteSpace(trackingCacheControl))
+				{
+					headers["ETag"] = $"vieapps#{context.GetRequestUri().AbsoluteUri.GenerateUUID()}";
+					headers["Expires"] = DateTime.Now.AddDays(366).ToHttpString();
+					headers["Last-Modified"] = DateTime.Now.ToHttpString();
+				}
+				context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+				await context.WriteAsync(trackingBody.Base64ToBytes().Decompress(trackingBodyEncoding ?? "zstd"), cts.Token).ConfigureAwait(false);
+				if (Global.IsDebugLogEnabled || context.Request.Query.ContainsKey("x-logs"))
+					await context.WriteLogsAsync("Http.Process.Requests", $"Process the tracking request successful => {context.GetRequestUrl()}").ConfigureAwait(false);
+			}
 		}
 
 		string GetSpecialHtml(HttpContext context, JObject systemIdentityJson, string title = "Log in")

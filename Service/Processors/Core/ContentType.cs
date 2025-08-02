@@ -358,7 +358,7 @@ namespace net.vieapps.Services.Portals
 			webhooks = webhooks.Where(kvp => kvp.Key.IsEquals("default"))
 				.Concat(webhooks.Where(kvp => !kvp.Key.IsEquals("default")).OrderBy(kvp => kvp.Key))
 				.Where(kvp => kvp.Value?.Normalize() != null)
-				.ToDictionary(kvp => kvp.Key.NormalizeAlias(false), kvp => kvp.Value);
+				.ToDictionary(kvp => kvp.Key.NormalizeAlias(), kvp => kvp.Value);
 			return webhooks.Any() ? webhooks : null;
 		}
 

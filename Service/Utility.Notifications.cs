@@ -5,10 +5,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Security;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
+using net.vieapps.Services.Portals.Settings;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -464,19 +465,29 @@ namespace net.vieapps.Services.Portals
 					try
 					{
 						bodyJson["ID"] = webhookNotification.GenerateIdentity ? @object.ID.GenerateUUID() : @object.ID;
-						var body = string.IsNullOrWhiteSpace(webhookNotification.PrepareBodyScript)
-							? bodyJson.ToString(Newtonsoft.Json.Formatting.None)
-							: webhookNotification.PrepareBodyScript.JsEvaluate(bodyJson, requestInfoJson, paramsJson)?.ToString() ?? bodyJson.ToString(Newtonsoft.Json.Formatting.None);
+						var body = "";
+						try
+						{
+							body = string.IsNullOrWhiteSpace(webhookNotification.PrepareBodyScript)
+								? bodyJson.ToString(Newtonsoft.Json.Formatting.None)
+								: webhookNotification.PrepareBodyScript.JsEvaluate(bodyJson, requestInfoJson, paramsJson)?.ToString() ?? bodyJson.ToString(Newtonsoft.Json.Formatting.None);
+						}
+						catch (Exception ex)
+						{
+							await requestInfo.WriteErrorAsync(ex, $"Web-hook JS error => {ex.Message}\r\n\r\nSource Code:\r\n{webhookNotification.PrepareBodyScript}\r\n\r\nObject:\r\n{bodyJson}\r\n\r\nRequest:\r\n{requestInfoJson}\r\n\r\nParams:\r\n{paramsJson}", "WebHooks").ConfigureAwait(false);
+							throw;
+						}
 						var doubleBracesTokens = body.GetDoubleBracesTokens();
 						if (doubleBracesTokens.Any())
 							body = body.Format(doubleBracesTokens.PrepareDoubleBracesParameters(bodyJson.ToExpandoObject(), requestInfoJson.ToExpandoObject(), paramsJson.ToExpandoObject()));
+
 						var message = new WebHookMessage
 						{
 							EndpointURL = webhookNotification.EndpointURLs.First(),
 							Header = webhookNotification.HeaderAsJson?.ToDictionary<string>(),
 							Body = body,
 							CorrelationID = requestInfo.CorrelationID
-						}.Normalize(webhookNotification.SignAlgorithm, webhookNotification.SignKey ?? requestInfo.Session.AppID ?? @object.OrganizationID, webhookNotification.SignKeyIsHex, webhookNotification.SignatureName, webhookNotification.SignatureAsHex, webhookNotification.SignatureInQuery, webhookNotification.SignaturePrefix, webhookNotification.SignatureSuffix, webhookNotification.QueryAsJson?.ToDictionary<string>(), header, webhookNotification.EncryptionKey?.HexToBytes(), webhookNotification.EncryptionIV?.HexToBytes());
+						}.Normalize(webhookNotification, requestInfo, @object.OrganizationID);
 						await webhookNotification.EndpointURLs.ForEachAsync(async endpointURL =>
 						{
 							message.ID = message.Header["X-Original-Message-ID"] = UtilityService.NewUUID;

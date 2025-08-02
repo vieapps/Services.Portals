@@ -2,8 +2,8 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Xml.Linq;
 using System.Dynamic;
+using System.Xml.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -13,9 +13,10 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
-using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
+using net.vieapps.Services.Portals.Settings;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -1249,6 +1250,36 @@ namespace net.vieapps.Services.Portals
 
 		internal static SortBy<T> GetSortBy<T>(this Expression expression) where T : class
 			=> expression.JSONs.Sort?.ToSort<T>();
+
+		public static WebHookMessage ToWebHookMessage(this RequestInfo requestInfo, WebHookSetting settings, string organizationID, bool doValidation = true, Action<WebHookMessage> onCompleted = null)
+		{
+			var message = requestInfo.ToWebHookMessage(settings.SecretToken, settings.SecretTokenName, settings.SignAlgorithm, settings.SignKey ?? requestInfo?.GetAppID() ?? requestInfo?.GetDeveloperID() ?? organizationID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, settings.SignaturePrefix, settings.SignatureSuffix, settings.QueryAsJson?.ToDictionary<string>(), settings.HeaderAsJson?.ToDictionary<string>(), settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes(), doValidation);
+			onCompleted?.Invoke(message);
+			return message;
+		}
+
+		public static WebHookMessage Normalize(this WebHookMessage message, string secretToken, string secretTokenName, WebHook settings, RequestInfo requestInfo, string organizationID, bool signatureInQuery = false)
+			=> message.Normalize(secretToken, secretTokenName, settings.SignAlgorithm, settings.SignKey ?? requestInfo?.GetAppID() ?? requestInfo?.GetDeveloperID() ?? organizationID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, signatureInQuery, settings.SignaturePrefix, settings.SignatureSuffix, settings.QueryAsJson?.ToDictionary<string>(), settings.HeaderAsJson?.ToDictionary<string>(), settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes());
+
+		public static WebHookMessage Normalize(this WebHookMessage message, WebHookNotification settings, RequestInfo requestInfo, string organizationID)
+			=> message.Normalize(null, null, settings, requestInfo, organizationID, settings.SignatureInQuery);
+
+		public static WebHookMessage Normalize(this WebHookMessage message, WebHookSetting settings, RequestInfo requestInfo, string organizationID)
+			=> message.Normalize(settings.SecretToken, settings.SecretTokenName, settings, requestInfo, organizationID);
+
+		static SixLabors.ImageSharp.Formats.IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder();
+		
+		internal static async Task<byte[]> ToWebPAsync(this byte[] data, CancellationToken cancellationToken)
+		{
+			using var imageStream = data.ToMemoryStream();
+			using var imageObject = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
+			using var webpStream = UtilityService.CreateMemoryStream();
+			await imageObject.SaveAsync(webpStream, WebpEncoder, cancellationToken).ConfigureAwait(false);
+			return webpStream.ToBytes();
+		}
+
+		internal static string GetURLPath(this Uri uri)
+			=> $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}";
 	}
 
 	//  --------------------------------------------------------------------------------------------

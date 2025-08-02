@@ -79,6 +79,7 @@ namespace net.vieapps.Services.Portals
 			// update standard controls
 			contentType?.StandardControlDefinitions?.Where(definition => !string.IsNullOrWhiteSpace(definition.Name)).ForEach(definition =>
 			{
+				//definition.Name = definition.Name == "County" ? "Unit" : definition.Name;
 				var control = controls.FirstOrDefault(ctrl => definition.Name.IsEquals(ctrl.Get<string>("Name")));
 				if (control != null)
 				{

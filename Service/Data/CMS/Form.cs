@@ -32,7 +32,7 @@ namespace net.vieapps.Services.Portals
 		public string Name { get; set; }
 
 		[Searchable]
-		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
+		[Property(MaxLength = 250)]
 		[Sortable(IndexName = "Phone")]
 		[FormControl(DataType = "tel", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Phone { get; set; }
@@ -50,7 +50,7 @@ namespace net.vieapps.Services.Portals
 		public string Address { get; set; }
 
 		[Searchable]
-		[Property(MaxLength = 50)]
+		[Property(MaxLength = 150)]
 		[Sortable(IndexName = "Address")]
 		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Unit { get; set; }
@@ -85,10 +85,39 @@ namespace net.vieapps.Services.Portals
 		[FormControl(ControlType = "TextArea", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Details { get; set; }
 
-		[Property(MaxLength = 32)]
+		[Searchable]
+		[Sortable(IndexName = "Management")]
+		[Property(MaxLength = 250)]
+		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public string Tags { get; set; }
+
+		[Searchable]
 		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public bool ConfirmationIsOpened { get; set; } = false;
+
+		[Searchable]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public DateTime? ConfirmationOpenedTime { get; set; }
+
+		[Searchable]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public bool Confirmed { get; set; } = false;
+
+		[Sortable]
+		[Property(MaxLength = 128)]
+		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public string DeviceID { get; set; }
+
+		[Property(MaxLength = 50)]
+		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string IPAddress { get; set; }
+
+		[Property(IsCLOB = true), AsJson]
+		[FormControl(Hidden = true, ControlType = "TextArea", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public string Extras { get; set; }
 
 		[AsJson]
 		[FormControl(Hidden = true, ControlType = "Select", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
@@ -119,17 +148,17 @@ namespace net.vieapps.Services.Portals
 		public string LastModifiedID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "ManagementIDs")]
 		[FormControl(Hidden = true)]
 		public override string SystemID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "ManagementIDs")]
 		[FormControl(Hidden = true)]
 		public override string RepositoryID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
-		[Sortable(IndexName = "Management")]
+		[Sortable(IndexName = "ManagementIDs")]
 		[FormControl(Hidden = true)]
 		public override string RepositoryEntityID { get; set; }
 

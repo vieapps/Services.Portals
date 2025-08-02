@@ -1,18 +1,20 @@
 ﻿#region Related components
-using System;
-using System.Linq;
-using System.Xml.Linq;
-using System.Dynamic;
-using System.Globalization;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
+using Azure.Core;
 using Microsoft.Extensions.Logging;
+using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Security;
-using net.vieapps.Components.Repository;
-using net.vieapps.Components.Utility;
+using System;
+using System.Collections.Generic;
+using System.Dynamic;
+using System.Globalization;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -50,6 +52,8 @@ namespace net.vieapps.Services.Portals
 					else
 						throw new InformationInvalidException("Email is invalid");
 				}
+				else if (name == "Tags")
+					form.Tags = string.IsNullOrWhiteSpace(form.Tags) ? null : form.Tags.ToList(";", true).Join(";");
 			}));
 
 		public static FilterBys<Form> GetFormsFilter(string systemID, string repositoryID = null, string repositoryEntityID = null)
@@ -289,6 +293,7 @@ namespace net.vieapps.Services.Portals
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.IsAuthenticated ? requestInfo.Session.User.ID : null;
+				obj.DeviceID = requestInfo.Session.DeviceID;
 				obj.IPAddress = requestInfo.Session.IP;
 				obj.Profiles = requestInfo.Session.User.IsAuthenticated ? new Dictionary<string, string> { ["vieapps"] = requestInfo.Session.User.ID } : null;
 			});
@@ -499,21 +504,34 @@ namespace net.vieapps.Services.Portals
 				@event = "Update";
 
 			var data = requestInfo.GetBodyExpando();
-			var form = await Form.GetAsync<Form>(data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+			var identity = requestInfo.ContainsKey("x-email-as-identity")
+				? data.Get<string>("Email")?.GenerateUUID()
+				: requestInfo.ContainsKey("x-phone-as-identity")
+					? data.Get<string>("Phone")?.GenerateUUID()
+					: null;
+			var form = await Form.GetAsync<Form>(identity ?? data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
 			var oldStatus = form != null ? form.Status : ApprovalStatus.Pending;
 
 			if (!@event.IsEquals("Delete"))
 			{
 				if (form == null)
 				{
-					form = Form.CreateInstance(data);
+					form = data.CreateForm("Privileges", obj =>
+					{
+						obj.Title = string.IsNullOrWhiteSpace(obj.Title) ? $"Request from {obj.Name} ({obj.Phone})" : obj.Title;
+						obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? identity ?? UtilityService.NewUUID : obj.ID;
+						if (string.IsNullOrWhiteSpace(obj.CreatedID) || string.IsNullOrWhiteSpace(obj.LastModifiedID))
+						{
+							obj.Created = obj.LastModified = DateTime.Now;
+							obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.IsAuthenticated ? requestInfo.Session.User.ID : null;
+						}
+						obj.DeviceID = !string.IsNullOrWhiteSpace(obj.DeviceID) ? obj.DeviceID : requestInfo.Session.DeviceID;
+						obj.IPAddress = !string.IsNullOrWhiteSpace(obj.IPAddress) ? obj.IPAddress : requestInfo.Session.IP;
+					}).Normalize(requestInfo);
 					await Form.CreateAsync(form, cancellationToken).ConfigureAwait(false);
 				}
 				else
-				{
-					form.Fill(data);
-					await Form.UpdateAsync(form, dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
-				}
+					await Form.UpdateAsync(form.Fill(data), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (form != null)
 				await Form.DeleteAsync<Form>(form.ID, form.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -529,28 +547,15 @@ namespace net.vieapps.Services.Portals
 			if (sendNotifications)
 				await form.SendNotificationAsync(@event, form.ContentType.Notifications, oldStatus, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
-			// send update messages
-			var json = form.ToJson();
-			var objectName = form.GetObjectName();
+			// response
+			var response = form.ToJson();
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#{@event}",
-				Data = json,
+				Type = $"{requestInfo.ServiceName}#{form.GetObjectName()}#{@event}",
+				Data = response,
 				DeviceID = "*"
 			}.Send();
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#{@event}",
-				Data = json,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-
-			// return the response
-			return new JObject
-			{
-				{ "ID", form.ID },
-				{ "Type", objectName }
-			};
+			return response;
 		}
 	}
 }
