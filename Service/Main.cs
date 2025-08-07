@@ -5172,7 +5172,7 @@ namespace net.vieapps.Services.Portals
 					throw new InformationInvalidException("Invalid (entity)");
 
 				var settings = organization.WebHookSettings ?? new();
-				var adapterName = requestInfo.GetParameter("x-webhook-adapter") ?? "";
+				var adapterName = requestInfo.GetParameter("x-webhook-adapter") ?? "default";
 				if (contentType != null && contentType.WebHookAdapters != null && contentType.WebHookAdapters.Any())
 				{
 					if (contentType.WebHookAdapters.TryGetValue(adapterName, out var webhookAdapter))
@@ -5193,7 +5193,7 @@ namespace net.vieapps.Services.Portals
 					? requestInfo.GetParameter("x-url")
 					: $"{Utility.APIsHttpURI}/webhooks/portals/{organization.Alias}/{contentType.ID}/{adapterName}")).GetURLPath();
 				requestInfo.Header["x-webhook-adapter"] = adapterName;
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start process request at web-hook => {adapterName} [{contentType?.ID}] - URI: {endpointURL}", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start process request at web-hook => {adapterName} [{contentType?.ID}]\r\nAdapter (Original): {requestInfo.GetParameter("x-webhook-adapter")} - URI: {endpointURL}", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
 
 				var forwardAsEmail = isForwarder && (requestInfo.ContainsKey("x-as-email") || (requestInfo.TryGetParameter("x-forwarder-type", out var forwarderType) && forwarderType.IsEquals("email")));
 				var message = !isForwarder || forwardAsEmail
