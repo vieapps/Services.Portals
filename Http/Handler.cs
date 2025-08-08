@@ -1073,13 +1073,17 @@ namespace net.vieapps.Services.Portals
 					if (ex is WampException wampException)
 					{
 						var wampDetails = wampException.GetDetails(requestInfo);
-						statusCode = wampDetails.Type == "SiteNotRecognizedException" ? (int)HttpStatusCode.NotFound : wampDetails.Code;
+						statusCode = wampDetails.Type == "SiteNotRecognizedException"
+							? (int)HttpStatusCode.NotFound
+							: wampDetails.Type == "SiteFrozenException" ? 530 : wampDetails.Code;
 						context.ShowError(statusCode, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
 					}
 					else
 					{
 						var type = ex.GetTypeName(true);
-						statusCode = type == "SiteNotRecognizedException" ? (int)HttpStatusCode.NotFound : ex.GetHttpStatusCode();
+						statusCode = type == "SiteNotRecognizedException"
+							? (int)HttpStatusCode.NotFound
+							: type == "SiteFrozenException" ? 530 : ex.GetHttpStatusCode();
 						context.ShowError(statusCode, ex.Message, type, correlationID, ex, isDebugLogEnabled);
 					}
 					await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred ({statusCode}) => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);

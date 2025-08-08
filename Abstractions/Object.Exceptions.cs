@@ -99,6 +99,18 @@ namespace net.vieapps.Services.Portals.Exceptions
 	}
 
 	[Serializable]
+	public class SiteFrozenException : AppException
+	{
+		public SiteFrozenException() : this("The requested site is frozen, please contact your administrator") { }
+
+		public SiteFrozenException(Exception innerException) : base($"The requested site is frozen, please contact your administrator => {innerException.Message}", innerException) { }
+
+		public SiteFrozenException(string message) : base(message) { }
+
+		public SiteFrozenException(string message, Exception innerException) : base(message, innerException) { }
+	}
+
+	[Serializable]
 	public class DesktopNotFoundException : AppException
 	{
 		public DesktopNotFoundException() : this("The requested desktop is not found") { }

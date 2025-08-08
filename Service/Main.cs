@@ -1232,6 +1232,10 @@ namespace net.vieapps.Services.Portals
 				site = site.Prepare(host, false);
 
 			organization = organization ?? site?.Organization;
+
+			if (organization != null && ((organization.Status != ApprovalStatus.Published && organization.Status != ApprovalStatus.Approved) || (DateTime.TryParse(organization.ExpiredDate, out var expiredDate) && expiredDate < DateTime.Now)))
+				throw new SiteFrozenException();
+
 			if (organization != null && requestInfo.ContainsKey("x-force-refresh"))
 				await organization.RefreshAsync(cancellationToken).ConfigureAwait(false);
 
