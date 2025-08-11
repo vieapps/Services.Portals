@@ -5551,36 +5551,39 @@ namespace net.vieapps.Services.Portals
 				{
 					var json = request.BodyAsJson;
 					var extras = (json.Get<string>("Extras") ?? "{}").ToJson() as JObject;
-					var section = extras.Get<JObject>("Submited");
-					if (section != null && section.Get<string>("Location") == null)
-						section["Location"] = await requestInfo.Session.GetLocationAsync(form.IPAddress, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
-					await new[] { "Opened", "Confirmed", "Unsubscribed" }.ForEachAsync(async name =>
+					await new[] { "Submited", "Opened", "Confirmed", "Unsubscribed" }.ForEachAsync(async name =>
 					{
-						section = extras.Get<JObject>(name);
-						if (section != null && section.Get<string>("Location") == null)
-							section["Location"] = await requestInfo.Session.GetLocationAsync(section.Get<string>("IP"), requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+						var section = extras.Get<JToken>(name);
+						if (section is JArray sectionArray)
+							await sectionArray.ForEachAsync(async data =>
+							{
+								if (data.Get<string>("Location") == null)
+									data["Location"] = await requestInfo.Session.GetLocationAsync(data.Get<string>("IP") ?? form.IPAddress, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+							}, true, false).ConfigureAwait(false);
+						else if (section.Get<string>("Location") == null)
+							section["Location"] = await requestInfo.Session.GetLocationAsync(section.Get<string>("IP") ?? form.IPAddress, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 					}, true, false).ConfigureAwait(false);
 					json["Extras"] = extras.ToString(Formatting.Indented);
 					request.Body = json.ToString(Formatting.None);
 					request = request.ToWebHookMessage(settings, form.OrganizationID, false, msg => msg.EndpointURL = endpointURL).Normalize(settings, request, form.OrganizationID).ToRequestInfo(request);
-				}
 
-				try
-				{
-					var response = await this.ProcessWebHookMessageAsync(request, cancellationToken).ConfigureAwait(false);
-					if (writeLogs)
-						await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process a tracking web-hook successful => {adapterName} [{form.ContentTypeID}]\r\n\r\nRequest: {request.ToString(jsonFormat)}\r\n\r\nResponse: {response.ToString(jsonFormat)}", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
+					try
+					{
+						var response = await this.ProcessWebHookMessageAsync(request, cancellationToken).ConfigureAwait(false);
+						if (writeLogs)
+							await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process a tracking web-hook successful => {adapterName} [{form.ContentTypeID}]\r\n\r\nRequest: {request.ToString(jsonFormat)}\r\n\r\nResponse: {response.ToString(jsonFormat)}", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
 
-					var url = response.Get<string>("URL") ?? response.Get<JObject>("Body")?.Get<string>("URL") ?? response.Get<string>("Location") ?? response.Get<JObject>("Body")?.Get<string>("Location");
-					if (isTracking)
-						trackingBody = await getTrackingImageAsync(url ?? defaultTrackingImageURL).ConfigureAwait(false);
-					else
-						location = url;
-				}
-				catch (Exception ex)
-				{
-					var additional = ex is RemoteServerException rse ? $"\r\n\r\nError: {(rse.Body ?? "{}").ToJson().ToString(jsonFormat)}" : "";
-					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error occurred while processing a tracking web-hook message => {ex.Message}{(writeLogs ? "" : $"\r\n\r\nURI: {endpointURL}")}\r\n\r\nRequest: {request.ToString(jsonFormat)}{additional}", ex, this.ServiceName, "WebHooks", LogLevel.Error).ConfigureAwait(false);
+						var url = response.Get<string>("URL") ?? response.Get<JObject>("Body")?.Get<string>("URL") ?? response.Get<string>("Location") ?? response.Get<JObject>("Body")?.Get<string>("Location");
+						if (isTracking)
+							trackingBody = await getTrackingImageAsync(url ?? defaultTrackingImageURL).ConfigureAwait(false);
+						else
+							location = url;
+					}
+					catch (Exception ex)
+					{
+						var additional = ex is RemoteServerException rse ? $"\r\n\r\nError: {(rse.Body ?? "{}").ToJson().ToString(jsonFormat)}" : "";
+						await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error occurred while processing a tracking web-hook message => {ex.Message}{(writeLogs ? "" : $"\r\n\r\nURI: {endpointURL}")}\r\n\r\nRequest: {request.ToString(jsonFormat)}{additional}", ex, this.ServiceName, "WebHooks", LogLevel.Error).ConfigureAwait(false);
+					}
 				}
 			}
 

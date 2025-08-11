@@ -509,6 +509,7 @@ namespace net.vieapps.Services.Portals
 				: requestInfo.ContainsKey("x-phone-as-identity")
 					? data.Get<string>("Phone")?.GenerateUUID()
 					: null;
+
 			var form = await Form.GetAsync<Form>(identity ?? data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
 			var oldStatus = form != null ? form.Status : ApprovalStatus.Pending;
 
@@ -531,7 +532,51 @@ namespace net.vieapps.Services.Portals
 					await Form.CreateAsync(form, cancellationToken).ConfigureAwait(false);
 				}
 				else
-					await Form.UpdateAsync(form.Fill(data), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
+				{
+					var notes = form.Notes ?? "";
+					var details = form.Details ?? "";
+					var tags = form.Tags ?? "";
+					var extras = form.Extras ?? "";
+					form.Fill(data, "ID,Privileges", _ =>
+					{
+						if (requestInfo.ContainsKey("x-update-notes") && !string.IsNullOrWhiteSpace(notes))
+						{
+							form.Notes = notes + (string.IsNullOrWhiteSpace(form.Notes) ? "" : $"\r\n{form.Notes}");
+							form.Notes = string.IsNullOrWhiteSpace(form.Notes) ? null : form.Notes;
+						}
+						if (requestInfo.ContainsKey("x-update-details") && !string.IsNullOrWhiteSpace(details))
+						{
+							form.Details = details + (string.IsNullOrWhiteSpace(form.Details) ? "" : $"\r\n{form.Details}");
+							form.Details = string.IsNullOrWhiteSpace(form.Details) ? null : form.Details;
+						}
+						if (requestInfo.ContainsKey("x-update-tags") && !string.IsNullOrWhiteSpace(tags))
+						{
+							form.Tags = (tags + (string.IsNullOrWhiteSpace(form.Tags) ? "" : $";{form.Tags}")).ToList(";", true).Distinct(StringComparer.OrdinalIgnoreCase).Join(";");
+							form.Tags = string.IsNullOrWhiteSpace(form.Tags) ? null : form.Tags;
+						}
+						if (requestInfo.ContainsKey("x-update-extras") && !string.IsNullOrWhiteSpace(extras))
+							try
+							{
+								var extrasJson = extras.ToJson() as JObject;
+								((form.Extras ?? "{}").ToJson() as JObject).ForEach(kvp =>
+								{
+									if (extrasJson[kvp.Key] is JArray sectionArray)
+										sectionArray.Add(kvp.Value);
+									else if (extrasJson[kvp.Key] is JObject sectionObject)
+										extrasJson[kvp.Key] = new JArray(sectionObject, kvp.Value);
+									else
+										extrasJson[kvp.Key] = kvp.Value;
+								});
+								form.Extras = extrasJson.ToString(Formatting.Indented);
+								form.Extras = string.IsNullOrWhiteSpace(form.Extras) ? null : form.Extras;
+							}
+							catch
+							{
+								form.Extras = extras;
+							}
+					});
+					await Form.UpdateAsync(form, dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
+				}
 			}
 			else if (form != null)
 				await Form.DeleteAsync<Form>(form.ID, form.LastModifiedID, cancellationToken).ConfigureAwait(false);
