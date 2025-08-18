@@ -1,13 +1,13 @@
 ﻿#region Related components
 using System;
 using System.Linq;
+using System.Dynamic;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
-using System.Dynamic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Converters;
@@ -24,6 +24,11 @@ namespace net.vieapps.Services.Portals
 	public sealed class Form : Repository<Form>, IBusinessObject
 	{
 		public Form() : base() { }
+
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
 		[Searchable]
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
@@ -71,9 +76,6 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Country { get; set; }
 
-		[FormControl(ControlType = "TextArea", MaxLength = 4000, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
-		public string Notes { get; set; }
-
 		[Searchable]
 		[Sortable(IndexName = "Title")]
 		[Property(MaxLength = 250, NotNull = true, NotEmpty = true)]
@@ -84,6 +86,11 @@ namespace net.vieapps.Services.Portals
 		[Property(IsCLOB = true)]
 		[FormControl(ControlType = "TextArea", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string Details { get; set; }
+
+		[Searchable]
+		[Property(IsCLOB = true)]
+		[FormControl(ControlType = "TextArea", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public string Notes { get; set; }
 
 		[Searchable]
 		[Sortable(IndexName = "Management")]
@@ -106,27 +113,23 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public bool Confirmed { get; set; } = false;
 
-		[Sortable]
-		[Property(MaxLength = 128)]
+		[Property(IsCLOB = true)]
+		[FormControl(Hidden = true, ControlType = "TextArea", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
+		public string Extras { get; set; }
+
+		[Sortable(IndexName = "SystemInfo")]
+		[Property(MaxLength = 250)]
 		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string DeviceID { get; set; }
 
-		[Property(MaxLength = 50)]
+		[Sortable(IndexName = "SystemInfo")]
+		[Property(MaxLength = 150)]
 		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public string IPAddress { get; set; }
-
-		[Property(IsCLOB = true), AsJson]
-		[FormControl(Hidden = true, ControlType = "TextArea", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
-		public string Extras { get; set; }
 
 		[AsJson]
 		[FormControl(Hidden = true, ControlType = "Select", Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
 		public Dictionary<string, string> Profiles { get; set; }
-
-		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
-		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true, Label = "{{portals.cms.forms.controls.[name].label}}", PlaceHolder = "{{portals.cms.forms.controls.[name].placeholder}}", Description = "{{portals.cms.forms.controls.[name].description}}")]
-		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public bool AllowComments { get; } = false;

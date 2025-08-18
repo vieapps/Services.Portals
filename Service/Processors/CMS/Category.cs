@@ -1253,6 +1253,10 @@ namespace net.vieapps.Services.Portals
 			else if (category != null)
 				await Category.DeleteAsync<Category>(category.ID, category.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
+			// stop if has no info
+			if (category == null)
+				return new JObject();
+
 			// update cache
 			await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 			if (@event.IsEquals("Delete"))

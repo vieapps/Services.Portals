@@ -828,6 +828,10 @@ namespace net.vieapps.Services.Portals
 			else if (desktop != null)
 				await Desktop.DeleteAsync<Desktop>(desktop.ID, desktop.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
+			// stop if has no info
+			if (desktop == null)
+				return new JObject();
+
 			// clear related cache
 			if (requestInfo.GetHeaderParameter("x-converter") == null || @event.IsEquals("Delete"))
 				await desktop.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);

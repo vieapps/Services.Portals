@@ -693,6 +693,10 @@ namespace net.vieapps.Services.Portals
 			else if (site != null)
 				await Site.DeleteAsync<Site>(site.ID, site.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
+			// stop if has no info
+			if (site == null)
+				return new JObject();
+
 			// clear related cache
 			if (requestInfo.GetHeaderParameter("x-converter") == null || @event.IsEquals("Delete"))
 				await site.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);

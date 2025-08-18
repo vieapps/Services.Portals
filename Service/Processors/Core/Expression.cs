@@ -461,6 +461,10 @@ namespace net.vieapps.Services.Portals
 			else if (expression != null)
 				await Expression.DeleteAsync<Expression>(expression.ID, expression.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
+			// stop if has no info
+			if (expression == null)
+				return new JObject();
+
 			// clear related cache
 			if (requestInfo.GetHeaderParameter("x-converter") == null || @event.IsEquals("Delete"))
 				await expression.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);

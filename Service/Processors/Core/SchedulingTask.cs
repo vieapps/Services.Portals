@@ -215,7 +215,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// create new schedulingTask
-			var schedulingTask = requestBody.CreateSchedulingTask("SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var schedulingTask = requestBody.CreateSchedulingTask("SystemID,Privileges,Time,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
@@ -263,8 +263,18 @@ namespace net.vieapps.Services.Portals
 			// send the update message to update to all other connected clients
 			var versions = await schedulingTask.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
 			var response = schedulingTask.ToJson(json => json.UpdateVersions(versions));
+
 			if (isRefresh)
+			{
+				if (schedulingTask.Time > DateTime.Now && schedulingTask.Status != Status.Awaiting)
+				{
+					response["Status"] = Status.Awaiting.ToString();
+					schedulingTask.SetStatus(Status.Awaiting).Set(true);
+					if (schedulingTask.Persistance)
+						SchedulingTask.UpdateAsync(schedulingTask, true, Utility.CancellationToken).Run();
+				}
 				schedulingTask.SendMessages("Update", response, Utility.NodeID);
+			}
 
 			// response
 			return response;
@@ -286,7 +296,7 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			var requestBody = requestInfo.GetBodyExpando();
-			schedulingTask.Update(requestBody, "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			schedulingTask.Update(requestBody, "ID,SystemID,Privileges,Time,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.LastModified = DateTime.Now;
 				obj.LastModifiedID = requestInfo.Session.User.ID;
@@ -365,6 +375,10 @@ namespace net.vieapps.Services.Portals
 			}
 			else if (schedulingTask != null)
 				await SchedulingTask.DeleteAsync<SchedulingTask>(schedulingTask.ID, schedulingTask.LastModifiedID, cancellationToken).ConfigureAwait(false);
+
+			// stop if has no info
+			if (schedulingTask == null)
+				return new JObject();
 
 			// clear cache
 			await schedulingTask.ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
@@ -448,18 +462,27 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task RunSchedulingTasksAsync(string correlationID)
 		{
+			var schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => schedulingTask.Status != Status.Awaiting && schedulingTask.Time > DateTime.Now).ToList();
+			schedulingTasks.ForEach(schedulingTask =>
+			{
+				schedulingTask.SetStatus(Status.Awaiting).Set(true).SendMessages();
+				if (schedulingTask.Persistance)
+					SchedulingTask.UpdateAsync(schedulingTask, true, Utility.CancellationToken).Run();
+			});
+
 			await Task.Delay(UtilityService.GetRandomNumber(123, 456), Utility.CancellationToken).ConfigureAwait(false);
-			var schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => schedulingTask.Status.Equals(Status.Awaiting) && schedulingTask.Time <= DateTime.Now).ToList();
+			schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => schedulingTask.Status == Status.Awaiting && schedulingTask.Time <= DateTime.Now).ToList();
 			if (!schedulingTasks.Any())
 				return;
 
+			var ids = schedulingTasks.Select(schedulingTask => schedulingTask.ID).ToHashSet();
 			schedulingTasks.ForEach(schedulingTask => schedulingTask.SetStatus(Status.Acquired).SendMessages());
-			if (Utility.IsDebugLogEnabled)
-				await Utility.WriteLogAsync(correlationID, $"Run {schedulingTasks.Count} scheduling tasks", "Task").ConfigureAwait(false);
 
 			await Task.Delay(UtilityService.GetRandomNumber(123, 456), Utility.CancellationToken).ConfigureAwait(false);
-			var ids = schedulingTasks.Select(schedulingTask => schedulingTask.ID).ToHashSet();
-			schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => ids.Contains(schedulingTask.ID) && schedulingTask.Status.Equals(Status.Acquired) && schedulingTask.Time <= DateTime.Now).ToList();
+			schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => ids.Contains(schedulingTask.ID) && schedulingTask.Status == Status.Acquired && schedulingTask.Time <= DateTime.Now).ToList();
+			if (Utility.IsDebugLogEnabled)
+				await Utility.WriteLogAsync(correlationID, $"Run {schedulingTasks.Count} scheduling task(s)", "Task").ConfigureAwait(false);
+
 			await schedulingTasks.ForEachAsync(async schedulingTask =>
 			{
 				try
@@ -496,6 +519,14 @@ namespace net.vieapps.Services.Portals
 					schedulingTask.Remove().SendMessages("Delete");
 				}, true, false).ConfigureAwait(false);
 			}
+
+			schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => ids.Contains(schedulingTask.ID) && schedulingTask.Status == Status.Acquired && schedulingTask.Time <= DateTime.Now).ToList();
+			schedulingTasks.ForEach(schedulingTask =>
+			{
+				schedulingTask.SetStatus(Status.Awaiting).SetTime().Set(true).SendMessages();
+				if (schedulingTask.Persistance)
+					SchedulingTask.UpdateAsync(schedulingTask, true, Utility.CancellationToken).Run();
+			});
 		}
 
 		internal static async Task RunAsync(this SchedulingTask schedulingTask, string correlationID, CancellationToken cancellationToken)
@@ -503,7 +534,7 @@ namespace net.vieapps.Services.Portals
 			// prepare
 			schedulingTask.SetStatus(Status.Running).SendMessages();
 			if (schedulingTask.Persistance)
-				await SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).ConfigureAwait(false);
+				SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).Run();
 
 			var isForceRefreshPredefinedURLs = schedulingTask.SchedulingType.Equals(SchedulingType.Refresh) && schedulingTask.ID.IsEquals($"{schedulingTask.SystemID}:URLs:Force".GenerateUUID());
 			if (Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs)
@@ -626,10 +657,13 @@ namespace net.vieapps.Services.Portals
 					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task for crawling data => {ex.Message} [{ex.GetType()}]", "Task", correlationID).ConfigureAwait(false);
 				}
 
-			// update next run
-			schedulingTask.SetTime().SetStatus(schedulingTask.RecurringUnit > 0 ? Status.Awaiting : Status.Completed).SendMessages();
-			if (schedulingTask.Persistance)
-				await SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).ConfigureAwait(false);
+			// update next run (if still existed)
+			if (SchedulingTaskProcessor.SchedulingTasks.ContainsKey(schedulingTask.ID))
+			{
+				schedulingTask.SetStatus(schedulingTask.RecurringUnit > 0 ? Status.Awaiting : Status.Completed).SetTime().SendMessages();
+				if (schedulingTask.Persistance)
+					SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).Run();
+			}
 		}
 	}
 }

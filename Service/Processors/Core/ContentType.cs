@@ -719,6 +719,10 @@ namespace net.vieapps.Services.Portals
 			else if (contentType != null)
 				await ContentType.DeleteAsync<ContentType>(contentType.ID, contentType.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
+			// stop if has no info
+			if (contentType == null)
+				return new JObject();
+
 			// clear related cache
 			if (requestInfo.GetHeaderParameter("x-converter") == null || @event.IsEquals("Delete"))
 				await contentType.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);

@@ -556,6 +556,10 @@ namespace net.vieapps.Services.Portals
 			else if (module != null)
 				await Module.DeleteAsync<Module>(module.ID, module.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
+			// stop if has no info
+			if (module == null)
+				return new JObject();
+
 			// clear related cache
 			if (requestInfo.GetHeaderParameter("x-converter") == null || @event.IsEquals("Delete"))
 				await module.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);

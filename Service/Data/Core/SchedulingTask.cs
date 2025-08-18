@@ -139,9 +139,9 @@ namespace net.vieapps.Services.Portals
 
 		internal SchedulingTask SetTime(DateTime? time = null, Action<SchedulingTask> onCompleted = null)
 		{
-			this.Time = time != null && time.Value >= this.Time
+			this.Time = time != null && time.Value >= DateTime.Now
 				? time.Value
-				: this.RecurringUnit < 1
+				: this.RecurringUnit < 1 || this.Status == Status.Completed
 					? this.Time
 					: this.RecurringType.Equals(RecurringType.Years)
 						? this.Time.AddYears(this.RecurringUnit)

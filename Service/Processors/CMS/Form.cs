@@ -1,42 +1,178 @@
 ﻿#region Related components
-using Azure.Core;
+using System;
+using System.Linq;
+using System.Dynamic;
+using System.Xml.Linq;
+using System.Globalization;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using System;
-using System.Collections.Generic;
-using System.Dynamic;
-using System.Globalization;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Xml.Linq;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
 {
 	public static class FormProcessor
 	{
-		public static Form CreateForm(this ExpandoObject data, string excluded = null, Action<Form> onCompleted = null)
-			=> Form.CreateInstance(data, excluded?.ToHashSet(), form =>
+		static List<string> ExtraSections { get; } = ["Submited", "Opened", "Confirmed", "Unsubscribed", "Cancelled", "Paid", "Completed", "Refunded", "Others"];
+
+		public static async Task<Form> NormalizeAsync(this Form form, JToken extras, RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			extras ??= (form.Extras ?? "{}").ToJson();
+			await FormProcessor.ExtraSections.ForEachAsync(async name =>
+			{
+				var section = extras.Get<JToken>(name);
+				if (section is JArray sectionArray)
+					await sectionArray.ForEachAsync(async sectionObject =>
+					{
+						var userAgent = sectionObject.Get<string>("UserAgent");
+						if (userAgent != null)
+						{
+							sectionObject["OSInfo"] = $"{Extensions.GetOSInfo(userAgent)} [{userAgent}]";
+							(sectionObject as JObject).Remove("UserAgent");
+						}
+						if (sectionObject.Get<string>("IP") != null && sectionObject.Get<string>("Location") == null)
+							try
+							{
+								sectionObject["Location"] = await requestInfo.Session.GetLocationAsync(sectionObject.Get<string>("IP"), requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+							}
+							catch { }
+					}, true, false).ConfigureAwait(false);
+				else if (section is JObject sectionObject)
+				{
+					var userAgent = sectionObject.Get<string>("UserAgent");
+					if (userAgent != null)
+					{
+						sectionObject["OSInfo"] = $"{Extensions.GetOSInfo(userAgent)} [{userAgent}]";
+						sectionObject.Remove("UserAgent");
+					}
+					if (sectionObject.Get<string>("IP") != null && sectionObject.Get<string>("Location") == null)
+						try
+						{
+							sectionObject["Location"] = await requestInfo.Session.GetLocationAsync(sectionObject.Get<string>("IP"), requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+						}
+						catch { }
+				}
+			}, true, false).ConfigureAwait(false);
+			form.Extras = extras.ToString(Formatting.Indented);
+			form.Extras = string.IsNullOrWhiteSpace(form.Extras) || form.Extras == "{}" ? null : form.Extras;
+			return form;
+		}
+
+		public static Form UpdateExtras(this Form form, JToken extras, string name, RequestInfo requestInfo, Action<JObject> onPrepared = null)
+		{
+			var info = new JObject
+			{
+				["Time"] = DateTime.Now.ToIsoString(true),
+				["URL"] = new Uri(requestInfo.GetParameter("x-url")).GetURLPath(),
+				["DeviceID"] = requestInfo.Session.DeviceID,
+				["IP"] = requestInfo.Session.IP,
+				["OSInfo"] = $"{Extensions.GetOSInfo(requestInfo.Session.AppAgent)} [{requestInfo.Session.AppAgent}]"
+			};
+			onPrepared?.Invoke(info);
+			extras ??= (form.Extras ?? "{}").ToJson();
+			var section = extras.Get<JToken>(name);
+			if (section is JArray sectionArray)
+				sectionArray.Add(info);
+			else if (section is JObject sectionObject)
+				extras[name] = new JArray(sectionObject, info);
+			else
+				extras[name] = info;
+			form.Extras = extras.ToString(Formatting.Indented);
+			form.Extras = string.IsNullOrWhiteSpace(form.Extras) || form.Extras == "{}" ? null : form.Extras;
+			return form;
+		}
+
+		public static Form FillProperties(this Form form, RequestInfo requestInfo, ExpandoObject data, string excluded = null, Action<Form> onUpdated = null)
+		{
+			data ??= requestInfo.GetBodyExpando();
+
+			var details = form.Details;
+			var notes = form.Notes;
+			var tags = form.Tags;
+			var extras = form.Extras;
+			var extrasJson = (extras ?? "{}").ToJson() as JObject;
+
+			var excludedProperties = (excluded ?? "Privileges").ToHashSet();
+			if (requestInfo.ContainsKey("x-update-notes"))
+				excludedProperties.Add("Notes");
+			if (requestInfo.ContainsKey("x-update-details"))
+				excludedProperties.Add("Details");
+			if (requestInfo.ContainsKey("x-update-tags"))
+				excludedProperties.Add("Tags");
+			if (requestInfo.ContainsKey("x-update-extras"))
+				excludedProperties.Add("Extras");
+
+			form.Fill(data, excludedProperties, _ =>
 			{
 				form.NormalizeHTMLs(out var _);
-				onCompleted?.Invoke(form);
+				if (requestInfo.ContainsKey("x-email-as-identity"))
+					form.ID = form.Email?.GenerateUUID();
+				else if (requestInfo.ContainsKey("x-phone-as-identity"))
+					form.ID = form.Phone?.GenerateUUID();
+
+				if (requestInfo.ContainsKey("x-update-details"))
+				{
+					form.Details = $"{(string.IsNullOrWhiteSpace(details) ? "" : $"{details}\r\n--------------------\r\n")}{data.Get<string>("Details")}";
+					form.Details = string.IsNullOrWhiteSpace(form.Details) ? null : form.Details;
+				}
+
+				if (requestInfo.ContainsKey("x-update-notes"))
+				{
+					form.Notes = $"{(string.IsNullOrWhiteSpace(notes) ? "" : $"{notes}\r\n--------------------\r\n")}{data.Get<string>("Notes")}";
+					form.Notes = string.IsNullOrWhiteSpace(form.Notes) ? null : form.Notes;
+				}
+
+				if (requestInfo.ContainsKey("x-update-tags"))
+					form.Tags = $"{(string.IsNullOrWhiteSpace(tags) ? "" : $"{tags};")}{data.Get<string>("Tags")}";
+
+				if (requestInfo.ContainsKey("x-update-extras"))
+					try
+					{
+						((data.Get<string>("Extras") ?? "{}").ToJson() as JObject).ForEach(kvp =>
+						{
+							if (extrasJson[kvp.Key] is JArray sectionArray)
+								sectionArray.Add(kvp.Value);
+							else if (extrasJson[kvp.Key] is JObject sectionObject)
+								extrasJson[kvp.Key] = new JArray(sectionObject, kvp.Value);
+							else
+								extrasJson[kvp.Key] = kvp.Value;
+						});
+					}
+					finally
+					{
+						form.Extras = extrasJson.ToString(Formatting.Indented);
+						form.Extras = string.IsNullOrWhiteSpace(form.Extras) || form.Extras == "{}" ? null : form.Extras;
+					}
+				else
+					try
+					{
+						extrasJson = (form.Extras ?? "{}").ToJson() as JObject;
+					}
+					catch
+					{
+						form.Extras = extras;
+						extrasJson = (form.Extras ?? "{}").ToJson() as JObject;
+					}
+
+				if (requestInfo.TryGetParameter("x-delete-extras", out var deleteExtras) && !string.IsNullOrWhiteSpace(deleteExtras))
+					try
+					{
+						deleteExtras.ToList(";", true).ForEach(name => extrasJson.Remove(name));
+					}
+					finally
+					{
+						form.Extras = extrasJson.ToString(Formatting.Indented);
+						form.Extras = string.IsNullOrWhiteSpace(form.Extras) || form.Extras == "{}" ? null : form.Extras;
+					}
 			});
 
-		public static Form Update(this Form form, ExpandoObject data, string excluded = null, Action<Form> onCompleted = null)
-			=> form.Fill(data, excluded?.ToHashSet(), _ =>
-			{
-				form.NormalizeHTMLs(out var _);
-				onCompleted?.Invoke(form);
-			});
-
-		public static Form Normalize(this Form form, RequestInfo requestInfo)
-			=> form.Compute(requestInfo, () => form.Validate((name, value) =>
+			form.Compute(requestInfo, () => form.Validate((name, value) =>
 			{
 				if (name == "Phone")
 				{
@@ -53,8 +189,12 @@ namespace net.vieapps.Services.Portals
 						throw new InformationInvalidException("Email is invalid");
 				}
 				else if (name == "Tags")
-					form.Tags = string.IsNullOrWhiteSpace(form.Tags) ? null : form.Tags.ToList(";", true).Join(";");
+					form.Tags = string.IsNullOrWhiteSpace(form.Tags) ? null : form.Tags.ToList(";", true).Distinct(StringComparer.OrdinalIgnoreCase).Join(";");
 			}));
+
+			onUpdated?.Invoke(form);
+			return form;
+		}
 
 		public static FilterBys<Form> GetFormsFilter(string systemID, string repositoryID = null, string repositoryEntityID = null)
 		{
@@ -83,7 +223,7 @@ namespace net.vieapps.Services.Portals
 
 			await Utility.Cache.RemoveAsync(dataCacheKeys, cancellationToken).ConfigureAwait(false);
 			if (Utility.IsCacheLogEnabled && form != null)
-				await Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS form [{form.Title} - ID: {form.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS form [{form.Title} - ID: {form.ID}]\r\n- {dataCacheKeys.Count} request keys => {dataCacheKeys.Join(", ")}", "Caches").ConfigureAwait(false);
 		}
 
 		static async Task<Tuple<long, List<Form>, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Form> filter, SortBy<Form> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false)
@@ -284,8 +424,8 @@ namespace net.vieapps.Services.Portals
 					throw new InvalidRequestException("Captcha code is invalid");
 			}
 
-			// get data
-			var form = request.CreateForm("Privileges,Created,CreatedID,LastModified,LastModifiedID,Captcha", obj =>
+			// prepare properties
+			var form = await Form.CreateInstance(request).FillProperties(requestInfo, request, "Privileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.SystemID = organization.ID;
 				obj.RepositoryID = module.ID;
@@ -296,19 +436,39 @@ namespace net.vieapps.Services.Portals
 				obj.DeviceID = requestInfo.Session.DeviceID;
 				obj.IPAddress = requestInfo.Session.IP;
 				obj.Profiles = requestInfo.Session.User.IsAuthenticated ? new Dictionary<string, string> { ["vieapps"] = requestInfo.Session.User.ID } : null;
-			});
+			}).NormalizeAsync(null, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			// create new
-			form.Normalize(requestInfo);
-			await Form.CreateAsync(form, cancellationToken).ConfigureAwait(false);
+			try
+			{
+				await Form.CreateAsync(form, cancellationToken).ConfigureAwait(false);
+			}
+			catch (RepositoryOperationException ex)
+			{
+				if (ex.InnerException is InformationExistedException && requestInfo.ContainsKey("x-update-if-existed"))
+				{
+					form.Created = request.Get<DateTime>("Created");
+					form.CreatedID = request.Get<string>("CreatedID");
+					form.LastModified = request.Get<DateTime>("LastModified");
+					form.LastModifiedID = request.Get<string>("LastModifiedID");
+					form.DeviceID = request.Get<string>("DeviceID");
+					form.IPAddress = request.Get<string>("IPAddress");
+					await Form.UpdateAsync(form, false, cancellationToken).ConfigureAwait(false);
+				}
+				else
+					throw;
+			}
+			catch (Exception)
+			{
+				throw;
+			}
 
-			// update cache & send notifications
+			// update cache
 			Task.WhenAll
 			(
 				form.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
 				Utility.Cache.AddSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), cancellationToken)
 			).Run();
-			await form.SendNotificationAsync("Create", form.ContentType.Notifications, ApprovalStatus.Draft, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			// send update message
 			var response = form.ToJson();
@@ -318,6 +478,19 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*",
 				Data = response
 			}.Send();
+
+			// send notifications and fire a trigger
+			await form.SendNotificationAsync("Create", form.ContentType.Notifications, ApprovalStatus.Draft, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			var extras = (form.Extras ?? "{}").ToJson();
+			var triggerURL = extras.Get<string>("OnChanged");
+			if (!string.IsNullOrWhiteSpace(triggerURL))
+			{
+				triggerURL += triggerURL.IsContains("?") ? "&" : "?";
+				triggerURL += $"x-identity={form.ID}&x-event=Created&x-status=${form.Status}&x-previous-status=${ApprovalStatus.Draft}";
+				requestInfo.ProcessWebHookTriggerAsync(triggerURL, response.ToString(Formatting.None)).Run(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error in trigger URL [{triggerURL}] => {ex.Message}" }, ex, requestInfo.CorrelationID));
+			}
+
+			// response
 			return response;
 		}
 
@@ -383,8 +556,16 @@ namespace net.vieapps.Services.Portals
 				Data = response
 			}.Send();
 
-			// send notification
+			// send notification and fire a trigger
 			await form.SendNotificationAsync("Update", form.ContentType.Notifications, oldStatus, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			var extras = (form.Extras ?? "{}").ToJson();
+			var triggerURL = extras.Get<string>("OnChanged");
+			if (!string.IsNullOrWhiteSpace(triggerURL))
+			{
+				triggerURL += triggerURL.IsContains("?") ? "&" : "?";
+				triggerURL += $"x-identity={form.ID}&x-event=Updated&x-status=${form.Status}&x-previous-status=${oldStatus}";
+				requestInfo.ProcessWebHookTriggerAsync(triggerURL, response.ToString(Formatting.None)).Run(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error in trigger URL [{triggerURL}] => {ex.Message}" }, ex, requestInfo.CorrelationID));
+			}
 
 			// response
 			return response;
@@ -392,14 +573,12 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> UpdateFormAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
-			// prepare
 			var form = await Form.GetAsync<Form>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
 			if (form == null)
 				throw new InformationNotFoundException();
 			else if (form.Organization == null || form.Module == null || form.ContentType == null)
 				throw new InformationInvalidException("The organization/module/form-type is invalid");
 
-			// check permission
 			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsEditor(form.WorkingPrivileges, form.ContentType.WorkingPrivileges, form.Organization);
 			if (!gotRights)
 				gotRights = form.Status.Equals(ApprovalStatus.Draft) || form.Status.Equals(ApprovalStatus.Pending) || form.Status.Equals(ApprovalStatus.Rejected)
@@ -408,18 +587,12 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// prepare data
 			var oldStatus = form.Status;
-			form.Update(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID,Profiles", obj =>
+			await form.FillProperties(requestInfo, requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID,Profiles", _ =>
 			{
-				obj.LastModified = DateTime.Now;
-				obj.LastModifiedID = requestInfo.Session.User.ID;
-			});
-
-			// compute & validate
-			form.Normalize(requestInfo);
-
-			// update
+				form.LastModified = DateTime.Now;
+				form.LastModifiedID = requestInfo.Session.User.ID;
+			}).NormalizeAsync((form.Extras ?? "{}").ToJson(), requestInfo, cancellationToken).ConfigureAwait(false);
 			return await form.UpdateAsync(requestInfo, oldStatus, cancellationToken).ConfigureAwait(false);
 		}
 
@@ -457,6 +630,7 @@ namespace net.vieapps.Services.Portals
 					form.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID)
 				).Run();
 
+			// send update messages
 			var json = sendUpdatingMessages ? form.ToJson() : null;
 			if (sendUpdatingMessages)
 				new UpdateMessage
@@ -466,7 +640,18 @@ namespace net.vieapps.Services.Portals
 					Data = json
 				}.Send();
 
+			// send notification and fire a trigger
 			await form.SendNotificationAsync("Delete", form.ContentType?.Notifications, form.Status, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			var extras = (form.Extras ?? "{}").ToJson();
+			var triggerURL = extras.Get<string>("OnChanged");
+			if (!string.IsNullOrWhiteSpace(triggerURL))
+			{
+				triggerURL += triggerURL.IsContains("?") ? "&" : "?";
+				triggerURL += $"x-identity={form.ID}&x-event=Deleted&x-status=${form.Status}&x-previous-status=${form.Status}";
+				requestInfo.ProcessWebHookTriggerAsync(triggerURL, (json ?? form.ToJson()).ToString(Formatting.None)).Run(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error in trigger URL [{triggerURL}] => {ex.Message}" }, ex, requestInfo.CorrelationID));
+			}
+
+			// delete
 			return json;
 		}
 
@@ -503,24 +688,23 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(@event) || !@event.IsEquals("Delete"))
 				@event = "Update";
 
-			var data = requestInfo.GetBodyExpando();
+			var request = requestInfo.GetBodyExpando();
 			var identity = requestInfo.ContainsKey("x-email-as-identity")
-				? data.Get<string>("Email")?.GenerateUUID()
+				? request.Get<string>("Email")?.GenerateUUID()
 				: requestInfo.ContainsKey("x-phone-as-identity")
-					? data.Get<string>("Phone")?.GenerateUUID()
+					? request.Get<string>("Phone")?.GenerateUUID()
 					: null;
 
-			var form = await Form.GetAsync<Form>(identity ?? data.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+			var form = await Form.GetAsync<Form>(identity ?? request.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
 			var oldStatus = form != null ? form.Status : ApprovalStatus.Pending;
 
 			if (!@event.IsEquals("Delete"))
 			{
 				if (form == null)
 				{
-					form = data.CreateForm("Privileges", obj =>
+					form = await Form.CreateInstance(request).FillProperties(requestInfo, request, null, obj =>
 					{
 						obj.Title = string.IsNullOrWhiteSpace(obj.Title) ? $"Request from {obj.Name} ({obj.Phone})" : obj.Title;
-						obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? identity ?? UtilityService.NewUUID : obj.ID;
 						if (string.IsNullOrWhiteSpace(obj.CreatedID) || string.IsNullOrWhiteSpace(obj.LastModifiedID))
 						{
 							obj.Created = obj.LastModified = DateTime.Now;
@@ -528,58 +712,43 @@ namespace net.vieapps.Services.Portals
 						}
 						obj.DeviceID = !string.IsNullOrWhiteSpace(obj.DeviceID) ? obj.DeviceID : requestInfo.Session.DeviceID;
 						obj.IPAddress = !string.IsNullOrWhiteSpace(obj.IPAddress) ? obj.IPAddress : requestInfo.Session.IP;
-					}).Normalize(requestInfo);
-					await Form.CreateAsync(form, cancellationToken).ConfigureAwait(false);
+					}).NormalizeAsync(null, requestInfo, cancellationToken).ConfigureAwait(false);
+					try
+					{
+						await Form.CreateAsync(form, cancellationToken).ConfigureAwait(false);
+					}
+					catch (RepositoryOperationException ex)
+					{
+						if (ex.InnerException is InformationExistedException && requestInfo.ContainsKey("x-update-if-existed"))
+						{
+							form.Created = request.Get<DateTime>("Created");
+							form.CreatedID = request.Get<string>("CreatedID");
+							form.LastModified = request.Get<DateTime>("LastModified");
+							form.LastModifiedID = request.Get<string>("LastModifiedID");
+							form.DeviceID = request.Get<string>("DeviceID");
+							form.IPAddress = request.Get<string>("IPAddress");
+							await Form.UpdateAsync(form, false, cancellationToken).ConfigureAwait(false);
+						}
+						else
+							throw;
+					}
+					catch (Exception)
+					{
+						throw;
+					}
 				}
 				else
 				{
-					var notes = form.Notes ?? "";
-					var details = form.Details ?? "";
-					var tags = form.Tags ?? "";
-					var extras = form.Extras ?? "";
-					form.Fill(data, "ID,Privileges", _ =>
-					{
-						if (requestInfo.ContainsKey("x-update-notes") && !string.IsNullOrWhiteSpace(notes))
-						{
-							form.Notes = notes + (string.IsNullOrWhiteSpace(form.Notes) ? "" : $"\r\n{form.Notes}");
-							form.Notes = string.IsNullOrWhiteSpace(form.Notes) ? null : form.Notes;
-						}
-						if (requestInfo.ContainsKey("x-update-details") && !string.IsNullOrWhiteSpace(details))
-						{
-							form.Details = details + (string.IsNullOrWhiteSpace(form.Details) ? "" : $"\r\n{form.Details}");
-							form.Details = string.IsNullOrWhiteSpace(form.Details) ? null : form.Details;
-						}
-						if (requestInfo.ContainsKey("x-update-tags") && !string.IsNullOrWhiteSpace(tags))
-						{
-							form.Tags = (tags + (string.IsNullOrWhiteSpace(form.Tags) ? "" : $";{form.Tags}")).ToList(";", true).Distinct(StringComparer.OrdinalIgnoreCase).Join(";");
-							form.Tags = string.IsNullOrWhiteSpace(form.Tags) ? null : form.Tags;
-						}
-						if (requestInfo.ContainsKey("x-update-extras") && !string.IsNullOrWhiteSpace(extras))
-							try
-							{
-								var extrasJson = extras.ToJson() as JObject;
-								((form.Extras ?? "{}").ToJson() as JObject).ForEach(kvp =>
-								{
-									if (extrasJson[kvp.Key] is JArray sectionArray)
-										sectionArray.Add(kvp.Value);
-									else if (extrasJson[kvp.Key] is JObject sectionObject)
-										extrasJson[kvp.Key] = new JArray(sectionObject, kvp.Value);
-									else
-										extrasJson[kvp.Key] = kvp.Value;
-								});
-								form.Extras = extrasJson.ToString(Formatting.Indented);
-								form.Extras = string.IsNullOrWhiteSpace(form.Extras) ? null : form.Extras;
-							}
-							catch
-							{
-								form.Extras = extras;
-							}
-					});
+					await form.FillProperties(requestInfo, request).NormalizeAsync((form.Extras ?? "{}").ToJson(), requestInfo, cancellationToken).ConfigureAwait(false);
 					await Form.UpdateAsync(form, dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 				}
 			}
 			else if (form != null)
-				await Form.DeleteAsync<Form>(form.ID, form.LastModifiedID, cancellationToken).ConfigureAwait(false);
+				await form.DeleteAsync(requestInfo, false, false, cancellationToken).ConfigureAwait(false);
+
+			// stop if has no info
+			if (form == null)
+				return new JObject();
 
 			// update cache
 			await form.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);

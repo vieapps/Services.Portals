@@ -2,8 +2,8 @@
 using System;
 using System.IO;
 using System.Net;
-using System.Data;
 using System.Linq;
+using System.Data;
 using System.Dynamic;
 using System.Xml.Linq;
 using System.Reflection;
@@ -1540,12 +1540,22 @@ namespace net.vieapps.Services.Portals
 					).ConfigureAwait(false);
 			}
 
+			var origin = requestInfo.GetHeaderParameter("Origin") ?? requestInfo.GetHeaderParameter("Referer") ?? requestInfo.GetHeaderParameter("Referrer");
+			if (string.IsNullOrWhiteSpace(origin))
+				origin = "*";
+			else
+			{
+				var originURI = new Uri(origin);
+				origin = $"{originURI.Scheme}://{originURI.Host}";
+			}
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				{ "ETag", eTag },
 				{ "Last-Modified", lastModified },
 				{ "Cache-Control", "public" },
 				{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
+				{ "Access-Control-Allow-Origin", origin },
+				{ "Access-Control-Allow-Credentials", "true" },
 				{ "X-Node", this.NodeID },
 				{ "X-Cache", "None" },
 				{ "X-Correlation-ID", requestInfo.CorrelationID }
@@ -1996,7 +2006,9 @@ namespace net.vieapps.Services.Portals
 			var modifiedSince = processCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
 			headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 			{
-				["Content-Type"] = "text/html; charset=utf-8"
+				["Content-Type"] = "text/html; charset=utf-8",
+				["Access-Control-Allow-Credentials"] = "true",
+				["Referrer-Policy"] = "no-referrer-when-downgrade"
 			};
 
 			string lastModified = null;
@@ -3377,7 +3389,7 @@ namespace net.vieapps.Services.Portals
 			// add default scripts
 			var scripts = "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js") + "\"></script>"
 				+ "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js") + "\"></script>"
-				+ (site.UseInlineScripts ? "<script>" + this.MinifyJs(await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false) + "\r\n" + await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false)) : $"<script src=\"~#/_assets/rsa.js?v={new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js")).LastWriteTime.ToUnixTimestamp()}\"></script><script src=\"~#/_assets/default.js?v={new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js")).LastWriteTime.ToUnixTimestamp()}\"></script>");
+				+ (site.UseInlineScripts ? "<script>" + this.MinifyJs(await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false) + "\r\n" + await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false)) : $"<script crossorigin=\"use-credentials\" src=\"~#/_assets/rsa.js?v={new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js")).LastWriteTime.ToUnixTimestamp()}\"></script><script crossorigin=\"use-credentials\" src=\"~#/_assets/default.js?v={new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js")).LastWriteTime.ToUnixTimestamp()}\"></script>");
 
 			// add scripts of the default theme
 			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", "default", "js"));
@@ -3390,7 +3402,7 @@ namespace net.vieapps.Services.Portals
 
 			scripts += site.UseInlineScripts
 				? await this.GetThemeResourcesAsync("default", "js", cancellationToken).ConfigureAwait(false)
-				: $"<script src=\"~#/_themes/default/js/all.js?v={this.GetThemeResourcesLastModified("default", "js").ToUnixTimestamp()}\"></script>";
+				: $"<script crossorigin=\"use-credentials\" src=\"~#/_themes/default/js/all.js?v={this.GetThemeResourcesLastModified("default", "js").ToUnixTimestamp()}\"></script>";
 
 			// add scripts of the organization theme
 			if (!"default".IsEquals(organizationTheme))
@@ -3404,7 +3416,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(organizationTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script src=\"~#/_themes/{organizationTheme}/js/all.js?v={this.GetThemeResourcesLastModified(organizationTheme, "js").ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"use-credentials\" src=\"~#/_themes/{organizationTheme}/js/all.js?v={this.GetThemeResourcesLastModified(organizationTheme, "js").ToUnixTimestamp()}\"></script>";
 			}
 
 			// add scripts of the site theme
@@ -3419,7 +3431,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(siteTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script src=\"~#/_themes/{siteTheme}/js/all.js?v={this.GetThemeResourcesLastModified(siteTheme, "js").ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"use-credentials\" src=\"~#/_themes/{siteTheme}/js/all.js?v={this.GetThemeResourcesLastModified(siteTheme, "js").ToUnixTimestamp()}\"></script>";
 			}
 
 			// add scripts of the desktop theme
@@ -3434,7 +3446,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(desktopTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script src=\"~#/_themes/{desktopTheme}/js/all.js?v={this.GetThemeResourcesLastModified(desktopTheme, "js").ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"use-credentials\" src=\"~#/_themes/{desktopTheme}/js/all.js?v={this.GetThemeResourcesLastModified(desktopTheme, "js").ToUnixTimestamp()}\"></script>";
 			}
 
 			// add the scripts of the organization
@@ -3446,7 +3458,7 @@ namespace net.vieapps.Services.Portals
 			if (organization.IsHasJavascripts)
 				scripts += site.UseInlineScripts
 					? this.MinifyJs(organization.Javascripts, organizationTheme).Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
-					: $"<script src=\"~#/_js/o_{organization.ID}.js?v={organization.LastModified.ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"use-credentials\" src=\"~#/_js/o_{organization.ID}.js?v={organization.LastModified.ToUnixTimestamp()}\"></script>";
 
 			// add the scripts of the site
 			if (!string.IsNullOrWhiteSpace(site.ScriptLibraries))
@@ -3457,7 +3469,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(site.Scripts))
 				scripts += site.UseInlineScripts
 					? this.MinifyJs(site.Scripts, siteTheme).Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
-					: $"<script src=\"~#/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"use-credentials\" src=\"~#/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}\"></script>";
 
 			// add the scripts of the desktop
 			if (!string.IsNullOrWhiteSpace(desktop.ScriptLibraries))
@@ -3468,7 +3480,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(desktop.Scripts))
 				scripts += site.UseInlineScripts
 					? this.MinifyJs(desktop.Scripts, desktopTheme).Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
-					: $"<script src=\"~#/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"use-credentials\" src=\"~#/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}\"></script>";
 
 			scripts += site.UseInlineScripts ? "</script>" : "";
 
@@ -5414,16 +5426,30 @@ namespace net.vieapps.Services.Portals
 			try
 			{
 				var info = requestPaths.FirstOrDefault().Url64Decode().ToList("/");
-				contentType = info.Count < 1 ? null : await info[0].GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-				form = info.Count < 2 ? null : await Form.GetAsync<Form>(info[1], cancellationToken).ConfigureAwait(false);
-				adapterName = info.Count < 3 ? "default" : info[2];
-				if (contentType != null && form != null && !contentType.ID.IsEquals(form.ContentTypeID))
-				{
-					form = null;
-					contentType = null;
-				}
+				contentType = info.Count > 0 ? await info[0].GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) : null;
+				form = info.Count > 1 ? await Form.GetAsync<Form>(info[1].StartsWith('@') ? info[1].Evaluate(null, requestInfo.AsExpandoObject)?.ToString() : info[1], cancellationToken).ConfigureAwait(false) : null;
+				adapterName = form != null
+					? info.Count > 2 ? info[2] : "default"
+					: info.Count > 1 ? info[1] : "default";
 			}
-			catch	{ }
+			catch
+			{
+				try
+				{
+					contentType = await (requestPaths.FirstOrDefault() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+					form = requestPaths.Length > 1 ? await Form.GetAsync<Form>(requestPaths[1].StartsWith('@') ? requestPaths[1].Evaluate(null, requestInfo.AsExpandoObject)?.ToString() : requestPaths[1], cancellationToken).ConfigureAwait(false) : null;
+					adapterName = form != null
+						? requestPaths.Length > 2 ? requestPaths[2] : "default"
+						: requestPaths.Length > 1 ? requestPaths[1] : "default";
+				}
+				catch { }
+			}
+
+			if (contentType != null && form != null && !contentType.ID.IsEquals(form.ContentTypeID))
+			{
+				form = null;
+				contentType = null;
+			}
 
 			var adapters = contentType?.WebHookAdapters ?? [];
 			if (!adapters.TryGetValue(adapterName, out settings))
@@ -5432,6 +5458,7 @@ namespace net.vieapps.Services.Portals
 				adapters.TryGetValue(adapterName, out settings);
 			}
 
+			var extras = (form?.Extras ?? "{}").ToJson();
 			var isTrigger = "Visit".IsEquals(mode);
 			var isTracking = !isTrigger && "Tracking".IsEquals(mode);
 			var isUnsubscribe = !isTrigger && !isTracking && "Unsubscribe".IsEquals(mode);
@@ -5439,7 +5466,7 @@ namespace net.vieapps.Services.Portals
 				? new Uri(requestInfo.GetParameter("x-url")).GetURLPath()
 				: $"{Utility.APIsHttpURI}/webhooks/portals/{contentType.Organization?.Alias}/{contentType.ID}/{adapterName}";
 
-			string location = null;
+			string location = null, triggerURL = null;
 			byte[] trackingBody = null;
 			var defaultTrackingImageURL = UtilityService.GetAppSetting("Portals:DefaultURLs:Tracking", $"{Utility.FilesHttpURI}/thumbnails/no-image.png");
 
@@ -5449,7 +5476,7 @@ namespace net.vieapps.Services.Portals
 				var data = requestInfo.ContainsKey("x-force-cache") ? null : await Utility.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				if (data == null)
 				{
-					using var image = await new Uri(url).SendHttpRequestAsync("GET", null, null, 90, cancellationToken).ConfigureAwait(false);
+					using var image = await new Uri(url).SendHttpRequestAsync("GET", null, null, 120, cancellationToken).ConfigureAwait(false);
 					data = await image.ReadAsByteArrayAsync().ConfigureAwait(false);
 					data = await data.ToWebPAsync(cancellationToken).ConfigureAwait(false);
 					data = data.Compress(this.BodyEncoding);
@@ -5461,70 +5488,52 @@ namespace net.vieapps.Services.Portals
 			// visit trigger
 			if (isTrigger)
 			{
-				trackingBody = $"console.log('Info: Device ID - IP - Location - Referer', '{requestInfo.Session.DeviceID}', '{requestInfo.Session.IP}', '{await requestInfo.Session.GetLocationAsync(requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false)}', '{requestInfo.GetHeaderParameter("Referer")}');".ToBytes().Compress(this.BodyEncoding);
+				var trackingScripts = requestInfo.ContainsKey("x-no-script") || string.IsNullOrWhiteSpace(settings?.PrepareBodyScript)
+					? $"console.log('Device ID: {requestInfo.Session.DeviceID}\\n', 'IP: {requestInfo.Session.IP}\\n', 'Location: {await requestInfo.Session.GetLocationAsync(requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false)}\\n', 'Refer URL: {requestInfo.GetHeaderParameter("Referer")}\\n');"
+					: settings?.PrepareBodyScript ?? "console.log('Nothing');";
+				trackingBody = trackingScripts.ToBytes().Compress(this.BodyEncoding);
+				triggerURL = extras.Get<string>("OnVisited");
 			}
 			else if (settings != null && form != null)
 			{
 				if (writeLogs)
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Start process a tracking web-hook => {adapterName} - URI: {endpointURL}", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
 
+				if (isTracking)
+				{
+					if (!form.ConfirmationIsOpened)
+						form.UpdateExtras(extras, "Opened", requestInfo);
+				}
+				else if (isUnsubscribe)
+					form.UpdateExtras(extras, "Unsubscribed", requestInfo);
+				else if (!form.Confirmed)
+					form.UpdateExtras(extras, "Confirmed", requestInfo);
+				await form.NormalizeAsync(extras, requestInfo, cancellationToken).ConfigureAwait(false);
+
 				var request = new WebHookMessage
 				{
 					EndpointURL = endpointURL,
 					Body = form.ToJson(json =>
 					{
-						var extras = (json.Get<string>("Extras") ?? "{}").ToJson() as JObject;
-						var submited = extras.Get<JObject>("Submited");
-						var submitedUserAgent = submited?.Get<string>("UserAgent");
-						if (submitedUserAgent != null)
-						{
-							submited["OSInfo"] = $"{Extensions.GetOSInfo(submitedUserAgent)} [{submitedUserAgent}]";
-							submited.Remove("UserAgent");
-						}
 						if (isTracking)
 						{
 							if (!form.ConfirmationIsOpened)
 							{
 								json["ConfirmationIsOpened"] = true;
 								json["ConfirmationOpenedTime"] = DateTime.Now;
-								extras["Opened"] = new JObject
-								{
-									["Time"] = DateTime.Now.ToIsoString(true),
-									["URL"] = new Uri(requestInfo.GetParameter("x-url")).GetURLPath(),
-									["DeviceID"] = requestInfo.Session.DeviceID,
-									["IP"] = requestInfo.Session.IP,
-									["OSInfo"] = $"{Extensions.GetOSInfo(requestInfo.Session.AppAgent)} [{requestInfo.Session.AppAgent}]"
-								};
-								json["Extras"] = extras.ToString(Formatting.Indented);
 							}
+							triggerURL = extras.Get<string>("OnOpened");
 						}
-						else if (isUnsubscribe)
+						else
 						{
-							if (extras["Unsubscribed"] == null)
+							if (isUnsubscribe)
+								triggerURL = extras.Get<string>("OnUnsubscribed");
+							else
 							{
-								extras["Unsubscribed"] = new JObject
-								{
-									["Time"] = DateTime.Now.ToIsoString(true),
-									["URL"] = new Uri(requestInfo.GetParameter("x-url")).GetURLPath(),
-									["DeviceID"] = requestInfo.Session.DeviceID,
-									["IP"] = requestInfo.Session.IP,
-									["OSInfo"] = $"{Extensions.GetOSInfo(requestInfo.Session.AppAgent)} [{requestInfo.Session.AppAgent}]"
-								};
-								json["Extras"] = extras.ToString(Formatting.Indented);
+								if (!form.Confirmed)
+									json["Confirmed"] = true;
+								triggerURL = extras.Get<string>("OnConfirmed");
 							}
-						}
-						else if (!form.Confirmed)
-						{
-							json["Confirmed"] = true;
-							extras["Confirmed"] = new JObject
-							{
-								["Time"] = DateTime.Now.ToIsoString(true),
-								["URL"] = new Uri(requestInfo.GetParameter("x-url")).GetURLPath(),
-								["DeviceID"] = requestInfo.Session.DeviceID,
-								["IP"] = requestInfo.Session.IP,
-								["OSInfo"] = $"{Extensions.GetOSInfo(requestInfo.Session.AppAgent)} [{requestInfo.Session.AppAgent}]"
-							};
-							json["Extras"] = extras.ToString(Formatting.Indented);
 						}
 					}).ToString(Formatting.None),
 					Query = requestInfo.Query,
@@ -5547,43 +5556,23 @@ namespace net.vieapps.Services.Portals
 					}
 				});
 
-				if (request.Body.IsContains("Submited") || request.Body.IsContains("Opened") || request.Body.IsContains("Confirmed") || request.Body.IsContains("Unsubscribed"))
+				try
 				{
-					var json = request.BodyAsJson;
-					var extras = (json.Get<string>("Extras") ?? "{}").ToJson() as JObject;
-					await new[] { "Submited", "Opened", "Confirmed", "Unsubscribed" }.ForEachAsync(async name =>
-					{
-						var section = extras.Get<JToken>(name);
-						if (section is JArray sectionArray)
-							await sectionArray.ForEachAsync(async data =>
-							{
-								if (data.Get<string>("Location") == null)
-									data["Location"] = await requestInfo.Session.GetLocationAsync(data.Get<string>("IP") ?? form.IPAddress, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
-							}, true, false).ConfigureAwait(false);
-						else if (section.Get<string>("Location") == null)
-							section["Location"] = await requestInfo.Session.GetLocationAsync(section.Get<string>("IP") ?? form.IPAddress, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
-					}, true, false).ConfigureAwait(false);
-					json["Extras"] = extras.ToString(Formatting.Indented);
-					request.Body = json.ToString(Formatting.None);
-					request = request.ToWebHookMessage(settings, form.OrganizationID, false, msg => msg.EndpointURL = endpointURL).Normalize(settings, request, form.OrganizationID).ToRequestInfo(request);
+					var response = await this.ProcessWebHookMessageAsync(request, cancellationToken).ConfigureAwait(false);
+					form = string.IsNullOrWhiteSpace(triggerURL) ? form : await Form.GetAsync<Form>(form.ID, this.CancellationToken).ConfigureAwait(false);
+					if (writeLogs)
+						await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process a tracking web-hook successful => {adapterName} [{form.ContentTypeID}]\r\n\r\nRequest: {request.ToString(jsonFormat)}\r\n\r\nResponse: {response.ToString(jsonFormat)}", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
 
-					try
-					{
-						var response = await this.ProcessWebHookMessageAsync(request, cancellationToken).ConfigureAwait(false);
-						if (writeLogs)
-							await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process a tracking web-hook successful => {adapterName} [{form.ContentTypeID}]\r\n\r\nRequest: {request.ToString(jsonFormat)}\r\n\r\nResponse: {response.ToString(jsonFormat)}", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
-
-						var url = response.Get<string>("URL") ?? response.Get<JObject>("Body")?.Get<string>("URL") ?? response.Get<string>("Location") ?? response.Get<JObject>("Body")?.Get<string>("Location");
-						if (isTracking)
-							trackingBody = await getTrackingImageAsync(url ?? defaultTrackingImageURL).ConfigureAwait(false);
-						else
-							location = url;
-					}
-					catch (Exception ex)
-					{
-						var additional = ex is RemoteServerException rse ? $"\r\n\r\nError: {(rse.Body ?? "{}").ToJson().ToString(jsonFormat)}" : "";
-						await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error occurred while processing a tracking web-hook message => {ex.Message}{(writeLogs ? "" : $"\r\n\r\nURI: {endpointURL}")}\r\n\r\nRequest: {request.ToString(jsonFormat)}{additional}", ex, this.ServiceName, "WebHooks", LogLevel.Error).ConfigureAwait(false);
-					}
+					var url = response.Get<string>("URL") ?? response.Get<JObject>("Body")?.Get<string>("URL") ?? response.Get<string>("Location") ?? response.Get<JObject>("Body")?.Get<string>("Location");
+					if (isTracking)
+						trackingBody = await getTrackingImageAsync(url ?? defaultTrackingImageURL).ConfigureAwait(false);
+					else
+						location = url;
+				}
+				catch (Exception ex)
+				{
+					var additional = ex is RemoteServerException rse ? $"\r\n\r\nError: {(rse.Body ?? "{}").ToJson().ToString(jsonFormat)}" : "";
+					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Error occurred while processing a tracking web-hook message => {ex.Message}{(writeLogs ? "" : $"\r\n\r\nURI: {endpointURL}")}\r\n\r\nRequest: {request.ToString(jsonFormat)}{additional}", ex, this.ServiceName, "WebHooks", LogLevel.Error).ConfigureAwait(false);
 				}
 			}
 
@@ -5615,6 +5604,9 @@ namespace net.vieapps.Services.Portals
 
 			if (!string.IsNullOrWhiteSpace(location))
 				identityJson["Location"] = location;
+
+			if (!string.IsNullOrWhiteSpace(triggerURL))
+				requestInfo.ProcessWebHookTriggerAsync(triggerURL, form?.ToJson().ToString(Formatting.None)).Run(ex => this.WriteLogsAsync(requestInfo.CorrelationID, $"Error in trigger URL [{triggerURL}] => {ex.Message}", ex, this.ServiceName, "WebHooks"));
 		}
 		#endregion
 

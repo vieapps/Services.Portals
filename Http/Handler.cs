@@ -455,6 +455,16 @@ namespace net.vieapps.Services.Portals
 
 			var queryString = context.Request.QueryString.ToDictionary(query =>
 			{
+				if (query.TryGetValue("x-params", out var xparams))
+				{
+					query.Remove("x-params");
+					try
+					{
+						(new RequestInfo { Body = xparams.Url64Decode() }.BodyAsJson as JObject).ForEach(kvp => query[kvp.Key] = (kvp.Value as JValue).Value?.ToString());
+					}
+					catch { }
+				}
+
 				var pathSegments = context.GetRequestPathSegments().Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx") && !segment.IsEquals("index.aspx") && !segment.IsEquals("index.php")).ToArray();
 				var firstPathSegment = pathSegments.Length > 0 ? pathSegments[0].ToLower() : "";
 				var requestSegments = pathSegments.Skip(0).ToArray();
@@ -631,17 +641,6 @@ namespace net.vieapps.Services.Portals
 				}
 				else if (!systemIdentity.IsEquals("~indicators") && !systemIdentity.IsEquals("~resources") && !specialRequest.IsEquals("service"))
 					query["x-desktop"] = "-default";
-
-				// x-params
-				if (query.TryGetValue("x-params", out var xparams))
-				{
-					query.Remove("x-params");
-					try
-					{
-						(new RequestInfo { Body = xparams.Url64Decode() }.BodyAsJson as JObject).ForEach(kvp => query[kvp.Key] = (kvp.Value as JValue).Value?.ToString());
-					}
-					catch { }
-				}
 
 				// legacy parameters
 				Handler.LegacyParameters.ForEach(key => query.Remove(key));
@@ -941,20 +940,39 @@ namespace net.vieapps.Services.Portals
 							if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 								await context.WriteLogsAsync("Http.Process.Requests", $"Attempt to process the CMS Portals service cache => {requestURI} ({cacheKey})").ConfigureAwait(false);
 
+							headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+							{
+								["Content-Type"] = $"{contentType}; charset=utf-8",
+								["ETag"] = eTag,
+								["Cache-Control"] = "public",
+								["Access-Control-Allow-Credentials"] = "true",
+								["Referrer-Policy"] = "no-referrer-when-downgrade",
+								["X-Node"] = Global.NodeID,
+								["X-Correlation-ID"] = correlationID
+							};
+							if (!contentType.IsEquals("text/html"))
+							{
+								var origin = requestInfo.GetHeaderParameter("Origin") ?? requestInfo.GetHeaderParameter("Referer") ?? requestInfo.GetHeaderParameter("Referrer");
+								if (string.IsNullOrWhiteSpace(origin))
+									origin = "*";
+								else
+								{
+									var originURI = new Uri(origin);
+									origin = $"{originURI.Scheme}://{originURI.Host}";
+								}
+								headers["Access-Control-Allow-Origin"] = origin;
+							}
+
 							// last modified
 							var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 							var lastModified = modifiedSince != null ? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) : null;
 							var noneMatch = lastModified != null ? context.GetHeaderParameter("If-None-Match") : null;
 							if (lastModified != null && eTag.IsEquals(noneMatch) && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 							{
-								context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+								context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
-									["Content-Type"] = $"{contentType}; charset=utf-8",
-									["ETag"] = eTag,
 									["Last-Modified"] = lastModified,
-									["X-Cache"] = "HTTP-304",
-									["X-Node"] = Global.NodeID,
-									["X-Correlation-ID"] = correlationID
+									["X-Cache"] = "HTTP-304"
 								});
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag}/{lastModified}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
@@ -1016,16 +1034,13 @@ namespace net.vieapps.Services.Portals
 
 								lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
 								var expiresAt = isHtml ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
-								context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+								context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
 									["Content-Type"] = $"{contentType}; charset=utf-8",
-									["ETag"] = eTag,
 									["Last-Modified"] = lastModified,
 									["Expires"] = (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString(),
 									["Cache-Control"] = "public",
-									["X-Cache"] = "HTTP-200",
-									["X-Node"] = Global.NodeID,
-									["X-Correlation-ID"] = correlationID
+									["X-Cache"] = "HTTP-200"
 								});
 								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
 
@@ -1850,6 +1865,12 @@ namespace net.vieapps.Services.Portals
 				{
 					["Content-Type"] = trackingContentType ?? "image/webp"
 				};
+				if ("application/javascript".IsEquals(trackingContentType))
+				{
+					var origin = context.GetOriginUri() ?? context.GetReferUri();
+					headers["Access-Control-Allow-Origin"] = origin != null ? $"{origin.Scheme}://{origin.Host}" : "*";
+					headers["Access-Control-Allow-Credentials"] = "true";
+				}
 				if (!string.IsNullOrWhiteSpace(trackingCacheControl))
 				{
 					headers["ETag"] = $"vieapps#{context.GetRequestUri().AbsoluteUri.GenerateUUID()}";

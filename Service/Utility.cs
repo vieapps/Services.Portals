@@ -1280,6 +1280,19 @@ namespace net.vieapps.Services.Portals
 
 		internal static string GetURLPath(this Uri uri)
 			=> $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}";
+
+		internal static async Task ProcessWebHookTriggerAsync(this RequestInfo requestInfo, string url, string body, Func<string, Task> trackAsync = null)
+		{
+			using var httpResponseMessage = await new Uri(url).SendHttpRequestAsync(string.IsNullOrWhiteSpace(body) ? "GET" : "POST", new Dictionary<string, string>
+			{
+				["Content-Type"] = "application/json",
+				["X-Original-Correlation-ID"] = requestInfo.CorrelationID,
+				["X-WebHook-Trigger-SHA256-Hmac"] = (string.IsNullOrWhiteSpace(body) ? "None" : body).GetHMACSHA256Hash(Utility.ValidationKey).ToHex(),
+				["X-WebHook-Trigger-SHA256-Hash"] = (string.IsNullOrWhiteSpace(body) ? "None" : body).GetSHA256Hash().ToHex()
+			}, body, 300, Utility.CancellationToken).ConfigureAwait(false);
+			await (trackAsync == null ? Task.CompletedTask : trackAsync($"Send to trigger URL successful [{url}] => {await httpResponseMessage.ReadAsStringAsync(Utility.CancellationToken).ConfigureAwait(false)}")).ConfigureAwait(false);
+		}
+
 	}
 
 	//  --------------------------------------------------------------------------------------------

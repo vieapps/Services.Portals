@@ -731,6 +731,10 @@ namespace net.vieapps.Services.Portals
 			else if (role != null)
 				await Role.DeleteAsync<Role>(role.ID, role.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
+			// stop if has no info
+			if (role == null)
+				return new JObject();
+
 			// clear related cache
 			if (requestInfo.GetHeaderParameter("x-converter") == null || @event.IsEquals("Delete"))
 				await role.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
