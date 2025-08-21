@@ -618,7 +618,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			if (!identity.IsValidUUID())
+			if (!identity.IsValidUUID() || requestInfo.ContainsKey("x-brief"))
 				return new JObject
 				{
 					{ "ID", organization.ID },

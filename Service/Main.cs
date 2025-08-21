@@ -86,7 +86,7 @@ namespace net.vieapps.Services.Portals
 
 		string BodyEncoding { get; } = UtilityService.GetAppSetting("Portals:Desktops:Body:Encoding", "zstd");
 
-		Dictionary<string, string> SpecialRedirects { get; } = UtilityService.GetAppSetting("Portals:SpecialRedirects", "").ToList(";").ToDictionary(info => info.ToList("|").First(), info => info.ToList("|").Last());
+		Dictionary<string, string> SpecialRedirects { get; } = UtilityService.GetAppSetting("Portals:SpecialRedirects", "").ToList(";", true).Select(info => (Hosts: info.ToList("|").First().ToList(",", true), URL: info.ToList("|").Last())).Select(info => info.Hosts.Select(host => new KeyValuePair<string, string>(host, info.URL))).SelectMany(kvp => kvp).ToDictionary();
 		#endregion
 
 		#region Register/Start
@@ -663,7 +663,9 @@ namespace net.vieapps.Services.Portals
 					case "notification":
 					case "resendnotification":
 					case "resend-notification":
-						json = await this.ResendNotificationAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						json = requestInfo.Verb.IsEquals("GET")
+							? await requestInfo.SendNotificationAsync(cts.Token).ConfigureAwait(false)
+							: throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 						break;
 
 					case "move":
@@ -672,7 +674,7 @@ namespace net.vieapps.Services.Portals
 
 					default:
 						throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-						#endregion
+				#endregion
 
 				}
 				stopwatch.Stop();
@@ -4534,6 +4536,10 @@ namespace net.vieapps.Services.Portals
 										@object.SetAttributeValue(name, objectID.GenerateUUID());
 								});
 
+							// compute all formulas
+							if (@object is IBusinessObject businessObject)
+								businessObject.Compute();
+
 							// update database
 							var existed = await RepositoryMediator.GetAsync<T>(null, @object.GetEntityID(), this.CancellationToken).ConfigureAwait(false);
 							if (existed != null)
@@ -5275,7 +5281,7 @@ namespace net.vieapps.Services.Portals
 					{
 						stringBody = string.IsNullOrWhiteSpace(settings.PrepareBodyScript)
 							? jsonBody.ToString(Formatting.None)
-							: settings.PrepareBodyScript.JsEvaluate(jsonBody, jsonRequest, jsonParams)?.ToString() ?? jsonBody.ToString(Formatting.None);
+							: settings.PrepareBodyScript.JsEvaluate(jsonBody, jsonRequest, jsonParams, Utility.JsFunctions, Utility.JsEmbedObjects)?.ToString() ?? jsonBody.ToString(Formatting.None);
 					}
 					catch (Exception ex)
 					{
@@ -6043,46 +6049,6 @@ namespace net.vieapps.Services.Portals
 			}
 
 			return json;
-		}
-		#endregion
-
-		#region Resend notification of an CMS object
-		async Task<JToken> ResendNotificationAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			if (!requestInfo.Verb.IsEquals("GET"))
-				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
-
-			var @object = await requestInfo.GetObjectIdentity(true).GetBusinessObjectAsync<IBusinessObject>(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity"), cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}#404]");
-			var organization = await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}#401]");
-			var contentType = @object.ContentType as ContentType;
-
-			var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false);
-			if (!gotRights)
-				gotRights = requestInfo.Session.User.IsEditor((@object as IPortalObject).WorkingPrivileges, contentType?.WorkingPrivileges, organization);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			var sendAppNotifications = "true".IsEquals(requestInfo.GetParameter("x-send-app-notifications"));
-			var sendEmailNotifications = "true".IsEquals(requestInfo.GetParameter("x-send-email-notifications"));
-			var sendWebHookNotifications = "true".IsEquals(requestInfo.GetParameter("x-send-webhook-notifications"));
-			if (@object is Item)
-				await requestInfo.SendNotificationAsync(@object, "Update", contentType?.Notifications, @object.Status, @object.Status, cancellationToken, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications).ConfigureAwait(false);
-			else if (@object is Content content)
-				await requestInfo.SendNotificationAsync(@object, "Update", content.Category?.Notifications, @object.Status, @object.Status, cancellationToken, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications).ConfigureAwait(false);
-
-			var response = new JObject();
-			if (!string.IsNullOrWhiteSpace(requestInfo.GetParameter("x-recipients")))
-			{
-				var recipientIDs = await @object.GetRecipientsAsync(@object.Status, null, cancellationToken, new[] { requestInfo.Session.User.ID }).ConfigureAwait(false);
-				response = new JObject
-				{
-					{ "ID", (@object as IPortalObject).ID },
-					{ "Title", (@object as IPortalObject).Title },
-					{ "Type", @object.GetTypeName(true) },
-					{ "RecipientIDs", recipientIDs.Join(",") }
-				};
-			}
-			return response;
 		}
 		#endregion
 

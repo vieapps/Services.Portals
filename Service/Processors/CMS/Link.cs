@@ -21,6 +21,7 @@ namespace net.vieapps.Services.Portals
 		public static Link CreateLink(this ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 			=> Link.CreateInstance(data, excluded?.ToHashSet(), link =>
 			{
+				link.Compute();
 				link.NormalizeHTMLs(out var _);
 				onCompleted?.Invoke(link);
 			});
@@ -28,6 +29,7 @@ namespace net.vieapps.Services.Portals
 		public static Link Update(this Link link, ExpandoObject data, string excluded = null, Action<Link> onCompleted = null)
 			=> link.Fill(data, excluded?.ToHashSet(), _ =>
 			{
+				link.Compute();
 				link.NormalizeHTMLs(out var _);
 				onCompleted?.Invoke(link);
 			});
@@ -212,7 +214,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			var organizationID = expression?.SystemID ?? filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("OrganizationID") ?? requestInfo.GetParameter("x-system-id");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationInvalidException("The organization is invalid");
 
 			var moduleID = expression?.RepositoryID ?? filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("ModuleID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -221,7 +223,7 @@ namespace net.vieapps.Services.Portals
 
 			var contentTypeID = expression?.RepositoryEntityID ?? filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("ContentTypeID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
+			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression?.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission

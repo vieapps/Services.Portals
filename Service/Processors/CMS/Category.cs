@@ -29,6 +29,7 @@ namespace net.vieapps.Services.Portals
 		public static Category CreateCategory(this ExpandoObject data, string excluded = null, Action<Category> onCompleted = null)
 			=> Category.CreateInstance(data, excluded?.ToHashSet(), category =>
 			{
+				category.Compute();
 				category.Alias = (string.IsNullOrWhiteSpace(category.Alias) ? category.Title : category.Alias).NormalizeAlias();
 				category.NormalizeExtras();
 				onCompleted?.Invoke(category);
@@ -37,6 +38,7 @@ namespace net.vieapps.Services.Portals
 		public static Category Update(this Category category, ExpandoObject data, string excluded = null, Action<Category> onCompleted = null)
 			=> category.Fill(data, excluded, "Description,DesktopID,SpecifiedURI,Notes", _ =>
 			{
+				category.Compute();
 				category.Alias = category.Alias?.NormalizeAlias();
 				category.NormalizeExtras();
 				onCompleted?.Invoke(category);
@@ -349,7 +351,7 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = pagination.PageNumber;
 
 			var organizationID = expression?.SystemID ?? filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("OrganizationID") ?? requestInfo.GetParameter("x-system-id");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationInvalidException("The organization is invalid");
 
 			var moduleID = expression?.RepositoryID ?? filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("ModuleID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -358,7 +360,7 @@ namespace net.vieapps.Services.Portals
 
 			var contentTypeID = expression?.RepositoryEntityID ?? filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("ContentTypeID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
+			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression?.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission

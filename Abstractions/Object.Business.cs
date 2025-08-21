@@ -63,18 +63,18 @@ namespace net.vieapps.Services.Portals
 		/// <param name="object"></param>
 		/// <param name="requestInfo"></param>
 		/// <param name="onCompleted"></param>
-		public static T Compute<T>(this T @object, RequestInfo requestInfo = null, System.Action onCompleted = null) where T : IBusinessObject
+		public static T Compute<T>(this T @object, RequestInfo requestInfo = null, Action<T> onCompleted = null) where T : IBusinessObject
 		{
 			// check content type
 			var contentType = @object?.ContentType;
 			if (contentType == null)
 			{
-				onCompleted?.Invoke();
+				onCompleted?.Invoke(@object);
 				return @object;
 			}
 
 			// prepare parameters
-			var objectExpando = (@object as IBusinessEntity).ToExpandoObject();
+			var objectExpando = (@object as IBusinessEntity)?.ToExpandoObject();
 			var requestExpando = requestInfo?.AsExpandoObject;
 			var @params = new Dictionary<string, ExpandoObject>
 			{
@@ -115,7 +115,7 @@ namespace net.vieapps.Services.Portals
 				});
 
 			// complete
-			onCompleted?.Invoke();
+			onCompleted?.Invoke(@object);
 			return @object;
 		}
 

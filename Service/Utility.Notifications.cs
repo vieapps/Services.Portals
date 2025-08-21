@@ -1,15 +1,17 @@
 ﻿#region Related components
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Settings;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -492,7 +494,7 @@ namespace net.vieapps.Services.Portals
 						{
 							message.ID = message.Header["X-Original-Message-ID"] = UtilityService.NewUUID;
 							message.EndpointURL = endpointURL;
-							var sendAsCall = endpointURL.IsStartsWith($"{Utility.APIsHttpURI}/webhooks/{Utility.ServiceName}");
+							var sendAsCall = endpointURL.IsStartsWith($"{Utility.APIsHttpURI}/webhooks/{Utility.ServiceName}") && !endpointURL.IsContains("~forwarder") && !endpointURL.IsContains("?x-as-forwarder") && !endpointURL.IsContains("&x-as-forwarder");
 							var log = (sendAsCall ? "Call the service to process a web-hook message" : "Add a web-hook notification into queue successful") + "\r\n" +
 								$"- ID: {message.ID}" + "\r\n" +
 								$"- Object: {@object.Title} [{@object.GetType()}#{@object.ID}]" + "\r\n" +
@@ -515,5 +517,80 @@ namespace net.vieapps.Services.Portals
 				}, true, false).ConfigureAwait(false);
 			}
 		}
+
+		public static async Task<JToken> SendNotificationAsync(this RequestInfo requestInfo, IPortalObject @object, string @event, bool sendAppNotifications, bool sendEmailNotifications, bool sendWebHookNotifications, CancellationToken cancellationToken)
+		{
+			ContentType contentType = null;
+			ApprovalStatus status = ApprovalStatus.Published;
+			@object ??= await requestInfo.GetObjectIdentity(true).GetBusinessObjectAsync<IBusinessObject>(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity"), cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}#404]");
+			var businessObject = @object as IBusinessObject;
+			if (businessObject != null)
+			{
+				contentType = businessObject.ContentType as ContentType;
+				status = businessObject.Status;
+			}
+			var organization = await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}#401]");
+
+			var gotRights = await requestInfo.IsSystemAdministratorAsync(cancellationToken).ConfigureAwait(false);
+			if (!gotRights)
+				gotRights = requestInfo.Session.User.IsEditor((@object as IPortalObject).WorkingPrivileges, contentType?.WorkingPrivileges, organization);
+			if (!gotRights)
+				throw new AccessDeniedException();
+
+			if (@object is Content content)
+				await requestInfo.SendNotificationAsync(@object, @event, content.Category?.Notifications, status, status, cancellationToken, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications).ConfigureAwait(false);
+			else if (businessObject != null)
+				await requestInfo.SendNotificationAsync(@object, @event, contentType?.Notifications, status, status, cancellationToken, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications).ConfigureAwait(false);
+			else
+				await requestInfo.SendNotificationAsync(@object, @event, organization.Notifications, status, status, cancellationToken, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications).ConfigureAwait(false);
+
+			var response = new JObject();
+			if (requestInfo.ContainsKey("x-recipients"))
+			{
+				var recipientIDs = await @object.GetRecipientsAsync(status, null, cancellationToken, new[] { requestInfo.Session.User.ID }).ConfigureAwait(false);
+				response = new JObject
+				{
+					{ "ID", @object.ID },
+					{ "Title", @object.Title },
+					{ "Type", @object.GetTypeName(true) },
+					{ "RecipientIDs", recipientIDs.Join(",") }
+				};
+			}
+			return response;
+		}
+
+		public static async Task<JToken> SendNotificationAsync(this RequestInfo requestInfo, string objectIdentity, string @event, bool sendAppNotifications, bool sendEmailNotifications, bool sendWebHookNotifications, CancellationToken cancellationToken)
+		{
+			var @object = await (objectIdentity ?? requestInfo.GetObjectIdentity(true)).GetBusinessObjectAsync<IBusinessObject>(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity"), cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}#404]");
+			return await requestInfo.SendNotificationAsync(@object, @event ?? "Update", sendAppNotifications, sendEmailNotifications, sendWebHookNotifications, cancellationToken).ConfigureAwait(false);
+		}
+
+		public static Task<JToken> SendNotificationAsync(this RequestInfo requestInfo, CancellationToken cancellationToken = default)
+			=> requestInfo.SendNotificationAsync(requestInfo.GetObjectIdentity(true), "Update", "true".IsEquals(requestInfo.GetParameter("x-send-app-notifications")), "true".IsEquals(requestInfo.GetParameter("x-send-email-notifications")), "true".IsEquals(requestInfo.GetParameter("x-send-webhook-notifications")), cancellationToken);
+
+		internal static string JsFunctions => @"
+		var __sendNotification = function(requestInfo, object, event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications) {
+			__sf_SendNotification(requestInfo, object, event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications);
+		};
+		__server.sendNotification = (requestInfo, object, event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications) => __sendNotification(requestInfo, object, event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications);
+		".Replace("\t", "").Replace("\r", "").Replace("\n", " ");
+
+		internal static Dictionary<string, object> JsEmbedObjects => new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+		{
+			["__sf_SendNotification"] = Utility.Func_SendNotification
+		};
+
+		static Action<string, string, string, bool, bool, bool> Func_SendNotification => (requestInfo , @object, @event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications) =>
+		{
+			try
+			{
+				var request = new RequestInfo();
+				if (!string.IsNullOrWhiteSpace(requestInfo))
+					request.CopyFrom(requestInfo.ToJson());
+				var objectIdentity = string.IsNullOrWhiteSpace(@object) ? null : @object.ToJson().Get<string>("ID");
+				request.SendNotificationAsync(objectIdentity, @event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications, Utility.CancellationToken).Wait();
+			}
+			catch { }
+		};
 	}
 }

@@ -22,6 +22,7 @@ namespace net.vieapps.Services.Portals
 		public static Item CreateItem(this ExpandoObject data, string excluded = null, Action<Item> onCompleted = null)
 			=> Item.CreateInstance(data, excluded?.ToHashSet(), item =>
 			{
+				item.Compute();
 				item.NormalizeHTMLs(out var _);
 				item.Alias = (string.IsNullOrWhiteSpace(item.Alias) ? item.Title : item.Alias).NormalizeAlias();
 				item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
@@ -32,6 +33,7 @@ namespace net.vieapps.Services.Portals
 		public static Item Update(this Item item, ExpandoObject data, string excluded = null, Action<Item> onCompleted = null)
 			=> item.Fill(data, excluded?.ToHashSet(), _ =>
 			{
+				item.Compute();
 				item.NormalizeHTMLs(out var _);
 				item.Alias = (string.IsNullOrWhiteSpace(item.Alias) ? item.Title : item.Alias).NormalizeAlias();
 				item.Tags = item.Tags?.Replace(";", ",").ToList(",", true).Where(tag => !string.IsNullOrWhiteSpace(tag)).Join(",");
@@ -112,9 +114,9 @@ namespace net.vieapps.Services.Portals
 				doRefresh && item != null
 					? Task.WhenAll
 					(
-						item.Status.Equals(ApprovalStatus.Published) ? $"{item.GetURL()}?x-force-cache=x".Replace("~/", $"{item.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask,
-						desktop != null ? $"{item.Organization?.URL}/{desktop.Alias ?? "-default"}/{item.ContentType?.Title.GetANSIUri() ?? "-"}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask,
-						$"{item.Organization?.URL}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]")
+						item.Status.Equals(ApprovalStatus.Published) ? $"{item.GetURL()}?x-force-cache".Replace("~/", $"{item.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask,
+						desktop != null ? $"{item.Organization?.URL}/{desktop.Alias ?? "-default"}/{item.ContentType?.Title.GetANSIUri() ?? "-"}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask,
+						$"{item.Organization?.URL}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]")
 					) : Task.CompletedTask
 				).ConfigureAwait(false);
 		}
@@ -185,7 +187,7 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = pagination.PageNumber;
 
 			var organizationID = expression?.SystemID ?? filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("OrganizationID") ?? requestInfo.GetParameter("x-system-id");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationInvalidException("The organization is invalid");
 
 			var moduleID = expression?.RepositoryID ?? filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("ModuleID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -194,7 +196,7 @@ namespace net.vieapps.Services.Portals
 
 			var contentTypeID = expression?.RepositoryEntityID ?? filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("ContentTypeID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
+			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression?.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission

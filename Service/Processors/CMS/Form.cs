@@ -88,7 +88,7 @@ namespace net.vieapps.Services.Portals
 			return form;
 		}
 
-		public static Form FillProperties(this Form form, RequestInfo requestInfo, ExpandoObject data, string excluded = null, Action<Form> onUpdated = null)
+		public static Form FillProperties(this Form form, RequestInfo requestInfo, ExpandoObject data, string excluded = null, Action<Form> onFilled = null)
 		{
 			data ??= requestInfo.GetBodyExpando();
 
@@ -99,10 +99,10 @@ namespace net.vieapps.Services.Portals
 			var extrasJson = (extras ?? "{}").ToJson() as JObject;
 
 			var excludedProperties = (excluded ?? "Privileges").ToHashSet();
-			if (requestInfo.ContainsKey("x-update-notes"))
-				excludedProperties.Add("Notes");
 			if (requestInfo.ContainsKey("x-update-details"))
 				excludedProperties.Add("Details");
+			if (requestInfo.ContainsKey("x-update-notes"))
+				excludedProperties.Add("Notes");
 			if (requestInfo.ContainsKey("x-update-tags"))
 				excludedProperties.Add("Tags");
 			if (requestInfo.ContainsKey("x-update-extras"))
@@ -110,11 +110,35 @@ namespace net.vieapps.Services.Portals
 
 			form.Fill(data, excludedProperties, _ =>
 			{
-				form.NormalizeHTMLs(out var _);
 				if (requestInfo.ContainsKey("x-email-as-identity"))
 					form.ID = form.Email?.GenerateUUID();
 				else if (requestInfo.ContainsKey("x-phone-as-identity"))
 					form.ID = form.Phone?.GenerateUUID();
+				form.ID = string.IsNullOrWhiteSpace(form.ID) || !form.ID.IsValidUUID() ? UtilityService.NewUUID : form.ID;
+
+				form.Compute(requestInfo, _ => form.Validate((name, value) =>
+				{
+					if (name == "Phone")
+					{
+						if (form.Phone.IsValidPhone(out var phone))
+							form.Phone = phone;
+						else
+							throw new InformationInvalidException("Phone is invalid");
+					}
+					else if (name == "Email")
+					{
+						if (form.Email.IsValidEmail(out var email))
+							form.Email = email.ToLower();
+						else
+							throw new InformationInvalidException("Email is invalid");
+					}
+				}));
+
+				if (requestInfo.ContainsKey("x-normalize-name"))
+					form.Name = (form.Name ?? "").GetCapitalizedWords();
+
+				form.Title = string.IsNullOrWhiteSpace(form.Title) ? $"Request from {form.Name} ({form.Phone})" : form.Title;
+				form.NormalizeHTMLs(out var _);
 
 				if (requestInfo.ContainsKey("x-update-details"))
 				{
@@ -130,6 +154,7 @@ namespace net.vieapps.Services.Portals
 
 				if (requestInfo.ContainsKey("x-update-tags"))
 					form.Tags = $"{(string.IsNullOrWhiteSpace(tags) ? "" : $"{tags};")}{data.Get<string>("Tags")}";
+				form.Tags = string.IsNullOrWhiteSpace(form.Tags) ? null : form.Tags.ToList(";", true).Distinct(StringComparer.OrdinalIgnoreCase).Join(";");
 
 				if (requestInfo.ContainsKey("x-update-extras"))
 					try
@@ -172,27 +197,7 @@ namespace net.vieapps.Services.Portals
 					}
 			});
 
-			form.Compute(requestInfo, () => form.Validate((name, value) =>
-			{
-				if (name == "Phone")
-				{
-					if (form.Phone.IsValidPhone(out var phone))
-						form.Phone = phone;
-					else
-						throw new InformationInvalidException("Phone is invalid");
-				}
-				else if (name == "Email")
-				{
-					if (form.Email.IsValidEmail(out var email))
-						form.Email = email;
-					else
-						throw new InformationInvalidException("Email is invalid");
-				}
-				else if (name == "Tags")
-					form.Tags = string.IsNullOrWhiteSpace(form.Tags) ? null : form.Tags.ToList(";", true).Distinct(StringComparer.OrdinalIgnoreCase).Join(";");
-			}));
-
-			onUpdated?.Invoke(form);
+			onFilled?.Invoke(form);
 			return form;
 		}
 
@@ -292,7 +297,7 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = pagination.PageNumber;
 
 			var organizationID = expression?.SystemID ?? filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("OrganizationID") ?? requestInfo.GetParameter("x-system-id");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationExistedException("The organization is invalid");
+			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationInvalidException("The organization is invalid");
 
 			var moduleID = expression?.RepositoryID ?? filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("ModuleID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -301,7 +306,7 @@ namespace net.vieapps.Services.Portals
 
 			var contentTypeID = expression?.RepositoryEntityID ?? filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("ContentTypeID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
+			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression?.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			// check permission
@@ -702,16 +707,14 @@ namespace net.vieapps.Services.Portals
 			{
 				if (form == null)
 				{
-					form = await Form.CreateInstance(request).FillProperties(requestInfo, request, null, obj =>
+					form = await ObjectService.CreateInstance<Form>().FillProperties(requestInfo, request, null, obj =>
 					{
-						obj.Title = string.IsNullOrWhiteSpace(obj.Title) ? $"Request from {obj.Name} ({obj.Phone})" : obj.Title;
-						if (string.IsNullOrWhiteSpace(obj.CreatedID) || string.IsNullOrWhiteSpace(obj.LastModifiedID))
-						{
-							obj.Created = obj.LastModified = DateTime.Now;
-							obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.IsAuthenticated ? requestInfo.Session.User.ID : null;
-						}
-						obj.DeviceID = !string.IsNullOrWhiteSpace(obj.DeviceID) ? obj.DeviceID : requestInfo.Session.DeviceID;
-						obj.IPAddress = !string.IsNullOrWhiteSpace(obj.IPAddress) ? obj.IPAddress : requestInfo.Session.IP;
+						obj.Created = request.Has("Created") ? request.Get<DateTime>("Created") : DateTime.Now;
+						obj.CreatedID = request.Get("CreatedID", requestInfo.Session.User.IsAuthenticated ? requestInfo.Session.User.ID : null);
+						obj.LastModified = request.Has("LastModified") ? request.Get<DateTime>("LastModified") : DateTime.Now;
+						obj.LastModifiedID = request.Get("LastModifiedID", requestInfo.Session.User.IsAuthenticated ? requestInfo.Session.User.ID : null);
+						obj.DeviceID = string.IsNullOrWhiteSpace(obj.DeviceID) ? requestInfo.Session.DeviceID : obj.DeviceID;
+						obj.IPAddress = string.IsNullOrWhiteSpace(obj.IPAddress) ? requestInfo.Session.IP : obj.IPAddress;
 					}).NormalizeAsync(null, requestInfo, cancellationToken).ConfigureAwait(false);
 					try
 					{
@@ -721,12 +724,12 @@ namespace net.vieapps.Services.Portals
 					{
 						if (ex.InnerException is InformationExistedException && requestInfo.ContainsKey("x-update-if-existed"))
 						{
-							form.Created = request.Get<DateTime>("Created");
-							form.CreatedID = request.Get<string>("CreatedID");
-							form.LastModified = request.Get<DateTime>("LastModified");
-							form.LastModifiedID = request.Get<string>("LastModifiedID");
-							form.DeviceID = request.Get<string>("DeviceID");
-							form.IPAddress = request.Get<string>("IPAddress");
+							form.Created = request.Has("Created") ? request.Get<DateTime>("Created") : form.Created;
+							form.CreatedID = request.Get("CreatedID", form.CreatedID);
+							form.LastModified = request.Has("LastModified") ? request.Get<DateTime>("LastModified") : form.LastModified;
+							form.LastModifiedID = request.Get("LastModifiedID", form.LastModifiedID);
+							form.DeviceID = request.Get("DeviceID", form.DeviceID);
+							form.IPAddress = request.Get("IPAddress", form.IPAddress);
 							await Form.UpdateAsync(form, false, cancellationToken).ConfigureAwait(false);
 						}
 						else
