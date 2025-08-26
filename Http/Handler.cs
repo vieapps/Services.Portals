@@ -57,6 +57,8 @@ namespace net.vieapps.Services.Portals
 
 		static bool TrackAPISessions { get; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
 
+		static string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
+
 		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
 
 		internal static int ExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:ExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 0;
@@ -387,11 +389,29 @@ namespace net.vieapps.Services.Portals
 			{
 				// prepare token
 				var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-temp-token");
-				if (string.IsNullOrWhiteSpace(authenticateToken))
-				{
-					authenticateToken = context.GetHeaderParameter("authorization");
-					authenticateToken = authenticateToken != null && authenticateToken.IsStartsWith("Bearer") ? authenticateToken.ToArray(" ").Last() : null;
-				}
+				if (string.IsNullOrWhiteSpace(authenticateToken) && context.TryGetHeaderParameter("authorization", out authenticateToken))
+					try
+					{
+						var isBasicToken = authenticateToken.IsStartsWith("Basic");
+						authenticateToken = isBasicToken || authenticateToken.IsStartsWith("Bearer") || authenticateToken.IsStartsWith("JWT") ? authenticateToken.ToArray(" ").Last() : null;
+						if (authenticateToken != null)
+						{
+							var response = await new RequestInfo(session, "Users", "Token", "GET")
+							{
+								Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+								Header = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+								{
+									["x-authorization-token"] = authenticateToken,
+									["x-authorization-mode"] = isBasicToken ? "Basic" : "Bearer",
+									["x-authorization-signature"] = authenticateToken.GetHMACSHA256(Global.ValidationKey)
+								},
+								CorrelationID = context.GetCorrelationID()
+							}.CallServiceAsync(Global.CancellationToken).ConfigureAwait(false);
+							authenticateToken = response.Get<string>("Token");
+							session.Fill(response.Get<JObject>("Session"));
+						}
+					}
+					catch { }
 
 				// authenticate the session
 				if (!string.IsNullOrWhiteSpace(authenticateToken))
@@ -460,7 +480,7 @@ namespace net.vieapps.Services.Portals
 					query.Remove("x-params");
 					try
 					{
-						(new RequestInfo { Body = xparams.Url64Decode() }.BodyAsJson as JObject).ForEach(kvp => query[kvp.Key] = (kvp.Value as JValue).Value?.ToString());
+						(xparams.Url64Decode().ToJSON() as JObject).ForEach(kvp => query[kvp.Key] = (kvp.Value as JValue).Value?.ToString());
 					}
 					catch { }
 				}
@@ -945,23 +965,23 @@ namespace net.vieapps.Services.Portals
 								["Content-Type"] = $"{contentType}; charset=utf-8",
 								["ETag"] = eTag,
 								["Cache-Control"] = "public",
-								["Access-Control-Allow-Credentials"] = "true",
-								["Referrer-Policy"] = "no-referrer-when-downgrade",
 								["X-Node"] = Global.NodeID,
 								["X-Correlation-ID"] = correlationID
 							};
-							if (!contentType.IsEquals("text/html"))
+
+							var allowOrigin = "*";
+							if (!contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
 							{
-								var origin = requestInfo.GetHeaderParameter("Origin") ?? requestInfo.GetHeaderParameter("Referer") ?? requestInfo.GetHeaderParameter("Referrer");
-								if (string.IsNullOrWhiteSpace(origin))
-									origin = "*";
-								else
+								headers["Referrer-Policy"] = "no-referrer-when-downgrade";
+								headers["Access-Control-Allow-Credentials"] = "true";
+								var origin = requestInfo.GetHeaderParameter("Origin") ?? requestInfo.GetHeaderParameter("Referer");
+								if (!string.IsNullOrWhiteSpace(origin))
 								{
 									var originURI = new Uri(origin);
-									origin = $"{originURI.Scheme}://{originURI.Host}";
+									allowOrigin = $"{originURI.Scheme}://{originURI.Host}";
 								}
-								headers["Access-Control-Allow-Origin"] = origin;
 							}
+							headers["Access-Control-Allow-Origin"] = allowOrigin;
 
 							// last modified
 							var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");

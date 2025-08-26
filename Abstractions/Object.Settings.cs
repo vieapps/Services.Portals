@@ -294,6 +294,8 @@ namespace net.vieapps.Services.Portals.Settings
 			this.SignAlgorithm = string.IsNullOrWhiteSpace(this.SignAlgorithm) ? null : this.SignAlgorithm.Trim();
 			this.SignKey = string.IsNullOrWhiteSpace(this.SignKey) ? null : this.SignKey.Trim();
 			this.SignatureName = string.IsNullOrWhiteSpace(this.SignatureName) ? null : this.SignatureName.Trim();
+			this.SignWithTimestampName = string.IsNullOrWhiteSpace(this.SignWithTimestampName) ? null : this.SignWithTimestampName.Trim();
+			this.SignWithTimestampConnect = string.IsNullOrWhiteSpace(this.SignWithTimestampConnect) ? null : this.SignWithTimestampConnect.Trim();
 			this.Query = string.IsNullOrWhiteSpace(this.Query) ? null : this.Query.Trim();
 			this.Header = string.IsNullOrWhiteSpace(this.Header) ? null : this.Header.Trim();
 			this.EncryptionKey = string.IsNullOrWhiteSpace(this.EncryptionKey) ? null : this.EncryptionKey.Trim();

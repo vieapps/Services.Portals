@@ -1,17 +1,15 @@
 ﻿#region Related components
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Settings;
-using Newtonsoft.Json.Linq;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using static System.Runtime.InteropServices.JavaScript.JSType;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -472,11 +470,11 @@ namespace net.vieapps.Services.Portals
 						{
 							body = string.IsNullOrWhiteSpace(webhookNotification.PrepareBodyScript)
 								? bodyJson.ToString(Newtonsoft.Json.Formatting.None)
-								: webhookNotification.PrepareBodyScript.JsEvaluate(bodyJson, requestInfoJson, paramsJson)?.ToString() ?? bodyJson.ToString(Newtonsoft.Json.Formatting.None);
+								: webhookNotification.PrepareBodyScript.JsEvaluate(bodyJson, requestInfoJson, paramsJson, Utility.JsFunctions, Utility.JsEmbedObjects)?.ToString() ?? bodyJson.ToString(Newtonsoft.Json.Formatting.None);
 						}
 						catch (Exception ex)
 						{
-							await requestInfo.WriteErrorAsync(ex, $"Web-hook JS error => {ex.Message}\r\n\r\nSource Code:\r\n{webhookNotification.PrepareBodyScript}\r\n\r\nObject:\r\n{bodyJson}\r\n\r\nRequest:\r\n{requestInfoJson}\r\n\r\nParams:\r\n{paramsJson}", "WebHooks").ConfigureAwait(false);
+							await requestInfo.WriteErrorAsync(ex, $"WebHook JS error => {ex.Message}\r\n\r\nSource Code:\r\n{webhookNotification.PrepareBodyScript}\r\n\r\nObject:\r\n{bodyJson}\r\n\r\nRequest:\r\n{requestInfoJson}\r\n\r\nParams:\r\n{paramsJson}", "WebHooks").ConfigureAwait(false);
 							throw;
 						}
 						var doubleBracesTokens = body.GetDoubleBracesTokens();
@@ -490,6 +488,7 @@ namespace net.vieapps.Services.Portals
 							Body = body,
 							CorrelationID = requestInfo.CorrelationID
 						}.Normalize(webhookNotification, requestInfo, @object.OrganizationID);
+
 						await webhookNotification.EndpointURLs.ForEachAsync(async endpointURL =>
 						{
 							message.ID = message.Header["X-Original-Message-ID"] = UtilityService.NewUUID;
@@ -520,20 +519,54 @@ namespace net.vieapps.Services.Portals
 
 		public static async Task<JToken> SendNotificationAsync(this RequestInfo requestInfo, IPortalObject @object, string @event, bool sendAppNotifications, bool sendEmailNotifications, bool sendWebHookNotifications, CancellationToken cancellationToken)
 		{
+			if (string.IsNullOrWhiteSpace(requestInfo.GetHeaderParameter("x-app-token")) && requestInfo.TryGetHeaderParameter("authorization", out var authenticateToken))
+			{
+				requestInfo.Header.Remove("authorization");
+				try
+				{
+					var isBasicToken = authenticateToken.IsStartsWith("Basic");
+					authenticateToken = isBasicToken || authenticateToken.IsStartsWith("Bearer") || authenticateToken.IsStartsWith("JWT") ? authenticateToken.ToArray(" ").Last() : null;
+					if (authenticateToken != null)
+					{
+						var authorizeToken = await new RequestInfo(requestInfo.Session, "Users", "Token", "GET")
+						{
+							Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+							Header = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+							{
+								["x-authorization-token"] = authenticateToken,
+								["x-authorization-mode"] = isBasicToken ? "Basic" : "Bearer",
+								["x-authorization-signature"] = authenticateToken.GetHMACSHA256(Utility.ValidationKey)
+							},
+							CorrelationID = requestInfo.CorrelationID
+						}.CallServiceAsync(cancellationToken).ConfigureAwait(false);
+						requestInfo.Header["x-app-token"] = authorizeToken.Get<string>("Token");
+						requestInfo.Session.Fill(authorizeToken.Get<JObject>("Session"));
+						if (requestInfo.ContainsKey("x-logs"))
+							await requestInfo.WriteLogAsync($"The request was authorized (for sending notifications)\r\nToken: {authenticateToken} => {requestInfo.Header["x-app-token"]}", "Authentications").ConfigureAwait(false);
+					}
+				}
+				catch (Exception ex)
+				{
+					await requestInfo.WriteErrorAsync(ex, $"Error occurred while authorizing (for sending notifications) => {ex.Message}", "Authentications").ConfigureAwait(false);
+				}
+			}
+
 			ContentType contentType = null;
 			ApprovalStatus status = ApprovalStatus.Published;
 			@object ??= await requestInfo.GetObjectIdentity(true).GetBusinessObjectAsync<IBusinessObject>(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity"), cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}#404]");
+
 			var businessObject = @object as IBusinessObject;
 			if (businessObject != null)
 			{
 				contentType = businessObject.ContentType as ContentType;
 				status = businessObject.Status;
 			}
+
 			var organization = await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}#401]");
 
 			var gotRights = await requestInfo.IsSystemAdministratorAsync(cancellationToken).ConfigureAwait(false);
 			if (!gotRights)
-				gotRights = requestInfo.Session.User.IsEditor((@object as IPortalObject).WorkingPrivileges, contentType?.WorkingPrivileges, organization);
+				gotRights = requestInfo.Session.User.IsEditor(@object?.WorkingPrivileges, contentType?.WorkingPrivileges, organization);
 			if (!gotRights)
 				throw new AccessDeniedException();
 
@@ -570,27 +603,38 @@ namespace net.vieapps.Services.Portals
 
 		internal static string JsFunctions => @"
 		var __sendNotification = function(requestInfo, object, event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications) {
-			__sf_SendNotification(requestInfo, object, event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications);
+			__sf_SendNotification(typeof requestInfo === 'string' ? requestInfo : JSON.stringify(requestInfo), typeof object === 'string' ? object : JSON.stringify(object), typeof event === 'string' ? event : 'Update', typeof sendAppNotifications === 'boolean' && true === sendAppNotifications, typeof sendEmailNotifications === 'boolean' && true === sendEmailNotifications, typeof sendWebHookNotifications === 'boolean' && true === sendWebHookNotifications);
 		};
-		__server.sendNotification = (requestInfo, object, event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications) => __sendNotification(requestInfo, object, event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications);
-		".Replace("\t", "").Replace("\r", "").Replace("\n", " ");
+		".Replace("\t", "");
 
 		internal static Dictionary<string, object> JsEmbedObjects => new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
 		{
 			["__sf_SendNotification"] = Utility.Func_SendNotification
 		};
 
-		static Action<string, string, string, bool, bool, bool> Func_SendNotification => (requestInfo , @object, @event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications) =>
+		static Action<string, string, string, bool, bool, bool> Func_SendNotification => (requestinfo, objectinfo, @event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications) =>
 		{
+			var correlationID = UtilityService.NewUUID;
 			try
 			{
-				var request = new RequestInfo();
-				if (!string.IsNullOrWhiteSpace(requestInfo))
-					request.CopyFrom(requestInfo.ToJson());
-				var objectIdentity = string.IsNullOrWhiteSpace(@object) ? null : @object.ToJson().Get<string>("ID");
-				request.SendNotificationAsync(objectIdentity, @event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications, Utility.CancellationToken).Wait();
+				var requestJson = (requestinfo ?? "{}").ToJson();
+				var objectJson = (objectinfo ?? "{}").ToJson();
+				var requestInfo = new RequestInfo().CopyFrom(requestJson, null, request =>
+				{
+					request.Query = new Dictionary<string, string>(request.Query ?? [], StringComparer.OrdinalIgnoreCase);
+					request.Header = new Dictionary<string, string>(request.Header ?? [], StringComparer.OrdinalIgnoreCase)
+					{
+						["RepositoryEntityID"] = objectJson.Get<string>("RepositoryEntityID")
+					};
+					request.CorrelationID ??= UtilityService.NewUUID;
+				});
+				correlationID = requestInfo.CorrelationID;
+				requestInfo.SendNotificationAsync(objectJson.Get<string>("ID"), @event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications, Utility.CancellationToken).Run(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error occurred while sending a notification => {ex.Message}" }, ex, correlationID));
 			}
-			catch { }
+			catch (Exception ex)
+			{
+				Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error occurred while sending a notification => {ex.Message}" }, ex, correlationID);
+			}
 		};
 	}
 }

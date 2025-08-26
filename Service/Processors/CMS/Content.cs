@@ -228,6 +228,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var request = requestInfo.GetRequestExpando();
+			var verifyRequest = !isSystemAdministrator || !requestInfo.ContainsKey("x-dont-verify");
 
 			var query = request.Get<string>("FilterBy.Query");
 
@@ -246,12 +247,12 @@ namespace net.vieapps.Services.Portals
 
 			var moduleID = expression?.RepositoryID ?? filter.GetValue("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("ModuleID") ?? requestInfo.GetParameter("x-module-id");
 			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if ((module == null && string.IsNullOrWhiteSpace(query)) || (module != null && !organization.ID.IsEquals(module.SystemID)))
+			if (verifyRequest && ((module == null && string.IsNullOrWhiteSpace(query)) || (module != null && !organization.ID.IsEquals(module.SystemID))))
 				throw new InformationInvalidException("The module is invalid");
 
 			var contentTypeID = expression?.RepositoryEntityID ?? filter.GetValue("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("ContentTypeID") ?? requestInfo.GetParameter("x-content-type-id");
 			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if ((contentType == null && string.IsNullOrWhiteSpace(query) && expression?.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID)))))
+			if (verifyRequest && ((contentType == null && string.IsNullOrWhiteSpace(query) && expression?.ContentTypeDefinition == null) || (contentType != null && (!organization.ID.IsEquals(contentType.SystemID) || (module != null && !module.ID.IsEquals(contentType.RepositoryID))))))
 				throw new InformationInvalidException("The content-type is invalid");
 
 			var categoryID = filter?.GetValue("CategoryID") ?? requestInfo.GetParameter("CategoryID") ?? requestInfo.GetParameter("x-category-id");
@@ -266,10 +267,13 @@ namespace net.vieapps.Services.Portals
 			if (filter == null || filter.Children == null || filter.Children.Count < 1)
 				filter = ContentProcessor.GetContentsFilter(organization.ID, module?.ID, contentType?.ID, category?.ID);
 
-			if (filter.GetChild("SystemID") is not FilterBy<Content> filterBySystem)
-				filter.Add(Filters<Content>.Equals("SystemID", organization.ID));
-			else if (filterBySystem.Value == null)
-				filterBySystem.Value = organization.ID;
+			if (verifyRequest)
+			{
+				if (filter.GetChild("SystemID") is not FilterBy<Content> filterBySystem)
+					filter.Add(Filters<Content>.Equals("SystemID", organization.ID));
+				else if (filterBySystem.Value == null)
+					filterBySystem.Value = organization.ID;
+			}
 
 			if (module != null)
 			{

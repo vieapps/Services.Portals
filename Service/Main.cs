@@ -2,12 +2,12 @@
 using System;
 using System.IO;
 using System.Net;
-using System.Linq;
 using System.Data;
+using System.Linq;
 using System.Dynamic;
 using System.Xml.Linq;
-using System.Reflection;
 using System.Diagnostics;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -75,6 +75,8 @@ namespace net.vieapps.Services.Portals
 		bool CacheDesktopResources { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:Cache", "true"));
 
 		bool CacheDesktopHtmls { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:Cache", "true"));
+
+		string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
 		bool AllowSrcResourceFiles { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:AllowSrcFiles", "true"));
 
@@ -1542,26 +1544,30 @@ namespace net.vieapps.Services.Portals
 					).ConfigureAwait(false);
 			}
 
-			var origin = requestInfo.GetHeaderParameter("Origin") ?? requestInfo.GetHeaderParameter("Referer") ?? requestInfo.GetHeaderParameter("Referrer");
-			if (string.IsNullOrWhiteSpace(origin))
-				origin = "*";
-			else
-			{
-				var originURI = new Uri(origin);
-				origin = $"{originURI.Scheme}://{originURI.Host}";
-			}
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				{ "ETag", eTag },
 				{ "Last-Modified", lastModified },
 				{ "Cache-Control", "public" },
 				{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
-				{ "Access-Control-Allow-Origin", origin },
-				{ "Access-Control-Allow-Credentials", "true" },
 				{ "X-Node", this.NodeID },
 				{ "X-Cache", "None" },
 				{ "X-Correlation-ID", requestInfo.CorrelationID }
 			};
+
+			var allowOrigin = "*";
+			if (!type.IsEquals("fonts") && !type.IsEquals("images") && this.CrossOrigin.IsEquals("use-credentials"))
+			{
+				headers["Referrer-Policy"] = "no-referrer-when-downgrade";
+				headers["Access-Control-Allow-Credentials"] = "true";
+				var origin = requestInfo.GetHeaderParameter("Origin") ?? requestInfo.GetHeaderParameter("Referer");
+				if (!string.IsNullOrWhiteSpace(origin))
+				{
+					var originURI = new Uri(origin);
+					allowOrigin = $"{originURI.Scheme}://{originURI.Host}";
+				}
+			}
+			headers["Access-Control-Allow-Origin"] = allowOrigin;
 
 			// check special headers to reduce traffict
 			var noneMatch = requestInfo.GetHeaderParameter("If-None-Match");
@@ -2008,10 +2014,13 @@ namespace net.vieapps.Services.Portals
 			var modifiedSince = processCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
 			headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 			{
-				["Content-Type"] = "text/html; charset=utf-8",
-				["Access-Control-Allow-Credentials"] = "true",
-				["Referrer-Policy"] = "no-referrer-when-downgrade"
+				["Content-Type"] = "text/html; charset=utf-8"
 			};
+			if (this.CrossOrigin.IsEquals("use-credentials"))
+			{
+				headers["Referrer-Policy"] = "no-referrer-when-downgrade";
+				headers["Access-Control-Allow-Credentials"] = "true";
+			}
 
 			string lastModified = null;
 			if (modifiedSince != null && eTag.IsEquals(noneMatch))
@@ -3335,43 +3344,46 @@ namespace net.vieapps.Services.Portals
 			if (!metaTags.IsContains("<meta property=\"og:type"))
 				metaTags = metaTags.Insert(metaTags.PositionOf("<meta property=\"og:locale"), $"<meta property=\"og:type\" content=\"website\"/>");
 
+			// version for cross-origin
+			var version = this.CrossOrigin.IsEquals("use-credentials") ? site.ID + "&r=" : "";
+
 			// the required stylesheet libraries
 			var stylesheets = site.UseInlineStylesheets
 				? this.MinifyCss(await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false)) + await this.GetThemeResourcesAsync("default", "css", cancellationToken).ConfigureAwait(false)
-				: $"<link rel=\"stylesheet\" href=\"~#/_assets/default.css?v={new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css")).LastWriteTime.ToUnixTimestamp()}\"/><link rel=\"stylesheet\" href=\"~#/_themes/default/css/all.css?v={this.GetThemeResourcesLastModified("default", "css").ToUnixTimestamp()}\"/>";
+				: $"<link rel=\"stylesheet\" href=\"~#/_assets/default.css?v={version}{new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css")).LastWriteTime.ToUnixTimestamp()}\"/><link rel=\"stylesheet\" href=\"~#/_themes/default/css/all.css?v={version}{this.GetThemeResourcesLastModified("default", "css").ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the organization theme
 			var organizationTheme = organization.Theme ?? "default";
 			if (!"default".IsEquals(organizationTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(organizationTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{organizationTheme}/css/all.css?v={this.GetThemeResourcesLastModified(organizationTheme, "css").ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{organizationTheme}/css/all.css?v={version}{this.GetThemeResourcesLastModified(organizationTheme, "css").ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the site theme
 			var siteTheme = site.WorkingTheme;
 			if (!"default".IsEquals(siteTheme) && !organizationTheme.IsEquals(siteTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(siteTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{siteTheme}/css/all.css?v={this.GetThemeResourcesLastModified(siteTheme, "css").ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{siteTheme}/css/all.css?v={version}{this.GetThemeResourcesLastModified(siteTheme, "css").ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the desktop theme
 			var desktopTheme = desktop.WorkingTheme;
 			if (!"default".IsEquals(desktopTheme) && !organizationTheme.IsEquals(desktopTheme) && !siteTheme.IsEquals(desktopTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(desktopTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{desktopTheme}/css/all.css?v={this.GetThemeResourcesLastModified(desktopTheme, "css").ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{desktopTheme}/css/all.css?v={version}{this.GetThemeResourcesLastModified(desktopTheme, "css").ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the site
 			if (!string.IsNullOrWhiteSpace(site.Stylesheets))
 				stylesheets += site.UseInlineStylesheets
 					? this.MinifyCss(site.Stylesheets, siteTheme).Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
-					: $"<link rel=\"stylesheet\" href=\"~#/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_css/s_{site.ID}.css?v={version}{site.LastModified.ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the desktop
 			if (!string.IsNullOrWhiteSpace(desktop.Stylesheets))
 				stylesheets += site.UseInlineStylesheets
 					? this.MinifyCss(desktop.Stylesheets, desktopTheme).Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
-					: $"<link rel=\"stylesheet\" href=\"~#/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" href=\"~#/_css/d_{desktop.ID}.css?v={version}{desktop.LastModified.ToUnixTimestamp()}\"/>";
 
 			if (site.UseInlineStylesheets)
 			{
@@ -3391,7 +3403,7 @@ namespace net.vieapps.Services.Portals
 			// add default scripts
 			var scripts = "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:JQuery", "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js") + "\"></script>"
 				+ "<script src=\"" + UtilityService.GetAppSetting("Portals:Desktops:Resources:CryptoJs", "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js") + "\"></script>"
-				+ (site.UseInlineScripts ? "<script>" + this.MinifyJs(await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false) + "\r\n" + await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false)) : $"<script crossorigin=\"use-credentials\" src=\"~#/_assets/rsa.js?v={new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js")).LastWriteTime.ToUnixTimestamp()}\"></script><script crossorigin=\"use-credentials\" src=\"~#/_assets/default.js?v={new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js")).LastWriteTime.ToUnixTimestamp()}\"></script>");
+				+ (site.UseInlineScripts ? "<script>" + this.MinifyJs(await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false) + "\r\n" + await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false)) : $"<script crossorigin=\"{this.CrossOrigin}\" src=\"~#/_assets/rsa.js?v={version}{new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "rsa.js")).LastWriteTime.ToUnixTimestamp()}\"></script><script crossorigin=\"{this.CrossOrigin}\" src=\"~#/_assets/default.js?v={version}{new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.js")).LastWriteTime.ToUnixTimestamp()}\"></script>");
 
 			// add scripts of the default theme
 			var directory = new DirectoryInfo(Path.Combine(Utility.DataFilesDirectory, "themes", "default", "js"));
@@ -3404,7 +3416,7 @@ namespace net.vieapps.Services.Portals
 
 			scripts += site.UseInlineScripts
 				? await this.GetThemeResourcesAsync("default", "js", cancellationToken).ConfigureAwait(false)
-				: $"<script crossorigin=\"use-credentials\" src=\"~#/_themes/default/js/all.js?v={this.GetThemeResourcesLastModified("default", "js").ToUnixTimestamp()}\"></script>";
+				: $"<script crossorigin=\"{this.CrossOrigin}\" src=\"~#/_themes/default/js/all.js?v={version}{this.GetThemeResourcesLastModified("default", "js").ToUnixTimestamp()}\"></script>";
 
 			// add scripts of the organization theme
 			if (!"default".IsEquals(organizationTheme))
@@ -3418,7 +3430,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(organizationTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script crossorigin=\"use-credentials\" src=\"~#/_themes/{organizationTheme}/js/all.js?v={this.GetThemeResourcesLastModified(organizationTheme, "js").ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"{this.CrossOrigin}\" src=\"~#/_themes/{organizationTheme}/js/all.js?v={version}{this.GetThemeResourcesLastModified(organizationTheme, "js").ToUnixTimestamp()}\"></script>";
 			}
 
 			// add scripts of the site theme
@@ -3433,7 +3445,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(siteTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script crossorigin=\"use-credentials\" src=\"~#/_themes/{siteTheme}/js/all.js?v={this.GetThemeResourcesLastModified(siteTheme, "js").ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"{this.CrossOrigin}\" src=\"~#/_themes/{siteTheme}/js/all.js?v={version}{this.GetThemeResourcesLastModified(siteTheme, "js").ToUnixTimestamp()}\"></script>";
 			}
 
 			// add scripts of the desktop theme
@@ -3448,7 +3460,7 @@ namespace net.vieapps.Services.Portals
 				}
 				scripts += site.UseInlineScripts
 					? await this.GetThemeResourcesAsync(desktopTheme, "js", cancellationToken).ConfigureAwait(false)
-					: $"<script crossorigin=\"use-credentials\" src=\"~#/_themes/{desktopTheme}/js/all.js?v={this.GetThemeResourcesLastModified(desktopTheme, "js").ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"{this.CrossOrigin}\" src=\"~#/_themes/{desktopTheme}/js/all.js?v={version}{this.GetThemeResourcesLastModified(desktopTheme, "js").ToUnixTimestamp()}\"></script>";
 			}
 
 			// add the scripts of the organization
@@ -3460,7 +3472,7 @@ namespace net.vieapps.Services.Portals
 			if (organization.IsHasJavascripts)
 				scripts += site.UseInlineScripts
 					? this.MinifyJs(organization.Javascripts, organizationTheme).Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
-					: $"<script crossorigin=\"use-credentials\" src=\"~#/_js/o_{organization.ID}.js?v={organization.LastModified.ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"{this.CrossOrigin}\" src=\"~#/_js/o_{organization.ID}.js?v={version}{organization.LastModified.ToUnixTimestamp()}\"></script>";
 
 			// add the scripts of the site
 			if (!string.IsNullOrWhiteSpace(site.ScriptLibraries))
@@ -3471,7 +3483,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(site.Scripts))
 				scripts += site.UseInlineScripts
 					? this.MinifyJs(site.Scripts, siteTheme).Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
-					: $"<script crossorigin=\"use-credentials\" src=\"~#/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"{this.CrossOrigin}\" src=\"~#/_js/s_{site.ID}.js?v={version}{site.LastModified.ToUnixTimestamp()}\"></script>";
 
 			// add the scripts of the desktop
 			if (!string.IsNullOrWhiteSpace(desktop.ScriptLibraries))
@@ -3482,7 +3494,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(desktop.Scripts))
 				scripts += site.UseInlineScripts
 					? this.MinifyJs(desktop.Scripts, desktopTheme).Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
-					: $"<script crossorigin=\"use-credentials\" src=\"~#/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}\"></script>";
+					: $"<script crossorigin=\"{this.CrossOrigin}\" src=\"~#/_js/d_{desktop.ID}.js?v={version}{desktop.LastModified.ToUnixTimestamp()}\"></script>";
 
 			scripts += site.UseInlineScripts ? "</script>" : "";
 
@@ -5235,7 +5247,7 @@ namespace net.vieapps.Services.Portals
 				{
 					try
 					{
-						requestInfo.Header["x-smtp"] = new RequestInfo { Body = smtpSettings.Url64Decode() }.BodyAsJson.ToString(Formatting.None);
+						requestInfo.Header["x-smtp"] = smtpSettings.Url64Decode().ToJSON().ToString(Formatting.None);
 						if (writeLogs)
 							await this.WriteLogsAsync(requestInfo.CorrelationID, $"Prepare SMTP settings successful [{requestInfo.Header["x-smtp"]}]", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
 					}
@@ -5285,7 +5297,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception ex)
 					{
-						await requestInfo.WriteErrorAsync(ex, $"Web-hook JS error => {ex.Message}\r\n\r\nSource Code:\r\n{settings.PrepareBodyScript}\r\n\r\nObject:\r\n{jsonBody}\r\n\r\nRequest:\r\n{jsonRequest}\r\n\r\nParams:\r\n{jsonParams}", "WebHooks").ConfigureAwait(false);
+						await requestInfo.WriteErrorAsync(ex, $"WebHook JS error => {ex.Message}\r\n\r\nSource Code:\r\n{settings.PrepareBodyScript}\r\n\r\nObject:\r\n{jsonBody}\r\n\r\nRequest:\r\n{jsonRequest}\r\n\r\nParams:\r\n{jsonParams}", "WebHooks").ConfigureAwait(false);
 						throw;
 					}
 					var doubleBracesTokens = stringBody.GetDoubleBracesTokens();
@@ -5318,8 +5330,7 @@ namespace net.vieapps.Services.Portals
 							["Status"] = "OK"
 						};
 					}
-
-					response = await requestInfo.ForwardAsWebHookMessageAsync(settings, jsonParams, settings.SecretToken, settings.SecretTokenName, (ex, logs) => this.WriteLogsAsync(requestInfo.CorrelationID, logs, ex, this.ServiceName, "WebHooks", ex != null ? LogLevel.Error : LogLevel.Information), cts.Token).ConfigureAwait(false);
+					response = await requestInfo.ForwardAsWebHookMessageAsync(settings, jsonParams, Utility.JsFunctions, Utility.JsEmbedObjects, null, settings.SecretToken, settings.SecretTokenName, (ex, logs) => this.WriteLogsAsync(requestInfo.CorrelationID, logs, ex, this.ServiceName, "WebHooks", ex != null ? LogLevel.Error : LogLevel.Information), cts.Token).ConfigureAwait(false);
 					stopwatch.Stop();
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Forward a request at web-hook successful - Execution times: {stopwatch.GetElapsedTimes()}" + (writeLogs ? $"\r\n\r\nRequest: {requestInfo.ToString(jsonFormat)}\r\n\r\nResponse: {response?.ToString(jsonFormat)}" : ""), null, this.ServiceName, "WebHooks").ConfigureAwait(false);
 					return response;

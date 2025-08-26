@@ -1252,14 +1252,10 @@ namespace net.vieapps.Services.Portals
 			=> expression.JSONs.Sort?.ToSort<T>();
 
 		public static WebHookMessage ToWebHookMessage(this RequestInfo requestInfo, WebHookSetting settings, string organizationID, bool doValidation = true, Action<WebHookMessage> onCompleted = null)
-		{
-			var message = requestInfo.ToWebHookMessage(settings.SecretToken, settings.SecretTokenName, settings.SignAlgorithm, settings.SignKey ?? requestInfo?.GetAppID() ?? requestInfo?.GetDeveloperID() ?? organizationID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, settings.SignaturePrefix, settings.SignatureSuffix, settings.QueryAsJson?.ToDictionary<string>(), settings.HeaderAsJson?.ToDictionary<string>(), settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes(), doValidation);
-			onCompleted?.Invoke(message);
-			return message;
-		}
+			=> requestInfo.ToWebHookMessage(settings.SecretToken, settings.SecretTokenName, settings.SignAlgorithm, settings.SignKey ?? requestInfo?.GetAppID() ?? requestInfo?.GetDeveloperID() ?? organizationID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, settings.SignaturePrefix, settings.SignatureSuffix, settings.SignWithTimestamp, settings.SignWithTimestampName, settings.SignWithTimestampConnect, settings.QueryAsJson?.ToDictionary<string>(), settings.HeaderAsJson?.ToDictionary<string>(), settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes(), doValidation, onCompleted);
 
 		public static WebHookMessage Normalize(this WebHookMessage message, string secretToken, string secretTokenName, WebHook settings, RequestInfo requestInfo, string organizationID, bool signatureInQuery = false)
-			=> message.Normalize(secretToken, secretTokenName, settings.SignAlgorithm, settings.SignKey ?? requestInfo?.GetAppID() ?? requestInfo?.GetDeveloperID() ?? organizationID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, signatureInQuery, settings.SignaturePrefix, settings.SignatureSuffix, settings.QueryAsJson?.ToDictionary<string>(), settings.HeaderAsJson?.ToDictionary<string>(), settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes());
+			=> message.Normalize(secretToken, secretTokenName, settings.SignAlgorithm, settings.SignKey ?? requestInfo?.GetAppID() ?? requestInfo?.GetDeveloperID() ?? organizationID, settings.SignKeyIsHex, settings.SignatureName, settings.SignatureAsHex, signatureInQuery, settings.SignaturePrefix, settings.SignatureSuffix, settings.SignWithTimestamp, settings.SignWithTimestampName, settings.SignWithTimestampConnect, settings.QueryAsJson?.ToDictionary<string>(), settings.HeaderAsJson?.ToDictionary<string>(), settings.EncryptionKey?.HexToBytes(), settings.EncryptionIV?.HexToBytes());
 
 		public static WebHookMessage Normalize(this WebHookMessage message, WebHookNotification settings, RequestInfo requestInfo, string organizationID)
 			=> message.Normalize(null, null, settings, requestInfo, organizationID, settings.SignatureInQuery);
