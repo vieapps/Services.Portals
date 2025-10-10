@@ -47,7 +47,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static List<string> ExcludedHeaders { get; } = UtilityService.GetAppSetting("ExcludedHeaders", "connection,accept,accept-encoding,accept-language,cache-control,cookie,host,content-type,content-length,user-agent,upgrade-insecure-requests,priority,purpose,pragma,ms-aspnetcore-token,x-forwarded-for,x-forwarded-proto,x-forwarded-port,x-original-for,x-original-proto,x-original-remote-endpoint,x-original-port,cdn-loop").ToList();
 
-		internal static Cache Cache { get; } = new (UtilityService.GetAppSetting("Portals:Cache:Name", "VIEApps-Services-Portals"), Cache.Configuration.ExpirationTime, Cache.Configuration.Provider, Logger.GetLoggerFactory());
+		internal static Cache Cache { get; set; }
+
+		internal static IDisposable CacheCommunicator { get; set; }
 
 		static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
@@ -1962,17 +1964,20 @@ namespace net.vieapps.Services.Portals
 				(sender, arguments) =>
 				{
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services.GetSubject<CommunicateMessage>("messages.services.portals").Subscribe
-					(
+					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>(
+						"messages.services.portals",
 						message => Global.NodeID.IsEquals(message.ExcludedNodeID) ? Task.CompletedTask : Handler.ProcessInterCommunicateMessageAsync(message),
 						exception => Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", exception.Message, exception)
 					);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.RealmProxy.Services.GetSubject<CommunicateMessage>("messages.services.apigateway").Subscribe
-					(
+					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>(
+						"messages.services.apigateway",
 						message => message.Type.IsEquals("Service#RequestInfo") ? Global.SendServiceInfoAsync() : Task.CompletedTask,
 						exception => Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", exception.Message, exception)
 					);
+					Handler.CacheCommunicator?.Dispose();
+					Handler.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Handler.Cache, Global.ServiceName);
+					Handler.Cache.AssignSendL1CacheRequest(Global.ServiceName, Global.NodeID);
 				},
 				async (sender, arguments) =>
 				{
@@ -2000,9 +2005,10 @@ namespace net.vieapps.Services.Portals
 
 		internal static void Disconnect()
 		{
+			Handler.Cache.Dispose();
+			Handler.CacheCommunicator?.Dispose();
+			Handler.CacheCommunicator = null;
 			Global.UnregisterService();
-			Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-			Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
 			Global.Disconnect();
 		}
 

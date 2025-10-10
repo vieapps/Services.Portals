@@ -52,6 +52,8 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Properties
+		IDisposable CacheCommunicator { get; set; }
+
 		IDisposable ServiceCommunicator { get; set; }
 
 		IAsyncDisposable ServiceInstance { get; set; }
@@ -72,9 +74,9 @@ namespace net.vieapps.Services.Portals
 
 		HashSet<string> DontMinifyCssThemes { get; } = ((UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyCssThemes") ?? UtilityService.GetAppSetting("Portals:Desktops:Resources:DontMinifyThemes", "")).Trim().ToLower() + ",original").ToHashSet();
 
-		bool CacheDesktopResources { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:Cache", "true"));
+		bool CacheDesktopResources { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Desktops:Resources", "true"));
 
-		bool CacheDesktopHtmls { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Htmls:Cache", "true"));
+		bool CacheDesktopHtmls { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Desktops:Htmls", "true"));
 
 		string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
@@ -98,13 +100,16 @@ namespace net.vieapps.Services.Portals
 				args,
 				async _ =>
 				{
-					this.ServiceInstance = await Router.IncomingChannel.RealmProxy.Services.RegisterCallee<ICmsPortalsService>(() => this, RegistrationInterceptor.Create(this.ServiceName)).ConfigureAwait(false);
+					this.ServiceInstance = await Router.IncomingChannel.RegisterAsync<ICmsPortalsService>(() => this, RegistrationInterceptor.Create(this.ServiceName)).ConfigureAwait(false);
 					this.ServiceCommunicator?.Dispose();
-					this.ServiceCommunicator = Router.IncomingChannel?.RealmProxy.Services.GetSubject<CommunicateMessage>("messages.services.cms.portals").Subscribe
-					(
+					this.ServiceCommunicator = Router.IncomingChannel.Subscribe<CommunicateMessage>(
+						"messages.services.cms.portals",
 						message => this.NodeID.IsEquals(message.ExcludedNodeID) ? Task.CompletedTask : this.ProcessCommunicateMessageAsync(message),
 						exception => this.WriteLogsAsync(UtilityService.NewUUID, this.Logger, $"Error occurred while processing a communicate message => {exception.Message}", exception, this.ServiceName, "Errors", LogLevel.Error)
 					);
+					this.CacheCommunicator?.Dispose();
+					this.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
+					Utility.Cache.AssignSendL1CacheRequest(this);
 					this.Logger?.LogDebug($"Successfully{(this.State == ServiceState.Disconnected ? " re-" : " ")}register the service with CMS Portals");
 					onSuccess?.Invoke(this);
 				},
@@ -129,6 +134,8 @@ namespace net.vieapps.Services.Portals
 					}
 					this.ServiceCommunicator?.Dispose();
 					this.ServiceCommunicator = null;
+					this.CacheCommunicator?.Dispose();
+					this.CacheCommunicator = null;
 					this.Logger?.LogDebug($"Successfully unregister the service with CMS Portals");
 					onSuccess?.Invoke(this);
 				},
@@ -163,7 +170,7 @@ namespace net.vieapps.Services.Portals
 				async Task prepareAsync()
 				{
 					// organizations
-					await this.ReloadOrganizationsAsync(false, false, false).ConfigureAwait(false);
+					await this.ReloadOrganizationsAsync().ConfigureAwait(false);
 					Utility.NotRecognizedAliases.Add($"Site:{new Uri(Utility.PortalsHttpURI).Host}");
 
 					// default site
@@ -226,7 +233,40 @@ namespace net.vieapps.Services.Portals
 				this.StartTimer(() => this.SendDefinitionInfo(), 12 * 60 * 60);
 
 				// re-load all orangizations/sites (once per day)
-				this.StartTimer(() => DateTime.Now.Hour == 4 ? this.ReloadOrganizationsAsync(false, false, false) : Task.CompletedTask, 60 * 60);
+				this.StartTimer(() => DateTime.Now.Hour == 4 ? this.ReloadOrganizationsAsync() : Task.CompletedTask, 60 * 61);
+
+				// reload all to rebuild cache (10 PM at every Satuday)
+				if ("true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Builder", "false")))
+				{
+					var time = DateTime.Now.GetEndDayOfWeek();
+					time = new DateTime(time.Year, time.Month, time.Day, 4, 0, 0);
+					this.StartTimer(async () =>
+					{
+						if (DateTime.Now.Day == time.Day && DateTime.Now.Hour == time.Hour && DateTime.Now.Minute < 10)
+						{
+							var sessionID = UtilityService.NewUUID;
+							await this.RebuildOrganizationsCacheAsync(new RequestInfo
+							{
+								Session = new Session
+								{
+									SessionID = sessionID,
+									User = new User
+									{
+										ID = UtilityService.GetAppSetting("Users:SystemAccountID"),
+										SessionID = sessionID
+									}
+								},
+								ServiceName = this.ServiceName,
+								ObjectName = "Cache",
+								Header = new Dictionary<string, string>
+								{
+									["x-rebuild"] = "true"
+								}
+							}, Utility.CancellationToken).ConfigureAwait(false);
+							time = time.AddDays(7);
+						}
+					}, 60 * 13);
+				}
 
 				// last action
 				next?.Invoke(this);
@@ -644,7 +684,9 @@ namespace net.vieapps.Services.Portals
 
 					case "cache":
 					case "caches":
-						json = await this.ClearCacheAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						json = requestInfo.ContainsKey("x-rebuild")
+							? await this.RebuildOrganizationsCacheAsync(requestInfo, cts.Token).ConfigureAwait(false)
+							: await this.ClearCacheAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
 
 					case "version":
@@ -2162,9 +2204,14 @@ namespace net.vieapps.Services.Portals
 				var contentIdentity = requestInfo.GetQueryParameter("x-content");
 				var pageNumber = requestInfo.GetQueryParameter("x-page");
 
+				ContentType categoryContentType = null;
 				var portletData = new ConcurrentDictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
+
 				Task<JObject> generateAsync(ContentType portletContentType, JObject requestJson)
-					=> portletContentType.GetService().GenerateAsync(new RequestInfo(requestInfo)
+				{
+					if (requestJson.Get<string>("ID").IsEquals(desktop.MainPortletID) || requestJson.Get<string>("Zone").IsEquals("Content"))
+						categoryContentType ??= portletContentType.GetParent();
+					return portletContentType.GetService().GenerateAsync(new RequestInfo(requestInfo)
 					{
 						ServiceName = portletContentType.ContentTypeDefinition.ModuleDefinition.ServiceName,
 						ObjectName = portletContentType.ContentTypeDefinition.ObjectName,
@@ -2174,6 +2221,7 @@ namespace net.vieapps.Services.Portals
 							["x-origin"] = $"Portlet: {requestJson.Get<string>("Title")} [ID: {requestJson.Get<string>("ID")} - Action: {requestJson.Get<string>("Action")}]"
 						}
 					}, cancellationToken);
+				}
 
 				await (desktop.Portlets ?? []).Where(portlet => portlet != null).ForEachAsync(async portlet =>
 				{
@@ -2454,9 +2502,13 @@ namespace net.vieapps.Services.Portals
 									: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken)
 							).ConfigureAwait(false);
 
+						var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity)
+							? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false)
+							: null;
 						await Task.WhenAll
 						(
 							Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
+							category != null ? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken) : Task.CompletedTask,
 							isWriteDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask
 						).ConfigureAwait(false);
 					}
@@ -2556,6 +2608,7 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "ID", portlet.ID },
 				{ "Title", portlet.Title },
+				{ "Zone", portlet.Zone },
 				{ "Action", isList ? "List" : "View" },
 				{ "ParentIdentity", parentIdentity },
 				{ "ContentIdentity", contentIdentity },
@@ -3345,45 +3398,45 @@ namespace net.vieapps.Services.Portals
 				metaTags = metaTags.Insert(metaTags.PositionOf("<meta property=\"og:locale"), $"<meta property=\"og:type\" content=\"website\"/>");
 
 			// version for cross-origin
-			var version = this.CrossOrigin.IsEquals("use-credentials") ? site.ID + "&r=" : "";
+			var version = this.CrossOrigin.IsEquals("use-credentials") ? $"{site.ID}&r=" : "";
 
 			// the required stylesheet libraries
 			var stylesheets = site.UseInlineStylesheets
 				? this.MinifyCss(await new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css")).ReadAsTextAsync(cancellationToken).ConfigureAwait(false)) + await this.GetThemeResourcesAsync("default", "css", cancellationToken).ConfigureAwait(false)
-				: $"<link rel=\"stylesheet\" href=\"~#/_assets/default.css?v={version}{new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css")).LastWriteTime.ToUnixTimestamp()}\"/><link rel=\"stylesheet\" href=\"~#/_themes/default/css/all.css?v={version}{this.GetThemeResourcesLastModified("default", "css").ToUnixTimestamp()}\"/>";
+				: $"<link rel=\"stylesheet\" crossorigin=\"{this.CrossOrigin}\" href=\"~#/_assets/default.css?v={version}{new FileInfo(Path.Combine(Utility.DataFilesDirectory, "assets", "default.css")).LastWriteTime.ToUnixTimestamp()}\"/><link rel=\"stylesheet\" href=\"~#/_themes/default/css/all.css?v={version}{this.GetThemeResourcesLastModified("default", "css").ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the organization theme
 			var organizationTheme = organization.Theme ?? "default";
 			if (!"default".IsEquals(organizationTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(organizationTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{organizationTheme}/css/all.css?v={version}{this.GetThemeResourcesLastModified(organizationTheme, "css").ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" crossorigin=\"{this.CrossOrigin}\" href=\"~#/_themes/{organizationTheme}/css/all.css?v={version}{this.GetThemeResourcesLastModified(organizationTheme, "css").ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the site theme
 			var siteTheme = site.WorkingTheme;
 			if (!"default".IsEquals(siteTheme) && !organizationTheme.IsEquals(siteTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(siteTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{siteTheme}/css/all.css?v={version}{this.GetThemeResourcesLastModified(siteTheme, "css").ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" crossorigin=\"{this.CrossOrigin}\" href=\"~#/_themes/{siteTheme}/css/all.css?v={version}{this.GetThemeResourcesLastModified(siteTheme, "css").ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the desktop theme
 			var desktopTheme = desktop.WorkingTheme;
 			if (!"default".IsEquals(desktopTheme) && !organizationTheme.IsEquals(desktopTheme) && !siteTheme.IsEquals(desktopTheme))
 				stylesheets += site.UseInlineStylesheets
 					? await this.GetThemeResourcesAsync(desktopTheme, "css", cancellationToken).ConfigureAwait(false)
-					: $"<link rel=\"stylesheet\" href=\"~#/_themes/{desktopTheme}/css/all.css?v={version}{this.GetThemeResourcesLastModified(desktopTheme, "css").ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" crossorigin=\"{this.CrossOrigin}\" href=\"~#/_themes/{desktopTheme}/css/all.css?v={version}{this.GetThemeResourcesLastModified(desktopTheme, "css").ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the site
 			if (!string.IsNullOrWhiteSpace(site.Stylesheets))
 				stylesheets += site.UseInlineStylesheets
 					? this.MinifyCss(site.Stylesheets, siteTheme).Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
-					: $"<link rel=\"stylesheet\" href=\"~#/_css/s_{site.ID}.css?v={version}{site.LastModified.ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" crossorigin=\"{this.CrossOrigin}\" href=\"~#/_css/s_{site.ID}.css?v={version}{site.LastModified.ToUnixTimestamp()}\"/>";
 
 			// add the stylesheet of the desktop
 			if (!string.IsNullOrWhiteSpace(desktop.Stylesheets))
 				stylesheets += site.UseInlineStylesheets
 					? this.MinifyCss(desktop.Stylesheets, desktopTheme).Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.FilesHttpURI}/", "~~/").Replace(StringComparison.OrdinalIgnoreCase, $"{Utility.PortalsHttpURI}/", "~#/")
-					: $"<link rel=\"stylesheet\" href=\"~#/_css/d_{desktop.ID}.css?v={version}{desktop.LastModified.ToUnixTimestamp()}\"/>";
+					: $"<link rel=\"stylesheet\" crossorigin=\"{this.CrossOrigin}\" href=\"~#/_css/d_{desktop.ID}.css?v={version}{desktop.LastModified.ToUnixTimestamp()}\"/>";
 
 			if (site.UseInlineStylesheets)
 			{
@@ -5730,12 +5783,14 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 		#endregion
 
-		#region Reload organizations/sites & Clear cache of Core Portals objects
-		async Task ReloadOrganizationsAsync(bool updateCache = true, bool sendCommunicatingMessage = true, bool sendUpdatingMessage = true)
+		#region Reload/Rebuild cache of all organizations
+		async Task<JToken> ReloadOrganizationsAsync(bool updateCache = false, bool sendCommunicatingMessage = false, bool sendUpdatingMessage = false)
 		{
 			if (!updateCache && !sendCommunicatingMessage && !sendUpdatingMessage)
 				await SiteProcessor.FindSitesAsync(null, null, false, this.CancellationToken).ConfigureAwait(false);
+
 			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
+
 			await organizations.ForEachAsync(async organization =>
 			{
 				await organization.RefreshAsync(this.CancellationToken, true, updateCache, sendCommunicatingMessage, sendUpdatingMessage).ConfigureAwait(false);
@@ -5746,9 +5801,20 @@ namespace net.vieapps.Services.Portals
 				if (sendCommunicatingMessage || sendUpdatingMessage)
 					(await organization.GetSchedulingTasksAsync(this.CancellationToken).ConfigureAwait(false) ?? []).ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));
 			}, true, false).ConfigureAwait(false);
+
 			await this.WriteLogsAsync(UtilityService.NewUUID, $"All organizations have been re-loaded - Total: {organizations.Count}", null, this.ServiceName, "Caches").ConfigureAwait(false);
+			return new JObject();
 		}
 
+		async Task<JToken> RebuildOrganizationsCacheAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
+			=> requestInfo.Session.User.IsSystemAccount || await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false)
+				? requestInfo.TryGetParameter("x-organization-id", out var id)
+					? await requestInfo.RebuildCacheAsync(await OrganizationProcessor.GetOrganizationByIDAsync(id, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false)
+					: await requestInfo.RebuildCacheAsync().ConfigureAwait(false)
+				: throw new AccessDeniedException();
+		#endregion
+
+		#region Clear cache of Core Portals objects
 		async Task<JToken> ClearCacheAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
 			// validate

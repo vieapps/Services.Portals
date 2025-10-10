@@ -6,14 +6,15 @@ using System.Text;
 using System.Diagnostics;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using net.vieapps.Components.Caching;
 using net.vieapps.Components.Utility;
 #endregion
 
@@ -119,9 +120,6 @@ namespace net.vieapps.Services.Portals
 					Global.Logger.LogError($"Error occurred while assigning web-proxy => {ex.Message}", ex);
 				}
 
-			// connect to API Gateway
-			Handler.Connect();
-
 			// setup WebSocket
 			Handler.InitializeWebSocket();
 
@@ -140,6 +138,12 @@ namespace net.vieapps.Services.Portals
 					KeepAliveInterval = Handler.WebSocket.KeepAliveInterval
 				})
 				.UseMiddleware<Handler>();
+
+			// caching of centerlized services
+			Handler.Cache = Cache.CreateInstance("VIEApps-Services-Portals", loggerFactory);
+
+			// connect to API Gateway
+			Handler.Connect();
 
 			// on started
 			appLifetime.ApplicationStarted.Register(() =>
@@ -167,16 +171,13 @@ namespace net.vieapps.Services.Portals
 			appLifetime.ApplicationStopping.Register(() =>
 			{
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
-				Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
 				Global.RSA.Dispose();
+				Handler.Disconnect();
 			});
 
 			// on stopped
 			appLifetime.ApplicationStopped.Register(() =>
 			{
-				Handler.Disconnect();
-				Global.CancellationTokenSource.Cancel();
-				Global.CancellationTokenSource.Dispose();
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service was stopped");
 			});
 

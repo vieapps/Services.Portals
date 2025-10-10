@@ -14,10 +14,7 @@ namespace net.vieapps.Services.Portals
 {
 	public static partial class Utility
 	{
-		/// <summary>
-		/// Gets the cache storage
-		/// </summary>
-		public static Cache Cache { get; } = new("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory());
+		public static Cache Cache { get; } = Cache.CreateInstance("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory(), "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:L1")));
 
 		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
 
@@ -53,6 +50,14 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static string GetSetCacheKey(this Desktop desktop)
 			=> desktop.Organization.GetSetCacheKey($"Desktop:{desktop.ID}");
+
+		/// <summary>
+		/// Gets the key for storing a set of keys that related to a category
+		/// </summary>
+		/// <param name="desktop"></param>
+		/// <returns></returns>
+		public static string GetSetCacheKey(this Category category, string suffix = null)
+			=> category.Organization.GetSetCacheKey($"Category:{category.ID}{(string.IsNullOrWhiteSpace(suffix) ? "" : $":{suffix}")}");
 
 		/// <summary>
 		/// Gets the set of keys that used to store HTML cache of this desktop
@@ -252,7 +257,7 @@ namespace net.vieapps.Services.Portals
 					await Task.Delay(delay * 1000, Utility.CancellationToken).ConfigureAwait(false);
 				await new Uri(url).FetchHttpAsync(Utility.RefresherHeaders, 30, Utility.CancellationToken).ConfigureAwait(false);
 				stopwatch.Stop();
-				if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache="))
+				if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache"))
 					await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {url}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 			}
 			catch (RemoteServerMovedException ex)
@@ -261,7 +266,7 @@ namespace net.vieapps.Services.Portals
 				{
 					await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, 30, Utility.CancellationToken).ConfigureAwait(false);
 					stopwatch.Stop();
-					if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache="))
+					if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache"))
 						await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {ex.URI}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 				}
 				catch (Exception mex)

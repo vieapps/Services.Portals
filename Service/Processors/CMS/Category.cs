@@ -49,6 +49,9 @@ namespace net.vieapps.Services.Portals
 				? $"{contentTypeID}:{alias.NormalizeAlias()}"
 				: null;
 
+		internal static string GetCacheKeyOfAliasedCategory(this Category category, string alias = null)
+			=> category?.ContentTypeID?.GetCacheKeyOfAliasedCategory(alias ?? category?.Alias);
+
 		internal static Category Set(this Category category, bool clear = false, bool updateCache = false, string oldAlias = null)
 		{
 			if (category != null && !string.IsNullOrWhiteSpace(category.ID) && !string.IsNullOrWhiteSpace(category.Title))
@@ -60,10 +63,10 @@ namespace net.vieapps.Services.Portals
 					Utility.Cache.SetAsync(category).Run();
 
 				CategoryProcessor.Categories[category.ID] = category;
-				CategoryProcessor.CategoriesByAlias[category.RepositoryEntityID.GetCacheKeyOfAliasedCategory(category.Alias)] = category;
+				CategoryProcessor.CategoriesByAlias[category.GetCacheKeyOfAliasedCategory()] = category;
 
 				if (!string.IsNullOrWhiteSpace(oldAlias) && !oldAlias.IsEquals(category.Alias))
-					CategoryProcessor.CategoriesByAlias.Remove(category.RepositoryEntityID.GetCacheKeyOfAliasedCategory(oldAlias));
+					CategoryProcessor.CategoriesByAlias.Remove(category.GetCacheKeyOfAliasedCategory(oldAlias));
 			}
 			return category;
 		}
@@ -82,7 +85,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (!string.IsNullOrWhiteSpace(id) && CategoryProcessor.Categories.TryRemove(id, out var category) && category != null)
 			{
-				CategoryProcessor.CategoriesByAlias.Remove(category.RepositoryEntityID.GetCacheKeyOfAliasedCategory(category.Alias));
+				CategoryProcessor.CategoriesByAlias.Remove(category.GetCacheKeyOfAliasedCategory());
 				return category;
 			}
 			return null;
@@ -212,6 +215,16 @@ namespace net.vieapps.Services.Portals
 				}
 			}).ConfigureAwait(false);
 
+			if (clearDataCache && category != null)
+			{
+				var cacheKeys = await Utility.Cache.GetSetMembersAsync(category.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
+				if (cacheKeys != null && cacheKeys.Any())
+				{
+					setTasks.Add(Utility.Cache.RemoveSetMembersAsync(category.GetSetCacheKey(), cacheKeys, cancellationToken));
+					dataCacheKeys = dataCacheKeys.Concat(cacheKeys).ToList();
+				}
+			}
+
 			var linkContentTypes = new Dictionary<string, ContentType>();
 			if (clearDataCache)
 			{
@@ -249,11 +262,22 @@ namespace net.vieapps.Services.Portals
 			}
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			// html cache keys (desktop HTMLs) that related to links
+			// html cache keys
 			var htmlCacheKeys = new List<string>();
 			if (clearHtmlCache)
 			{
+				// home desktop HTMLs
 				htmlCacheKeys = category?.Organization?.GetDesktopCacheKeys() ?? new List<string>();
+
+				// desktop HTMLs that related to this category
+				var cacheKeys = await Utility.Cache.GetSetMembersAsync(category.GetSetCacheKey("HTMLs"), cancellationToken).ConfigureAwait(false);
+				if (cacheKeys != null && cacheKeys.Any())
+				{
+					setTasks.Add(Utility.Cache.RemoveSetMembersAsync(category.GetSetCacheKey("HTMLs"), cacheKeys, cancellationToken));
+					htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).ToList();
+				}
+
+				// desktop HTMLs that related to links
 				await linkContentTypes.ForEachAsync(async linkContentType =>
 				{
 					var desktopSetCacheKeys = await linkContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false);
@@ -304,7 +328,7 @@ namespace net.vieapps.Services.Portals
 				? string.IsNullOrWhiteSpace(query)
 					? await Category.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
 					: await Category.SearchAsync(query, filter, null, pageSize, pageNumber, contentTypeID, cancellationToken).ConfigureAwait(false)
-				: new List<Category>();
+				: [];
 
 			// search thumbnails
 			JToken thumbnails = null;
@@ -635,8 +659,13 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// refresh (clear cached and reload)
-			var isRefresh = "refresh".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.Session.User.IsAuthenticated;
+			// clear cache
+			var isClearCache = "cache".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.Session.User.IsAuthenticated;
+			if (isClearCache)
+				await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false);
+
+			// refresh (or reload if got no information of children)
+			var isRefresh = isClearCache || ("refresh".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.Session.User.IsAuthenticated);
 			if (isRefresh || category._childrenIDs == null)
 			{
 				if (isRefresh)

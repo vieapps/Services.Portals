@@ -306,7 +306,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Cache") : Task.CompletedTask,
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh ? Task.WhenAll(
 					site.IsDefault ? Task.CompletedTask : $"{site.GetURL()}/?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]"),
 					$"{Utility.PortalsHttpURI}/~{site.Organization.Alias}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]"),
@@ -327,7 +327,7 @@ namespace net.vieapps.Services.Portals
 					Data = site.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", "Cache") : Task.CompletedTask
+				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", "Caches") : Task.CompletedTask
 			);
 
 		internal static async Task<JObject> SearchSitesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -367,7 +367,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(json))
 			{
 				if (isCacheLogEnabled)
-					await requestInfo.WriteLogAsync($"Got JSON of sites\r\n{cacheKeyOfObjectsJson}", "Cache").ConfigureAwait(false);
+					await requestInfo.WriteLogAsync($"Got JSON of sites\r\n{cacheKeyOfObjectsJson}", "Caches").ConfigureAwait(false);
 				return JObject.Parse(json);
 			}
 
@@ -408,7 +408,7 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(query))
 				await Task.WhenAll
 				(
-					isCacheLogEnabled ? requestInfo.WriteLogAsync($"Update cache of sites => {cacheKeys.Concat([cacheKeyOfObjectsJson]).Join(", ")}", "Cache") : Task.CompletedTask,
+					isCacheLogEnabled ? requestInfo.WriteLogAsync($"Update cache of sites => {cacheKeys.Concat([cacheKeyOfObjectsJson]).Join(", ")}", "Caches") : Task.CompletedTask,
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Utility.IsDebugLogEnabled ? Formatting.Indented : Formatting.None), cancellationToken)
 				).ConfigureAwait(false);
 

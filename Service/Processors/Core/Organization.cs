@@ -1,17 +1,17 @@
 ﻿#region Related components
 using System;
 using System.Linq;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
+using System.Dynamic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Dynamic;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Utility;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Exceptions;
 using net.vieapps.Services.Portals.Settings;
 #endregion
@@ -171,13 +171,7 @@ namespace net.vieapps.Services.Portals
 							if (onlyDetailsOfCategories)
 								contentTypes.ForEach(contentType =>
 								{
-									var filter = Filters<Content>.And
-									(
-										Filters<Content>.Equals("SystemID", contentType.SystemID),
-										Filters<Content>.Equals("RepositoryID", contentType.RepositoryID),
-										Filters<Content>.Equals("RepositoryEntityID", contentType.ID),
-										Filters<Content>.Equals("CategoryID", category.ID)
-									);
+									var filter = ContentProcessor.GetContentsFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID, category.ID);
 									var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
 									var contents = Content.Find(filter, sort, 20, 1, contentType.ID, true, Extensions.GetCacheKey(filter, sort, 20, 1), 0) ?? [];
 									urls.AddRange(contents.Where(content => content.Status.Equals(ApprovalStatus.Published)).Select(content => content.GetURL()));
@@ -275,6 +269,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<List<SchedulingTask>> GetSchedulingTasksAsync(this Organization organization, CancellationToken cancellationToken, bool reload = true)
 		{
+			if (organization.Status != ApprovalStatus.Approved && organization.Status != ApprovalStatus.Published)
+				return new List<SchedulingTask>();
+
 			var schedulingTasks = reload ? null : SchedulingTaskProcessor.SchedulingTasks.Where(kvp => organization.ID.IsEquals(kvp.Value.OrganizationID)).Select(kvp => kvp.Value).OrderBy(schedulingTask => schedulingTask.Time).ToList();
 			if (reload || schedulingTasks.Count < 1)
 			{
@@ -283,6 +280,7 @@ namespace net.vieapps.Services.Portals
 				schedulingTasks = organization.GetRefreshingTasks().Concat(await SchedulingTaskProcessor.SearchAsync(filter, cancellationToken).ConfigureAwait(false) ?? []).OrderBy(schedulingTask => schedulingTask.Time).ToList();
 				schedulingTasks.ForEach(schedulingTask => SchedulingTaskProcessor.SchedulingTasks[schedulingTask.ID] = schedulingTask);
 			}
+
 			return schedulingTasks;
 		}
 
@@ -992,6 +990,137 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
 			return response;
+		}
+
+		internal static async Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo)
+		{
+			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, Utility.CancellationToken).ConfigureAwait(false) ?? [];
+			await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Start to rebuild cache of all organizations ({organizations.Count()})", "Caches").ConfigureAwait(false);
+			organizations.ForEach(organization => Router.GetService(Utility.ServiceName).ProcessRequestAsync(new RequestInfo(requestInfo)
+			{
+				Header = new Dictionary<string, string>(requestInfo.Header)
+				{
+					["x-rebuild"] = "true",
+					["x-organization-id"] = organization.ID
+				}
+			}).Run());
+			return new JObject();
+		}
+
+		internal static Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo, Organization organization)
+		{
+			organization?.RebuildCacheAsync(requestInfo.CorrelationID).Run();
+			return Task.FromResult(new JObject());
+		}
+
+		internal static async Task RebuildCacheAsync(this Organization organization, string correlationID)
+		{
+			if (organization == null || (organization.Status != ApprovalStatus.Approved && organization.Status != ApprovalStatus.Published))
+				return;
+
+			var stopwatch = Stopwatch.StartNew();
+			await Utility.WriteLogAsync(correlationID, $"Rebuild cache of '{organization.Title}'", "Caches").ConfigureAwait(false);
+
+			var organizationURL = organization.URL;
+			var refreshingURLs = new[] { organizationURL }.ToList();
+			var categoryURLs = new List<string>();
+
+			async Task getURLsAsync(Category category, IEnumerable<ContentType> contentTypes)
+			{
+				await Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).ConfigureAwait(false);
+				var categoryURL = category.GetURL(null, true).Replace("~/", $"{organizationURL}/");
+				if (categoryURL.IsStartsWith(organizationURL))
+				{
+					refreshingURLs.Add(categoryURL.Replace("/{{pageNumber}}", "", StringComparison.OrdinalIgnoreCase));
+					if (categoryURL.IsContains("/{{pageNumber}}"))
+					{
+						Enumerable.Range(2, 1000)
+							.Select(pageNumber => categoryURL.Replace("/{{pageNumber}}", $"/{pageNumber}", StringComparison.OrdinalIgnoreCase))
+							.ForEach(url => categoryURLs.Add(url));
+
+						await contentTypes.ForEachAsync(async contentType =>
+						{
+							var filter = ContentProcessor.GetContentsFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID, category.ID);
+							var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
+
+							var cacheKeyOfTotal = Extensions.GetCacheKeyOfTotalObjects(filter, sort);
+							await Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKeyOfTotal, Utility.CancellationToken).ConfigureAwait(false);
+
+							var totalRecords = await Content.CountAsync(filter, contentType.ID, true, cacheKeyOfTotal, 0, Utility.CancellationToken).ConfigureAwait(false);
+							var pageSize = 20;
+							var totalPages = (totalRecords, pageSize).GetTotalPages();
+							var pageNumber = 0;
+
+							while (totalRecords > 0 && pageNumber < totalPages)
+							{
+								pageNumber++;
+								var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, pageSize, pageNumber);
+								var contents = await Content.FindAsync(filter, sort, pageSize, pageNumber, contentType.ID, true, cacheKeyOfObjects, 0, Utility.CancellationToken).ConfigureAwait(false);
+
+								await Task.WhenAll
+								(
+									Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, contents.Select(content => content.GetCacheKey()), Utility.CancellationToken),
+									Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), contents.Select(content => new[] { content.GetCacheKey(), content.GetCacheKeyOfAliasedContent() }).SelectMany(keys => keys).Concat([cacheKeyOfObjects]), Utility.CancellationToken)
+								).ConfigureAwait(false);
+
+								contents.Where(content => content.Status == ApprovalStatus.Published)
+									.Select(content => content.GetURL().Replace("~/", $"{organizationURL}/"))
+									.ForEach(url => refreshingURLs.Add(url));
+							}
+						}, true, false).ConfigureAwait(false);
+					}
+				}
+
+				var children = await category.FindChildrenAsync(Utility.CancellationToken).ConfigureAwait(false) ?? [];
+				await children.ForEachAsync(childCategory => getURLsAsync(childCategory, contentTypes), true, false).ConfigureAwait(false);
+			}
+
+			async Task getLinkURLsAsync(Link link)
+			{
+				await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken).ConfigureAwait(false);
+				var url = link.GetURL().Replace("~/", $"{organizationURL}/");
+				if (url.IsStartsWith(organizationURL))
+					refreshingURLs.Add(url);
+
+				var children = await link.FindChildrenAsync(Utility.CancellationToken).ConfigureAwait(false) ?? [];
+				await children.ForEachAsync(childLink => getLinkURLsAsync(childLink)).ConfigureAwait(false);
+			}
+
+			await organization.Modules.ForEachAsync(module => module.ContentTypesOfLink.ForEachAsync(async contentType =>
+			{
+				var filter = LinkProcessor.GetLinksFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
+				var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
+				var links = await Link.FindAsync(filter, sort, 0, 1, contentType.ID, true, Extensions.GetCacheKey(filter, sort, 0, 1), 0, Utility.CancellationToken).ConfigureAwait(false);
+				await links.ForEachAsync(link => getLinkURLsAsync(link)).ConfigureAwait(false);
+			})).ConfigureAwait(false);
+
+			await organization.Modules.ForEachAsync(module => module.ContentTypesOfCategory.ForEachAsync(async contentType =>
+			{
+				var filter = CategoryProcessor.GetCategoriesFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
+				var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
+				var categories = await Category.FindAsync(filter, sort, 0, 1, contentType.ID, true, Extensions.GetCacheKey(filter, sort, 0, 1), 0, Utility.CancellationToken).ConfigureAwait(false);
+				await categories.ForEachAsync(category => getURLsAsync(category, module.ContentTypesOfContent), true, false).ConfigureAwait(false);
+			})).ConfigureAwait(false);
+
+			refreshingURLs = refreshingURLs.Concat(categoryURLs).ToList();
+			await Utility.WriteLogAsync(correlationID, $"Caching URLs of '{organization.Title}' were built => {refreshingURLs.Count:###,###,##0}", "Caches").ConfigureAwait(false);
+
+			var done = 0;
+			while (true)
+			{
+				var urls = refreshingURLs.Skip(done).Take(10).ToList();
+				if (urls.Count < 1)
+					break;
+
+				await urls.ForEachAsync(url => url.RefreshWebPageAsync(correlationID)).ConfigureAwait(false);
+
+				done += urls.Count;
+				if (done % 2000 == 0)
+					await Utility.WriteLogAsync(correlationID, $"{done:###,###,###}/{refreshingURLs.Count:###,###,##0} caching URLs of '{organization.Title}' were re-built", "Caches").ConfigureAwait(false);
+			}
+
+			stopwatch.Stop();
+			await Utility.WriteLogAsync(correlationID, $"Complete rebuild cache of '{organization.Title}' - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 		}
 	}
 }
