@@ -447,7 +447,7 @@ namespace net.vieapps.Services.Portals
 			var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, cancellationToken, showThumbnails).ConfigureAwait(false);
 
 			// build response
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			var totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
@@ -496,6 +496,7 @@ namespace net.vieapps.Services.Portals
 					}
 				}).ConfigureAwait(false);
 
+			// update cache & response
 			var response = new JObject
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
@@ -504,19 +505,17 @@ namespace net.vieapps.Services.Portals
 				{ "Objects", objectsJson.ToJArray() }
 			};
 
-			// update cache
 			if (string.IsNullOrWhiteSpace(query) && !addChildren)
 			{
-				cacheKeys = cacheKeys.Concat(new[] { cacheKeyOfObjectsJson }).ToList();
+				cacheKeys = cacheKeys.Concat([cacheKeyOfObjectsJson]).ToList();
 				Task.WhenAll
 				(
-					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None)),
-					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys),
+					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
+					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken),
 					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS categories\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
 				).Run();
 			}
 
-			// response
 			return response;
 		}
 
@@ -1148,7 +1147,7 @@ namespace net.vieapps.Services.Portals
 			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 
-			var (totalRecords, objects, thumbnails, _) = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
+			var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
 
 			// build response
 			var level = options.Get("Level", 1);
@@ -1184,7 +1183,10 @@ namespace net.vieapps.Services.Portals
 				maxLevel
 			)).ToJArray();
 
-			// response
+			// update cache & response
+			if (contentType != null)
+				await Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationToken).ConfigureAwait(false);
+
 			return new JObject
 			{
 				{ "Data", categories },

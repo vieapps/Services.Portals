@@ -1,18 +1,20 @@
 ﻿#region Related components
-using System;
-using System.Linq;
-using System.Xml.Linq;
-using System.Dynamic;
-using System.Globalization;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
+using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Security;
-using net.vieapps.Components.Repository;
-using net.vieapps.Components.Utility;
+using System;
+using System.Collections.Generic;
+using System.Dynamic;
+using System.Globalization;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+using static System.Runtime.InteropServices.JavaScript.JSType;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -257,14 +259,12 @@ namespace net.vieapps.Services.Portals
 			JToken attachments = null;
 			var showAttachments = requestInfo.ContainsKey("ShowAttachments");
 			if (objects.Count > 0 && showAttachments)
-			{
 				attachments = objects.Count == 1
 					? await requestInfo.GetAttachmentsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 					: await requestInfo.GetAttachmentsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			}
 
 			// build response
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			var totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
@@ -292,19 +292,17 @@ namespace net.vieapps.Services.Portals
 				}
 			};
 
-			// update cache
+			// update cache & response
 			if (string.IsNullOrWhiteSpace(query))
 			{
 				cacheKeys = cacheKeys.Concat([cacheKeyOfObjectsJson]).ToList();
 				Task.WhenAll
 				(
-					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None)),
+					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
 					contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken) : Task.CompletedTask,
 					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS items\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n{(contentType != null ? $"- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n" : "")}- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
 				).Run();
 			}
-
-			// response
 			return response;
 		}
 
@@ -680,6 +678,7 @@ namespace net.vieapps.Services.Portals
 					totalRecords = results.TotalRecords;
 					var objects = results.Objects;
 					var thumbnails = results.Thumbnails;
+					var cacheKeys = results.CacheKeys;
 
 					// attachments
 					JToken attachments = null;
@@ -735,8 +734,12 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Utility.Cache.SetAsync(cacheKey, data, cancellationToken),
-						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.CacheKeys.Concat(new[] { cacheKey }), cancellationToken) : Task.CompletedTask,
-						Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Item [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item4.Count + 1}): {results.Item4.Concat(new[] { cacheKey }).Join(", ")}", "Caches") : Task.CompletedTask
+						contentType != null
+							? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys.Concat([cacheKey]), cancellationToken)
+							: Task.CompletedTask,
+						Utility.IsCacheLogEnabled
+							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Item [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({cacheKeys.Count + 1}): {cacheKeys.Concat([cacheKey]).Join(", ")}", "Caches")
+							: Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				else if (showPagination)
@@ -755,7 +758,7 @@ namespace net.vieapps.Services.Portals
 				// prepare pagination
 				if (showPagination)
 				{
-					var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+					var totalPages = (totalRecords, pageSize).GetTotalPages();
 					if (totalPages > 0 && pageNumber > totalPages)
 						pageNumber = totalPages;
 					pagination = Utility.GeneratePagination(totalRecords, totalPages, pageSize, pageNumber, $"~/{desktop ?? "-default"}/{parentIdentity ?? contentType?.Title.GetANSIUri() ?? "-"}" + "/{{pageNumber}}" + $"{(organizationJson.Get<bool>("AlwaysUseHtmlSuffix", true) ? ".html" : "")}", showPageLinks, numberOfPageLinks, requestInfo.Query?.Where(kvp => kvp.Key.IsStartsWith("ngx-")).Select(kvp => $"{kvp.Key}={kvp.Value?.UrlEncode()}").Join("&"));
@@ -907,9 +910,16 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Utility.Cache.SetAsync(cacheKey, data, cancellationToken),
-						@object.ContentType != null ? Utility.Cache.AddSetMemberAsync(@object.ContentType.ObjectCacheKeys, @object.GetCacheKey(), cancellationToken) : Task.CompletedTask,
-						@object.ContentType != null ? Utility.Cache.AddSetMembersAsync(@object.ContentType.GetSetCacheKey(), new[] { cacheKey }, cancellationToken) : Task.CompletedTask,
-						Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate details of CMS.Item [{@object.ContentType?.Title} - ID: {@object.ContentType?.ID} - Set: {@object.ContentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", "Caches") : Task.CompletedTask
+						@object.ContentType != null
+							? Task.WhenAll
+								(
+									Utility.Cache.AddSetMemberAsync(@object.ContentType.ObjectCacheKeys, @object.GetCacheKey(), cancellationToken),
+									Utility.Cache.AddSetMemberAsync(@object.ContentType.GetSetCacheKey(), cacheKey, cancellationToken)
+								)
+							: Task.CompletedTask,
+						Utility.IsCacheLogEnabled
+							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate details of CMS.Item [{@object.ContentType?.Title} - ID: {@object.ContentType?.ID} - Set: {@object.ContentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", "Caches")
+							: Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 

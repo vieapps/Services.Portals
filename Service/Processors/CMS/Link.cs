@@ -120,7 +120,7 @@ namespace net.vieapps.Services.Portals
 				desktop = link?.ContentType?.Desktop;
 				htmlCacheKeys = link?.Organization?.GetDesktopCacheKeys() ?? new List<string>();
 				await new[] { desktop?.GetSetCacheKey() }
-					.Concat(link?.ContentType != null ? await link.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
+					.Concat(link?.ContentType != null ? await link.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new())
 					.Where(id => !string.IsNullOrWhiteSpace(id))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
@@ -152,7 +152,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 		}
 
-		static async Task<Tuple<long, List<Link>, JToken, List<string>>> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
+		static async Task<(long TotalRecords, List<Link> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -193,7 +193,7 @@ namespace net.vieapps.Services.Portals
 				await Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), cancellationToken).ConfigureAwait(false);
 
 			// return the results
-			return new Tuple<long, List<Link>, JToken, List<string>>(totalRecords, objects, thumbnails, cacheKeys);
+			return (totalRecords, objects, thumbnails, cacheKeys);
 		}
 
 		internal static async Task<JObject> SearchLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
@@ -299,13 +299,10 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// search if has no cache
-			var results = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, cancellationToken).ConfigureAwait(false);
-			var totalRecords = results.Item1;
-			var objects = results.Item2;
-			var thumbnails = results.Item3;
+			var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, cancellationToken).ConfigureAwait(false);
 
 			// build response
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			var totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
@@ -320,20 +317,17 @@ namespace net.vieapps.Services.Portals
 				{ "Objects", objects.Select(@object => @object.ToJson(addChildren, false, json => json["Thumbnails"] = thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])).ToJArray() }
 			};
 
-			// update cache
+			// update cache & response
 			if (string.IsNullOrWhiteSpace(query) && !addChildren)
 			{
-				//await Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken).ConfigureAwait(false);
-				var cacheKeys = new[] { cacheKeyOfObjectsJson }.Concat(results.Item4).ToList();
+				cacheKeys = cacheKeys.Concat([cacheKeyOfObjectsJson]).ToList();
 				Task.WhenAll
 				(
-					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None)),
-					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys),
+					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
+					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken),
 					Utility.IsDebugLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS.Link\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Link") : Task.CompletedTask
 				).Run();
 			}
-
-			// response
 			return response;
 		}
 
@@ -1195,9 +1189,11 @@ namespace net.vieapps.Services.Portals
 								? Task.WhenAll
 								(
 									Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, cancellationToken),
-									Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, new[] { parent.GetCacheKey() }.Concat((parent.Children ?? new List<Link>()).Where(obj => obj != null && obj.ID != null && obj.ID.IsValidUUID()).Select(obj => obj.GetCacheKey())), cancellationToken)
+									Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, new[] { parent.GetCacheKey() }.Concat((parent.Children ?? []).Where(obj => obj != null && obj.ID != null && obj.ID.IsValidUUID()).Select(obj => obj.GetCacheKey())), cancellationToken)
 								) : Task.CompletedTask,
-							Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", "Caches") : Task.CompletedTask
+							Utility.IsCacheLogEnabled
+								? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", "Caches")
+								: Task.CompletedTask
 						).ConfigureAwait(false);
 					}
 				}
@@ -1224,13 +1220,10 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(data))
 				{
 					// search
-					var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
-					var totalRecords = results.Item1;
-					var objects = results.Item2;
-					var thumbnails = results.Item3;
+					var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
 
 					// prepare pagination
-					var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+					var totalPages = (totalRecords, pageSize).GetTotalPages();
 					if (totalPages > 0 && pageNumber > totalPages)
 						pageNumber = totalPages;
 
@@ -1301,8 +1294,12 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Utility.Cache.SetAsync(cacheKey, dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting), cancellationToken),
-						contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), results.Item4.Concat(new[] { cacheKey }), cancellationToken) : Task.CompletedTask,
-						Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({results.Item4.Count + 1}): {results.Item4.Concat(new[] { cacheKey }).Join(", ")}", "Caches") : Task.CompletedTask
+						contentType != null
+							? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys.Concat([cacheKey]), cancellationToken)
+							: Task.CompletedTask,
+						Utility.IsCacheLogEnabled
+							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({cacheKeys.Count + 1}): {cacheKeys.Concat([cacheKey]).Join(", ")}", "Caches")
+							: Task.CompletedTask
 					).ConfigureAwait(false);
 
 					// update 'Selected' states and get data

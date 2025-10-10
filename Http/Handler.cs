@@ -972,7 +972,7 @@ namespace net.vieapps.Services.Portals
 							};
 
 							var allowOrigin = "*";
-							if (!contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
+							if (!contentType.IsEquals("text/html") && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
 							{
 								headers["Referrer-Policy"] = "no-referrer-when-downgrade";
 								headers["Access-Control-Allow-Credentials"] = "true";
@@ -1964,13 +1964,15 @@ namespace net.vieapps.Services.Portals
 				(sender, arguments) =>
 				{
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
-					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>(
+					Global.PrimaryInterCommunicateMessageUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>
+					(
 						"messages.services.portals",
 						message => Global.NodeID.IsEquals(message.ExcludedNodeID) ? Task.CompletedTask : Handler.ProcessInterCommunicateMessageAsync(message),
 						exception => Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", exception.Message, exception)
 					);
 					Global.SecondaryInterCommunicateMessageUpdater?.Dispose();
-					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>(
+					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>
+					(
 						"messages.services.apigateway",
 						message => message.Type.IsEquals("Service#RequestInfo") ? Global.SendServiceInfoAsync() : Task.CompletedTask,
 						exception => Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", exception.Message, exception)
