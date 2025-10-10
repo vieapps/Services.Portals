@@ -1116,11 +1116,11 @@ namespace net.vieapps.Services.Portals
 
 				done += urls.Count;
 				if (done % 2000 == 0)
-					await Utility.WriteLogAsync(correlationID, $"{done:###,###,###}/{refreshingURLs.Count:###,###,##0} caching URLs of '{organization.Title}' were re-built", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"{done:###,###,##0}/{refreshingURLs.Count:###,###,##0} caching URLs of '{organization.Title}' were re-built", "Caches").ConfigureAwait(false);
 			}
 
 			stopwatch.Stop();
-			await Utility.WriteLogAsync(correlationID, $"Complete rebuild cache of '{organization.Title}' - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
+			await Utility.WriteLogAsync(correlationID, $"Complete rebuild {done:###,###,##0} caches of '{organization.Title}' - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 		}
 	}
 }

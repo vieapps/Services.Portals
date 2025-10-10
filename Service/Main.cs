@@ -2266,7 +2266,7 @@ namespace net.vieapps.Services.Portals
 					scripts = desktopData.Scripts;
 					metaTags = desktopData.MetaTags;
 					if (this.AllowPreconnect)
-						this.Preconnect.Additional.ForEach(domain => metaTags = (stylesheets.IsContains(domain) || body.IsContains(domain) || scripts.IsContains(domain) ? $"<link rel=\"preconnect\" crossorigin href=\"//{domain}\"/>" : "") + metaTags);
+						this.Preconnect.Additional.ForEach(domain => metaTags = (stylesheets.IsContains(domain) || body.IsContains(domain) || scripts.IsContains(domain) ? $"<link rel=\"preconnect\" href=\"//{domain}\"/>" : "") + metaTags);
 				}
 				catch (Exception ex)
 				{
@@ -3359,7 +3359,7 @@ namespace net.vieapps.Services.Portals
 					preconnect.AddRange(["//connect.facebook.net", "//platform.twitter.com"]);
 				if (organization.IsHasTrackingLibraries)
 					preconnect.AddRange(["//connect.facebook.net", "//www.googletagmanager.com"]);
-				metaTags = preconnect.Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"<link rel=\"preconnect\" crossorigin href=\"{url}\"/>").Join("");
+				metaTags = preconnect.Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"<link rel=\"preconnect\" href=\"{url}\"/>").Join("");
 			}
 
 			if (!string.IsNullOrWhiteSpace(description))
