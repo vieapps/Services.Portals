@@ -1035,7 +1035,9 @@ namespace net.vieapps.Services.Portals
 										["correlationID"] = correlationID,
 										["correlation-id"] = correlationID,
 										["timestamp"] = DateTime.Now.ToUnixTimestamp(),
-										["time-stamp"] = DateTime.Now.ToUnixTimestamp()
+										["time-stamp"] = DateTime.Now.ToUnixTimestamp(),
+										["host-md5"] = requestURI.Host.GenerateUUID(),
+										["host-uuid"] = requestURI.Host.GenerateUUID()
 									});
 
 									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"http://", " src=\"//");

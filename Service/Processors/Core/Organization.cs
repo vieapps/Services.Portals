@@ -1063,9 +1063,10 @@ namespace net.vieapps.Services.Portals
 									Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), contents.Select(content => new[] { content.GetCacheKey(), content.GetCacheKeyOfAliasedContent() }).SelectMany(keys => keys).Concat([cacheKeyOfObjects]), Utility.CancellationToken)
 								).ConfigureAwait(false);
 
-								contents.Where(content => content.Status == ApprovalStatus.Published)
-									.Select(content => content.GetURL().Replace("~/", $"{organizationURL}/"))
-									.ForEach(url => refreshingURLs.Add(url));
+								contents = contents.Where(content => content.Status == ApprovalStatus.Published).ToList();
+								refreshingURLs = refreshingURLs.Concat(contents.Select(content => content.GetURL().Replace("~/", $"{organizationURL}/"))).ToList();
+								if (contents.Count > 0 && (DateTime.Now - contents.Last().PublishedTime.Value).TotalDays > 365 * 5)
+									break;
 							}
 						}, true, false).ConfigureAwait(false);
 					}

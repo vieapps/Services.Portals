@@ -3398,7 +3398,7 @@ namespace net.vieapps.Services.Portals
 				metaTags = metaTags.Insert(metaTags.PositionOf("<meta property=\"og:locale"), $"<meta property=\"og:type\" content=\"website\"/>");
 
 			// version for cross-origin
-			var version = this.CrossOrigin.IsEquals("use-credentials") ? $"{site.ID}&r=" : "";
+			var version = this.CrossOrigin.IsEquals("use-credentials") ? "{{host-uuid}}&r=" : "";
 
 			// the required stylesheet libraries
 			var stylesheets = site.UseInlineStylesheets
@@ -3736,7 +3736,9 @@ namespace net.vieapps.Services.Portals
 				["correlationID"] = correlationID,
 				["correlation-id"] = correlationID,
 				["timestamp"] = DateTime.Now.ToUnixTimestamp(),
-				["time-stamp"] = DateTime.Now.ToUnixTimestamp()
+				["time-stamp"] = DateTime.Now.ToUnixTimestamp(),
+				["host-md5"] = requestURI.Host.GenerateUUID(),
+				["host-uuid"] = requestURI.Host.GenerateUUID()
 			}).NormalizeURLs(requestURI, organization.Alias, useShortURLs, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
 
 		JObject GenerateErrorJson(Exception exception, RequestInfo requestInfo, bool addErrorStack, string errorMessage = null)
