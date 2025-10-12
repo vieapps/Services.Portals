@@ -2,14 +2,14 @@
 using System;
 using System.IO;
 using System.Net;
-using System.Data;
 using System.Linq;
+using System.Data;
 using System.Dynamic;
 using System.Xml.Linq;
-using System.Diagnostics;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Reflection;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
@@ -52,8 +52,6 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Properties
-		IDisposable CacheCommunicator { get; set; }
-
 		IDisposable ServiceCommunicator { get; set; }
 
 		IAsyncDisposable ServiceInstance { get; set; }
@@ -91,6 +89,14 @@ namespace net.vieapps.Services.Portals
 		string BodyEncoding { get; } = UtilityService.GetAppSetting("Portals:Desktops:Body:Encoding", "zstd");
 
 		Dictionary<string, string> SpecialRedirects { get; } = UtilityService.GetAppSetting("Portals:SpecialRedirects", "").ToList(";", true).Select(info => (Hosts: info.ToList("|").First().ToList(",", true), URL: info.ToList("|").Last())).Select(info => info.Hosts.Select(host => new KeyValuePair<string, string>(host, info.URL))).SelectMany(kvp => kvp).ToDictionary();
+
+		IDisposable CacheCommunicator { get; set; }
+
+		IDisposable CacheRebuildCommunicator { get; set; }
+
+		IDisposable CacheRebuildMonitor { get; set; }
+
+		ConcurrentDictionary<string, JObject> CacheRebuildStatus { get; set; }
 		#endregion
 
 		#region Register/Start
@@ -105,11 +111,16 @@ namespace net.vieapps.Services.Portals
 					this.ServiceCommunicator = Router.IncomingChannel.Subscribe<CommunicateMessage>(
 						"messages.services.cms.portals",
 						message => this.NodeID.IsEquals(message.ExcludedNodeID) ? Task.CompletedTask : this.ProcessCommunicateMessageAsync(message),
-						exception => this.WriteLogsAsync(UtilityService.NewUUID, this.Logger, $"Error occurred while processing a communicate message => {exception.Message}", exception, this.ServiceName, "Errors", LogLevel.Error)
+						exception => this.WriteLogsAsync(UtilityService.NewUUID, this.Logger, $"Error occurred while processing a communicate message of CMS Portals => {exception.Message}", exception, this.ServiceName, "Errors", LogLevel.Error)
 					);
 					this.CacheCommunicator?.Dispose();
 					this.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
 					Utility.Cache.AssignSendL1CacheRequest(this);
+					if ("true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Builder", "false")))
+					{
+						this.CacheRebuildCommunicator?.Dispose();
+						this.CacheRebuildCommunicator = Router.IncomingChannel.Subscribe<CommunicateMessage>("messages.services.portals.cache.rebuild", this.ProcessCacheRebuildCommunicateMessageAsync);
+					}
 					this.Logger?.LogDebug($"Successfully{(this.State == ServiceState.Disconnected ? " re-" : " ")}register the service with CMS Portals");
 					onSuccess?.Invoke(this);
 				},
@@ -136,6 +147,8 @@ namespace net.vieapps.Services.Portals
 					this.ServiceCommunicator = null;
 					this.CacheCommunicator?.Dispose();
 					this.CacheCommunicator = null;
+					this.CacheRebuildCommunicator?.Dispose();
+					this.CacheRebuildCommunicator = null;
 					this.Logger?.LogDebug($"Successfully unregister the service with CMS Portals");
 					onSuccess?.Invoke(this);
 				},
@@ -244,6 +257,8 @@ namespace net.vieapps.Services.Portals
 					{
 						if (DateTime.Now.Day == time.Day && DateTime.Now.Hour == time.Hour && DateTime.Now.Minute < 10)
 						{
+							this.CacheRebuildStatus = new();
+							this.CacheRebuildMonitor = this.StartTimer(this.MonitorCacheRebuildAsync, 2 * 60);
 							var sessionID = UtilityService.NewUUID;
 							await this.RebuildOrganizationsCacheAsync(new RequestInfo
 							{
@@ -267,7 +282,7 @@ namespace net.vieapps.Services.Portals
 						}
 					}, 60 * 13);
 				}
-
+				
 				// last action
 				next?.Invoke(this);
 			});
@@ -5814,6 +5829,65 @@ namespace net.vieapps.Services.Portals
 					? await requestInfo.RebuildCacheAsync(await OrganizationProcessor.GetOrganizationByIDAsync(id, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false)
 					: await requestInfo.RebuildCacheAsync().ConfigureAwait(false)
 				: throw new AccessDeniedException();
+
+		async Task ProcessCacheRebuildCommunicateMessageAsync(CommunicateMessage message)
+		{
+			if (this.CacheRebuildStatus == null)
+			{
+				this.CacheRebuildStatus = new();
+				var statuses = (await Utility.Cache.GetAsync<string>("portals.cache.rebuild").ConfigureAwait(false) ?? "{}").ToJson() as JObject;
+				statuses.ForEach(kvp => this.CacheRebuildStatus[kvp.Key] = kvp.Value as JObject);
+				if (this.CacheRebuildMonitor == null)
+					this.CacheRebuildMonitor = this.StartTimer(this.MonitorCacheRebuildAsync, 2 * 60);
+			}
+			this.CacheRebuildStatus[message.Type] = message.Data as JObject;
+			Utility.Cache.SetAsync("portals.cache.rebuild", this.CacheRebuildStatus.ToJObject().ToString(Formatting.None), Utility.CancellationToken).Run();
+		}
+
+		async Task MonitorCacheRebuildAsync()
+		{
+			if (this.CacheRebuildStatus == null)
+			{
+				this.CacheRebuildStatus = new();
+				var statuses = (await Utility.Cache.GetAsync<string>("portals.cache.rebuild").ConfigureAwait(false) ?? "{}").ToJson() as JObject;
+				statuses.ForEach(kvp => this.CacheRebuildStatus[kvp.Key] = kvp.Value as JObject);
+			}
+
+			this.CacheRebuildStatus.Where(kvp => "Completed".IsEquals(kvp.Value.Get<string>("Status")))
+				.Select(kvp => kvp.Key).ToList().ForEach(key => this.CacheRebuildStatus.Remove(key));
+
+			await this.CacheRebuildStatus.Where(kvp => (DateTime.Now - kvp.Value.Get<DateTime>("Time")).TotalMinutes > 10)
+				.Select(kvp => kvp.Key).ToList().ForEachAsync(async key =>
+				{
+					var sessionID = UtilityService.NewUUID;
+					await this.RebuildOrganizationsCacheAsync(new RequestInfo
+					{
+						Session = new Session
+						{
+							SessionID = sessionID,
+							User = new User
+							{
+								ID = UtilityService.GetAppSetting("Users:SystemAccountID"),
+								SessionID = sessionID
+							}
+						},
+						ServiceName = this.ServiceName,
+						ObjectName = "Cache",
+						Header = new Dictionary<string, string>
+						{
+							["x-rebuild"] = "true",
+							["x-organization-id"] = key
+						}
+					}, Utility.CancellationToken).ConfigureAwait(false);
+				});
+
+			if (this.CacheRebuildStatus.Count < 1)
+			{
+				this.CacheRebuildStatus = null;
+				this.CacheRebuildMonitor.Dispose();
+				this.CacheRebuildMonitor = null;
+			}
+		}
 		#endregion
 
 		#region Clear cache of Core Portals objects

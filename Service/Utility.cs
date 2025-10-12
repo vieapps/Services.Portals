@@ -1149,7 +1149,7 @@ namespace net.vieapps.Services.Portals
 
 			// update queue & write to centerlized logs
 			Utility.Logs.Enqueue(((DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.NodeID, Utility.ServiceName, objectName), logs, stack));
-			return Utility.Logs.WriteLogsAsync(Utility.CancellationToken, Utility.Logger);
+			return Utility.Logs.WriteLogsAsync(Utility.Logger);
 		}
 
 		internal static Task WriteErrorAsync(this RequestInfo requestInfo, Exception exception, string message = null, string objectName = null, string additionnal = null)
