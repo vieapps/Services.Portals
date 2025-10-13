@@ -2009,7 +2009,6 @@ namespace net.vieapps.Services.Portals
 
 		internal static void Disconnect()
 		{
-			Handler.Cache.Dispose();
 			Handler.CacheCommunicator?.Dispose();
 			Handler.CacheCommunicator = null;
 			Global.UnregisterService();

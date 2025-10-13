@@ -262,20 +262,23 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (RemoteServerMovedException ex)
 			{
-				try
-				{
-					await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, 30, Utility.CancellationToken).ConfigureAwait(false);
-					stopwatch.Stop();
-					if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache"))
-						await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {ex.URI}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
-				}
-				catch (ConnectionTimeoutException) { }
-				catch (Exception exception)
-				{
-					await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({ex.URI}) => {exception.Message} [{exception.GetType()}]", "Caches").ConfigureAwait(false);
-				}
+				if (ex.InnerException is not ServiceOperationException && ex.InnerException is not ServiceNotFoundException)
+					try
+					{
+						await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, 30, Utility.CancellationToken).ConfigureAwait(false);
+						stopwatch.Stop();
+						if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache"))
+							await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {ex.URI}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
+					}
+					catch (ConnectionTimeoutException) { }
+					catch (Exception exception)
+					{
+						await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({ex.URI}) => {exception.Message} [{exception.GetType()}]", "Caches").ConfigureAwait(false);
+					}
 			}
 			catch (ConnectionTimeoutException) { }
+			catch (ServiceOperationException) { }
+			catch (ServiceNotFoundException) { }
 			catch (Exception ex)
 			{
 				await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({url}) => {(ex is RemoteServerException rex ? $"{rex.Message} (Code: {rex.StatusCode}){(string.IsNullOrWhiteSpace(rex.Body) ? "" : $"\r\nBody: {rex.Body}")}" : $"{ex.Message}")} [{ex.GetType()}]", "Caches").ConfigureAwait(false);

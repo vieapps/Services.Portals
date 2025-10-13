@@ -2,21 +2,22 @@
 using System;
 using System.IO;
 using System.Net;
-using System.Linq;
 using System.Data;
+using System.Linq;
 using System.Dynamic;
+using System.Reflection;
+using System.Diagnostics;
 using System.Xml.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Reflection;
-using System.Diagnostics;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Security.AccessControl;
 using System.Text.RegularExpressions;
+using WampSharp.V2.Core.Contracts;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
@@ -108,7 +109,8 @@ namespace net.vieapps.Services.Portals
 				{
 					this.ServiceInstance = await Router.IncomingChannel.RegisterAsync<ICmsPortalsService>(() => this, RegistrationInterceptor.Create(this.ServiceName)).ConfigureAwait(false);
 					this.ServiceCommunicator?.Dispose();
-					this.ServiceCommunicator = Router.IncomingChannel.Subscribe<CommunicateMessage>(
+					this.ServiceCommunicator = Router.IncomingChannel.Subscribe<CommunicateMessage>
+					(
 						"messages.services.cms.portals",
 						message => this.NodeID.IsEquals(message.ExcludedNodeID) ? Task.CompletedTask : this.ProcessCommunicateMessageAsync(message),
 						exception => this.WriteLogsAsync(UtilityService.NewUUID, this.Logger, $"Error occurred while processing a communicate message of CMS Portals => {exception.Message}", exception, this.ServiceName, "Errors", LogLevel.Error)
@@ -259,25 +261,16 @@ namespace net.vieapps.Services.Portals
 						{
 							this.CacheRebuildStatus = new();
 							this.CacheRebuildMonitor = this.StartTimer(this.MonitorCacheRebuildAsync, 2 * 60);
-							var sessionID = UtilityService.NewUUID;
-							await this.RebuildOrganizationsCacheAsync(new RequestInfo
-							{
-								Session = new Session
+							await Task.WhenAll
+							(
+								Utility.Cache.RemoveAsync("Rebuild.Cache", Utility.CancellationToken),
+								this.RebuildOrganizationsCacheAsync(this.BuildRequestInfo(requestInfo =>
 								{
-									SessionID = sessionID,
-									User = new User
-									{
-										ID = UtilityService.GetAppSetting("Users:SystemAccountID"),
-										SessionID = sessionID
-									}
-								},
-								ServiceName = this.ServiceName,
-								ObjectName = "Cache",
-								Header = new Dictionary<string, string>
-								{
-									["x-rebuild"] = "true"
-								}
-							}, Utility.CancellationToken).ConfigureAwait(false);
+									requestInfo.ServiceName = this.ServiceName;
+									requestInfo.ObjectName = "Cache";
+									requestInfo.Header["x-rebuild"] = "true";
+								}), Utility.CancellationToken)
+							).ConfigureAwait(false);
 							time = time.AddDays(7);
 						}
 					}, 60 * 13);
@@ -5832,16 +5825,31 @@ namespace net.vieapps.Services.Portals
 
 		async Task ProcessCacheRebuildCommunicateMessageAsync(CommunicateMessage message)
 		{
-			if (this.CacheRebuildStatus == null)
+			var needUpdate = this.CacheRebuildStatus == null;
+			if (needUpdate)
 			{
 				this.CacheRebuildStatus = new();
-				var statuses = (await Utility.Cache.GetAsync<string>("portals.cache.rebuild").ConfigureAwait(false) ?? "{}").ToJson() as JObject;
+				var statuses = (await Utility.Cache.GetAsync<string>("Rebuild.Cache").ConfigureAwait(false) ?? "{}").ToJson() as JObject;
 				statuses.ForEach(kvp => this.CacheRebuildStatus[kvp.Key] = kvp.Value as JObject);
+			}
+
+			var data = message.Data as JObject;
+			this.CacheRebuildStatus[message.Type] = data;
+
+			if (needUpdate)
+			{
+				Utility.Cache.SetAsync("Rebuild.Cache", this.CacheRebuildStatus.ToJObject().ToString(Formatting.None), Utility.CancellationToken).Run();
 				if (this.CacheRebuildMonitor == null)
 					this.CacheRebuildMonitor = this.StartTimer(this.MonitorCacheRebuildAsync, 2 * 60);
 			}
-			this.CacheRebuildStatus[message.Type] = message.Data as JObject;
-			Utility.Cache.SetAsync("portals.cache.rebuild", this.CacheRebuildStatus.ToJObject().ToString(Formatting.None), Utility.CancellationToken).Run();
+
+			var logs = new[] { $"{DateTime.Now.ToIsoString()} :: {message.Data.Get<string>("Title")}", $"- ID: {message.Type}" }.ToList();
+			data.ForEach(kvp =>
+			{
+				if (kvp.Key != "Time" && kvp.Key != "Title")
+					logs.Add($"- {kvp.Key}: {kvp.Value}");
+			});
+			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"{DateTime.Now:yyyyMMdd}_portals.cache.rebuild.txt"), Utility.CancellationToken).Run();
 		}
 
 		async Task MonitorCacheRebuildAsync()
@@ -5849,44 +5857,75 @@ namespace net.vieapps.Services.Portals
 			if (this.CacheRebuildStatus == null)
 			{
 				this.CacheRebuildStatus = new();
-				var statuses = (await Utility.Cache.GetAsync<string>("portals.cache.rebuild").ConfigureAwait(false) ?? "{}").ToJson() as JObject;
+				var statuses = (await Utility.Cache.GetAsync<string>("Rebuild.Cache").ConfigureAwait(false) ?? "{}").ToJson() as JObject;
 				statuses.ForEach(kvp => this.CacheRebuildStatus[kvp.Key] = kvp.Value as JObject);
 			}
 
-			this.CacheRebuildStatus.Where(kvp => "Completed".IsEquals(kvp.Value.Get<string>("Status")))
-				.Select(kvp => kvp.Key).ToList().ForEach(key => this.CacheRebuildStatus.Remove(key));
+			var logs = new List<string>();
 
-			await this.CacheRebuildStatus.Where(kvp => (DateTime.Now - kvp.Value.Get<DateTime>("Time")).TotalMinutes > 10)
-				.Select(kvp => kvp.Key).ToList().ForEachAsync(async key =>
+			var inprogress = this.CacheRebuildStatus
+				.Where(kvp => !"Completed".IsEquals(kvp.Value.Get<string>("State")))
+				.ToList();
+
+			var retry = inprogress
+				.Select(kvp => (kvp.Key, Seconds: DateTime.Now.ToUnixTimestamp() - kvp.Value.Get<long>("Time")))
+				.Where(kvp => TimeSpan.FromSeconds(kvp.Seconds).TotalMinutes > 13)
+				.Select(kvp => kvp.Key)
+				.ToList();
+
+			await retry.ForEachAsync(async key =>
+			{
+				var info = this.CacheRebuildStatus[key];
+				await this.RebuildOrganizationsCacheAsync(this.BuildRequestInfo(requestInfo =>
 				{
-					var sessionID = UtilityService.NewUUID;
-					await this.RebuildOrganizationsCacheAsync(new RequestInfo
-					{
-						Session = new Session
-						{
-							SessionID = sessionID,
-							User = new User
-							{
-								ID = UtilityService.GetAppSetting("Users:SystemAccountID"),
-								SessionID = sessionID
-							}
-						},
-						ServiceName = this.ServiceName,
-						ObjectName = "Cache",
-						Header = new Dictionary<string, string>
-						{
-							["x-rebuild"] = "true",
-							["x-organization-id"] = key
-						}
-					}, Utility.CancellationToken).ConfigureAwait(false);
+					requestInfo.ServiceName = this.ServiceName;
+					requestInfo.ObjectName = "Cache";
+					requestInfo.Header["x-rebuild"] = "true";
+					requestInfo.Header["x-organization-id"] = key;
+					requestInfo.Header["x-done"] = info.Get("Done", 0).ToString();
+				}), Utility.CancellationToken).ConfigureAwait(false);
+				logs.AddRange(new[] {
+					"-------------------------------------",
+					$"{DateTime.Now.ToIsoString()} :: RETRY",
+					$"- Organization: {info.Get<string>("Title")} ({key})",
+					$"- Old Time: {new DateTime(info.Get<long>("Time")).ToIsoString()} [{info.Get("Done", 0)}/{info.Get("Total", 0)}]",
+					$"- Old Node: {info.Get<string>("Node")}",
+					"-------------------------------------"
 				});
+			});
 
-			if (this.CacheRebuildStatus.Count < 1)
+			if (inprogress.Count > 0)
+			{
+				await Utility.Cache.SetAsync("Rebuild.Cache", this.CacheRebuildStatus.ToJObject().ToString(Formatting.None), Utility.CancellationToken).ConfigureAwait(false);
+				logs.AddRange(new[] {
+					"-------------------------------------",
+					$"Total: {this.CacheRebuildStatus.Count:###,###,##0} - Inprogress: {inprogress.Count:###,###,##0}{(retry.Count > 0 ? $" (Retry: {retry.Count:###,###,##0})" : "")}",
+					"-------------------------------------"
+				});
+				if (inprogress.Count < 6)
+					logs.AddRange(inprogress.Select(kvp => $"{kvp.Value.Get<string>("Title")} ({kvp.Key})\r\n- Time: {new DateTime(kvp.Value.Get<long>("Time")).ToIsoString()} [{kvp.Value.Get("Done", 0)}/{kvp.Value.Get("Total", 0)}]\r\n- Node: {kvp.Value.Get<string>("Node")}"));
+				inprogress
+					.Select(kvp => (kvp.Key, Seconds: DateTime.Now.ToUnixTimestamp() - kvp.Value.Get<long>("Time")))
+					.Where(kvp => TimeSpan.FromSeconds(kvp.Seconds).TotalHours > 4)
+					.Select(kvp => kvp.Key)
+					.ToList()
+					.ForEach(key =>
+					{
+						var info = this.CacheRebuildStatus[key];
+						info["State"] = "Completed";
+						this.CacheRebuildStatus[key] = info;
+					});
+			}
+			else
 			{
 				this.CacheRebuildStatus = null;
-				this.CacheRebuildMonitor.Dispose();
-				this.CacheRebuildMonitor = null;
+				this.StopTimer(this.CacheRebuildMonitor, _ => this.CacheRebuildMonitor = null);
+				await Utility.Cache.RemoveAsync("Rebuild.Cache", Utility.CancellationToken).ConfigureAwait(false);
+				logs.AddRange(new[] { "\r\n", "\r\n", "-------- COMPLETED --------", "\r\n", "\r\n" });
 			}
+
+			if (logs.Count > 0)
+				await logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"{DateTime.Now:yyyyMMdd}_portals.cache.rebuild.txt"), Utility.CancellationToken).ConfigureAwait(false);
 		}
 		#endregion
 
