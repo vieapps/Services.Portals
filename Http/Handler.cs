@@ -1,10 +1,10 @@
 ﻿#region Related components
 using System;
 using System.IO;
-using System.Net;
 using System.Linq;
-using System.Diagnostics;
+using System.Net;
 using System.Net.WebSockets;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -150,10 +150,10 @@ namespace net.vieapps.Services.Portals
 			var correlationID = UtilityService.NewUUID;
 			var stopwatch = Stopwatch.StartNew();
 
-			var requestObj = new JObject().ToExpandoObject();
+			JToken requestJson = null;
 			try
 			{
-				requestObj = requestMsg.ToExpandoObject();
+				requestJson = requestMsg.ToJSON();
 			}
 			catch (Exception ex)
 			{
@@ -161,14 +161,14 @@ namespace net.vieapps.Services.Portals
 				return;
 			}
 
-			var requestID = requestObj.Get<string>("ID");
-			var serviceName = requestObj.Get("ServiceName", "").GetANSIUri(true, true);
-			var objectName = requestObj.Get("ObjectName", "").GetANSIUri(true, true);
-			var verb = requestObj.Get("Verb", "GET").ToUpper();
-			var query = new Dictionary<string, string>(requestObj.Get("Query", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
-			var header = new Dictionary<string, string>(requestObj.Get("Header", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
-			var body = requestObj.Get("Body")?.ToExpandoObject();
-			var extra = new Dictionary<string, string>(requestObj.Get("Extra", new Dictionary<string, string>()), StringComparer.OrdinalIgnoreCase);
+			var requestID = requestJson.Get<string>("ID");
+			var serviceName = requestJson.Get("ServiceName", "").GetANSIUri(true, true);
+			var objectName = requestJson.Get("ObjectName", "").GetANSIUri(true, true);
+			var verb = requestJson.Get("Verb", "GET").ToUpper();
+			var query = new Dictionary<string, string>(requestJson.Get<JObject>("Query")?.ToDictionary<string>() ?? [], StringComparer.OrdinalIgnoreCase);
+			var header = new Dictionary<string, string>(requestJson.Get<JObject>("Header")?.ToDictionary<string>() ?? [], StringComparer.OrdinalIgnoreCase);
+			var body = requestJson.Get("Body", new JObject());
+			var extra = new Dictionary<string, string>(requestJson.Get<JObject>("Extra")?.ToDictionary<string>() ?? [], StringComparer.OrdinalIgnoreCase);
 			query.TryGetValue("object-identity", out var objectIdentity);
 
 			// session
@@ -238,10 +238,58 @@ namespace net.vieapps.Services.Portals
 						await Global.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully {(verb.IsEquals("REG") ? "register" : "authenticate")} a WebSocket connection\r\n{websocket.GetConnectionInfo(session)}\r\n- Status: {websocket.Get<string>("Status")}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 				}
 
-				// call a service of APIs
+				// send communicate message
+				else if ("CommunicateMessage".IsEquals(requestJson.Get<string>("Type")))
+				{
+					if (serviceName.IsEquals("Files") && objectName.IsEquals("PrepareCache"))
+					{
+						serviceName = body?.Get<string>("service-name");
+						var systemID = body?.Get<string>("system-id");
+						var objectID = body?.Get<string>("object-id");
+						var writeLogs = header.ContainsKey("x-logs") || query.ContainsKey("x-logs");
+						body?.Get<JArray>("attachments")?.ForEach(attachment => new CommunicateMessage("Files")
+						{
+							Type = objectName,
+							Data = new JObject
+							{
+								{ "ServiceName", serviceName },
+								{ "SystemID", systemID },
+								{ "ObjectID", objectID },
+								{ "ID", attachment.Get<string>("id") },
+								{ "Filename", attachment.Get<string>("filename") },
+								{ "ContentType", attachment.Get<string>("content-type") },
+								{ "X-Type", "Attachment" },
+								{ "X-Logs", writeLogs },
+								{ "X-Correlation-ID", correlationID }
+							}
+						}.Send());
+					}
+					else
+						new CommunicateMessage(serviceName)
+						{
+							Type = requestJson.Get<string>("MessageType"),
+							Data = body
+						}.Send();
+
+					var response = new JObject
+					{
+						["Type"] = "CommunicateMessage",
+						["Data"] = new JObject
+						{
+							["Status"] = "Success",
+							["CorrelationID"] = correlationID
+						}
+					};
+					if (!string.IsNullOrWhiteSpace(requestID))
+						response["ID"] = requestID;
+
+					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+				}
+
+				// call a service
 				else
 				{
-					var requestInfo = new RequestInfo(session, serviceName, objectName, verb, query, header, body?.ToJson().ToString(Formatting.None), extra, correlationID);
+					var requestInfo = new RequestInfo(session, serviceName, objectName, verb, query, header, body?.ToString(Formatting.None), extra, correlationID);
 					if ("discovery".IsEquals(requestInfo.ServiceName) && "definitions".IsEquals(requestInfo.ObjectName))
 					{
 						requestInfo.ServiceName = requestInfo.Query["service-name"] = requestInfo.Query["x-service-name"].GetANSIUri(true, true).GetCapitalizedFirstLetter();
@@ -257,11 +305,12 @@ namespace net.vieapps.Services.Portals
 
 					var response = new JObject
 					{
-						{ "Type", $"{requestInfo.ServiceName}#{requestInfo.ObjectName}#{verb.GetCapitalizedFirstLetter()}" },
-						{ "Data", await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) }
+						["Type"] = $"{requestInfo.ServiceName}#{requestInfo.ObjectName}#{verb.GetCapitalizedFirstLetter()}",
+						["Data"] = await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)
 					};
 					if (!string.IsNullOrWhiteSpace(requestID))
 						response["ID"] = requestID;
+
 					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
 				}
 			}

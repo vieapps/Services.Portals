@@ -851,7 +851,7 @@ namespace net.vieapps.Services.Portals
 
 			JArray breadcrumbs = null, metaTags = null;
 			JObject pagination = null, seoInfo = null, filterBy = null, sortBy = null;
-			string coverURI = null, ogURL = null, ogTitle = null, prevURL = null, nextURL = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null, ids = null;
+			string coverURI = null, ogURL = null, ogTitle = null, prevURL = null, nextURL = null, seoTitle = null, seoDescription = null, seoKeywords = null, data = null, ids = null, attachmentScripts = null;
 			DateTime? expiresAt = null;
 
 			var showThumbnails = options.Get("ShowThumbnails", options.Get("ShowThumbnail", true)) || options.Get("ShowPngThumbnails", false) || options.Get("ShowAsPngThumbnails", false);
@@ -859,6 +859,7 @@ namespace net.vieapps.Services.Portals
 			var thumbnailsWidth = options.Get("ThumbnailsWidth", options.Get("ThumbnailWidth", 0));
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 
+			var showAttachments = options.Get("ShowAttachments", false);
 			var showBreadcrumbs = options.Get("ShowBreadcrumbs", false);
 			var showPagination = options.Get("ShowPagination", false);
 
@@ -1173,15 +1174,15 @@ namespace net.vieapps.Services.Portals
 						throw new AccessDeniedException();
 				}
 
+				Task<JToken> thumbnailsTask = null, attachmentsTask = null;
+
 				// get cache
-				Task<JToken> thumbnailsTask = null;
 				var cacheKey = $"{@object.GetCacheKey()}:xml:o#{optionsJson.ToString(Formatting.None).GenerateUUID()}:p#{paginationJson.ToString(Formatting.None).GenerateUUID()}";
 				data = forceCache ? null : await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 
 				// process if has no cache
 				if (string.IsNullOrWhiteSpace(data))
 				{
-					var showAttachments = options.Get("ShowAttachments", false);
 					var showRelateds = options.Get("ShowRelateds", false);
 					var showOthers = options.Get("ShowOthers", false);
 					contentTypeID = @object.ContentTypeID;
@@ -1200,7 +1201,7 @@ namespace net.vieapps.Services.Portals
 					if (requestInfo.ContainsKey("x-force-cache"))
 						requestInfo.Header["x-force-cache"] = "true";
 					thumbnailsTask = showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
-					var attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
+					attachmentsTask = showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : Task.FromResult<JToken>(new JArray());
 
 					// wait for all tasks are completed
 					await Task.WhenAll(relatedsTask, othersTask, thumbnailsTask, attachmentsTask).ConfigureAwait(false);
@@ -1370,8 +1371,9 @@ namespace net.vieapps.Services.Portals
 				// build others
 				breadcrumbs = showBreadcrumbs ? @object.Category?.GenerateBreadcrumbs(desktop) ?? new() : null;
 				pagination = showPagination ? Utility.GeneratePagination(1, 1, 0, pageNumber, @object.GetURL(desktop, true), showPageLinks, numberOfPageLinks) : null;
-				thumbnailsTask = thumbnailsTask ?? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-				await thumbnailsTask.ConfigureAwait(false);
+				thumbnailsTask = thumbnailsTask == null || !showThumbnails ? requestInfo.GetThumbnailsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : thumbnailsTask;
+				attachmentsTask = attachmentsTask == null || !showAttachments ? requestInfo.GetAttachmentsAsync(@object.ID, @object.Title.Url64Encode(), Utility.ValidationKey, cancellationToken) : attachmentsTask;
+				await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 				coverURI = (thumbnailsTask.Result as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(thumbnailsWidth, thumbnailsHeight, pngThumbnails);
 				metaTags = new[] { $"<meta property=\"og:type\" content=\"{options.Get("Og:Type", "article")}\"/>" }.ToJArray();
 				ogURL = @object.GetURL(desktop);
@@ -1380,6 +1382,11 @@ namespace net.vieapps.Services.Portals
 				seoDescription = @object.Summary;
 				seoKeywords = @object.Tags;
 				ids = $"system:\"{@object.SystemID}\",repository:\"{@object.RepositoryID}\",entity:\"{@object.RepositoryEntityID}\",category:\"{@object.CategoryID}\",id:\"{@object.ID}\"";
+				attachmentScripts = "attachments:["
+					+ (attachmentsTask.Result as JArray)?.Select(attachment => attachment.Get<string>("ContentType").IsStartsWith("image/")
+						? "{\"id\":\"" + attachment.Get<string>("ID") + "\",\"filename\":\"" + attachment.Get<string>("Filename") + "\",\"content-type\":\"" + attachment.Get<string>("ContentType") + "\"}"
+						: null).Where(attachment => attachment != null).Join(",")
+					+ "]";
 			}
 
 			// SEO
@@ -1408,7 +1415,8 @@ namespace net.vieapps.Services.Portals
 				{ "CoverURI", coverURI },
 				{ "MetaTags", metaTags },
 				{ "CacheExpiration", expiresAt != null ? expiresAt.Value.ToDTString() : (randomPage ? Utility.IsCacheLogEnabled ? 3 : 13 : 0).ToString() },
-				{ "IDs", ids + $",service:\"{moduleDefinitionJson.Get<string>("ServiceName").ToLower()}\",object:\"{contentTypeDefinitionJson.Get<string>("ObjectNamePrefix")?.ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectName").ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectNameSuffix")?.ToLower()}\"" }
+				{ "IDs", ids + $",service:\"{moduleDefinitionJson.Get<string>("ServiceName").ToLower()}\",object:\"{contentTypeDefinitionJson.Get<string>("ObjectNamePrefix")?.ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectName").ToLower()}{contentTypeDefinitionJson.Get<string>("ObjectNameSuffix")?.ToLower()}\"" },
+				{ "AttachmentScripts", attachmentScripts }
 			};
 		}
 

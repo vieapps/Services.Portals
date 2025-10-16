@@ -247,15 +247,16 @@ namespace net.vieapps.Services.Portals
 			return cacheKey;
 		}
 
-		internal static async Task RefreshWebPageAsync(this string url, int delay, string correlationID = null, string log = null)
+		internal static async Task RefreshWebPageAsync(this string url, int delay, string correlationID = null, string log = null, CancellationToken cancellationToken = default)
 		{
-			correlationID = correlationID ?? UtilityService.NewUUID;
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Utility.CancellationToken);
 			var stopwatch = Stopwatch.StartNew();
+			correlationID = correlationID ?? UtilityService.NewUUID;
 			try
 			{
 				if (delay > 0)
-					await Task.Delay(delay * 1000, Utility.CancellationToken).ConfigureAwait(false);
-				await new Uri(url).FetchHttpAsync(Utility.RefresherHeaders, 30, Utility.CancellationToken).ConfigureAwait(false);
+					await Task.Delay(delay * 1000, cts.Token).ConfigureAwait(false);
+				await new Uri(url).FetchHttpAsync(Utility.RefresherHeaders, 30, cts.Token).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache"))
 					await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {url}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
@@ -265,7 +266,7 @@ namespace net.vieapps.Services.Portals
 				if (ex.InnerException is not ServiceOperationException && ex.InnerException is not ServiceNotFoundException)
 					try
 					{
-						await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, 30, Utility.CancellationToken).ConfigureAwait(false);
+						await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, 30, cts.Token).ConfigureAwait(false);
 						stopwatch.Stop();
 						if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache"))
 							await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {ex.URI}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
@@ -276,6 +277,7 @@ namespace net.vieapps.Services.Portals
 						await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({ex.URI}) => {exception.Message} [{exception.GetType()}]", "Caches").ConfigureAwait(false);
 					}
 			}
+			catch (OperationCanceledException) { }
 			catch (ConnectionTimeoutException) { }
 			catch (ServiceOperationException) { }
 			catch (ServiceNotFoundException) { }

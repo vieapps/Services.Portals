@@ -1007,24 +1007,24 @@ namespace net.vieapps.Services.Portals
 			return new JObject();
 		}
 
-		internal static Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo, Organization organization)
+		internal static Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo, Organization organization, CancellationToken cancellationToken)
 		{
-			organization?.RebuildCacheAsync(Int32.TryParse(requestInfo.GetParameter("x-done"), out var done) && done > 0 ? done : 0, requestInfo.CorrelationID).Run();
+			organization?.RebuildCacheAsync(Int32.TryParse(requestInfo.GetParameter("x-done"), out var done) && done > 0 ? done : 0, requestInfo.CorrelationID, requestInfo.ContainsKey("x-logs"), cancellationToken).Run();
 			return Task.FromResult(new JObject());
 		}
 
-		internal static async Task RebuildCacheAsync(this Organization organization, int done, string correlationID)
+		internal static async Task RebuildCacheAsync(this Organization organization, int done, string correlationID, bool writeLogs, CancellationToken cancellationToken)
 		{
 			if (organization == null || (organization.Status != ApprovalStatus.Approved && organization.Status != ApprovalStatus.Published))
 				return;
 
-			await Task.Delay(UtilityService.GetRandomNumber(456, 789)).ConfigureAwait(false);
+			await Task.Delay(UtilityService.GetRandomNumber(456, 789), cancellationToken).ConfigureAwait(false);
 			var stopwatch = Stopwatch.StartNew();
 
 			var organizationURL = organization.URL;
 			var refreshingURLs = new[] { organizationURL }.ToList();
 
-			void sendStatus(string state = "Process")
+			void sendStatus(string state = "Processing")
 				=> new CommunicateMessage($"{Utility.ServiceName}.cache.rebuild")
 				{
 					Type = organization.ID,
@@ -1039,22 +1039,25 @@ namespace net.vieapps.Services.Portals
 					}
 				}.Send();
 
-			sendStatus("Start");
-			await Utility.WriteLogAsync(correlationID, $"Rebuild cache of '{organization.Title}'", "Caches").ConfigureAwait(false);
+			sendStatus("Started");
+			await Utility.WriteLogAsync(correlationID, $"Start to rebuild cache of '{organization.Title}'", "Caches").ConfigureAwait(false);
 			var categoryURLs = new List<string>();
 
 			async Task getURLsAsync(Category category, IEnumerable<ContentType> contentTypes)
 			{
-				await Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).ConfigureAwait(false);
+				await Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 				var categoryURL = category.GetURL(null, true).Replace("~/", $"{organizationURL}/");
+				if (writeLogs)
+					await Utility.WriteLogAsync(correlationID, $"Get URLs of category '{category.FullTitle}' [{organization.Title}] => {categoryURL}", "Caches").ConfigureAwait(false);
+
 				if (categoryURL.IsStartsWith(organizationURL))
 				{
 					refreshingURLs.Add(categoryURL.Replace("/{{pageNumber}}", "", StringComparison.OrdinalIgnoreCase));
+					sendStatus("Preparing");
+
 					if (categoryURL.IsContains("/{{pageNumber}}"))
 					{
-						Enumerable.Range(2, 100)
-							.Select(pageNumber => categoryURL.Replace("/{{pageNumber}}", $"/{pageNumber}", StringComparison.OrdinalIgnoreCase))
-							.ForEach(url => categoryURLs.Add(url));
+						categoryURLs = categoryURLs.Concat(Enumerable.Range(2, 100).Select(pageNumber => categoryURL.Replace("/{{pageNumber}}", $"/{pageNumber}", StringComparison.OrdinalIgnoreCase))).ToList();
 
 						await contentTypes.ForEachAsync(async contentType =>
 						{
@@ -1062,88 +1065,147 @@ namespace net.vieapps.Services.Portals
 							var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
 
 							var cacheKeyOfTotal = Extensions.GetCacheKeyOfTotalObjects(filter, sort);
-							await Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKeyOfTotal, Utility.CancellationToken).ConfigureAwait(false);
+							await Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKeyOfTotal, cancellationToken).ConfigureAwait(false);
 
-							var totalRecords = await Content.CountAsync(filter, contentType.ID, true, cacheKeyOfTotal, 0, Utility.CancellationToken).ConfigureAwait(false);
-							var pageSize = 20;
-							var totalPages = (totalRecords, pageSize).GetTotalPages();
-							var pageNumber = 0;
-
-							while (totalRecords > 0 && pageNumber < totalPages)
+							var totalRecords = await Content.CountAsync(filter, contentType.ID, true, cacheKeyOfTotal, 0, cancellationToken).ConfigureAwait(false);
+							if (totalRecords > 0)
 							{
-								pageNumber++;
-								var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, pageSize, pageNumber);
-								var contents = await Content.FindAsync(filter, sort, pageSize, pageNumber, contentType.ID, true, cacheKeyOfObjects, 0, Utility.CancellationToken).ConfigureAwait(false);
+								var pageNumber = 0;
+								var pageSize = 20;
+								var totalPages = (totalRecords, pageSize).GetTotalPages();
 
-								await Task.WhenAll
-								(
-									Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, contents.Select(content => content.GetCacheKey()), Utility.CancellationToken),
-									Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), contents.Select(content => new[] { content.GetCacheKey(), content.GetCacheKeyOfAliasedContent() }).SelectMany(keys => keys).Concat([cacheKeyOfObjects]), Utility.CancellationToken)
-								).ConfigureAwait(false);
+								if (writeLogs)
+									await Utility.WriteLogAsync(correlationID, $"Get content URLs of '{category.FullTitle}' [{contentType.Title} @ {organization.Title}] - Total pages: {totalPages:###,##0}", "Caches").ConfigureAwait(false);
 
-								contents = contents.Where(content => content.Status == ApprovalStatus.Published).ToList();
-								refreshingURLs = refreshingURLs.Concat(contents.Select(content => content.GetURL().Replace("~/", $"{organizationURL}/"))).ToList();
-								if (pageNumber % 5 == 0)
-									sendStatus();
-								if (contents.Count > 0 && (DateTime.Now - contents.Last().PublishedTime.Value).TotalDays > 365 * 3)
-									break;
+								while (pageNumber < totalPages)
+								{
+									pageNumber++;
+									var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, pageSize, pageNumber);
+									var contents = await Content.FindAsync(filter, sort, pageSize, pageNumber, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false);
+
+									await Task.WhenAll
+									(
+										Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, contents.Select(content => content.GetCacheKey()), cancellationToken),
+										Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), contents.Select(content => new[] { content.GetCacheKey(), content.GetCacheKeyOfAliasedContent() }).SelectMany(keys => keys).Concat([cacheKeyOfObjects]), cancellationToken)
+									).ConfigureAwait(false);
+
+									contents = contents.Where(content => content.Status == ApprovalStatus.Published).ToList();
+									if (contents.Count > 0)
+									{
+										refreshingURLs = refreshingURLs.Concat(contents.Select(content => content.GetURL().Replace("~/", $"{organizationURL}/"))).ToList();
+										if ((DateTime.Now - contents.Last().PublishedTime.Value).TotalDays > 365 * 3)
+										{
+											if (writeLogs)
+												await Utility.WriteLogAsync(correlationID, $"Break the process to get content URLs of '{category.FullTitle}' [{contentType.Title} @ {organization.Title}]", "Caches").ConfigureAwait(false);
+											break;
+										}
+									}
+
+									if (pageNumber % 5 == 0)
+										sendStatus("Preparing");
+								}
+
+								sendStatus("Preparing");
 							}
 						}, true, false).ConfigureAwait(false);
 					}
 				}
 
-				var children = await category.FindChildrenAsync(Utility.CancellationToken).ConfigureAwait(false) ?? [];
-				await children.ForEachAsync(childCategory => getURLsAsync(childCategory, contentTypes), true, false).ConfigureAwait(false);
+				var children = await category.FindChildrenAsync(cancellationToken).ConfigureAwait(false) ?? [];
+				if (children.Count > 0)
+				{
+					if (writeLogs)
+						await Utility.WriteLogAsync(correlationID, $"Get URLs of {children.Count} child categories of '{category.FullTitle}' [{organization.Title}]", "Caches").ConfigureAwait(false);
+					await children.Where(childCategory => childCategory.Status == ApprovalStatus.Published).ForEachAsync(childCategory => getURLsAsync(childCategory, contentTypes), true, false).ConfigureAwait(false);
+				}
 			}
 
 			async Task getLinkURLsAsync(Link link)
 			{
-				await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken).ConfigureAwait(false);
+				await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 				var url = link.GetURL().Replace("~/", $"{organizationURL}/");
+				if (writeLogs)
+					await Utility.WriteLogAsync(correlationID, $"Get URLs of link '{link.FullTitle}' [{organization.Title}] => {url}", "Caches").ConfigureAwait(false);
+
 				if (url.IsStartsWith(organizationURL))
 					refreshingURLs.Add(url);
-				var children = await link.FindChildrenAsync(Utility.CancellationToken).ConfigureAwait(false) ?? [];
-				await children.ForEachAsync(childLink => getLinkURLsAsync(childLink)).ConfigureAwait(false);
+
+				var children = await link.FindChildrenAsync(cancellationToken).ConfigureAwait(false) ?? [];
+				if (children.Count > 0)
+				{
+					if (writeLogs)
+						await Utility.WriteLogAsync(correlationID, $"Get URLs of {children.Count} child links of '{link.FullTitle}' [{organization.Title}]", "Caches").ConfigureAwait(false);
+					await children.Where(childLink => childLink.Status == ApprovalStatus.Published).ForEachAsync(childLink => getLinkURLsAsync(childLink)).ConfigureAwait(false);
+				}
 			}
 
-			await organization.Modules.ForEachAsync(module => module.ContentTypesOfLink.ForEachAsync(async contentType =>
-			{
-				var filter = LinkProcessor.GetLinksFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
-				var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
-				var links = await Link.FindAsync(filter, sort, 0, 1, contentType.ID, true, Extensions.GetCacheKey(filter, sort, 0, 1), 0, Utility.CancellationToken).ConfigureAwait(false);
-				await links.ForEachAsync(link => getLinkURLsAsync(link)).ConfigureAwait(false);
-			})).ConfigureAwait(false);
+			if (writeLogs)
+				await Utility.WriteLogAsync(correlationID, $"Prepare Link URLs - from {organization.ContentTypesOfLink.Count} content-type(s) [{organization.Title}]", "Caches").ConfigureAwait(false);
 
-			await organization.Modules.ForEachAsync(module => module.ContentTypesOfCategory.ForEachAsync(async contentType =>
+			await organization.ContentTypesOfLink.ForEachAsync(async contentType =>
 			{
-				var filter = CategoryProcessor.GetCategoriesFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
-				var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
-				var categories = await Category.FindAsync(filter, sort, 0, 1, contentType.ID, true, Extensions.GetCacheKey(filter, sort, 0, 1), 0, Utility.CancellationToken).ConfigureAwait(false);
-				await categories.ForEachAsync(category => getURLsAsync(category, module.ContentTypesOfContent), true, false).ConfigureAwait(false);
-			})).ConfigureAwait(false);
+				try
+				{
+					var filter = LinkProcessor.GetLinksFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
+					var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
+					var links = await Link.FindAsync(filter, sort, 0, 1, contentType.ID, true, Extensions.GetCacheKey(filter, sort, 0, 1), 0, cancellationToken).ConfigureAwait(false);
+					await links.Where(link => link.Status == ApprovalStatus.Published).ForEachAsync(link => getLinkURLsAsync(link)).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await Utility.WriteLogAsync(correlationID, $"Error occurred while preparing links => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches").ConfigureAwait(false);
+				}
+			}).ConfigureAwait(false);
+
+			sendStatus("Preparing");
+			if (writeLogs)
+				await Utility.WriteLogAsync(correlationID, $"Prepare Category/Content URLs - from {(organization.ContentTypesOfCategory.Count + organization.ContentTypesOfContent.Count)} content-type(s) [{organization.Title}]", "Caches").ConfigureAwait(false);
+
+			await organization.ContentTypesOfCategory.ForEachAsync(async contentType =>
+			{
+				try
+				{
+					var filter = CategoryProcessor.GetCategoriesFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
+					var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
+					var categories = await Category.FindAsync(filter, sort, 0, 1, contentType.ID, true, Extensions.GetCacheKey(filter, sort, 0, 1), 0, cancellationToken).ConfigureAwait(false);
+					await categories.Where(category => category.Status == ApprovalStatus.Published).ForEachAsync(category => getURLsAsync(category, organization.ContentTypesOfContent), true, false).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await Utility.WriteLogAsync(correlationID, $"Error occurred while preparing categories/contents => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches").ConfigureAwait(false);
+				}
+			}).ConfigureAwait(false);
 
 			refreshingURLs = refreshingURLs.Concat(categoryURLs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Utility.WriteLogAsync(correlationID, $"Caching URLs of '{organization.Title}' were built => {refreshingURLs.Count:###,###,##0}", "Caches").ConfigureAwait(false);
-			sendStatus();
+			sendStatus("Prepared");
 
 			while (true)
 			{
+				if (cancellationToken.IsCancellationRequested)
+				{
+					if (writeLogs)
+						await Utility.WriteLogAsync(correlationID, $"Got signal to cancel the rebuild process [{organization.Title}]", "Caches").ConfigureAwait(false);
+					break;
+				}
+
 				var urls = refreshingURLs.Skip(done).Take(10).ToList();
 				if (urls.Count < 1)
 					break;
 
-				await urls.ForEachAsync((url, index) => url.RefreshWebPageAsync(index, correlationID)).ConfigureAwait(false);
+				await urls.ForEachAsync((url, index) => url.RefreshWebPageAsync(index, correlationID, "Rebuild cache successful", cancellationToken)).ConfigureAwait(false);
 
 				done += urls.Count;
 				if (done % 50 == 0)
 					sendStatus();
-				if (done % 500 == 0)
+
+				if ((writeLogs && done % 50 == 0) || (done % 500 == 0))
 					await Utility.WriteLogAsync(correlationID, $"{done:###,###,##0}/{refreshingURLs.Count:###,###,##0} caching URLs of '{organization.Title}' were refreshen", "Caches").ConfigureAwait(false);
 			}
 
 			stopwatch.Stop();
 			await Utility.WriteLogAsync(correlationID, $"Complete rebuild {done:###,###,##0} caches of '{organization.Title}' - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
-			sendStatus("Completed");
+			sendStatus(cancellationToken.IsCancellationRequested ? "Canceled" : "Completed");
 		}
 	}
 }

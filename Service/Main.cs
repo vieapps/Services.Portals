@@ -98,6 +98,8 @@ namespace net.vieapps.Services.Portals
 		IDisposable CacheRebuildMonitor { get; set; }
 
 		ConcurrentDictionary<string, JObject> CacheRebuildStatus { get; set; }
+
+		bool IsCacheBuilder => "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Builder", "false"));
 		#endregion
 
 		#region Register/Start
@@ -118,7 +120,7 @@ namespace net.vieapps.Services.Portals
 					this.CacheCommunicator?.Dispose();
 					this.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
 					Utility.Cache.AssignSendL1CacheRequest(this);
-					if ("true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Builder", "false")))
+					if (this.IsCacheBuilder)
 					{
 						this.CacheRebuildCommunicator?.Dispose();
 						this.CacheRebuildCommunicator = Router.IncomingChannel.Subscribe<CommunicateMessage>("messages.services.portals.cache.rebuild", this.ProcessCacheRebuildCommunicateMessageAsync);
@@ -250,8 +252,8 @@ namespace net.vieapps.Services.Portals
 				// re-load all orangizations/sites (once per day)
 				this.StartTimer(() => DateTime.Now.Hour == 4 ? this.ReloadOrganizationsAsync() : Task.CompletedTask, 60 * 61);
 
-				// reload all to rebuild cache (10 PM at every Satuday)
-				if ("true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Builder", "false")))
+				// reload all to rebuild cache (4 AM at every Sunday)
+				if (this.IsCacheBuilder)
 				{
 					var time = DateTime.Now.GetEndDayOfWeek();
 					time = new DateTime(time.Year, time.Month, time.Day, 4, 0, 0);
@@ -269,7 +271,7 @@ namespace net.vieapps.Services.Portals
 									requestInfo.ServiceName = this.ServiceName;
 									requestInfo.ObjectName = "Cache";
 									requestInfo.Header["x-rebuild"] = "true";
-								}), Utility.CancellationToken)
+								}))
 							).ConfigureAwait(false);
 							time = time.AddDays(7);
 						}
@@ -693,7 +695,7 @@ namespace net.vieapps.Services.Portals
 					case "cache":
 					case "caches":
 						json = requestInfo.ContainsKey("x-rebuild")
-							? await this.RebuildOrganizationsCacheAsync(requestInfo, cts.Token).ConfigureAwait(false)
+							? await this.RebuildOrganizationsCacheAsync(requestInfo).ConfigureAwait(false)
 							: await this.ClearCacheAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
 
@@ -2378,7 +2380,9 @@ namespace net.vieapps.Services.Portals
 
 				// final scripts
 				additionalScripts += string.IsNullOrWhiteSpace(jqueryScripts) ? "" : "$(()=>{" + jqueryScripts.Replace(";;", ";") + "});";
-				scripts = "<script>__vieapps={ids:{" + (mainPortlet?.Get<string>("IDs") ?? $"system:\"{organization.ID}\",service:\"{this.ServiceName.ToLower()}\"") + $",parent:\"{parentIdentity}\",content:\"{contentIdentity}\"" + "},URLs:{root:\"~/\",portals:\"" + (organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) + "\",websockets:\"" + Utility.PortalsWebSocketURI + "\",files:\"" + (organization.FakeFilesHttpURI ?? Utility.FilesHttpURI) + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}},current:{" + $"alias:\"{desktop.Alias}\",id:\"{desktop.ID}\"" + "}},language:\"{{language}}\",isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>"
+				var attachmentScripts = mainPortlet?.Get<string>("AttachmentScripts");
+				attachmentScripts = string.IsNullOrWhiteSpace(attachmentScripts) ? "" : "," + attachmentScripts;
+				scripts = "<script>__vieapps={ids:{" + (mainPortlet?.Get<string>("IDs") ?? $"system:\"{organization.ID}\",service:\"{this.ServiceName.ToLower()}\"") + $",parent:\"{parentIdentity}\",content:\"{contentIdentity}\"" + "}" + attachmentScripts + ",URLs:{root:\"~/\",portals:\"" + (organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) + "\",websockets:\"" + Utility.PortalsWebSocketURI + "\",files:\"" + (organization.FakeFilesHttpURI ?? Utility.FilesHttpURI) + "\"},desktops:{home:{{homeDesktop}},search:{{searchDesktop}},current:{" + $"alias:\"{desktop.Alias}\",id:\"{desktop.ID}\"" + "}},language:\"{{language}}\",isMobile:{{isMobile}},osInfo:\"{{osInfo}}\",correlationID:\"{{correlationID}}\"};</script>"
 					+ scripts
 					+ additionalScriptLibraries
 					+ (string.IsNullOrWhiteSpace(additionalScripts) ? "" : $"<script>{additionalScripts}</script>");
@@ -5758,6 +5762,20 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEquals("HarmfulIPs#Resume"))
 				RequestExtensions.AutoBlockHarmfulRequest = true;
 
+			else if (message.Type.IsEquals("RebuildCache#Cancel") && this.RebuildCacheCTS != null)
+			{
+				this.RebuildCacheCTS.Cancel();
+				this.RebuildCacheCTS.Dispose();
+				this.RebuildCacheCTS = null;
+				if (this.IsCacheBuilder)
+				{
+					this.CacheRebuildStatus = null;
+					if (this.CacheRebuildMonitor != null)
+						this.StopTimer(this.CacheRebuildMonitor, _ => this.CacheRebuildMonitor = null);
+					await Utility.Cache.RemoveAsync("Rebuild.Cache", cancellationToken).ConfigureAwait(false);
+				}
+			}
+
 			stopwatch.Stop();
 			if (Utility.IsWriteMessageLogs(null))
 				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", "Updates").ConfigureAwait(false);
@@ -5816,12 +5834,31 @@ namespace net.vieapps.Services.Portals
 			return new JObject();
 		}
 
-		async Task<JToken> RebuildOrganizationsCacheAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
-			=> requestInfo.Session.User.IsSystemAccount || await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false)
-				? requestInfo.TryGetParameter("x-organization-id", out var id)
-					? await requestInfo.RebuildCacheAsync(await OrganizationProcessor.GetOrganizationByIDAsync(id, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false)
-					: await requestInfo.RebuildCacheAsync().ConfigureAwait(false)
-				: throw new AccessDeniedException();
+		CancellationTokenSource RebuildCacheCTS { get; set; }
+
+		async Task<JToken> RebuildOrganizationsCacheAsync(RequestInfo requestInfo)
+		{
+			if (requestInfo.Session.User.IsSystemAccount || await this.IsSystemAdministratorAsync(requestInfo).ConfigureAwait(false))
+			{
+				if (requestInfo.ContainsKey("x-stop"))
+				{
+					new CommunicateMessage(this.ServiceName)
+					{
+						Type = "RebuildCache#Cancel"
+					}.Send();
+					return new JObject();
+				}
+				else if (requestInfo.TryGetParameter("x-organization-id", out var id))
+				{
+					this.RebuildCacheCTS ??= CancellationTokenSource.CreateLinkedTokenSource(Utility.CancellationToken);
+					return await requestInfo.RebuildCacheAsync(await OrganizationProcessor.GetOrganizationByIDAsync(id, this.RebuildCacheCTS.Token).ConfigureAwait(false), this.RebuildCacheCTS.Token).ConfigureAwait(false);
+				}
+				else
+					return await requestInfo.RebuildCacheAsync().ConfigureAwait(false);
+			}
+			else
+				throw new AccessDeniedException();
+		}
 
 		async Task ProcessCacheRebuildCommunicateMessageAsync(CommunicateMessage message)
 		{
@@ -5864,7 +5901,7 @@ namespace net.vieapps.Services.Portals
 			var logs = new List<string>();
 
 			var inprogress = this.CacheRebuildStatus
-				.Where(kvp => !"Completed".IsEquals(kvp.Value.Get<string>("State")))
+				.Where(kvp => !"Completed,Canceled".IsContains(kvp.Value.Get<string>("State")))
 				.ToList();
 
 			var retry = inprogress
@@ -5883,13 +5920,14 @@ namespace net.vieapps.Services.Portals
 					requestInfo.Header["x-rebuild"] = "true";
 					requestInfo.Header["x-organization-id"] = key;
 					requestInfo.Header["x-done"] = info.Get("Done", 0).ToString();
-				}), Utility.CancellationToken).ConfigureAwait(false);
+				})).ConfigureAwait(false);
 				logs.AddRange(new[] {
 					"-------------------------------------",
 					$"{DateTime.Now.ToIsoString()} :: RETRY",
 					$"- Organization: {info.Get<string>("Title")} ({key})",
-					$"- Old Time: {new DateTime(info.Get<long>("Time")).ToIsoString()} [{info.Get("Done", 0)}/{info.Get("Total", 0)}]",
+					$"- Old Time: {info.Get<long>("Time").FromUnixTimestamp(false).ToIsoString()} [{info.Get("Done", 0)}/{info.Get("Total", 0)}]",
 					$"- Old Node: {info.Get<string>("Node")}",
+					$"- Old State: {info.Get<string>("State")}",
 					"-------------------------------------"
 				});
 			});
@@ -5903,25 +5941,26 @@ namespace net.vieapps.Services.Portals
 					"-------------------------------------"
 				});
 				if (inprogress.Count < 6)
-					logs.AddRange(inprogress.Select(kvp => $"{kvp.Value.Get<string>("Title")} ({kvp.Key})\r\n- Time: {new DateTime(kvp.Value.Get<long>("Time")).ToIsoString()} [{kvp.Value.Get("Done", 0)}/{kvp.Value.Get("Total", 0)}]\r\n- Node: {kvp.Value.Get<string>("Node")}"));
+					logs.AddRange(inprogress.Select(kvp => $"{kvp.Value.Get<string>("Title")} ({kvp.Key})\r\n- Time: {kvp.Value.Get<long>("Time").FromUnixTimestamp(false).ToIsoString()} [{kvp.Value.Get<string>("State")} - {kvp.Value.Get("Done", 0)}/{kvp.Value.Get("Total", 0)}]\r\n- Node: {kvp.Value.Get<string>("Node")}"));
 				inprogress
 					.Select(kvp => (kvp.Key, Seconds: DateTime.Now.ToUnixTimestamp() - kvp.Value.Get<long>("Time")))
-					.Where(kvp => TimeSpan.FromSeconds(kvp.Seconds).TotalHours > 4)
+					.Where(kvp => TimeSpan.FromSeconds(kvp.Seconds).TotalHours > 2)
 					.Select(kvp => kvp.Key)
 					.ToList()
-					.ForEach(key =>
-					{
-						var info = this.CacheRebuildStatus[key];
-						info["State"] = "Completed";
-						this.CacheRebuildStatus[key] = info;
-					});
+					.ForEach(key => this.CacheRebuildStatus[key]["State"] = "Canceled");
 			}
 			else
 			{
 				this.CacheRebuildStatus = null;
 				this.StopTimer(this.CacheRebuildMonitor, _ => this.CacheRebuildMonitor = null);
 				await Utility.Cache.RemoveAsync("Rebuild.Cache", Utility.CancellationToken).ConfigureAwait(false);
-				logs.AddRange(new[] { "\r\n", "\r\n", "-------- COMPLETED --------", "\r\n", "\r\n" });
+				logs.AddRange(new[] { "\r\n", "-------- COMPLETED --------", "\r\n" });
+				if (this.RebuildCacheCTS != null)
+				{
+					this.RebuildCacheCTS.Cancel();
+					this.RebuildCacheCTS.Dispose();
+					this.RebuildCacheCTS = null;
+				}
 			}
 
 			if (logs.Count > 0)
