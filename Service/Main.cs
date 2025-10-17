@@ -5850,7 +5850,7 @@ namespace net.vieapps.Services.Portals
 				}
 				else if (requestInfo.TryGetParameter("x-organization-id", out var id))
 				{
-					this.RebuildCacheCTS ??= CancellationTokenSource.CreateLinkedTokenSource(Utility.CancellationToken);
+					this.RebuildCacheCTS ??= CancellationTokenSource.CreateLinkedTokenSource(this.CancellationToken);
 					return await requestInfo.RebuildCacheAsync(await OrganizationProcessor.GetOrganizationByIDAsync(id, this.RebuildCacheCTS.Token).ConfigureAwait(false), this.RebuildCacheCTS.Token).ConfigureAwait(false);
 				}
 				else

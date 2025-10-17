@@ -1024,7 +1024,7 @@ namespace net.vieapps.Services.Portals
 			var organizationURL = organization.URL;
 			var refreshingURLs = new[] { organizationURL }.ToList();
 
-			void sendStatus(string state = "Processing")
+			void sendStatus(string state)
 				=> new CommunicateMessage($"{Utility.ServiceName}.cache.rebuild")
 				{
 					Type = organization.ID,
@@ -1081,7 +1081,7 @@ namespace net.vieapps.Services.Portals
 								{
 									pageNumber++;
 									var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, pageSize, pageNumber);
-									var contents = await Content.FindAsync(filter, sort, pageSize, pageNumber, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false);
+									var contents = await Content.FindAsync(filter, sort, pageSize, pageNumber, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false) ?? [];
 
 									await Task.WhenAll
 									(
@@ -1197,7 +1197,7 @@ namespace net.vieapps.Services.Portals
 
 				done += urls.Count;
 				if (done % 50 == 0)
-					sendStatus();
+					sendStatus("Processing");
 
 				if ((writeLogs && done % 50 == 0) || (done % 500 == 0))
 					await Utility.WriteLogAsync(correlationID, $"{done:###,###,##0}/{refreshingURLs.Count:###,###,##0} caching URLs of '{organization.Title}' were refreshen", "Caches").ConfigureAwait(false);
