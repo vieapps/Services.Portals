@@ -170,6 +170,7 @@ namespace net.vieapps.Services.Portals
 			var body = requestJson.Get("Body", new JObject());
 			var extra = new Dictionary<string, string>(requestJson.Get<JObject>("Extra")?.ToDictionary<string>() ?? [], StringComparer.OrdinalIgnoreCase);
 			query.TryGetValue("object-identity", out var objectIdentity);
+			var writeLogs = header.ContainsKey("x-logs") || query.ContainsKey("x-logs");
 
 			// session
 			var session = websocket.Get<Session>("Session") ?? Global.GetSession();
@@ -179,7 +180,7 @@ namespace net.vieapps.Services.Portals
 			try
 			{
 				// visit logs
-				if (Global.IsVisitLogEnabled)
+				if (Global.IsVisitLogEnabled || writeLogs)
 					await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
 						$"Request starting {verb} " + $"/{serviceName.ToLower()}{(string.IsNullOrWhiteSpace(objectName) ? "" : $"/{objectName.ToLower()}")}{(string.IsNullOrWhiteSpace(objectIdentity) ? "" : $"/{objectIdentity}")}".ToLower() + (query.TryGetValue("x-request", out var xrequest) ? $"?x-request={xrequest}" : "") + " HTTPWS/1.1" + " \r\n" +
 						$"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
@@ -241,15 +242,15 @@ namespace net.vieapps.Services.Portals
 				// send communicate message
 				else if ("CommunicateMessage".IsEquals(requestJson.Get<string>("Type")))
 				{
+					var messages = new List<CommunicateMessage>();
 					if (serviceName.IsEquals("Files") && objectName.IsEquals("PrepareCache"))
 					{
 						serviceName = body?.Get<string>("service-name");
 						var systemID = body?.Get<string>("system-id");
 						var objectID = body?.Get<string>("object-id");
-						var writeLogs = header.ContainsKey("x-logs") || query.ContainsKey("x-logs");
-						body?.Get<JArray>("attachments")?.ForEach(attachment => new CommunicateMessage("Files")
+						body?.Get<JArray>("attachments")?.ForEach(attachment => messages.Add(new CommunicateMessage("Files")
 						{
-							Type = objectName,
+							Type = "PrepareCache",
 							Data = new JObject
 							{
 								{ "ServiceName", serviceName },
@@ -262,14 +263,16 @@ namespace net.vieapps.Services.Portals
 								{ "X-Logs", writeLogs },
 								{ "X-Correlation-ID", correlationID }
 							}
-						}.Send());
+						}));
 					}
 					else
-						new CommunicateMessage(serviceName)
+						messages.Add(new CommunicateMessage(serviceName)
 						{
 							Type = requestJson.Get<string>("MessageType"),
 							Data = body
-						}.Send();
+						});
+
+					messages.ForEach(message => message.Send());
 
 					var response = new JObject
 					{
@@ -284,6 +287,8 @@ namespace net.vieapps.Services.Portals
 						response["ID"] = requestID;
 
 					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+					if (writeLogs)
+						await Global.WriteLogsAsync(Global.Logger, "Messages", $"Send communnicate messages successful\r\n{messages.Select(message => message.ToJson().ToString()).Join("\r\n")}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 				}
 
 				// call a service
@@ -312,6 +317,8 @@ namespace net.vieapps.Services.Portals
 						response["ID"] = requestID;
 
 					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+					if (writeLogs)
+						await Global.WriteLogsAsync(Global.Logger, objectName, $"Process a request successful\r\nRequest: {requestInfo.ToString()}\r\nResponse: {response}", null, serviceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 				}
 			}
 			catch (Exception ex)
@@ -363,7 +370,7 @@ namespace net.vieapps.Services.Portals
 			finally
 			{
 				stopwatch.Stop();
-				if (Global.IsVisitLogEnabled)
+				if (Global.IsVisitLogEnabled || writeLogs)
 					await Global.WriteLogsAsync(Global.Logger, "Http.Visits", $"Request finished in {stopwatch.GetElapsedTimes()}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 			}
 		}
@@ -1057,12 +1064,30 @@ namespace net.vieapps.Services.Portals
 							if (!string.IsNullOrWhiteSpace(cached))
 							{
 								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
+								var isHtml = !isBase64 && contentType.IsEquals("text/html");
+								var expiresAt = isHtml ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
+								lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
+
+								if (context.ContainsKey("x-sliding-cache"))
+								{
+									var items = new Dictionary<string, string>
+									{
+										[cacheKey] = cached,
+										[$"{cacheKey}:time"] = lastModified
+									};
+									if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
+									{
+										items[$"{cacheKey}:expiration"] = expiresAtTime.AddMinutes(13).ToDTString();
+										await Handler.Cache.SetAsync(items, expiresAtTime.AddMinutes(13), cts.Token).ConfigureAwait(false);
+									}
+									else
+										await Handler.Cache.SetAsync(items, null, 0, cts.Token).ConfigureAwait(false);
+								}
 
 								var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
 								if (isCacheLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey})\r\n\r\nRaw cache:\r\n{cached}").ConfigureAwait(false);
 
-								var isHtml = !isBase64 && contentType.IsEquals("text/html");
 								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
 
 								if (isHtml)
@@ -1105,8 +1130,6 @@ namespace net.vieapps.Services.Portals
 										cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
 								}
 
-								lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
-								var expiresAt = isHtml ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
 								context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
 									["Content-Type"] = $"{contentType}; charset=utf-8",

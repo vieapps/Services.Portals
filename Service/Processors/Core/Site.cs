@@ -480,11 +480,12 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
 
-			// send notification
-			await site.SendNotificationAsync("Create", site.Organization.Notifications, ApprovalStatus.Draft, site.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// update refreshing task
-			site.Organization.SendRefreshingTasks(false, false);
+			// send notification & update refreshing task
+			await Task.WhenAll
+			(
+				site.SendNotificationAsync("Create", site.Organization.Notifications, ApprovalStatus.Draft, site.Status, requestInfo, cancellationToken),
+				site.Organization.SendRefreshingTasksAsync(false, false)
+			).ConfigureAwait(false);
 
 			// response
 			return response;
@@ -546,12 +547,10 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
 
-			// update refreshing task
-			site.Organization.SendRefreshingTasks(false, false);
-
-			// clear cache & send notification
+			// update refreshing task, clear cache & send notification
 			Task.WhenAll
 			(
+				site.Organization.SendRefreshingTasksAsync(false, false),
 				site.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false),
 				site.SendNotificationAsync(@event ?? "Update", site.Organization.Notifications, oldStatus, site.Status, requestInfo, Utility.CancellationToken)
 			).Run();

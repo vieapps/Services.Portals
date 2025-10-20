@@ -433,14 +433,12 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send update messages
+			// send update messages, store object cache key to clear related cached & send notification
 			updateMessages.Send();
 			communicateMessages.Send();
-			link.Organization.SendRefreshingTasks();
-
-			// store object cache key to clear related cached & send notification
 			Task.WhenAll
 			(
+				link.Organization.SendRefreshingTasksAsync(),
 				link.SendNotificationAsync("Create", link.ContentType.Notifications, ApprovalStatus.Draft, link.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken)
 			).Run();
@@ -590,9 +588,9 @@ namespace net.vieapps.Services.Portals
 			(
 				link.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
-				link.SendNotificationAsync(@event ?? "Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, Utility.CancellationToken)
+				link.SendNotificationAsync(@event ?? "Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, Utility.CancellationToken),
+				link.Organization.SendRefreshingTasksAsync()
 			).Run();
-			link.Organization.SendRefreshingTasks();
 
 			// send updates messages
 			var objectName = link.GetObjectName();
@@ -782,7 +780,7 @@ namespace net.vieapps.Services.Portals
 			else if (first != null)
 				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 
-			link.Organization.SendRefreshingTasks();
+			await link.Organization.SendRefreshingTasksAsync().ConfigureAwait(false);
 			return new JObject();
 		}
 

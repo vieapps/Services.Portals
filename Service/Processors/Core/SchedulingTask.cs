@@ -1,17 +1,19 @@
 ﻿#region Related components
-using System;
-using System.Linq;
-using System.Dynamic;
-using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
+using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Utility;
-using net.vieapps.Components.Security;
-using net.vieapps.Components.Repository;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Dynamic;
+using System.Linq;
+using System.Reactive.Concurrency;
+using System.Threading;
+using System.Threading.Tasks;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -451,7 +453,7 @@ namespace net.vieapps.Services.Portals
 
 			// run
 			if (schedulingTask.Status.Equals(Status.Awaiting))
-				schedulingTask.RunAsync(requestInfo.CorrelationID, Utility.CancellationToken).Run(async ex => await requestInfo.WriteErrorAsync(ex, $"Error occurred while running a scheduling task => {ex.Message} [{ex.GetType()}]", "Task").ConfigureAwait(false));
+				schedulingTask.RunAsync(requestInfo.CorrelationID, Utility.CancellationToken).Run(async ex => await requestInfo.WriteErrorAsync(ex, $"Error occurred while running a scheduling task => {ex.Message} [{ex.GetType()}]", "Tasks").ConfigureAwait(false));
 
 			return new JObject
 			{
@@ -481,7 +483,7 @@ namespace net.vieapps.Services.Portals
 			await Task.Delay(UtilityService.GetRandomNumber(123, 456), Utility.CancellationToken).ConfigureAwait(false);
 			schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => ids.Contains(schedulingTask.ID) && schedulingTask.Status == Status.Acquired && schedulingTask.Time <= DateTime.Now).ToList();
 			if (Utility.IsDebugLogEnabled)
-				await Utility.WriteLogAsync(correlationID, $"Run {schedulingTasks.Count} scheduling task(s)", "Task").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Run {schedulingTasks.Count} scheduling task(s)", "Tasks").ConfigureAwait(false);
 
 			await schedulingTasks.ForEachAsync(async schedulingTask =>
 			{
@@ -491,7 +493,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task => {ex.Message} [{ex.GetType()}] --> {schedulingTask.ToJson(json => json.Remove("Privileges"))}", "Task", correlationID).ConfigureAwait(false);
+					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task => {ex.Message} [{ex.GetType()}] --> {schedulingTask.ToJson(json => json.Remove("Privileges"))}", "Tasks", correlationID).ConfigureAwait(false);
 				}
 			}).ConfigureAwait(false);
 
@@ -512,7 +514,7 @@ namespace net.vieapps.Services.Portals
 				);
 				schedulingTasks = await SchedulingTaskProcessor.SearchAsync(filter, Utility.CancellationToken).ConfigureAwait(false);
 				if (Utility.IsDebugLogEnabled)
-					await Utility.WriteLogAsync(correlationID, $"Delete {schedulingTasks.Count} archived scheduling tasks", "Task").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"Delete {schedulingTasks.Count} archived scheduling tasks", "Tasks").ConfigureAwait(false);
 				await schedulingTasks.ForEachAsync(async schedulingTask =>
 				{
 					await SchedulingTask.DeleteAsync<SchedulingTask>(schedulingTask.ID, null, Utility.CancellationToken).ConfigureAwait(false);
@@ -532,13 +534,14 @@ namespace net.vieapps.Services.Portals
 		internal static async Task RunAsync(this SchedulingTask schedulingTask, string correlationID, CancellationToken cancellationToken)
 		{
 			// prepare
+			var stopwatch = Stopwatch.StartNew();
 			schedulingTask.SetStatus(Status.Running).SendMessages();
-			if (schedulingTask.Persistance)
-				SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).Run();
 
 			var isForceRefreshPredefinedURLs = schedulingTask.SchedulingType.Equals(SchedulingType.Refresh) && schedulingTask.ID.IsEquals($"{schedulingTask.SystemID}:URLs:Force".GenerateUUID());
-			if (Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs)
-				await Utility.WriteLogAsync(correlationID, $"Run a scheduling task => {schedulingTask.ToJson(json => json.Remove("Privileges"))}", "Task").ConfigureAwait(false);
+			await Utility.WriteLogAsync(correlationID, $"Run a scheduling task [{schedulingTask.Title} @ {schedulingTask.Organization.Title} - ID: {schedulingTask.ID}]{(Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs ? $"\r\n{schedulingTask.ToJson(json => json.Remove("Privileges"))}" : "")}", "Tasks").ConfigureAwait(false);
+
+			if (schedulingTask.Persistance)
+				SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).Run();
 
 			// update
 			if (schedulingTask.SchedulingType.Equals(SchedulingType.Update))
@@ -586,55 +589,58 @@ namespace net.vieapps.Services.Portals
 					if (@object.Status.Equals(ApprovalStatus.Published))
 					{
 						var rootURL = $"{schedulingTask.Organization.URL}/";
-						await (@object.Organization as Organization).GetRefreshingURLs(json?.Get<JArray>("URLs")?.Select(value => value as JValue).Select(value => value.ToString()) ?? [])
-							.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL))
+						var urls = await (@object.Organization as Organization).GetRefreshingURLsAsync(json?.Get<JArray>("URLs")?.Select(value => value as JValue).Select(value => value.ToString()) ?? []).ConfigureAwait(false);
+						await urls.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL))
 							.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
 							.Select(url => url.IsContains("?x-force-cache")  || url.IsContains("&x-force-cache") ? url : $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache")
 							.Distinct(StringComparer.OrdinalIgnoreCase)
-							.ToList().ForEachAsync(url => url.RefreshWebPageAsync(requestInfo.CorrelationID), true, false).ConfigureAwait(false);
+							.ToList()
+							.ForEachAsync(url => url.RefreshWebPageAsync(requestInfo.CorrelationID), true, false).ConfigureAwait(false);
 					}
 				}
 				catch (Exception ex)
 				{
-					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task for updating => {ex.Message} [{ex.GetType()}]\r\nUpdating data: {schedulingTask.DataAsJson}", "Task", correlationID).ConfigureAwait(false);
+					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task for updating => {ex.Message} [{ex.GetType()}]\r\nUpdating data: {schedulingTask.DataAsJson}", "Tasks", correlationID).ConfigureAwait(false);
 				}
 
 			// refresh webpages
 			else if (schedulingTask.SchedulingType.Equals(SchedulingType.Refresh))
 				try
 				{
-					var stopwatch = Stopwatch.StartNew();
+					var stepwatch = Stopwatch.StartNew();
 					var rootURL = $"{schedulingTask.Organization.URL}/";
-					var refreshingURLs = (schedulingTask.DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString())
-						.Select(url =>
-						{
-							if (url.IsStartsWith("@organization:") || url.IsStartsWith("@organization("))
-							{
-								var organization = url.Replace(StringComparison.OrdinalIgnoreCase, "@organization:", "").Replace(StringComparison.OrdinalIgnoreCase, "@organization(", "").Replace(")", "").Trim().GetOrganizationByID();
-								return organization != null
-									? new[] { $"{organization.URL}/{(isForceRefreshPredefinedURLs ? "?x-force-cache" : "")}" }
-										.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}{(isForceRefreshPredefinedURLs ? "?x-force-cache" : "")}"))
-										.Concat(organization.GetRefreshingURLs().Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache" : url))
-										.Concat(isForceRefreshPredefinedURLs ? organization.GetRefreshingURLs(true).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache") : [])
-										.ToList()
-									: [];
-							}
-							return new[] { url }.ToList();
-						})
-						.SelectMany(urls => urls)
-						.Concat(isForceRefreshPredefinedURLs ? schedulingTask.Organization.GetRefreshingURLs(true).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache") : [])
-						.Select(url => string.IsNullOrWhiteSpace(url) ? rootURL : url.Replace("~/", rootURL))
-						.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
-						.Distinct(StringComparer.OrdinalIgnoreCase)
+					var addresses = (schedulingTask.DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).ToList();
+
+					var organizationURLs = await schedulingTask.Organization.GetRefreshingURLsAsync(true).ConfigureAwait(false);
+					var refreshingURLs = addresses.Where(url => !url.IsStartsWith("@organization:") && !url.IsStartsWith("@organization("))
+						.Concat(organizationURLs.Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache" : url))
 						.ToList();
+
+					var organizationIDs = addresses.Where(url => url.IsStartsWith("@organization:") || url.IsStartsWith("@organization("))
+						.Select(url => url.Replace(StringComparison.OrdinalIgnoreCase, "@organization:", "").Replace(StringComparison.OrdinalIgnoreCase, "@organization(", "").Replace(")", "").Trim()).ToList();
+					await organizationIDs.ForEachAsync(async organizationID =>
+					{
+						var organization = await organizationID.GetOrganizationByIDAsync(Utility.CancellationToken).ConfigureAwait(false);
+						if (organization != null)
+							refreshingURLs = refreshingURLs.Concat([$"{organization.URL}/"])
+								.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}"))
+								.Concat(await organization.GetRefreshingURLsAsync().ConfigureAwait(false))
+								.Concat(await organization.GetRefreshingURLsAsync(true).ConfigureAwait(false))
+								.Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache")
+								.ToList();
+					}, true, false).ConfigureAwait(false);
+
+					refreshingURLs = refreshingURLs.Select(url => string.IsNullOrWhiteSpace(url) ? rootURL : url.Replace("~/", rootURL))
+						.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 					await refreshingURLs.ForEachAsync(url => url.RefreshWebPageAsync(correlationID), true, false).ConfigureAwait(false);
-					stopwatch.Stop();
+
+					stepwatch.Stop();
 					if (Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs)
-						await Utility.WriteLogAsync(correlationID, $"Force refresh all pre-defined URLs of '{schedulingTask.Organization.Title}' successful - Execution times: {stopwatch.GetElapsedTimes()}\r\nURLs:\r\n\t- {refreshingURLs.Join("\r\n\t- ")}", "Task").ConfigureAwait(false);
+						await Utility.WriteLogAsync(correlationID, $"Force refresh all pre-defined URLs of '{schedulingTask.Organization.Title}' successful - Execution times: {stepwatch.GetElapsedTimes()}\r\nURLs:\r\n\t- {refreshingURLs.Join("\r\n\t- ")}", "Tasks").ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
-					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task for refreshing webpages => {ex.Message} [{ex.GetType()}]\r\nURLs: {schedulingTask.DataAsJson}", "Task", correlationID).ConfigureAwait(false);
+					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task for refreshing webpages => {ex.Message} [{ex.GetType()}]\r\nURLs: {schedulingTask.DataAsJson}", "Tasks", correlationID).ConfigureAwait(false);
 				}
 
 			// send a notification
@@ -644,7 +650,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task for sending a notification => {ex.Message} [{ex.GetType()}]\r\nNotification data: {schedulingTask.DataAsJson}", "Task", correlationID).ConfigureAwait(false);
+					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task for sending a notification => {ex.Message} [{ex.GetType()}]\r\nNotification data: {schedulingTask.DataAsJson}", "Tasks", correlationID).ConfigureAwait(false);
 				}
 
 			// run a crawler
@@ -654,7 +660,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task for crawling data => {ex.Message} [{ex.GetType()}]", "Task", correlationID).ConfigureAwait(false);
+					await Utility.WriteErrorAsync(ex, $"Error occurred while running a scheduling task for crawling data => {ex.Message} [{ex.GetType()}]", "Tasks", correlationID).ConfigureAwait(false);
 				}
 
 			// update next run (if still existed)
@@ -664,6 +670,9 @@ namespace net.vieapps.Services.Portals
 				if (schedulingTask.Persistance)
 					SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).Run();
 			}
+
+			stopwatch.Stop();
+			await Utility.WriteLogAsync(correlationID, $"Task was ran successful [{schedulingTask.ID}] - Execution times: {stopwatch.GetElapsedTimes()}", "Tasks").ConfigureAwait(false);
 		}
 	}
 }

@@ -99,7 +99,7 @@ namespace net.vieapps.Services.Portals
 
 		ConcurrentDictionary<string, JObject> CacheRebuildStatus { get; set; }
 
-		bool IsCacheBuilder => "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Builder", "false"));
+		bool IsCacheBuilder { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Builder", "false"));
 		#endregion
 
 		#region Register/Start
@@ -2124,11 +2124,11 @@ namespace net.vieapps.Services.Portals
 				else
 				{
 					lastModified = lastModified ?? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
-					await Task.WhenAll
-					(
-						Utility.Cache.SetAsync(cacheKey, html, cancellationToken),
-						Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, cancellationToken)
-					).ConfigureAwait(false);
+					await Utility.Cache.SetAsync(new Dictionary<string, string>
+					{
+						[cacheKey] = html,
+						[cacheKeyOfLastModified] = lastModified
+					}, null, cancellationToken).ConfigureAwait(false);
 				}
 			}
 
@@ -2161,7 +2161,7 @@ namespace net.vieapps.Services.Portals
 				};
 				stopwatch.Stop();
 				if (isWriteDesktopLogs)
-					await requestInfo.WriteLogAsync($"By-pass the process of {desktopInfo} => Got HTML cache ({cacheKey}) - Execution times: {stopwatch.GetElapsedTimes()}", "Process.Http.Request").ConfigureAwait(false);
+					await requestInfo.WriteLogAsync($"By-pass the process of {desktopInfo} => Got HTML cache ({cacheKey}) - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 				return response;
 			}
 
@@ -2468,7 +2468,7 @@ namespace net.vieapps.Services.Portals
 						await Task.WhenAll
 						(
 							Utility.Cache.RemoveAsync([cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
-							isWriteDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove HTML cache of {desktopInfo} ({requestURL}) => {cacheKey}", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask
+							isWriteDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove HTML cache of {desktopInfo} ({requestURL}) => {cacheKey}", null, this.ServiceName, "Caches") : Task.CompletedTask
 						).ConfigureAwait(false);
 
 					if (!gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.GotError))
@@ -2497,31 +2497,34 @@ namespace net.vieapps.Services.Portals
 							["X-Cache"] = "None"
 						};
 
-						if (expiresAt != null)
-							await Task.WhenAll
-							(
-								Utility.Cache.SetAsync(cacheKey, this.NormalizeDesktopHtml(html, organization, site, desktop), expiresAt.Value, cancellationToken),
-								Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, expiresAt.Value, cancellationToken),
-								Utility.Cache.SetAsync(cacheKeyOfExpiration, expiresAt.Value.ToDTString(), expiresAt.Value, cancellationToken)
-							).ConfigureAwait(false);
-						else
-							await Task.WhenAll
-							(
-								Utility.Cache.SetAsync(cacheKey, this.NormalizeDesktopHtml(html, organization, site, desktop), expirationTime, cancellationToken),
-								Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, expirationTime, cancellationToken),
-								expirationTime > 0
-									? Utility.Cache.SetAsync(cacheKeyOfExpiration, DateTime.Now.AddMinutes(expirationTime).ToDTString(), expirationTime, cancellationToken)
-									: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken)
-							).ConfigureAwait(false);
+						var items = new Dictionary<string, string>
+						{
+							[cacheKey] = this.NormalizeDesktopHtml(html, organization, site, desktop),
+							[cacheKeyOfLastModified] = lastModified
+						};
 
-						var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity)
-							? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false)
-							: null;
+						if (expiresAt != null)
+						{
+							items[cacheKeyOfExpiration] = expiresAt.Value.ToDTString();
+							await Utility.Cache.SetAsync(items, expiresAt, cancellationToken).ConfigureAwait(false);
+						}
+						else
+						{
+							if (expirationTime > 0)
+								items[cacheKeyOfExpiration] = DateTime.Now.AddMinutes(expirationTime).ToDTString();							
+							await Task.WhenAll
+							(
+								expirationTime > 0 ? Task.CompletedTask : Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken),
+								Utility.Cache.SetAsync(items, null, expirationTime, cancellationToken)
+							).ConfigureAwait(false);
+						}
+
+						var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity) ? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false) : null;
 						await Task.WhenAll
 						(
 							Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
 							category != null ? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken) : Task.CompletedTask,
-							isWriteDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Process.Http.Request") : Task.CompletedTask
+							isWriteDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Caches") : Task.CompletedTask
 						).ConfigureAwait(false);
 					}
 				}

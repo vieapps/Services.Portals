@@ -625,14 +625,12 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			});
 
-			// send update messages
+			// send update messages, store object cache key to clear related cached & send notification
 			updateMessages.Send();
 			communicateMessages.Send();
-			category.Organization.SendRefreshingTasks();
-
-			// store object cache key to clear related cached & send notification
 			Task.WhenAll
 			(
+				category.Organization.SendRefreshingTasksAsync(),
 				category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
 			).Run();
@@ -813,9 +811,9 @@ namespace net.vieapps.Services.Portals
 			(
 				category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				category.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
-				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, Utility.CancellationToken)
+				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, Utility.CancellationToken),
+				category.Organization.SendRefreshingTasksAsync()
 			).Run();
-			category.Organization.SendRefreshingTasks();
 
 			// send update messages
 			var objectName = category.GetObjectName();
@@ -955,7 +953,7 @@ namespace net.vieapps.Services.Portals
 			else if (first != null)
 				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
 
-			organization.SendRefreshingTasks();
+			await organization.SendRefreshingTasksAsync().ConfigureAwait(false);
 			return new JObject();
 		}
 
@@ -1347,9 +1345,9 @@ namespace net.vieapps.Services.Portals
 			(
 				category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
 				category.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken),
-				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken)
+				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken),
+				category.Organization.SendRefreshingTasksAsync()
 			).Run();
-			category.Organization.SendRefreshingTasks();
 
 			// send update messages
 			var objectName = category.GetObjectName();
