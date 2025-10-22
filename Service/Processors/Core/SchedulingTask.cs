@@ -622,16 +622,18 @@ namespace net.vieapps.Services.Portals
 					{
 						var organization = await organizationID.GetOrganizationByIDAsync(Utility.CancellationToken).ConfigureAwait(false);
 						if (organization != null)
-							refreshingURLs = refreshingURLs.Concat([$"{organization.URL}/"])
+							refreshingURLs = refreshingURLs.Concat(["~/"])
 								.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}"))
 								.Concat(await organization.GetRefreshingURLsAsync().ConfigureAwait(false))
 								.Concat(await organization.GetRefreshingURLsAsync(true).ConfigureAwait(false))
-								.Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache")
+								.Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache" : url)
 								.ToList();
 					}, true, false).ConfigureAwait(false);
 
 					refreshingURLs = refreshingURLs.Select(url => string.IsNullOrWhiteSpace(url) ? rootURL : url.Replace("~/", rootURL))
-						.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+						.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
+						.Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-correlation-id={correlationID}")
+						.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 					await refreshingURLs.ForEachAsync(url => url.RefreshWebPageAsync(correlationID), true, false).ConfigureAwait(false);
 
 					stepwatch.Stop();

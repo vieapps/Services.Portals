@@ -5567,7 +5567,7 @@ namespace net.vieapps.Services.Portals
 					data = await image.ReadAsByteArrayAsync().ConfigureAwait(false);
 					data = await data.ToWebPAsync(cancellationToken).ConfigureAwait(false);
 					data = data.Compress(this.BodyEncoding);
-					await Utility.Cache.SetAsync(cacheKey, data, 0, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.SetAsync(cacheKey, data, cancellationToken).ConfigureAwait(false);
 				}
 				return data;
 			}
