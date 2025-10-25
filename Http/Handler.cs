@@ -80,47 +80,43 @@ namespace net.vieapps.Services.Portals
 		internal static Components.WebSockets.WebSocket WebSocket { get; private set; }
 		#endregion
 
-		public async Task Invoke(HttpContext context)
+		public Task Invoke(HttpContext context)
 		{
 			// request of WebSocket
 			if (context.WebSockets.IsWebSocketRequest)
-				await Task.WhenAll
+				return Task.WhenAll
 				(
 					Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
 					Handler.WebSocket.WrapAsync(context)
-				).ConfigureAwait(false);
+				);
 
-			// request of HTTP
-			else
+			// CORS: allow origin
+			context.Response.Headers.AccessControlAllowOrigin = "*";
+
+			// CORS: options
+			if (context.Request.Method.IsEquals("OPTIONS"))
 			{
-				// CORS: allow origin
-				context.Response.Headers.AccessControlAllowOrigin = "*";
-
-				// CORS: options
-				if (context.Request.Method.IsEquals("OPTIONS"))
+				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
-					var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-					{
-						["Access-Control-Allow-Methods"] = "HEAD,GET,POST,PUT,PATCH"
-					};
-					if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
-						headers["Access-Control-Allow-Headers"] = requestHeaders;
-					context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
-				}
-
-				// health check
-				else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancerHealthCheckURL))
-					await context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken).ConfigureAwait(false);
-
-				// process portals' requests
-				else
-				{
-					if (context.IsBlackIP(context.GetRemoteIPAddress()))
-						context.SetResponseHeaders((int)HttpStatusCode.Forbidden);
-					else
-						await this.ProcessHttpRequestAsync(context).ConfigureAwait(false);
-				}
+					["Access-Control-Allow-Methods"] = "HEAD,GET,POST,PUT,PATCH"
+				};
+				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
+					headers["Access-Control-Allow-Headers"] = requestHeaders;
+				context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
+				return Task.CompletedTask;
 			}
+
+			// health check
+			if (context.Request.Path.Value.IsEquals(Handler.LoadBalancerHealthCheckURL))
+				return context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken);
+
+			// requests of the service
+			if (context.IsBlackIP(context.GetRemoteIPAddress()))
+			{
+				context.SetResponseHeaders((int)HttpStatusCode.Forbidden);
+				return Task.CompletedTask;
+			}
+			return this.ProcessHttpRequestAsync(context);
 		}
 
 		internal static void InitializeWebSocket()
@@ -128,9 +124,9 @@ namespace net.vieapps.Services.Portals
 			Handler.WebSocket = new Components.WebSockets.WebSocket(Logger.GetLoggerFactory(), Global.CancellationToken)
 			{
 				KeepAliveInterval = TimeSpan.FromSeconds(Int32.TryParse(UtilityService.GetAppSetting("Proxy:KeepAliveInterval", "45"), out var interval) ? interval : 45),
-				OnError = async (websocket, exception) => await Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).ConfigureAwait(false),
+				OnError = (websocket, exception) => Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).Run(),
 				OnConnectionBroken = websocket => Handler.DisconnectWebSocket(websocket),
-				OnMessageReceived = async (websocket, result, data) => await (websocket == null ? Task.CompletedTask : Handler.ProcessWebSocketRequestAsync(websocket, result, data)).ConfigureAwait(false),
+				OnMessageReceived = (websocket, result, data) => (websocket == null ? Task.CompletedTask : Handler.ProcessWebSocketRequestAsync(websocket, result, data)).Run(),
 			};
 		}
 
@@ -377,15 +373,14 @@ namespace net.vieapps.Services.Portals
 
 		async Task ProcessHttpRequestAsync(HttpContext context)
 		{
-			// prepare
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
 			context.SetItem("Correlation-ID", context.GetParameter("x-original-correlation-id") ?? context.GetParameter("x-correlation-id") ?? UtilityService.NewUUID);
 
-			var requestURI = context.GetRequestUri();
-			var requestPath = requestURI.GetRequestPathSegments(true).First();
-
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
+
+			var requestURI = context.GetRequestUri();
+			var requestPath = requestURI.GetRequestPathSegments(true).First();
 
 			// request to favicon.ico file
 			if (requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(Handler.PortalsHttpHost))

@@ -250,7 +250,7 @@ namespace net.vieapps.Services.Portals
 				this.StartTimer(() => this.SendDefinitionInfo(), 12 * 60 * 60);
 
 				// re-load all orangizations/sites (once per day)
-				this.StartTimer(() => DateTime.Now.Hour == 4 ? this.ReloadOrganizationsAsync() : Task.CompletedTask, 60 * 61);
+				this.StartTimer(() => DateTime.Now.Hour == 4 ? this.ReloadOrganizationsAsync(this.IsCacheBuilder) : Task.CompletedTask, 60 * 61);
 
 				// reload all to rebuild cache (4 AM at every Sunday)
 				if (this.IsCacheBuilder)
@@ -5815,22 +5815,20 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Reload/Rebuild cache of all organizations
-		async Task<JToken> ReloadOrganizationsAsync(bool updateCache = false, bool sendCommunicatingMessage = false, bool sendUpdatingMessage = false)
+		async Task<JToken> ReloadOrganizationsAsync(bool getSchedulingTasks = false)
 		{
-			if (!updateCache && !sendCommunicatingMessage && !sendUpdatingMessage)
-				await SiteProcessor.FindSitesAsync(null, null, false, this.CancellationToken).ConfigureAwait(false);
-
+			await SiteProcessor.FindSitesAsync(null, null, false, this.CancellationToken).ConfigureAwait(false);
 			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
 
 			await organizations.ForEachAsync(async organization =>
 			{
-				await organization.RefreshAsync(this.CancellationToken, true, updateCache, sendCommunicatingMessage, sendUpdatingMessage).ConfigureAwait(false);
-				if (!updateCache && !sendCommunicatingMessage && !sendUpdatingMessage)
-					await Utility.Cache.RemoveAsync(organization.GetDesktopCacheKeys(), this.CancellationToken).ConfigureAwait(false);
-				else
-					await organization.Sites.ForEachAsync(site => site.RefreshAsync(this.CancellationToken, updateCache, sendCommunicatingMessage, sendUpdatingMessage), true, false).ConfigureAwait(false);
-				if (sendCommunicatingMessage || sendUpdatingMessage)
-					(await organization.GetSchedulingTasksAsync(this.CancellationToken).ConfigureAwait(false) ?? []).ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));
+				await Task.WhenAll
+				(
+					organization.RefreshAsync(this.CancellationToken, true, false, false, false),
+					Utility.Cache.RemoveAsync(organization.GetDesktopCacheKeys(), this.CancellationToken)
+				).ConfigureAwait(false);
+				if (getSchedulingTasks)
+					await organization.GetSchedulingTasksAsync(this.CancellationToken).ConfigureAwait(false);
 			}, true, false).ConfigureAwait(false);
 
 			await this.WriteLogsAsync(UtilityService.NewUUID, $"All organizations have been re-loaded - Total: {organizations.Count}", null, this.ServiceName, "Caches").ConfigureAwait(false);

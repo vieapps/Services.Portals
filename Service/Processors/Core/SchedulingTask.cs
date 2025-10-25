@@ -424,7 +424,7 @@ namespace net.vieapps.Services.Portals
 			var filter = requestInfo.GetRequestExpando().Get<ExpandoObject>("FilterBy")?.ToFilterBy<SchedulingTask>() ?? Filters<SchedulingTask>.And();
 			var organizationID = filter.GetValue("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-organization-id") ?? requestInfo.GetParameter("OrganizationID");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationInvalidException("The organization is invalid");
-			var schedulingTasks = await organization.GetSchedulingTasksAsync(cancellationToken, false).ConfigureAwait(false);
+			var schedulingTasks = await organization.GetSchedulingTasksAsync(cancellationToken, false, false).ConfigureAwait(false);
 			if ("false".IsEquals(requestInfo.GetParameter("x-update-messagae")))
 				return new JObject
 				{

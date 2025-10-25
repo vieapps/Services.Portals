@@ -407,7 +407,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			if (contentType != null)
-				await Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), objects.Select(@object => @object.GetCacheKeyOfAliasedContent()), cancellationToken).ConfigureAwait(false);
+				Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), objects.Select(@object => @object.GetCacheKeyOfAliasedContent()), Utility.CancellationToken).Run();
 
 			return response;
 		}

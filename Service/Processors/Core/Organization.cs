@@ -118,7 +118,7 @@ namespace net.vieapps.Services.Portals
 			var modules = (organization.Modules ?? []).Where(module => module != null).ToList();
 			if (reloadContentTypes)
 				modules.ForEach(module => module._contentTypeIDs = null);
-			await modules.ForEachAsync(async module => await (module._contentTypeIDs == null ? module.FindContentTypesAsync(cancellationToken) : Task.CompletedTask).ConfigureAwait(false), true, false).ConfigureAwait(false);
+			await modules.ForEachAsync(module => module._contentTypeIDs == null ? module.FindContentTypesAsync(cancellationToken) : Task.CompletedTask, true, false).ConfigureAwait(false);
 
 			// update cache
 			await organization.SetAsync(false, updateCache, cancellationToken).ConfigureAwait(false);
@@ -408,7 +408,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		internal static async Task<List<SchedulingTask>> GetSchedulingTasksAsync(this Organization organization, CancellationToken cancellationToken, bool reload = true)
+		internal static async Task<List<SchedulingTask>> GetSchedulingTasksAsync(this Organization organization, CancellationToken cancellationToken, bool reload = true, bool sendUpdatingMessages = true)
 		{
 			if (organization.Status != ApprovalStatus.Approved && organization.Status != ApprovalStatus.Published)
 				return new List<SchedulingTask>();
@@ -422,6 +422,9 @@ namespace net.vieapps.Services.Portals
 				schedulingTasks = schedulingTasks.Concat(await SchedulingTaskProcessor.SearchAsync(filter, cancellationToken).ConfigureAwait(false) ?? []).OrderBy(schedulingTask => schedulingTask.Time).ToList();
 				schedulingTasks.ForEach(schedulingTask => SchedulingTaskProcessor.SchedulingTasks[schedulingTask.ID] = schedulingTask);
 			}
+
+			if (sendUpdatingMessages)
+				schedulingTasks.ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));
 
 			return schedulingTasks;
 		}
@@ -787,7 +790,7 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			if (isRefresh)
-				(await organization.GetSchedulingTasksAsync(cancellationToken).ConfigureAwait(false) ?? []).ForEach(schedulingTask => schedulingTask.SendMessages("Update", null, Utility.NodeID));
+				await organization.GetSchedulingTasksAsync(cancellationToken).ConfigureAwait(false);
 
 			else
 			{
