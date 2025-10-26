@@ -603,7 +603,7 @@ namespace net.vieapps.Services.Portals
 				if (oldParent != null)
 				{
 					oldParent.ChildrenIDs.Remove(link.ID);
-					await Utility.Cache.SetAsync(oldParent, 0, cancellationToken).ConfigureAwait(false);
+					await Utility.Cache.SetAsync(oldParent, cancellationToken).ConfigureAwait(false);
 					new CommunicateMessage(requestInfo.ServiceName)
 					{
 						Type = $"{objectName}#Update",

@@ -2128,7 +2128,7 @@ namespace net.vieapps.Services.Portals
 					{
 						[cacheKey] = html,
 						[cacheKeyOfLastModified] = lastModified
-					}, null, cancellationToken).ConfigureAwait(false);
+					}, null, 0, cancellationToken).ConfigureAwait(false);
 				}
 			}
 
@@ -2506,7 +2506,7 @@ namespace net.vieapps.Services.Portals
 						if (expiresAt != null)
 						{
 							items[cacheKeyOfExpiration] = expiresAt.Value.ToDTString();
-							await Utility.Cache.SetAsync(items, expiresAt, cancellationToken).ConfigureAwait(false);
+							await Utility.Cache.SetAsync(items, null, expiresAt, cancellationToken).ConfigureAwait(false);
 						}
 						else
 						{

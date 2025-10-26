@@ -1073,7 +1073,7 @@ namespace net.vieapps.Services.Portals
 									if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
 									{
 										items[$"{cacheKey}:expiration"] = expiresAtTime.AddMinutes(13).ToDTString();
-										await Handler.Cache.SetAsync(items, expiresAtTime.AddMinutes(13), cts.Token).ConfigureAwait(false);
+										await Handler.Cache.SetAsync(items, null, expiresAtTime.AddMinutes(13), cts.Token).ConfigureAwait(false);
 									}
 									else
 										await Handler.Cache.SetAsync(items, null, 0, cts.Token).ConfigureAwait(false);
