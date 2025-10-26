@@ -1117,7 +1117,7 @@ namespace net.vieapps.Services.Portals
 				seoTitle = category?.Title;
 				seoDescription = category?.Description;
 				categoryThumbnails = category != null ? categoryThumbnails ?? await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false) : null;
-				coverURI = (categoryThumbnails as JArray)?.First()?.Get<string>("URI")?.GetThumbnailURL(thumbnailsWidth, thumbnailsHeight, pngThumbnails);
+				coverURI = (categoryThumbnails as JArray)?.FirstOrDefault()?.Get<string>("URI")?.GetThumbnailURL(thumbnailsWidth, thumbnailsHeight, pngThumbnails);
 				ogTitle = category?.Title;
 				ogURL = categoryURL?.Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}" : "");
 				prevURL = pageNumber > 1 ? categoryURL?.Replace("/{{pageNumber}}", pageNumber > 2 ? $"/{pageNumber - 1}" : "") : null;

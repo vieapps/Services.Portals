@@ -1,23 +1,24 @@
 ﻿#region Related components
 using System;
 using System.IO;
-using System.Net;
-using System.Data;
 using System.Linq;
+using System.Data;
 using System.Dynamic;
-using System.Reflection;
-using System.Diagnostics;
+using System.Net;
+using System.Net.Mime;
 using System.Xml.Linq;
+using System.Diagnostics;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Security.AccessControl;
 using System.Text.RegularExpressions;
-using WampSharp.V2.Core.Contracts;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
@@ -252,14 +253,14 @@ namespace net.vieapps.Services.Portals
 				// re-load all orangizations/sites (once per day)
 				this.StartTimer(() => DateTime.Now.Hour == 4 ? this.ReloadOrganizationsAsync(this.IsCacheBuilder) : Task.CompletedTask, 60 * 61);
 
-				// reload all to rebuild cache (4 AM at every Sunday)
+				// reload all to rebuild cache (5 AM at every Monday)
 				if (this.IsCacheBuilder)
 				{
-					var time = DateTime.Now.GetEndDayOfWeek();
-					time = new DateTime(time.Year, time.Month, time.Day, 4, 0, 0);
+					var time = DateTime.Now.GetFirstDayOfWeek();
+					time = new DateTime(time.Year, time.Month, time.Day, 5, 13, 13);
 					this.StartTimer(async () =>
 					{
-						if (DateTime.Now.Day == time.Day && DateTime.Now.Hour == time.Hour && DateTime.Now.Minute < 10)
+						if (DateTime.Now.Day == time.Day && DateTime.Now.Hour == time.Hour && DateTime.Now.Minute > 10 && DateTime.Now.Minute < 20)
 						{
 							this.CacheRebuildStatus = new();
 							this.CacheRebuildMonitor = this.StartTimer(this.MonitorCacheRebuildAsync, 2 * 60);
@@ -4442,66 +4443,30 @@ namespace net.vieapps.Services.Portals
 		}
 
 		void Export<T>(string processID, string deviceID, string repositoryEntityID, IFilterBy<T> filter, SortBy<T> sort, int pageSize, int pageNumber, int maxPages, int totalPages = 0, Action<DataSet> onCompleted = null) where T : class
-			=> Task.Run(async () =>
+			=> this.ExportAsync<T>(processID, deviceID, repositoryEntityID, filter, sort, pageSize, pageNumber, maxPages, totalPages, onCompleted).Run();
+
+		async Task ExportAsync<T>(string processID, string deviceID, string repositoryEntityID, IFilterBy<T> filter, SortBy<T> sort, int pageSize, int pageNumber, int maxPages, int totalPages = 0, Action<DataSet> onCompleted = null) where T : class
+		{
+			try
 			{
-				try
+				var stopwatch = Stopwatch.StartNew();
+				if (this.IsDebugLogEnabled)
+					await this.WriteLogsAsync(processID, $"Start to export data to Excel - Object: {typeof(T).GetTypeName(true)} - Filter: {filter?.ToJson().ToString(Formatting.None) ?? "N/A"} - Sort: {sort?.ToJson().ToString(Formatting.None) ?? "N/A"}", null, this.ServiceName, "Excel").ConfigureAwait(false);
+
+				long totalRecords = 0;
+				if (totalPages < 1)
 				{
-					var stopwatch = Stopwatch.StartNew();
-					if (this.IsDebugLogEnabled)
-						await this.WriteLogsAsync(processID, $"Start to export data to Excel - Object: {typeof(T).GetTypeName(true)} - Filter: {filter?.ToJson().ToString(Formatting.None) ?? "N/A"} - Sort: {sort?.ToJson().ToString(Formatting.None) ?? "N/A"}", null, this.ServiceName, "Excel").ConfigureAwait(false);
+					totalRecords = await RepositoryMediator.CountAsync(null, filter, repositoryEntityID, false, null, 0, this.CancellationToken).ConfigureAwait(false);
+					totalPages = totalRecords < 1 ? 0 : (totalRecords, pageSize).GetTotalPages();
+				}
 
-					long totalRecords = 0;
-					if (totalPages < 1)
-					{
-						totalRecords = await RepositoryMediator.CountAsync(null, filter, repositoryEntityID, false, null, 0, this.CancellationToken).ConfigureAwait(false);
-						totalPages = totalRecords < 1 ? 0 : (totalRecords, pageSize).GetTotalPages();
-					}
+				var dataSet = totalPages < 1
+					? ExcelService.ToDataSet<T>(null, repositoryEntityID)
+					: null;
 
-					var dataSet = totalPages < 1
-						? ExcelService.ToDataSet<T>(null, repositoryEntityID)
-						: null;
-
-					var exceptions = new List<Exception>();
-					while (pageNumber <= totalPages && (maxPages == 0 || pageNumber <= maxPages))
-					{
-						new UpdateMessage
-						{
-							Type = "Portals#Excel#Export",
-							DeviceID = deviceID,
-							Data = new JObject
-							{
-								{ "ProcessID", processID },
-								{ "Status", "Processing" },
-								{ "Percentage", $"{pageNumber * 100/totalPages:#0.0}%" }
-							}
-						}.Send();
-
-						try
-						{
-							var objects = pageNumber <= totalPages && (maxPages == 0 || pageNumber <= maxPages)
-								? await RepositoryMediator.FindAsync(null, filter, sort, pageSize, pageNumber, repositoryEntityID, false, null, 0, this.CancellationToken).ConfigureAwait(false)
-								: new List<T>();
-							if (pageNumber < 2)
-								dataSet = objects.ToDataSet(repositoryEntityID);
-							else
-								dataSet.Tables[0].UpdateDataTable(objects, repositoryEntityID);
-						}
-						catch (Exception ex)
-						{
-							exceptions.Add(new RepositoryOperationException($"Error occurred while preparing objects to export to Excel => {ex.GetTypeName(true)}: {ex.Message}", ex));
-							await this.WriteLogsAsync(processID, $"Error occurred while preparing objects to export to Excel => {ex.GetTypeName(true)}: {ex.Message}", ex, this.ServiceName, "Excel").ConfigureAwait(false);
-						}
-						pageNumber++;
-					}
-
-					var filename = $"{processID}-{typeof(T).GetTypeName(true)}.xlsx";
-					if (dataSet != null)
-					{
-						using var stream = dataSet.SaveAsExcel();
-						await stream.SaveAsBinaryAsync(Path.Combine(this.GetPath("Temp", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "temp")), filename), this.CancellationToken).ConfigureAwait(false);
-						onCompleted?.Invoke(dataSet);
-					}
-
+				var exceptions = new List<Exception>();
+				while (pageNumber <= totalPages && (maxPages == 0 || pageNumber <= maxPages))
+				{
 					new UpdateMessage
 					{
 						Type = "Portals#Excel#Export",
@@ -4509,251 +4474,237 @@ namespace net.vieapps.Services.Portals
 						Data = new JObject
 						{
 							{ "ProcessID", processID },
-							{ "Status", "Done" },
-							{ "Percentage", "100%" },
-							{ "Filename", filename },
-							{ "NodeID", Extensions.GetUniqueName(this.ServiceName, this.NodeID) },
-							{
-								"Exceptions",
-								exceptions.Select(exception => new JObject
-								{
-									{ "Type", exception.GetType().ToString() },
-									{ "Message", exception.Message },
-									{ "Stack", exception.StackTrace }
-								}).ToJArray()
-							}
+							{ "Status", "Processing" },
+							{ "Percentage", $"{pageNumber * 100/totalPages:#0.0}%" }
 						}
 					}.Send();
 
-					stopwatch.Stop();
-					if (this.IsDebugLogEnabled)
-						await this.WriteLogsAsync(processID, $"Export objects to Excel was completed - Total: {totalRecords:###,###,##0} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Excel").ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					var code = 500;
-					var type = ex.GetTypeName(true);
-					var message = ex.Message;
-					var stack = ex.StackTrace;
-					if (ex is WampException wampException)
+					try
 					{
-						var wampDetails = wampException.GetDetails();
-						code = wampDetails.Code;
-						type = wampDetails.Type;
-						message = wampDetails.Message;
-						stack = wampDetails.Stack;
+						var objects = pageNumber <= totalPages && (maxPages == 0 || pageNumber <= maxPages)
+							? await RepositoryMediator.FindAsync(null, filter, sort, pageSize, pageNumber, repositoryEntityID, false, null, 0, this.CancellationToken).ConfigureAwait(false)
+							: new List<T>();
+						if (pageNumber < 2)
+							dataSet = objects.ToDataSet(repositoryEntityID);
+						else
+							dataSet.Tables[0].UpdateDataTable(objects, repositoryEntityID);
 					}
-					new UpdateMessage
+					catch (Exception ex)
 					{
-						Type = "Portals#Excel#Export",
-						DeviceID = deviceID,
-						Data = new JObject
+						exceptions.Add(new RepositoryOperationException($"Error occurred while preparing objects to export to Excel => {ex.GetTypeName(true)}: {ex.Message}", ex));
+						await this.WriteLogsAsync(processID, $"Error occurred while preparing objects to export to Excel => {ex.GetTypeName(true)}: {ex.Message}", ex, this.ServiceName, "Excel").ConfigureAwait(false);
+					}
+					pageNumber++;
+				}
+
+				var filename = $"{processID}-{typeof(T).GetTypeName(true)}.xlsx";
+				if (dataSet != null)
+				{
+					using var stream = dataSet.SaveAsExcel();
+					await stream.SaveAsBinaryAsync(Path.Combine(this.GetPath("Temp", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "temp")), filename), this.CancellationToken).ConfigureAwait(false);
+					onCompleted?.Invoke(dataSet);
+				}
+
+				new UpdateMessage
+				{
+					Type = "Portals#Excel#Export",
+					DeviceID = deviceID,
+					Data = new JObject
+					{
+						{ "ProcessID", processID },
+						{ "Status", "Done" },
+						{ "Percentage", "100%" },
+						{ "Filename", filename },
+						{ "NodeID", Extensions.GetUniqueName(this.ServiceName, this.NodeID) },
 						{
-							{ "ProcessID", processID },
-							{ "Status", "Error" },
+							"Exceptions",
+							exceptions.Select(exception => new JObject
 							{
-								"Error", new JObject
-								{
-									{ "Code", code },
-									{ "Type", type },
-									{ "Message", message },
-									{ "Stack", stack }
-								}
+								{ "Type", exception.GetType().ToString() },
+								{ "Message", exception.Message },
+								{ "Stack", exception.StackTrace }
+							}).ToJArray()
+						}
+					}
+				}.Send();
+
+				stopwatch.Stop();
+				if (this.IsDebugLogEnabled)
+					await this.WriteLogsAsync(processID, $"Export objects to Excel was completed - Total: {totalRecords:###,###,##0} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Excel").ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				var code = 500;
+				var type = ex.GetTypeName(true);
+				var message = ex.Message;
+				var stack = ex.StackTrace;
+				if (ex is WampException wampException)
+				{
+					var wampDetails = wampException.GetDetails();
+					code = wampDetails.Code;
+					type = wampDetails.Type;
+					message = wampDetails.Message;
+					stack = wampDetails.Stack;
+				}
+				new UpdateMessage
+				{
+					Type = "Portals#Excel#Export",
+					DeviceID = deviceID,
+					Data = new JObject
+					{
+						{ "ProcessID", processID },
+						{ "Status", "Error" },
+						{
+							"Error", new JObject
+							{
+								{ "Code", code },
+								{ "Type", type },
+								{ "Message", message },
+								{ "Stack", stack }
 							}
 						}
-					}.Send();
-					await this.WriteLogsAsync(processID, $"Error occurred while exporting objects to Excel => {message}", ex, this.ServiceName, "Excel").ConfigureAwait(false);
-				}
-			}, this.CancellationToken).ConfigureAwait(false);
+					}
+				}.Send();
+				await this.WriteLogsAsync(processID, $"Error occurred while exporting objects to Excel => {message}", ex, this.ServiceName, "Excel").ConfigureAwait(false);
+			}
+		}
 
 		void Import<T>(string processID, string deviceID, string userID, string filename, string repositoryEntityID, bool regenerateID = false, Action<IEnumerable<T>> onCompleted = null) where T : class
-			=> Task.Run(async () =>
+			=> this.ImportAsync<T>(processID, deviceID, userID, filename, repositoryEntityID, regenerateID, onCompleted).Run();
+
+		async Task ImportAsync<T>(string processID, string deviceID, string userID, string filename, string repositoryEntityID, bool regenerateID = false, Action<IEnumerable<T>> onCompleted = null) where T : class
+		{
+			try
 			{
-				try
+				var stopwatch = Stopwatch.StartNew();
+				if (this.IsDebugLogEnabled)
+					await this.WriteLogsAsync(processID, $"Start to import objects from Excel - Object: {typeof(T).GetTypeName(true)} - Data file: {filename}", null, this.ServiceName, "Excel").ConfigureAwait(false);
+
+				// read the Excel file
+				var dataSet = ExcelService.ReadExcelAsDataSet(Path.Combine(this.GetPath("Temp", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "temp")), filename));
+				var objects = dataSet.ToObjects<T>(repositoryEntityID);
+				var contentType = !string.IsNullOrWhiteSpace(repositoryEntityID) && repositoryEntityID.IsValidUUID()
+					? await repositoryEntityID.GetContentTypeByIDAsync(this.CancellationToken).ConfigureAwait(false)
+					: null;
+				var objectName = contentType?.ContentTypeDefinition?.GetObjectName();
+
+				// do import
+				var totalRecords = objects.Count();
+				var counter = 0;
+				var exceptions = new List<Exception>();
+				await objects.ForEachAsync(async @object =>
 				{
-					var stopwatch = Stopwatch.StartNew();
-					if (this.IsDebugLogEnabled)
-						await this.WriteLogsAsync(processID, $"Start to import objects from Excel - Object: {typeof(T).GetTypeName(true)} - Data file: {filename}", null, this.ServiceName, "Excel").ConfigureAwait(false);
-
-					// read the Excel file
-					var dataSet = ExcelService.ReadExcelAsDataSet(Path.Combine(this.GetPath("Temp", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data-files", "temp")), filename));
-					var objects = dataSet.ToObjects<T>(repositoryEntityID);
-					var contentType = !string.IsNullOrWhiteSpace(repositoryEntityID) && repositoryEntityID.IsValidUUID()
-						? await repositoryEntityID.GetContentTypeByIDAsync(this.CancellationToken).ConfigureAwait(false)
-						: null;
-					var objectName = contentType?.ContentTypeDefinition?.GetObjectName();
-
-					// do import
-					var totalRecords = objects.Count();
-					var counter = 0;
-					var exceptions = new List<Exception>();
-					await objects.ForEachAsync(async @object =>
+					var @event = "Update";
+					try
 					{
-						var @event = "Update";
-						try
+						// prepare
+						var bizObject = @object is IBusinessEntity ? @object as IBusinessEntity : null;
+						var aliasObject = @object is IAliasEntity ? @object as IAliasEntity : null;
+
+						if (bizObject != null)
 						{
-							// prepare
-							var bizObject = @object is IBusinessEntity ? @object as IBusinessEntity : null;
-							var aliasObject = @object is IAliasEntity ? @object as IAliasEntity : null;
+							bizObject.ID = string.IsNullOrWhiteSpace(bizObject.ID) ? UtilityService.NewUUID : bizObject.ID;
+							bizObject.LastModified = DateTime.Now;
+							bizObject.LastModifiedID = userID;
 
-							if (bizObject != null)
+							if (contentType != null)
 							{
-								bizObject.ID = string.IsNullOrWhiteSpace(bizObject.ID) ? UtilityService.NewUUID : bizObject.ID;
-								bizObject.LastModified = DateTime.Now;
-								bizObject.LastModifiedID = userID;
-
-								if (contentType != null)
-								{
-									bizObject.SystemID = string.IsNullOrWhiteSpace(bizObject.SystemID) ? contentType.SystemID : bizObject.SystemID;
-									bizObject.RepositoryID = string.IsNullOrWhiteSpace(bizObject.RepositoryID) ? contentType.RepositoryID : bizObject.RepositoryID;
-									bizObject.RepositoryEntityID = string.IsNullOrWhiteSpace(bizObject.RepositoryEntityID) ? contentType.ID : bizObject.RepositoryEntityID;
-								}
+								bizObject.SystemID = string.IsNullOrWhiteSpace(bizObject.SystemID) ? contentType.SystemID : bizObject.SystemID;
+								bizObject.RepositoryID = string.IsNullOrWhiteSpace(bizObject.RepositoryID) ? contentType.RepositoryID : bizObject.RepositoryID;
+								bizObject.RepositoryEntityID = string.IsNullOrWhiteSpace(bizObject.RepositoryEntityID) ? contentType.ID : bizObject.RepositoryEntityID;
 							}
+						}
 
-							// re-generate the identity
-							if (regenerateID)
-								new[] { "ID", "Id" }.ForEach(name =>
-								{
-									if (@object.GetAttributeValue(name) is string objectID)
-										@object.SetAttributeValue(name, objectID.GenerateUUID());
-								});
-
-							// compute all formulas
-							if (@object is IBusinessObject businessObject)
-								businessObject.Compute();
-
-							// update database
-							var existed = await RepositoryMediator.GetAsync<T>(null, @object.GetEntityID(), this.CancellationToken).ConfigureAwait(false);
-							if (existed != null)
+						// re-generate the identity
+						if (regenerateID)
+							new[] { "ID", "Id" }.ForEach(name =>
 							{
-								@object.GetPublicAttributes(attribute => !attribute.IsStatic && attribute.CanRead && attribute.CanWrite && @object.GetAttributeValue(attribute) == null).ForEach(attribute => @object.SetAttributeValue(attribute, existed.GetAttributeValue(attribute)));
-								try
+								if (@object.GetAttributeValue(name) is string objectID)
+									@object.SetAttributeValue(name, objectID.GenerateUUID());
+							});
+
+						// compute all formulas
+						if (@object is IBusinessObject businessObject)
+							businessObject.Compute();
+
+						// update database
+						var existed = await RepositoryMediator.GetAsync<T>(null, @object.GetEntityID(), this.CancellationToken).ConfigureAwait(false);
+						if (existed != null)
+						{
+							@object.GetPublicAttributes(attribute => !attribute.IsStatic && attribute.CanRead && attribute.CanWrite && @object.GetAttributeValue(attribute) == null).ForEach(attribute => @object.SetAttributeValue(attribute, existed.GetAttributeValue(attribute)));
+							try
+							{
+								await RepositoryMediator.UpdateAsync(null, @object, false, userID, this.CancellationToken).ConfigureAwait(false);
+							}
+							catch (Exception ex)
+							{
+								if (ex is RepositoryOperationException && ex.InnerException != null && ex.InnerException is InformationExistedException && ex.InnerException.Message.IsContains("A key was existed") && aliasObject != null)
 								{
+									aliasObject.Alias = $"{aliasObject.Alias}-{aliasObject.ID}".NormalizeAlias();
 									await RepositoryMediator.UpdateAsync(null, @object, false, userID, this.CancellationToken).ConfigureAwait(false);
 								}
-								catch (Exception ex)
-								{
-									if (ex is RepositoryOperationException && ex.InnerException != null && ex.InnerException is InformationExistedException && ex.InnerException.Message.IsContains("A key was existed") && aliasObject != null)
-									{
-										aliasObject.Alias = $"{aliasObject.Alias}-{aliasObject.ID}".NormalizeAlias();
-										await RepositoryMediator.UpdateAsync(null, @object, false, userID, this.CancellationToken).ConfigureAwait(false);
-									}
-									else
-										throw;
-								}
+								else
+									throw;
+							}
+						}
+
+						else
+						{
+							@event = "Create";
+							if (bizObject != null)
+							{
+								bizObject.Created = bizObject.LastModified = DateTime.Now;
+								bizObject.CreatedID = bizObject.LastModifiedID = userID;
 							}
 
-							else
+							if (aliasObject != null && string.IsNullOrWhiteSpace(aliasObject.Alias))
+								aliasObject.Alias = (aliasObject.Title ?? aliasObject.ID).NormalizeAlias();
+
+							try
 							{
-								@event = "Create";
-								if (bizObject != null)
+								await RepositoryMediator.CreateAsync(null, @object, this.CancellationToken).ConfigureAwait(false);
+							}
+							catch (Exception ex)
+							{
+								if (ex is RepositoryOperationException && ex.InnerException != null && ex.InnerException is InformationExistedException && ex.InnerException.Message.IsContains("A key was existed") && aliasObject != null)
 								{
-									bizObject.Created = bizObject.LastModified = DateTime.Now;
-									bizObject.CreatedID = bizObject.LastModifiedID = userID;
-								}
-
-								if (aliasObject != null && string.IsNullOrWhiteSpace(aliasObject.Alias))
-									aliasObject.Alias = (aliasObject.Title ?? aliasObject.ID).NormalizeAlias();
-
-								try
-								{
+									aliasObject.Alias = $"{aliasObject.Alias}-{aliasObject.ID}".NormalizeAlias();
 									await RepositoryMediator.CreateAsync(null, @object, this.CancellationToken).ConfigureAwait(false);
 								}
-								catch (Exception ex)
-								{
-									if (ex is RepositoryOperationException && ex.InnerException != null && ex.InnerException is InformationExistedException && ex.InnerException.Message.IsContains("A key was existed") && aliasObject != null)
-									{
-										aliasObject.Alias = $"{aliasObject.Alias}-{aliasObject.ID}".NormalizeAlias();
-										await RepositoryMediator.CreateAsync(null, @object, this.CancellationToken).ConfigureAwait(false);
-									}
-									else
-										throw;
-								}
+								else
+									throw;
 							}
-
-							// send update message
-							objectName = objectName ?? (@object as RepositoryBase)?.GetObjectName();
-							new UpdateMessage
-							{
-								Type = $"{Utility.ServiceName}#{objectName}#Update",
-								DeviceID = "*",
-								Data = (@object as RepositoryBase)?.ToJson()
-							}.Send();
-
-							// clear related cache
-							if (@object is Category category)
-								category.Set().ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
-							else if (@object is Content content)
-								content.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
-							else if (@object is Item item)
-								item.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
-							else if (@object is Link link)
-								link.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
-							else if (@object is Form form)
-								form.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
-						}
-						catch (Exception ex)
-						{
-							ex = ex is RepositoryOperationException ? ex.InnerException : ex;
-							exceptions.Add(new RepositoryOperationException($"Error ({@event}) {@object.GetType()}#{@object.GetEntityID()}: [{@object.GetAttributeValue("Title")}] => {ex.GetTypeName(true)}: {ex.Message}", ex));
-							await this.WriteLogsAsync(processID, $"Error occurred while importing ({@event}) an object [{@object.GetType()}#{@object.GetEntityID()} => {@object.GetAttributeValue("Title")}] => {ex.GetTypeName(true)}: {ex.Message}", ex, this.ServiceName, "Excel").ConfigureAwait(false);
 						}
 
-						counter++;
+						// send update message
+						objectName = objectName ?? (@object as RepositoryBase)?.GetObjectName();
 						new UpdateMessage
 						{
-							Type = "Portals#Excel#Import",
-							DeviceID = deviceID,
-							Data = new JObject
-							{
-								{ "ProcessID", processID },
-								{ "Status", "Processing" },
-								{ "Percentage", $"{counter * 100/totalRecords:#0.0}%" }
-							}
+							Type = $"{Utility.ServiceName}#{objectName}#Update",
+							DeviceID = "*",
+							Data = (@object as RepositoryBase)?.ToJson()
 						}.Send();
-					}, true, false).ConfigureAwait(false);
 
-					// final
-					onCompleted?.Invoke(objects);
-					new UpdateMessage
-					{
-						Type = "Portals#Excel#Import",
-						DeviceID = deviceID,
-						Data = new JObject
-						{
-							{ "ProcessID", processID },
-							{ "Status", "Done" },
-							{ "Percentage", "100%" },
-							{
-								"Exceptions",
-								exceptions.Select(exception => new JObject
-								{
-									{ "Type", exception.GetType().ToString() },
-									{ "Message", exception.Message },
-									{ "Stack", exception.StackTrace }
-								}).ToJArray()
-							}
-						}
-					}.Send();
-
-					stopwatch.Stop();
-					if (this.IsDebugLogEnabled)
-						await this.WriteLogsAsync(processID, $"Import objects from Excel was completed - Total: {totalRecords:###,###,##0} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Excel").ConfigureAwait(false);
-				}
-				catch (Exception ex)
-				{
-					var code = 500;
-					var type = ex.GetTypeName(true);
-					var message = ex.Message;
-					var stack = ex.StackTrace;
-					if (ex is WampException wampException)
-					{
-						var wampDetails = wampException.GetDetails();
-						code = wampDetails.Code;
-						type = wampDetails.Type;
-						message = wampDetails.Message;
-						stack = wampDetails.Stack;
+						// clear related cache
+						if (@object is Category category)
+							category.Set().ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
+						else if (@object is Content content)
+							content.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
+						else if (@object is Item item)
+							item.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
+						else if (@object is Link link)
+							link.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
+						else if (@object is Form form)
+							form.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
 					}
+					catch (Exception ex)
+					{
+						ex = ex is RepositoryOperationException ? ex.InnerException : ex;
+						exceptions.Add(new RepositoryOperationException($"Error ({@event}) {@object.GetType()}#{@object.GetEntityID()}: [{@object.GetAttributeValue("Title")}] => {ex.GetTypeName(true)}: {ex.Message}", ex));
+						await this.WriteLogsAsync(processID, $"Error occurred while importing ({@event}) an object [{@object.GetType()}#{@object.GetEntityID()} => {@object.GetAttributeValue("Title")}] => {ex.GetTypeName(true)}: {ex.Message}", ex, this.ServiceName, "Excel").ConfigureAwait(false);
+					}
+
+					counter++;
 					new UpdateMessage
 					{
 						Type = "Portals#Excel#Import",
@@ -4761,21 +4712,75 @@ namespace net.vieapps.Services.Portals
 						Data = new JObject
 						{
 							{ "ProcessID", processID },
-							{ "Status", "Error" },
-							{
-								"Error", new JObject
-								{
-									{ "Code", code },
-									{ "Type", type },
-									{ "Message", message },
-									{ "Stack", stack }
-								}
-							}
+							{ "Status", "Processing" },
+							{ "Percentage", $"{counter * 100/totalRecords:#0.0}%" }
 						}
 					}.Send();
-					await this.WriteLogsAsync(processID, $"Error occurred while importing objects from Excel => {message}", ex, this.ServiceName, "Excel").ConfigureAwait(false);
+				}, true, false).ConfigureAwait(false);
+
+				// final
+				onCompleted?.Invoke(objects);
+				new UpdateMessage
+				{
+					Type = "Portals#Excel#Import",
+					DeviceID = deviceID,
+					Data = new JObject
+					{
+						{ "ProcessID", processID },
+						{ "Status", "Done" },
+						{ "Percentage", "100%" },
+						{
+							"Exceptions",
+							exceptions.Select(exception => new JObject
+							{
+								{ "Type", exception.GetType().ToString() },
+								{ "Message", exception.Message },
+								{ "Stack", exception.StackTrace }
+							}).ToJArray()
+						}
+					}
+				}.Send();
+
+				stopwatch.Stop();
+				if (this.IsDebugLogEnabled)
+					await this.WriteLogsAsync(processID, $"Import objects from Excel was completed - Total: {totalRecords:###,###,##0} - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Excel").ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				var code = 500;
+				var type = ex.GetTypeName(true);
+				var message = ex.Message;
+				var stack = ex.StackTrace;
+				if (ex is WampException wampException)
+				{
+					var wampDetails = wampException.GetDetails();
+					code = wampDetails.Code;
+					type = wampDetails.Type;
+					message = wampDetails.Message;
+					stack = wampDetails.Stack;
 				}
-			}, this.CancellationToken).ConfigureAwait(false);
+				new UpdateMessage
+				{
+					Type = "Portals#Excel#Import",
+					DeviceID = deviceID,
+					Data = new JObject
+					{
+						{ "ProcessID", processID },
+						{ "Status", "Error" },
+						{
+							"Error", new JObject
+							{
+								{ "Code", code },
+								{ "Type", type },
+								{ "Message", message },
+								{ "Stack", stack }
+							}
+						}
+					}
+				}.Send();
+				await this.WriteLogsAsync(processID, $"Error occurred while importing objects from Excel => {message}", ex, this.ServiceName, "Excel").ConfigureAwait(false);
+			}
+		}
 		#endregion
 
 		#region Sync objects

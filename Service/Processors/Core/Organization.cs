@@ -540,25 +540,25 @@ namespace net.vieapps.Services.Portals
 			{
 				// clear cache of expressions
 				var expressions = await Expression.FindAsync(Filters<Expression>.And(Filters<Expression>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				tasks = tasks.Concat(expressions.Select(expression => expression.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh))).ToList();
+				tasks.Append(expressions.Select(expression => expression.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh)));
 
 				// clear cache of roles
 				var roles = await Role.FindAsync(Filters<Role>.And(Filters<Role>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				tasks = tasks.Concat(roles.Select(role => role.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache))).ToList();
+				tasks.Append(roles.Select(role => role.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache)));
 
 				// clear cache of modules, content-types and business objects
-				tasks = tasks.Concat(organization.Modules.Select(module => module.ClearCacheAsync(cancellationToken, correlationID, clearObjectsCache, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh))).ToList();
+				tasks.Append(organization.Modules.Select(module => module.ClearCacheAsync(cancellationToken, correlationID, clearObjectsCache, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh)));
 
 				// clear cache of desktops
 				var desktops = await Desktop.FindAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", organization.ID)), null, 0, 1, null, cancellationToken).ConfigureAwait(false);
-				tasks = tasks.Concat(desktops.Select(desktop => desktop.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, false, doRefresh))).ToList();
+				tasks.Append(desktops.Select(desktop => desktop.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, false, doRefresh)));
 
 				// clear cache of sites
-				tasks = tasks.Concat(organization.Sites.Select(site => site.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh))).ToList();
+				tasks.Append(organization.Sites.Select(site => site.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh)));
 			}
 
 			// clear cache of the organization
-			tasks = tasks.Concat(new[]
+			tasks.Append(new[]
 			{
 				Utility.Cache.RemoveAsync(organization.Remove(), cancellationToken),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of an organization [{organization.Title} - ID: {organization.ID}]", "Caches") : Task.CompletedTask,
@@ -568,7 +568,7 @@ namespace net.vieapps.Services.Portals
 					Data = organization.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync()
-			}).ToList();
+			});
 
 			await Task.WhenAll(tasks).ConfigureAwait(false);
 
@@ -1143,6 +1143,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo)
 		{
 			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, Utility.CancellationToken).ConfigureAwait(false) ?? [];
+			organizations = organizations.Where(organization => organization.Status == ApprovalStatus.Approved || organization.Status == ApprovalStatus.Published).ToList();
 			await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Start to rebuild cache of all organizations ({organizations.Count()})", "Caches").ConfigureAwait(false);
 			organizations.ForEach(organization => Router.GetService(Utility.ServiceName).ProcessRequestAsync(new RequestInfo(requestInfo)
 			{
@@ -1221,11 +1222,14 @@ namespace net.vieapps.Services.Portals
 
 				await urls.ForEachAsync((url, index) => url.RefreshWebPageAsync(index, correlationID, "Rebuild cache successful", cancellationToken)).ConfigureAwait(false);
 
-				done += urls.Count;
-				if (done % 50 == 0)
-					sendStatus("Processing");
+				if (!cancellationToken.IsCancellationRequested)
+				{
+					done += urls.Count;
+					if (done % 50 == 0)
+						sendStatus("Processing");
+				}
 
-				if ((writeLogs && done % 50 == 0) || (done % 500 == 0))
+				if ((writeLogs && done % 50 == 0) || (done % 200 == 0))
 					await Utility.WriteLogAsync(correlationID, $"{done:###,###,##0}/{refreshingURLs.Count:###,###,##0} caching URLs of '{organization.Title}' were refreshen", "Caches").ConfigureAwait(false);
 			}
 
