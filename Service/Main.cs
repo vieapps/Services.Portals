@@ -5892,7 +5892,7 @@ namespace net.vieapps.Services.Portals
 				if (kvp.Key != "Time" && kvp.Key != "Title")
 					logs.Add($"- {kvp.Key}: {kvp.Value}");
 			});
-			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"{DateTime.Now:yyyyMMdd}_portals.cache.rebuild.txt"), Utility.CancellationToken).Run();
+			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache-{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).Run();
 		}
 
 		async Task MonitorCacheRebuildAsync()
@@ -5970,7 +5970,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			if (logs.Count > 0)
-				await logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"{DateTime.Now:yyyyMMdd}_portals.cache.rebuild.txt"), Utility.CancellationToken).ConfigureAwait(false);
+				await logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache-{DateTime.Now:yyyyMMdd}"), Utility.CancellationToken).ConfigureAwait(false);
 		}
 		#endregion
 
