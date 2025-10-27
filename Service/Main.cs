@@ -258,6 +258,8 @@ namespace net.vieapps.Services.Portals
 				{
 					var time = DateTime.Now.GetFirstDayOfWeek();
 					time = new DateTime(time.Year, time.Month, time.Day, 5, 13, 13);
+					if (time < DateTime.Now)
+						time = time.AddDays(7);
 					this.StartTimer(async () =>
 					{
 						if (DateTime.Now.Day == time.Day && DateTime.Now.Hour == time.Hour && DateTime.Now.Minute > 10 && DateTime.Now.Minute < 20)
@@ -5892,7 +5894,7 @@ namespace net.vieapps.Services.Portals
 				if (kvp.Key != "Time" && kvp.Key != "Title")
 					logs.Add($"- {kvp.Key}: {kvp.Value}");
 			});
-			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache-{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).Run();
+			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache.{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).Run();
 		}
 
 		async Task MonitorCacheRebuildAsync()
@@ -5970,7 +5972,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			if (logs.Count > 0)
-				await logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache-{DateTime.Now:yyyyMMdd}"), Utility.CancellationToken).ConfigureAwait(false);
+				await logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache.{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).ConfigureAwait(false);
 		}
 		#endregion
 
