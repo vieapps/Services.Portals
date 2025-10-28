@@ -878,7 +878,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// process with cache
-					var processCache = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache") || (requestInfo.TryGetHeaderParameter("Cache-Control", out var cacheControl) && cacheControl.IsContains("no-cache"))
+					var processCache = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache")
 						? false
 						: Handler.AllowCache;
 					if (processCache && !isRefresher)
@@ -1073,10 +1073,10 @@ namespace net.vieapps.Services.Portals
 									if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
 									{
 										items[$"{cacheKey}:expiration"] = expiresAtTime.AddMinutes(13).ToDTString();
-										await Handler.Cache.SetAsync(items, null, expiresAtTime.AddMinutes(13), cts.Token).ConfigureAwait(false);
+										Handler.Cache.SetAsync(items, null, expiresAtTime.AddMinutes(13), Global.CancellationToken).Run();
 									}
 									else
-										await Handler.Cache.SetAsync(items, null, 0, cts.Token).ConfigureAwait(false);
+										Handler.Cache.SetAsync(items, null, 0, Global.CancellationToken).Run();
 								}
 
 								var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));

@@ -2509,26 +2509,27 @@ namespace net.vieapps.Services.Portals
 						if (expiresAt != null)
 						{
 							items[cacheKeyOfExpiration] = expiresAt.Value.ToDTString();
-							await Utility.Cache.SetAsync(items, null, expiresAt, cancellationToken).ConfigureAwait(false);
+							Utility.Cache.SetAsync(items, null, expiresAt, this.CancellationToken).Run();
 						}
+
 						else
 						{
 							if (expirationTime > 0)
-								items[cacheKeyOfExpiration] = DateTime.Now.AddMinutes(expirationTime).ToDTString();							
-							await Task.WhenAll
+								items[cacheKeyOfExpiration] = DateTime.Now.AddMinutes(expirationTime).ToDTString();
+							Task.WhenAll
 							(
-								expirationTime > 0 ? Task.CompletedTask : Utility.Cache.RemoveAsync(cacheKeyOfExpiration, cancellationToken),
-								Utility.Cache.SetAsync(items, null, expirationTime, cancellationToken)
-							).ConfigureAwait(false);
+								expirationTime > 0 ? Task.CompletedTask : Utility.Cache.RemoveAsync(cacheKeyOfExpiration, this.CancellationToken),
+								Utility.Cache.SetAsync(items, null, expirationTime, this.CancellationToken)
+							).Run();
 						}
 
 						var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity) ? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false) : null;
-						await Task.WhenAll
+						Task.WhenAll
 						(
-							Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
-							category != null ? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken) : Task.CompletedTask,
+							Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], this.CancellationToken),
+							category != null ? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], this.CancellationToken) : Task.CompletedTask,
 							isWriteDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Caches") : Task.CompletedTask
-						).ConfigureAwait(false);
+						).Run();
 					}
 				}
 
