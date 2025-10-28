@@ -657,7 +657,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// clear cache
-			var isClearCache = "cache".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.Session.User.IsAuthenticated;
+			var isClearCache = requestInfo.Session.User.IsAuthenticated && ("cache".IsEquals(requestInfo.GetObjectIdentity()) || ("refresh".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.ContainsKey("x-clear-cache")));
 			if (isClearCache)
 				await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false);
 
