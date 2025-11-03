@@ -320,12 +320,12 @@ namespace net.vieapps.Services.Portals
 							</ul>
 							{{@params(EmailSignature)}}";
 
-						var recipients = recipientIDs.Any() ? await requestInfo.GetUserProfilesAsync(recipientIDs, false, cancellationToken).ConfigureAwait(false) as JArray ?? new JArray() : new JArray();
+						var recipients = recipientIDs.Any() ? await requestInfo.GetUserProfilesAsync(recipientIDs, false, cancellationToken).ConfigureAwait(false) as JArray ?? new() : new();
 						var parameters = $"{subject}\r\n{body}".PrepareDoubleBracesParameters(objectAsExpandoObject, requestInfoAsExpandoObject, paramsAsExpandoObject);
 						var message = new EmailMessage
 						{
 							From = emailSettings?.Sender,
-							To = recipients.Select(recipient => recipient?.Get<string>("Email")).Where(email => !string.IsNullOrWhiteSpace(email)).Join(";") + (string.IsNullOrWhiteSpace(emailNotifications.ToAddresses) ? "" : $";{emailNotifications.ToAddresses}"),
+							To = recipients.Select(recipient => recipient?.Get<string>("Email")).Where(email => !string.IsNullOrWhiteSpace(email)).Distinct(StringComparer.OrdinalIgnoreCase).Join(";") + (string.IsNullOrWhiteSpace(emailNotifications.ToAddresses) ? "" : $";{emailNotifications.ToAddresses}"),
 							Cc = emailNotifications?.CcAddresses,
 							Bcc = emailNotifications?.BccAddresses,
 							Subject = subject.NormalizeHTMLBreaks().Format(parameters),

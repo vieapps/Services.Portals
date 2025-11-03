@@ -405,6 +405,7 @@ namespace net.vieapps.Services.Portals
 			var correlationID = context.GetCorrelationID();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs") || context.ContainsKey("x-cache-logs");
 
+			var stepwatch = Stopwatch.StartNew();
 			var session = context.Session.Get<Session>("Session") ?? context.GetSession();
 			session.NormalizeSession(context);
 
@@ -412,6 +413,10 @@ namespace net.vieapps.Services.Portals
 			var requestMethod = (context.Request.Method ?? "GET").ToUpper();
 			if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 				await context.WriteLogsAsync("Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod}: {requestURI}]").ConfigureAwait(false);
+
+			// L1-Cache
+			if (await this.ProcessPortalL1CacheRequestAsync(context, stopwatch).ConfigureAwait(false))
+				return;
 
 			// update user of the session if already signed-in
 			if (context.IsAuthenticated())
@@ -602,7 +607,6 @@ namespace net.vieapps.Services.Portals
 											? "Visit"
 											: "Redirect";
 						}
-						
 
 						// special resources
 						else
@@ -760,8 +764,9 @@ namespace net.vieapps.Services.Portals
 
 			// process the request
 			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
-			if (isDebugLogEnabled)
-				await context.WriteLogsAsync("Http.Process.Requests", $"Identify the system in the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
+			if ("".Equals(systemIdentity))
+				await context.WriteLogsAsync("Http.Process.Requests", $"Identify the request [Prev step: {stepwatch.GetElapsedTimes()}]{(isDebugLogEnabled ? $"\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}" : "")}").ConfigureAwait(false);
+			stepwatch.Restart();
 
 			JObject systemIdentityJson = null;
 			var alwaysUseHTTPs = false;
@@ -780,6 +785,8 @@ namespace net.vieapps.Services.Portals
 						alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
 						alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
 						redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
+						if ("".Equals(systemIdentity) && stepwatch.Elapsed.TotalMilliseconds > 50)
+							await context.WriteLogsAsync("Http.Process.Requests", $"The identify process was completed in {stepwatch.GetElapsedTimes()}").ConfigureAwait(false);
 					}
 
 					// request of legacy system (files and medias)
@@ -988,7 +995,14 @@ namespace net.vieapps.Services.Portals
 							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
 							alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
 							redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
+
+							if ("".Equals(systemIdentity) && stepwatch.Elapsed.TotalMilliseconds > 50)
+								await context.WriteLogsAsync("Http.Process.Requests", $"The identify process was completed in {stepwatch.GetElapsedTimes()}").ConfigureAwait(false);
 						}
+
+						if ("".Equals(systemIdentity))
+							await context.WriteLogsAsync("Http.Process.Requests", $"The request was identified [Prev step: {stepwatch.GetElapsedTimes()}]").ConfigureAwait(false);
+						stepwatch.Restart();
 
 						if (!string.IsNullOrWhiteSpace(cacheKey))
 						{
@@ -1008,8 +1022,7 @@ namespace net.vieapps.Services.Portals
 								return;
 							}
 
-							// process cache
-							var watch = Stopwatch.StartNew();
+							// process cache							
 							if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 								await context.WriteLogsAsync("Http.Process.Requests", $"Attempt to process the CMS Portals service cache => {requestURI} ({cacheKey})").ConfigureAwait(false);
 
@@ -1018,6 +1031,7 @@ namespace net.vieapps.Services.Portals
 								["Content-Type"] = $"{contentType}; charset=utf-8",
 								["ETag"] = eTag,
 								["Cache-Control"] = "public",
+								["X-Cache"] = "HTTP-200",
 								["X-Node"] = Global.NodeID,
 								["X-Correlation-ID"] = correlationID
 							};
@@ -1042,18 +1056,30 @@ namespace net.vieapps.Services.Portals
 							var noneMatch = lastModified != null ? context.GetHeaderParameter("If-None-Match") : null;
 							if (lastModified != null && eTag.IsEquals(noneMatch) && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 							{
-								context.SetResponseHeaders((int)HttpStatusCode.NotModified, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-								{
-									["Last-Modified"] = lastModified,
-									["X-Cache"] = "HTTP-304"
-								});
+								headers["Last-Modified"] = lastModified;
+								headers["X-Cache"] = "HTTP-304";
+								context.SetResponseHeaders((int)HttpStatusCode.NotModified, headers);
+
+								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
+									Handler.Cache.SetL1CacheItem(requestURI.GetUrl().GenerateUUID(), new JObject
+									{
+										["AlwaysUseHTTPs"] = alwaysUseHTTPs,
+										["AlwaysReturnHTTPs"] = alwaysReturnHTTPs,
+										["BaseURL"] = baseURL,
+										["RootURL"] = rootURL,
+										["PortalsURL"] = portalsHttpURI,
+										["FilesURL"] = filesHttpURI,
+										["Headers"] = headers.ToJObject(),
+										["Body"] = cacheKey
+									});
+
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag}/{lastModified}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag}/{lastModified}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 								return;
 							}
 
 							// cached data
-							watch.Restart();
+							stepwatch.Restart();
 							var cached = await Handler.Cache.GetAsync<string>(cacheKey, cts.Token).ConfigureAwait(false);
 
 							if (!string.IsNullOrWhiteSpace(cached))
@@ -1083,66 +1109,39 @@ namespace net.vieapps.Services.Portals
 								if (isCacheLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey})\r\n\r\nRaw cache:\r\n{cached}").ConfigureAwait(false);
 
+								headers["Last-Modified"] = lastModified;
+								headers["Expires"] = (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString();
+								context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
+
+								cached = isHtml ? context.NormalizeHtml(cached, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL) : cached;
 								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
-
-								if (isHtml)
-								{
-									var osPlatform = osInfo.GetANSIUri();
-									var osMode = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os";
-									cached = cached.Format(new Dictionary<string, object>
-									{
-										["isMobile"] = isMobile,
-										["is-mobile"] = isMobile,
-										["osInfo"] = osInfo,
-										["os-info"] = osInfo,
-										["osPlatform"] = osPlatform,
-										["os-platform"] = osPlatform,
-										["osMode"] = osMode,
-										["os-mode"] = osMode,
-										["device-id"] = requestInfo.Session.DeviceID,
-										["device-id-base64url"] = requestInfo.Session.DeviceID.Url64Encode(),
-										["correlationID"] = correlationID,
-										["correlation-id"] = correlationID,
-										["timestamp"] = DateTime.Now.ToUnixTimestamp(),
-										["time-stamp"] = DateTime.Now.ToUnixTimestamp(),
-										["host-md5"] = requestURI.Host.GenerateUUID(),
-										["host-uuid"] = requestURI.Host.GenerateUUID()
-									});
-
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"http://", " src=\"//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"https://", " src=\"//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" srcset=\"http://", " srcset=\"//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" srcset=\"https://", " srcset=\"//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" href=\"http://", " href=\"//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $" href=\"https://", " href=\"//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $"url(http://", "url(//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, $"url(https://", "url(//");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"canonical\" href=\"//", $"<link rel=\"canonical\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"prev\" href=\"/", $"<link rel=\"prev\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/");
-									cached = cached.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"next\" href=\"/", $"<link rel=\"next\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/");
-
-									if (!string.IsNullOrWhiteSpace(baseURL))
-										cached = cached.Insert(cached.PositionOf(">", cached.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
-								}
-
-								context.SetResponseHeaders((int)HttpStatusCode.OK, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-								{
-									["Content-Type"] = $"{contentType}; charset=utf-8",
-									["Last-Modified"] = lastModified,
-									["Expires"] = (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString(),
-									["Cache-Control"] = "public",
-									["X-Cache"] = "HTTP-200"
-								});
 								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
 
+								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
+									Handler.Cache.SetL1CacheItem(requestURI.GetUrl().GenerateUUID(), new JObject
+									{
+										["AlwaysUseHTTPs"] = alwaysUseHTTPs,
+										["AlwaysReturnHTTPs"] = alwaysReturnHTTPs,
+										["BaseURL"] = baseURL,
+										["RootURL"] = rootURL,
+										["PortalsURL"] = portalsHttpURI,
+										["FilesURL"] = filesHttpURI,
+										["Headers"] = headers.ToJObject(),
+										["Body"] = cacheKey
+									});
+
+								stepwatch.Stop();
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {watch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(isCacheLogEnabled ? $"\r\n\r\nNormalized cache:\r\n{cached}" : "")}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(isCacheLogEnabled ? $"\r\n\r\nNormalized cache:\r\n{cached}" : "")}").ConfigureAwait(false);
 								return;
 							}
 						}
 					}
 
 					// call CMS Portals service to process the request
+					stepwatch.Restart();
+					Handler.Cache.RemoveL1CacheItem(requestURI.GetUrl().GenerateUUID());
+
 					try
 					{
 						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
@@ -1163,6 +1162,10 @@ namespace net.vieapps.Services.Portals
 						var body = response.Get<string>("Body");
 						if (body != null)
 							await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
+
+						stepwatch.Stop();
+						if (isDebugLogEnabled)
+							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request was successed - Execution times: {stepwatch.GetElapsedTimes()}\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Response: {response.ToJson()}").ConfigureAwait(false);
 					}
 					catch (Exception)
 					{
@@ -1336,6 +1339,88 @@ namespace net.vieapps.Services.Portals
 			stopwatch.Stop();
 			if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 				await context.WriteLogsAsync("Http.Process.Requests", $"Done process a request of CMS Portals - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+		}
+
+		async Task<bool> ProcessPortalL1CacheRequestAsync(HttpContext context, Stopwatch stopwatch)
+		{
+			if (context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache") || context.ContainsKey("x-sliding-cache"))
+				return false;
+
+			var requestURI = context.GetRequestUri();
+			var cacheKey = requestURI.GetUrl().GenerateUUID();
+			var cache = Handler.Cache.GetL1CacheItem<JObject>(cacheKey);
+
+			if (cache == null)
+				return false;
+
+			var statusCode = (int)HttpStatusCode.OK;
+			var headers = new Dictionary<string, string>(cache.Get<JObject>("Headers").ToDictionary<string>(), StringComparer.OrdinalIgnoreCase)
+			{
+				["X-Cache"] = "L1-HTTP-200",
+				["X-Node"] = Global.NodeID,
+				["X-Correlation-ID"] = context.GetCorrelationID()
+			};
+
+			headers.TryGetValue("Expires", out var expiresAt);
+			if (!string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) && expirationTime < DateTime.Now)
+			{
+				Handler.Cache.RemoveL1CacheItem(cacheKey);
+				return false;
+			}
+
+			headers.TryGetValue("ETag", out var eTag);
+			headers.TryGetValue("Content-Type", out var contentType);
+			headers.TryGetValue("Last-Modified", out var lastModified);
+			if (eTag == null || contentType == null || lastModified == null)
+			{
+				Handler.Cache.RemoveL1CacheItem(cacheKey);
+				return false;
+			}
+
+			var gotBody = true;
+			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
+			if (modifiedSince != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime() && eTag.IsEquals(context.GetHeaderParameter("If-None-Match")))
+			{
+				statusCode = (int)HttpStatusCode.NotModified;
+				headers["X-Cache"] = "L1-HTTP-304";
+				gotBody = false;
+			}
+			var body = gotBody ? Handler.Cache.GetL1CacheItem<string>(cache.Get<string>("Body")) : null;
+
+			if (gotBody && body == null)
+			{
+				Handler.Cache.RemoveL1CacheItem(cacheKey);
+				return false;
+			}
+
+			if (Handler.CrossOrigin.IsEquals("use-credentials") && headers.TryGetValue("Access-Control-Allow-Origin", out var allowOrigin) && allowOrigin != "*")
+			{
+				var origin = context.GetHeaderParameter("Origin") ?? context.GetHeaderParameter("Referer");
+				if (!string.IsNullOrWhiteSpace(origin))
+				{
+					var originURI = new Uri(origin);
+					allowOrigin = $"{originURI.Scheme}://{originURI.Host}";
+				}
+				headers["Access-Control-Allow-Origin"] = allowOrigin;
+			}
+
+			context.SetResponseHeaders(statusCode, headers);
+			if (body != null)
+			{
+				var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
+				var isHtml = !isBase64 && contentType.IsStartsWith("text/html");
+				if (!isBase64 || isHtml)
+				{
+					body = context.NormalizeHtml(body, cache.Get<bool>("AlwaysUseHTTPs"), cache.Get<bool>("AlwaysReturnHTTPs"), isHtml ? cache.Get<string>("BaseURL") : null);
+					body = body.Replace("~#/", $"{cache.Get<string>("PortalsURL")}/").Replace("~~~/", $"{cache.Get<string>("PortalsURL")}/").Replace("~~/", $"{cache.Get<string>("FilesURL")}/").Replace("~/", cache.Get<string>("RootURL"));
+				}
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+				await context.WriteAsync(isBase64 ? body.Base64ToBytes() : body.ToBytes(), cts.Token).ConfigureAwait(false);
+			}
+
+			stopwatch.Stop();
+			await context.WriteLogsAsync("Http.Process.Requests", $"Process the L1-Cache of CMS Portals HTTP service was done - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+			return true;
 		}
 
 		async Task ProcessInitializerRequestAsync(HttpContext context, JObject systemIdentityJson)
@@ -2102,7 +2187,7 @@ namespace net.vieapps.Services.Portals
 		}
 	}
 
-	internal static class SessionExtentions
+	internal static class HandlerExtentions
 	{
 		static NetCrawlerDetect.CrawlerDetect CrawlerDetector { get; } = new NetCrawlerDetect.CrawlerDetect();
 
@@ -2197,6 +2282,54 @@ namespace net.vieapps.Services.Portals
 				}
 				catch { }
 			return session;
+		}
+
+		public static string NormalizeHtml(this HttpContext context, string html, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL)
+		{
+			var requestURI = context.GetRequestUri();
+			var correlationID = context.GetCorrelationID();
+			var session = context.GetSession();
+			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
+			var osInfo = (session.AppAgent ?? "").GetOSInfo();
+			var osPlatform = osInfo.GetANSIUri();
+			var osMode = "true".IsEquals(isMobile) ? "mobile-os" : "desktop-os";
+
+			html = html.Format(new Dictionary<string, object>
+			{
+				["isMobile"] = isMobile,
+				["is-mobile"] = isMobile,
+				["osInfo"] = osInfo,
+				["os-info"] = osInfo,
+				["osPlatform"] = osPlatform,
+				["os-platform"] = osPlatform,
+				["osMode"] = osMode,
+				["os-mode"] = osMode,
+				["device-id"] = session.DeviceID,
+				["device-id-base64url"] = session.DeviceID.Url64Encode(),
+				["correlationID"] = correlationID,
+				["correlation-id"] = correlationID,
+				["timestamp"] = DateTime.Now.ToUnixTimestamp(),
+				["time-stamp"] = DateTime.Now.ToUnixTimestamp(),
+				["host-md5"] = requestURI.Host.GenerateUUID(),
+				["host-uuid"] = requestURI.Host.GenerateUUID()
+			});
+
+			if (!string.IsNullOrWhiteSpace(baseURL))
+				html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
+
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"http://", " src=\"//");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, $" src=\"https://", " src=\"//");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, $" srcset=\"http://", " srcset=\"//");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, $" srcset=\"https://", " srcset=\"//");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, $" href=\"http://", " href=\"//");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, $" href=\"https://", " href=\"//");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, $"url(http://", "url(//");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, $"url(https://", "url(//");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"canonical\" href=\"//", $"<link rel=\"canonical\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"prev\" href=\"/", $"<link rel=\"prev\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/");
+			html = html.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"next\" href=\"/", $"<link rel=\"next\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/");
+
+			return html;
 		}
 	}
 

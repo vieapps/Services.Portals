@@ -277,6 +277,7 @@ namespace net.vieapps.Services.Portals
 						await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({ex.URI}) => {exception.Message} [{exception.GetType()}]", "Caches").ConfigureAwait(false);
 					}
 			}
+			catch (TaskCanceledException) { }
 			catch (OperationCanceledException) { }
 			catch (ConnectionTimeoutException) { }
 			catch (ServiceOperationException) { }

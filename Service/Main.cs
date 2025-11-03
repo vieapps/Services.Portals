@@ -1275,6 +1275,7 @@ namespace net.vieapps.Services.Portals
 
 		async Task<JToken> IdentifySystemAsync(RequestInfo requestInfo, CancellationToken cancellationToken)
 		{
+			var stopwatch = Stopwatch.StartNew();
 			var identity = requestInfo.GetParameter("x-system");
 			var host = requestInfo.GetParameter("x-host");
 
@@ -1329,6 +1330,7 @@ namespace net.vieapps.Services.Portals
 				identityJson["CacheKeyPrefix"] = organization.ID + (site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? "" : ":" + site.ID);
 				identityJson["CacheExaminations"] = organization.ExamineURLs?.ToJsonArray();
 			}
+			await requestInfo.WriteLogAsync($"The system was identified - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 
 			if (!requestInfo.TryGetQueryParameter("x-resource", out var resource) || string.IsNullOrWhiteSpace(resource))
 			{
@@ -1344,6 +1346,7 @@ namespace net.vieapps.Services.Portals
 
 				else
 				{
+					var stepwatch = Stopwatch.StartNew();
 					if (cmsPaths.Length == 1)
 					{
 						var desktop = await organization.ID.GetDesktopByAliasAsync(cmsPaths[0].NormalizeAlias(), cancellationToken).ConfigureAwait(false);
@@ -1372,12 +1375,13 @@ namespace net.vieapps.Services.Portals
 							identityJson["RepositoryEntityID"] = category.RepositoryEntityID;
 						}
 					}
+					stepwatch.Stop();
+					await requestInfo.WriteLogAsync($"The CMS system was identified - Execution times: {stepwatch.GetElapsedTimes()}").ConfigureAwait(false);
 				}
 			}
 
-			if (requestInfo.IsWriteDesktopLogs())
-				await requestInfo.WriteLogAsync($"The system was identified\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identityJson}").ConfigureAwait(false);
-
+			stopwatch.Stop();
+			await requestInfo.WriteLogAsync($"The system was completly identified - Execution times: {stopwatch.GetElapsedTimes()}{(requestInfo.IsWriteDesktopLogs() ? $"\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identityJson}" : "")}").ConfigureAwait(false);
 			return identityJson;
 		}
 
@@ -5895,7 +5899,7 @@ namespace net.vieapps.Services.Portals
 				if (kvp.Key != "Time" && kvp.Key != "Title")
 					logs.Add($"- {kvp.Key}: {kvp.Value}");
 			});
-			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache.{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).Run();
+			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache-{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).Run();
 		}
 
 		async Task MonitorCacheRebuildAsync()
@@ -5973,7 +5977,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			if (logs.Count > 0)
-				await logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache.{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).ConfigureAwait(false);
+				await logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache-{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).ConfigureAwait(false);
 		}
 		#endregion
 
