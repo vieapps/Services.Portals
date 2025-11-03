@@ -414,8 +414,8 @@ namespace net.vieapps.Services.Portals
 			if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 				await context.WriteLogsAsync("Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod}: {requestURI}]").ConfigureAwait(false);
 
-			// L1-Cache
-			if (await this.ProcessPortalL1CacheRequestAsync(context, stopwatch).ConfigureAwait(false))
+			// process L1-Cache first
+			if (await this.ProcessPortalL1CacheAsync(context, stopwatch).ConfigureAwait(false))
 				return;
 
 			// update user of the session if already signed-in
@@ -785,8 +785,8 @@ namespace net.vieapps.Services.Portals
 						alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
 						alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
 						redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
-						if ("".Equals(systemIdentity) && stepwatch.Elapsed.TotalMilliseconds > 50)
-							await context.WriteLogsAsync("Http.Process.Requests", $"The identify process was completed in {stepwatch.GetElapsedTimes()}").ConfigureAwait(false);
+						if (stepwatch.Elapsed.TotalMilliseconds > 50)
+							await context.WriteLogsAsync("Http.Process.Requests", $"The identify process was completed in {stepwatch.GetElapsedTimes()} [{systemIdentity}]").ConfigureAwait(false);
 					}
 
 					// request of legacy system (files and medias)
@@ -959,6 +959,7 @@ namespace net.vieapps.Services.Portals
 
 						else if (!"~indicators".IsEquals(systemIdentity))
 						{
+							var logstep = "".Equals(systemIdentity) && systemIdentityJson == null;
 							systemIdentityJson ??= await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 
 							var siteURI = $"//{systemIdentityJson.Get<string>("SiteHost")}";
@@ -996,7 +997,7 @@ namespace net.vieapps.Services.Portals
 							alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
 							redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
 
-							if ("".Equals(systemIdentity) && stepwatch.Elapsed.TotalMilliseconds > 50)
+							if (logstep)
 								await context.WriteLogsAsync("Http.Process.Requests", $"The identify process was completed in {stepwatch.GetElapsedTimes()}").ConfigureAwait(false);
 						}
 
@@ -1037,7 +1038,7 @@ namespace net.vieapps.Services.Portals
 							};
 
 							var allowOrigin = "*";
-							if (!contentType.IsEquals("text/html") && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
+							if (!contentType.IsStartsWith("text/html") && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
 							{
 								headers["Referrer-Policy"] = "no-referrer-when-downgrade";
 								headers["Access-Control-Allow-Credentials"] = "true";
@@ -1061,17 +1062,7 @@ namespace net.vieapps.Services.Portals
 								context.SetResponseHeaders((int)HttpStatusCode.NotModified, headers);
 
 								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
-									Handler.Cache.SetL1CacheItem(requestURI.GetUrl().GenerateUUID(), new JObject
-									{
-										["AlwaysUseHTTPs"] = alwaysUseHTTPs,
-										["AlwaysReturnHTTPs"] = alwaysReturnHTTPs,
-										["BaseURL"] = baseURL,
-										["RootURL"] = rootURL,
-										["PortalsURL"] = portalsHttpURI,
-										["FilesURL"] = filesHttpURI,
-										["Headers"] = headers.ToJObject(),
-										["Body"] = cacheKey
-									});
+									this.SetPortalL1Cache(context, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, cacheKey);
 
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag}/{lastModified}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
@@ -1118,17 +1109,7 @@ namespace net.vieapps.Services.Portals
 								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
 
 								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
-									Handler.Cache.SetL1CacheItem(requestURI.GetUrl().GenerateUUID(), new JObject
-									{
-										["AlwaysUseHTTPs"] = alwaysUseHTTPs,
-										["AlwaysReturnHTTPs"] = alwaysReturnHTTPs,
-										["BaseURL"] = baseURL,
-										["RootURL"] = rootURL,
-										["PortalsURL"] = portalsHttpURI,
-										["FilesURL"] = filesHttpURI,
-										["Headers"] = headers.ToJObject(),
-										["Body"] = cacheKey
-									});
+									this.SetPortalL1Cache(context, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, cacheKey);
 
 								stepwatch.Stop();
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
@@ -1162,6 +1143,41 @@ namespace net.vieapps.Services.Portals
 						var body = response.Get<string>("Body");
 						if (body != null)
 							await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
+
+						if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
+						{
+							var baseURL = "";
+							var rootURL = "/";
+							var filesHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
+							var portalsHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("PortalsHttpURI") ?? Handler.PortalsHttpURI);
+							var siteURI = $"//{systemIdentityJson.Get<string>("SiteHost")}";
+							var organizationAlias = systemIdentityJson.Get<string>("Alias");
+							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
+							var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
+							var desktopAlias = queryString["x-desktop"].ToLower();
+							var path = homeDesktopAlias.IsEquals(desktopAlias) || homeDesktopAliases.IsContains(desktopAlias) || "-default".IsEquals(desktopAlias) ? "-default" : null;
+							if (path == null)
+							{
+								path = requestURI.AbsolutePath.ToLower();
+								while (path.EndsWith("/") || path.EndsWith("."))
+									path = path.Left(path.Length - 1).Trim();
+								if (path.IsStartsWith($"/~{organizationAlias}"))
+								{
+									path = path.Right(path.Length - organizationAlias.Length - 2);
+									baseURL = $"{(portalsHttpURI.IsEndsWith(siteURI) ? portalsHttpURI : Handler.PortalsHttpURI)}/~{organizationAlias}/";
+									rootURL = "";
+								}
+								path = path.IsEndsWith("/default.aspx") ? path.Left(path.Length - 13) : path;
+								path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
+								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? "-default" : path;
+							}
+							else if (portalsHttpURI.IsEndsWith(siteURI) || Handler.PortalsHttpURI.IsEndsWith(siteURI))
+							{
+								baseURL = $"{(portalsHttpURI.IsEndsWith(siteURI) ? portalsHttpURI : Handler.PortalsHttpURI)}/~{organizationAlias}/";
+								rootURL = "";
+							}
+							this.SetPortalL1Cache(context, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID());
+						}
 
 						stepwatch.Stop();
 						if (isDebugLogEnabled)
@@ -1341,20 +1357,20 @@ namespace net.vieapps.Services.Portals
 				await context.WriteLogsAsync("Http.Process.Requests", $"Done process a request of CMS Portals - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 		}
 
-		async Task<bool> ProcessPortalL1CacheRequestAsync(HttpContext context, Stopwatch stopwatch)
+		async Task<bool> ProcessPortalL1CacheAsync(HttpContext context, Stopwatch stopwatch)
 		{
 			if (context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache") || context.ContainsKey("x-sliding-cache"))
 				return false;
 
 			var requestURI = context.GetRequestUri();
-			var cacheKey = requestURI.GetUrl().GenerateUUID();
-			var cache = Handler.Cache.GetL1CacheItem<JObject>(cacheKey);
+			var key = requestURI.GetUrl().GenerateUUID();
+			var meta = Handler.Cache.GetL1CacheItem<JObject>(key);
 
-			if (cache == null)
+			if (meta == null)
 				return false;
 
 			var statusCode = (int)HttpStatusCode.OK;
-			var headers = new Dictionary<string, string>(cache.Get<JObject>("Headers").ToDictionary<string>(), StringComparer.OrdinalIgnoreCase)
+			var headers = new Dictionary<string, string>(meta.Get<JObject>("Headers").ToDictionary<string>(), StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "L1-HTTP-200",
 				["X-Node"] = Global.NodeID,
@@ -1364,7 +1380,7 @@ namespace net.vieapps.Services.Portals
 			headers.TryGetValue("Expires", out var expiresAt);
 			if (!string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) && expirationTime < DateTime.Now)
 			{
-				Handler.Cache.RemoveL1CacheItem(cacheKey);
+				Handler.Cache.RemoveL1CacheItem(key);
 				return false;
 			}
 
@@ -1373,7 +1389,7 @@ namespace net.vieapps.Services.Portals
 			headers.TryGetValue("Last-Modified", out var lastModified);
 			if (eTag == null || contentType == null || lastModified == null)
 			{
-				Handler.Cache.RemoveL1CacheItem(cacheKey);
+				Handler.Cache.RemoveL1CacheItem(key);
 				return false;
 			}
 
@@ -1385,23 +1401,24 @@ namespace net.vieapps.Services.Portals
 				headers["X-Cache"] = "L1-HTTP-304";
 				gotBody = false;
 			}
-			var body = gotBody ? Handler.Cache.GetL1CacheItem<string>(cache.Get<string>("Body")) : null;
 
+			var body = gotBody ? Handler.Cache.GetL1CacheItem<string>(meta.Get<string>("BodyCacheKey")) : null;
 			if (gotBody && body == null)
 			{
-				Handler.Cache.RemoveL1CacheItem(cacheKey);
+				Handler.Cache.RemoveL1CacheItem(key);
 				return false;
 			}
 
-			if (Handler.CrossOrigin.IsEquals("use-credentials") && headers.TryGetValue("Access-Control-Allow-Origin", out var allowOrigin) && allowOrigin != "*")
+			if (!contentType.IsStartsWith("text/html") && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
 			{
+				headers.TryGetValue("Access-Control-Allow-Origin", out var allowOrigin);
 				var origin = context.GetHeaderParameter("Origin") ?? context.GetHeaderParameter("Referer");
 				if (!string.IsNullOrWhiteSpace(origin))
 				{
 					var originURI = new Uri(origin);
 					allowOrigin = $"{originURI.Scheme}://{originURI.Host}";
 				}
-				headers["Access-Control-Allow-Origin"] = allowOrigin;
+				headers["Access-Control-Allow-Origin"] = allowOrigin ?? "*";
 			}
 
 			context.SetResponseHeaders(statusCode, headers);
@@ -1409,19 +1426,34 @@ namespace net.vieapps.Services.Portals
 			{
 				var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
 				var isHtml = !isBase64 && contentType.IsStartsWith("text/html");
-				if (!isBase64 || isHtml)
+				if (!isBase64)
 				{
-					body = context.NormalizeHtml(body, cache.Get<bool>("AlwaysUseHTTPs"), cache.Get<bool>("AlwaysReturnHTTPs"), isHtml ? cache.Get<string>("BaseURL") : null);
-					body = body.Replace("~#/", $"{cache.Get<string>("PortalsURL")}/").Replace("~~~/", $"{cache.Get<string>("PortalsURL")}/").Replace("~~/", $"{cache.Get<string>("FilesURL")}/").Replace("~/", cache.Get<string>("RootURL"));
+					body = context.NormalizeHtml(body, meta.Get<bool>("AlwaysUseHTTPs"), meta.Get<bool>("AlwaysReturnHTTPs"), isHtml ? meta.Get<string>("BaseURL") : null);
+					body = body.Replace("~#/", $"{meta.Get<string>("PortalsURL")}/").Replace("~~~/", $"{meta.Get<string>("PortalsURL")}/").Replace("~~/", $"{meta.Get<string>("FilesURL")}/").Replace("~/", meta.Get<string>("RootURL"));
 				}
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 				await context.WriteAsync(isBase64 ? body.Base64ToBytes() : body.ToBytes(), cts.Token).ConfigureAwait(false);
 			}
 
 			stopwatch.Stop();
+			if (Handler.TrackSessions)
+				context.GetSession().SendSessionState(Global.ServiceName.ToLower(), $"GET {requestURI}");
 			await context.WriteLogsAsync("Http.Process.Requests", $"Process the L1-Cache of CMS Portals HTTP service was done - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			return true;
 		}
+
+		void SetPortalL1Cache(HttpContext context, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL, string rootURL, string portalsHttpURI, string filesHttpURI, Dictionary<string, string> headers, string cacheKey)
+			=> Handler.Cache.SetL1CacheItem(context.GetRequestUri().GetUrl().GenerateUUID(), new JObject
+			{
+				["AlwaysUseHTTPs"] = alwaysUseHTTPs,
+				["AlwaysReturnHTTPs"] = alwaysReturnHTTPs,
+				["BaseURL"] = baseURL,
+				["RootURL"] = rootURL,
+				["PortalsURL"] = portalsHttpURI,
+				["FilesURL"] = filesHttpURI,
+				["Headers"] = headers.ToJObject(),
+				["BodyCacheKey"] = cacheKey
+			});
 
 		async Task ProcessInitializerRequestAsync(HttpContext context, JObject systemIdentityJson)
 		{
