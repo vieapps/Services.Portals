@@ -287,7 +287,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Run();
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Execute();
 
 			// response
 			return response;

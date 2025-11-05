@@ -42,7 +42,7 @@ namespace net.vieapps.Services.Portals
 				ContentTypeProcessor.ContentTypes[contentType.ID] = contentType;
 				contentType.EntityDefinition?.Register(contentType);
 				if (updateCache)
-					Utility.Cache.SetAsync(contentType).Run();
+					Utility.Cache.SetAsync(contentType).Execute();
 			}
 			return contentType;
 		}
@@ -303,7 +303,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), Utility.CancellationToken).Run();
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None), Utility.CancellationToken).Execute();
 
 			// response
 			return response;

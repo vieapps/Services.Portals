@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Portals
 			{
 				ExpressionProcessor.Expressions[expression.ID] = expression;
 				if (updateCache)
-					Utility.Cache.SetAsync(expression).Run();
+					Utility.Cache.SetAsync(expression).Execute();
 			}
 			return expression;
 		}
@@ -244,7 +244,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Run();
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Execute();
 
 			// response
 			return response;
@@ -414,7 +414,7 @@ namespace net.vieapps.Services.Portals
 			await Expression.DeleteAsync<Expression>(expression.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
-				expression.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false).Run();
+				expression.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false).Execute();
 
 			var json = sendUpdatingMessages ? expression.ToJson() : null;
 			if (sendUpdatingMessages)

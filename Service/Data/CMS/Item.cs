@@ -157,7 +157,7 @@ namespace net.vieapps.Services.Portals
 				(
 					Utility.Cache.SetAsync(cacheKey, item.ID, Utility.CancellationToken),
 					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
-				).Run();
+				).Execute();
 			return item;
 		}
 
@@ -182,7 +182,7 @@ namespace net.vieapps.Services.Portals
 				(
 					Utility.Cache.SetAsync(cacheKey, item.ID, Utility.CancellationToken),
 					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
-				).Run();
+				).Execute();
 			return item;
 		}
 

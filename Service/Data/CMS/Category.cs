@@ -197,7 +197,7 @@ namespace net.vieapps.Services.Portals
 			{
 				this._children = categories ?? (this.SystemID ?? "").FindCategories(this.RepositoryID, this.RepositoryEntityID, this.ID);
 				this._childrenIDs = this._children?.Where(category => category != null).Select(category => category.ID).ToList() ?? new List<string>();
-				Utility.Cache.AddSetMembersAsync(this.ContentType.ObjectCacheKeys, this._children?.Where(category => category != null).Select(category => category.GetCacheKey())).Run();
+				Utility.Cache.AddSetMembersAsync(this.ContentType.ObjectCacheKeys, this._children?.Where(category => category != null).Select(category => category.GetCacheKey())).Execute();
 				if (notifyPropertyChanged)
 					this.NotifyPropertyChanged("Childrens");
 			}

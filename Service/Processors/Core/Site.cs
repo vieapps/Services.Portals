@@ -73,7 +73,7 @@ namespace net.vieapps.Services.Portals
 					site.Remove();
 
 				if (updateCache)
-					Utility.Cache.SetAsync(site).Run();
+					Utility.Cache.SetAsync(site).Execute();
 
 				SiteProcessor.Sites[site.ID] = site;
 
@@ -553,7 +553,7 @@ namespace net.vieapps.Services.Portals
 				site.Organization.SendRefreshingTasksAsync(false, false),
 				site.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false),
 				site.SendNotificationAsync(@event ?? "Update", site.Organization.Notifications, oldStatus, site.Status, requestInfo, Utility.CancellationToken)
-			).Run();
+			).Execute();
 
 			// response
 			return response;
@@ -622,7 +622,7 @@ namespace net.vieapps.Services.Portals
 			await Site.DeleteAsync<Site>(site.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
-				site.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false).Run();
+				site.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false).Execute();
 
 			var json = sendUpdatingMessages ? site.ToJson() : null;
 			if (sendUpdatingMessages)

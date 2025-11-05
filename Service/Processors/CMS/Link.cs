@@ -58,7 +58,7 @@ namespace net.vieapps.Services.Portals
 			var cacheKey = processCache ? Extensions.GetCacheKey(filter, sort, 0, 1) : null;
 
 			if (Utility.IsDebugLogEnabled)
-				Utility.WriteLogAsync(UtilityService.NewUUID, $"Find links\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", "Link").Run();
+				Utility.WriteLogAsync(UtilityService.NewUUID, $"Find links\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", "Link").Execute();
 			return Link.Find(filter, sort, 0, 1, cacheKey);
 		}
 
@@ -326,7 +326,7 @@ namespace net.vieapps.Services.Portals
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
 					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken),
 					Utility.IsDebugLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS.Link\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Link") : Task.CompletedTask
-				).Run();
+				).Execute();
 			}
 			return response;
 		}
@@ -441,7 +441,7 @@ namespace net.vieapps.Services.Portals
 				link.Organization.SendRefreshingTasksAsync(),
 				link.SendNotificationAsync("Create", link.ContentType.Notifications, ApprovalStatus.Draft, link.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken)
-			).Run();
+			).Execute();
 
 			// response
 			return response;
@@ -590,7 +590,7 @@ namespace net.vieapps.Services.Portals
 				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
 				link.SendNotificationAsync(@event ?? "Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, Utility.CancellationToken),
 				link.Organization.SendRefreshingTasksAsync()
-			).Run();
+			).Execute();
 
 			// send updates messages
 			var objectName = link.GetObjectName();
@@ -778,7 +778,7 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 			else if (first != null)
-				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
+				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
 
 			await link.Organization.SendRefreshingTasksAsync().ConfigureAwait(false);
 			return new JObject();
@@ -832,7 +832,7 @@ namespace net.vieapps.Services.Portals
 				(
 					link.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 					Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken)
-				).Run();
+				).Execute();
 
 			var json = sendUpdatingMessages ? link.ToJson() : null;
 			if (sendUpdatingMessages)

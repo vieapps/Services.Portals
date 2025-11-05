@@ -234,7 +234,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Run();
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Execute();
 
 			// response
 			return response;
@@ -702,7 +702,7 @@ namespace net.vieapps.Services.Portals
 			await Portlet.DeleteAsync<Portlet>(portlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
-				portlet.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
+				portlet.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
 
 			var json = sendUpdatingMessages ? portlet.ToJson() : null;
 			var objectName = portlet.GetObjectName();
@@ -782,7 +782,7 @@ namespace net.vieapps.Services.Portals
 				if (originalPortlet != null)
 				{
 					if (updateCache)
-						originalPortlet.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
+						originalPortlet.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
 
 					if (sendUpdatingMessages)
 					{

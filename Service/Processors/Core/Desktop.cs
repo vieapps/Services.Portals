@@ -108,7 +108,7 @@ namespace net.vieapps.Services.Portals
 					});
 
 				if (updateCache)
-					Utility.Cache.SetAsync(desktop).Run();
+					Utility.Cache.SetAsync(desktop).Execute();
 			}
 			return desktop;
 		}
@@ -343,7 +343,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query) && !addChildren)
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Run();
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Execute();
 
 			// response
 			return response;
@@ -780,7 +780,7 @@ namespace net.vieapps.Services.Portals
 			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
-				desktop.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
+				desktop.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
 
 			var json = sendUpdatingMessages ? desktop.ToJson() : null;
 			if (sendUpdatingMessages)

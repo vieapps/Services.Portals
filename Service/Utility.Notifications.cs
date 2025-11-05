@@ -33,7 +33,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="requestInfo"></param>
 		/// <returns></returns>
 		public static void SendNotification(this IPortalObject @object, string @event, Settings.Notifications notificationSettings, ApprovalStatus previousStatus, ApprovalStatus status, RequestInfo requestInfo = null)
-			=> @object.SendNotificationAsync(@event, notificationSettings, previousStatus, status, requestInfo, Utility.CancellationToken).Run();
+			=> @object.SendNotificationAsync(@event, notificationSettings, previousStatus, status, requestInfo, Utility.CancellationToken).Execute();
 
 		/// <summary>
 		/// Sends a notification when object was changed
@@ -506,7 +506,7 @@ namespace net.vieapps.Services.Portals
 								requestInfo.WriteLogAsync(log, "WebHooks")
 							).ConfigureAwait(false);
 							if (sendAsCall)
-								message.SendAsCallServiceAsync(cancellationToken).Run(ex => requestInfo.WriteErrorAsync(ex, $"Error occurred while calling the service to process a web-hook notification message [{endpointURL}]", "WebHooks").Run());
+								message.SendAsCallServiceAsync(Utility.CancellationToken).Execute(ex => requestInfo.WriteErrorAsync(ex, $"Error occurred while calling the service to process a web-hook notification message [{endpointURL}]", "WebHooks"));
 						}, true, false).ConfigureAwait(false);
 					}
 					catch (Exception exception)
@@ -629,11 +629,11 @@ namespace net.vieapps.Services.Portals
 					request.CorrelationID ??= UtilityService.NewUUID;
 				});
 				correlationID = requestInfo.CorrelationID;
-				requestInfo.SendNotificationAsync(objectJson.Get<string>("ID"), @event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications, Utility.CancellationToken).Run(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error occurred while sending a notification => {ex.Message}" }, ex, correlationID));
+				requestInfo.SendNotificationAsync(objectJson.Get<string>("ID"), @event, sendAppNotifications, sendEmailNotifications, sendWebHookNotifications, Utility.CancellationToken).Execute(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error occurred while sending a notification => {ex.Message}" }, ex, correlationID));
 			}
 			catch (Exception ex)
 			{
-				Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error occurred while sending a notification => {ex.Message}" }, ex, correlationID);
+				Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error occurred while sending a notification => {ex.Message}" }, ex, correlationID).Execute();
 			}
 		};
 	}

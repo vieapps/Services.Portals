@@ -61,7 +61,7 @@ namespace net.vieapps.Services.Portals
 					organization.Remove();
 
 				if (updateCache)
-					Utility.Cache.SetAsync(organization).Run();
+					Utility.Cache.SetAsync(organization).Execute();
 
 				OrganizationProcessor.Organizations[organization.ID] = organization;
 				OrganizationProcessor.OrganizationsByAlias[organization.Alias] = organization;
@@ -672,7 +672,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query) && !asFetch)
-				Utility.Cache.SetAsync(cacheKey, response.ToString(Formatting.None), Utility.CancellationToken).Run();
+				Utility.Cache.SetAsync(cacheKey, response.ToString(Formatting.None), Utility.CancellationToken).Execute();
 
 			// response
 			return response;
@@ -920,7 +920,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
-			organization.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, Utility.CancellationToken).Run(false, ex => Utility.WriteErrorAsync(ex, $"Error occurred while deleting an organization => {ex.Message}", "Trash", requestInfo.CorrelationID), 1234);
+			organization.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, Utility.CancellationToken).Execute(false, ex => Utility.WriteErrorAsync(ex, $"Error occurred while deleting an organization => {ex.Message}", "Trash", requestInfo.CorrelationID), 1234);
 
 			// response
 			return organization.ToJson();
@@ -1152,13 +1152,13 @@ namespace net.vieapps.Services.Portals
 					["x-rebuild"] = "true",
 					["x-organization-id"] = organization.ID
 				}
-			}).Run());
+			}).Execute());
 			return new JObject();
 		}
 
 		internal static Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo, Organization organization, CancellationToken cancellationToken)
 		{
-			organization?.RebuildCacheAsync(Int32.TryParse(requestInfo.GetParameter("x-done"), out var done) && done > 0 ? done : 0, requestInfo.CorrelationID, requestInfo.ContainsKey("x-logs"), cancellationToken).Run();
+			organization?.RebuildCacheAsync(Int32.TryParse(requestInfo.GetParameter("x-done"), out var done) && done > 0 ? done : 0, requestInfo.CorrelationID, requestInfo.ContainsKey("x-logs"), cancellationToken).Execute();
 			return Task.FromResult(new JObject());
 		}
 

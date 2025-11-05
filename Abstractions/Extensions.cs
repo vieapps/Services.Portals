@@ -311,7 +311,7 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
-			Task.Delay(UtilityService.GetRandomNumber(1234, 2345)).Run(true);
+			Task.Delay(UtilityService.GetRandomNumber(1234, 2345)).Execute(true);
 			message.SyncBlackIPs(message.ServiceName, message.ExcludedNodeID);
 			message.SyncHarmfulIPs(message.ServiceName, message.ExcludedNodeID);
 

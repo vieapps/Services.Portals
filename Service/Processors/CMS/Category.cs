@@ -60,7 +60,7 @@ namespace net.vieapps.Services.Portals
 					category.Remove();
 
 				if (updateCache)
-					Utility.Cache.SetAsync(category).Run();
+					Utility.Cache.SetAsync(category).Execute();
 
 				CategoryProcessor.Categories[category.ID] = category;
 				CategoryProcessor.CategoriesByAlias[category.GetCacheKeyOfAliasedCategory()] = category;
@@ -513,7 +513,7 @@ namespace net.vieapps.Services.Portals
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
 					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken),
 					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS categories\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
-				).Run();
+				).Execute();
 			}
 
 			return response;
@@ -633,7 +633,7 @@ namespace net.vieapps.Services.Portals
 				category.Organization.SendRefreshingTasksAsync(),
 				category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
-			).Run();
+			).Execute();
 
 			// response
 			return response;
@@ -813,7 +813,7 @@ namespace net.vieapps.Services.Portals
 				category.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
 				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, Utility.CancellationToken),
 				category.Organization.SendRefreshingTasksAsync()
-			).Run();
+			).Execute();
 
 			// send update messages
 			var objectName = category.GetObjectName();
@@ -951,7 +951,7 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 			else if (first != null)
-				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Run();
+				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
 
 			await organization.SendRefreshingTasksAsync().ConfigureAwait(false);
 			return new JObject();
@@ -1024,7 +1024,7 @@ namespace net.vieapps.Services.Portals
 				(
 					category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 					Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
-				).Run();
+				).Execute();
 
 			var json = sendUpdatingMessages ? category.ToJson() : null;
 			if (sendUpdatingMessages)
@@ -1347,7 +1347,7 @@ namespace net.vieapps.Services.Portals
 				category.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken),
 				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, cancellationToken),
 				category.Organization.SendRefreshingTasksAsync()
-			).Run();
+			).Execute();
 
 			// send update messages
 			var objectName = category.GetObjectName();

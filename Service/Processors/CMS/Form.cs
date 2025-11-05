@@ -391,7 +391,7 @@ namespace net.vieapps.Services.Portals
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None)),
 					contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys) : Task.CompletedTask,
 					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS forms\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType?.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
-				).Run();
+				).Execute();
 			}
 
 			// response
@@ -477,7 +477,7 @@ namespace net.vieapps.Services.Portals
 			(
 				form.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
 				Utility.Cache.AddSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), cancellationToken)
-			).Run();
+			).Execute();
 
 			// send update message
 			var response = form.ToJson();
@@ -496,7 +496,7 @@ namespace net.vieapps.Services.Portals
 			{
 				triggerURL += triggerURL.IsContains("?") ? "&" : "?";
 				triggerURL += $"x-identity={form.ID}&x-event=Created&x-status=${form.Status}&x-previous-status=${ApprovalStatus.Draft}";
-				requestInfo.ProcessWebHookTriggerAsync(triggerURL, response.ToString(Formatting.None)).Run(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error in trigger URL [{triggerURL}] => {ex.Message}" }, ex, requestInfo.CorrelationID));
+				requestInfo.ProcessWebHookTriggerAsync(triggerURL, response.ToString(Formatting.None)).Execute(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error in trigger URL [{triggerURL}] => {ex.Message}" }, ex, requestInfo.CorrelationID));
 			}
 
 			// response
@@ -573,7 +573,7 @@ namespace net.vieapps.Services.Portals
 			{
 				triggerURL += triggerURL.IsContains("?") ? "&" : "?";
 				triggerURL += $"x-identity={form.ID}&x-event=Updated&x-status=${form.Status}&x-previous-status=${oldStatus}";
-				requestInfo.ProcessWebHookTriggerAsync(triggerURL, response.ToString(Formatting.None)).Run(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error in trigger URL [{triggerURL}] => {ex.Message}" }, ex, requestInfo.CorrelationID));
+				requestInfo.ProcessWebHookTriggerAsync(triggerURL, response.ToString(Formatting.None)).Execute(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error in trigger URL [{triggerURL}] => {ex.Message}" }, ex, requestInfo.CorrelationID));
 			}
 
 			// response
@@ -637,7 +637,7 @@ namespace net.vieapps.Services.Portals
 				(
 					Utility.Cache.RemoveSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), Utility.CancellationToken),
 					form.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID)
-				).Run();
+				).Execute();
 
 			// send update messages
 			var json = sendUpdatingMessages ? form.ToJson() : null;
@@ -657,7 +657,7 @@ namespace net.vieapps.Services.Portals
 			{
 				triggerURL += triggerURL.IsContains("?") ? "&" : "?";
 				triggerURL += $"x-identity={form.ID}&x-event=Deleted&x-status=${form.Status}&x-previous-status=${form.Status}";
-				requestInfo.ProcessWebHookTriggerAsync(triggerURL, (json ?? form.ToJson()).ToString(Formatting.None)).Run(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error in trigger URL [{triggerURL}] => {ex.Message}" }, ex, requestInfo.CorrelationID));
+				requestInfo.ProcessWebHookTriggerAsync(triggerURL, (json ?? form.ToJson()).ToString(Formatting.None)).Execute(ex => Utility.WriteLogsAsync(null, null, "WebHooks", new List<string> { $"Error in trigger URL [{triggerURL}] => {ex.Message}" }, ex, requestInfo.CorrelationID));
 			}
 
 			// delete

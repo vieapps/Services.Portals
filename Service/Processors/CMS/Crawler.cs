@@ -88,7 +88,7 @@ namespace net.vieapps.Services.Portals
 			var cacheKey = processCache ? Extensions.GetCacheKey(filter, sort, 0, 1) : null;
 
 			if (Utility.IsDebugLogEnabled)
-				Utility.WriteLogAsync(UtilityService.NewUUID, $"Find crawlers\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", "Crawler").Run();
+				Utility.WriteLogAsync(UtilityService.NewUUID, $"Find crawlers\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", "Crawler").Execute();
 			return Crawler.Find(filter, sort, 0, 1, cacheKey);
 		}
 

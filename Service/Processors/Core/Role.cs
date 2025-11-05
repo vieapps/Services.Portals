@@ -31,7 +31,7 @@ namespace net.vieapps.Services.Portals
 			{
 				RoleProcessor.Roles[role.ID] = role;
 				if (updateCache)
-					Utility.Cache.SetAsync(role).Run();
+					Utility.Cache.SetAsync(role).Execute();
 			}
 			return role;
 		}
@@ -216,7 +216,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query) && !addChildren)
-				Utility.Cache.SetAsync(cacheKeyOfJson, response.ToString(Formatting.None)).Run();
+				Utility.Cache.SetAsync(cacheKeyOfJson, response.ToString(Formatting.None)).Execute();
 
 			// response
 			return response;

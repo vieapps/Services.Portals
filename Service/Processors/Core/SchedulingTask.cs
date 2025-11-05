@@ -34,7 +34,7 @@ namespace net.vieapps.Services.Portals
 			{
 				SchedulingTaskProcessor.SchedulingTasks[schedulingTask.ID] = schedulingTask;
 				if (updateCache)
-					Utility.Cache.SetAsync(schedulingTask).Run();
+					Utility.Cache.SetAsync(schedulingTask).Execute();
 			}
 			return schedulingTask;
 		}
@@ -196,7 +196,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Run();
+				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Execute();
 
 			// response
 			return response;
@@ -226,7 +226,7 @@ namespace net.vieapps.Services.Portals
 				obj.SetTime(requestBody.Get<DateTime>("Time"));
 			});
 			await SchedulingTask.CreateAsync(schedulingTask, cancellationToken).ConfigureAwait(false);
-			schedulingTask.Set().ClearRelatedCacheAsync(Utility.CancellationToken).Run();
+			schedulingTask.Set().ClearRelatedCacheAsync(Utility.CancellationToken).Execute();
 
 			// send update messages
 			var response = schedulingTask.ToJson();
@@ -273,7 +273,7 @@ namespace net.vieapps.Services.Portals
 					response["Status"] = Status.Awaiting.ToString();
 					schedulingTask.SetStatus(Status.Awaiting).Set(true);
 					if (schedulingTask.Persistance)
-						SchedulingTask.UpdateAsync(schedulingTask, true, Utility.CancellationToken).Run();
+						SchedulingTask.UpdateAsync(schedulingTask, true, Utility.CancellationToken).Execute();
 				}
 				schedulingTask.SendMessages("Update", response, Utility.NodeID);
 			}
@@ -305,7 +305,7 @@ namespace net.vieapps.Services.Portals
 				obj.SetTime(requestBody.Get<DateTime>("Time"));
 			});
 			await SchedulingTask.UpdateAsync(schedulingTask, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			schedulingTask.Set().ClearRelatedCacheAsync(Utility.CancellationToken).Run();
+			schedulingTask.Set().ClearRelatedCacheAsync(Utility.CancellationToken).Execute();
 
 			// send update messages
 			var versions = await schedulingTask.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
@@ -453,7 +453,7 @@ namespace net.vieapps.Services.Portals
 
 			// run
 			if (schedulingTask.Status.Equals(Status.Awaiting))
-				schedulingTask.RunAsync(requestInfo.CorrelationID, Utility.CancellationToken).Run(async ex => await requestInfo.WriteErrorAsync(ex, $"Error occurred while running a scheduling task => {ex.Message} [{ex.GetType()}]", "Tasks").ConfigureAwait(false));
+				schedulingTask.RunAsync(requestInfo.CorrelationID, Utility.CancellationToken).Execute(ex => requestInfo.WriteErrorAsync(ex, $"Error occurred while running a scheduling task => {ex.Message} [{ex.GetType()}]", "Tasks"));
 
 			return new JObject
 			{
@@ -469,7 +469,7 @@ namespace net.vieapps.Services.Portals
 			{
 				schedulingTask.SetStatus(Status.Awaiting).Set(true).SendMessages();
 				if (schedulingTask.Persistance)
-					SchedulingTask.UpdateAsync(schedulingTask, true, Utility.CancellationToken).Run();
+					SchedulingTask.UpdateAsync(schedulingTask, true, Utility.CancellationToken).Execute();
 			});
 
 			await Task.Delay(UtilityService.GetRandomNumber(123, 456), Utility.CancellationToken).ConfigureAwait(false);
@@ -527,7 +527,7 @@ namespace net.vieapps.Services.Portals
 			{
 				schedulingTask.SetStatus(Status.Awaiting).SetTime().Set(true).SendMessages();
 				if (schedulingTask.Persistance)
-					SchedulingTask.UpdateAsync(schedulingTask, true, Utility.CancellationToken).Run();
+					SchedulingTask.UpdateAsync(schedulingTask, true, Utility.CancellationToken).Execute();
 			});
 		}
 
@@ -541,7 +541,7 @@ namespace net.vieapps.Services.Portals
 			await Utility.WriteLogAsync(correlationID, $"Run a scheduling task [{schedulingTask.Title} @ {schedulingTask.Organization.Title} - ID: {schedulingTask.ID}]{(Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs ? $"\r\n{schedulingTask.ToJson(json => json.Remove("Privileges"))}" : "")}", "Tasks").ConfigureAwait(false);
 
 			if (schedulingTask.Persistance)
-				SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).Run();
+				SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).Execute();
 
 			// update
 			if (schedulingTask.SchedulingType.Equals(SchedulingType.Update))
@@ -670,7 +670,7 @@ namespace net.vieapps.Services.Portals
 			{
 				schedulingTask.SetStatus(schedulingTask.RecurringUnit > 0 ? Status.Awaiting : Status.Completed).SetTime().SendMessages();
 				if (schedulingTask.Persistance)
-					SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).Run();
+					SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).Execute();
 			}
 
 			stopwatch.Stop();

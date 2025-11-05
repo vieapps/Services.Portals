@@ -225,10 +225,10 @@ namespace net.vieapps.Services.Portals
 						}
 						catch { }
 				}
-				prepareAsync().Run();
+				prepareAsync().Execute();
 
 				// run scheduling tasks (each 13 seconds)
-				this.StartTimer(async () =>
+				async Task runSchedulingTasksAsync()
 				{
 					var correlationID = UtilityService.NewUUID;
 					try
@@ -239,7 +239,8 @@ namespace net.vieapps.Services.Portals
 					{
 						await this.WriteLogsAsync(correlationID, $"Error occurred while running the scheduling tasks => {ex.Message} [{ex.GetType()}]", ex, this.ServiceName, "Task", LogLevel.Error).ConfigureAwait(false);
 					}
-				}, 13);
+				}
+				this.StartTimer(runSchedulingTasksAsync, 13);
 
 				// refresh black/harmful IPs (each 5 minutes)
 				this.StartTimer(() => new CommunicateMessage(this.ServiceName) { ExcludedNodeID = this.NodeID }.RefreshIPs(), (Int32.TryParse(UtilityService.GetAppSetting("Portals:HarmfulRequests:RefreshInterval", "5"), out var interval) && interval > 0 ? interval : 5) * 60);
@@ -291,7 +292,7 @@ namespace net.vieapps.Services.Portals
 				this.UpdateDefinition(this.GetDefinition());
 
 			if (args?.FirstOrDefault(arg => arg.IsEquals("/refine-thumbnails")) != null)
-				this.RefineThumbnailImagesAsync().Run(true);
+				this.RefineThumbnailImagesAsync().Execute(true);
 		}
 		#endregion
 
@@ -2513,7 +2514,7 @@ namespace net.vieapps.Services.Portals
 						if (expiresAt != null)
 						{
 							items[cacheKeyOfExpiration] = expiresAt.Value.ToDTString();
-							Utility.Cache.SetAsync(items, null, expiresAt, this.CancellationToken).Run();
+							Utility.Cache.SetAsync(items, null, expiresAt, this.CancellationToken).Execute();
 						}
 
 						else
@@ -2524,7 +2525,7 @@ namespace net.vieapps.Services.Portals
 							(
 								expirationTime > 0 ? Task.CompletedTask : Utility.Cache.RemoveAsync(cacheKeyOfExpiration, this.CancellationToken),
 								Utility.Cache.SetAsync(items, null, expirationTime, this.CancellationToken)
-							).Run();
+							).Execute();
 						}
 
 						var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity) ? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false) : null;
@@ -2533,7 +2534,7 @@ namespace net.vieapps.Services.Portals
 							Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], this.CancellationToken),
 							category != null ? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], this.CancellationToken) : Task.CompletedTask,
 							isWriteDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Caches") : Task.CompletedTask
-						).Run();
+						).Execute();
 					}
 				}
 
@@ -4397,7 +4398,7 @@ namespace net.vieapps.Services.Portals
 					case "cms.category":
 						this.Import<Category>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object =>
 						{
-							@object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Run();
+							@object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Execute();
 							new CommunicateMessage(this.ServiceName)
 							{
 								Type = $"{objectName}#Update",
@@ -4409,22 +4410,22 @@ namespace net.vieapps.Services.Portals
 
 					case "content":
 					case "cms.content":
-						this.Import<Content>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.Category.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Run()));
+						this.Import<Content>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.Category.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Execute()));
 						break;
 
 					case "item":
 					case "cms.item":
-						this.Import<Item>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Run()));
+						this.Import<Item>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Execute()));
 						break;
 
 					case "link":
 					case "cms.link":
-						this.Import<Link>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Run()));
+						this.Import<Link>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Execute()));
 						break;
 
 					case "form":
 					case "cms.form":
-						this.Import<Form>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Run()));
+						this.Import<Form>(processID, deviceID, userID, filename, contentType?.ID, regenerateID, objects => objects.ForEach(@object => @object.SendNotificationAsync("Update", @object.ContentType.Notifications, @object.Status, @object.Status, requestInfo, this.CancellationToken).Execute()));
 						break;
 				}
 			}
@@ -4450,7 +4451,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		void Export<T>(string processID, string deviceID, string repositoryEntityID, IFilterBy<T> filter, SortBy<T> sort, int pageSize, int pageNumber, int maxPages, int totalPages = 0, Action<DataSet> onCompleted = null) where T : class
-			=> this.ExportAsync<T>(processID, deviceID, repositoryEntityID, filter, sort, pageSize, pageNumber, maxPages, totalPages, onCompleted).Run();
+			=> this.ExportAsync<T>(processID, deviceID, repositoryEntityID, filter, sort, pageSize, pageNumber, maxPages, totalPages, onCompleted).Execute();
 
 		async Task ExportAsync<T>(string processID, string deviceID, string repositoryEntityID, IFilterBy<T> filter, SortBy<T> sort, int pageSize, int pageNumber, int maxPages, int totalPages = 0, Action<DataSet> onCompleted = null) where T : class
 		{
@@ -4577,7 +4578,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		void Import<T>(string processID, string deviceID, string userID, string filename, string repositoryEntityID, bool regenerateID = false, Action<IEnumerable<T>> onCompleted = null) where T : class
-			=> this.ImportAsync<T>(processID, deviceID, userID, filename, repositoryEntityID, regenerateID, onCompleted).Run();
+			=> this.ImportAsync<T>(processID, deviceID, userID, filename, repositoryEntityID, regenerateID, onCompleted).Execute();
 
 		async Task ImportAsync<T>(string processID, string deviceID, string userID, string filename, string repositoryEntityID, bool regenerateID = false, Action<IEnumerable<T>> onCompleted = null) where T : class
 		{
@@ -4694,15 +4695,15 @@ namespace net.vieapps.Services.Portals
 
 						// clear related cache
 						if (@object is Category category)
-							category.Set().ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
+							category.Set().ClearRelatedCacheAsync(this.CancellationToken, processID).Execute();
 						else if (@object is Content content)
-							content.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
+							content.ClearRelatedCacheAsync(this.CancellationToken, processID).Execute();
 						else if (@object is Item item)
-							item.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
+							item.ClearRelatedCacheAsync(this.CancellationToken, processID).Execute();
 						else if (@object is Link link)
-							link.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
+							link.ClearRelatedCacheAsync(this.CancellationToken, processID).Execute();
 						else if (@object is Form form)
-							form.ClearRelatedCacheAsync(this.CancellationToken, processID).Run();
+							form.ClearRelatedCacheAsync(this.CancellationToken, processID).Execute();
 					}
 					catch (Exception ex)
 					{
@@ -5705,7 +5706,7 @@ namespace net.vieapps.Services.Portals
 				identityJson["Location"] = location;
 
 			if (!string.IsNullOrWhiteSpace(triggerURL))
-				requestInfo.ProcessWebHookTriggerAsync(triggerURL, form?.ToJson().ToString(Formatting.None)).Run(ex => this.WriteLogsAsync(requestInfo.CorrelationID, $"Error in trigger URL [{triggerURL}] => {ex.Message}", ex, this.ServiceName, "WebHooks"));
+				requestInfo.ProcessWebHookTriggerAsync(triggerURL, form?.ToJson().ToString(Formatting.None)).Execute(ex => this.WriteLogsAsync(requestInfo.CorrelationID, $"Error in trigger URL [{triggerURL}] => {ex.Message}", ex, this.ServiceName, "WebHooks"));
 		}
 		#endregion
 
@@ -5888,7 +5889,7 @@ namespace net.vieapps.Services.Portals
 
 			if (needUpdate)
 			{
-				Utility.Cache.SetAsync("Rebuild.Cache", this.CacheRebuildStatus.ToJObject().ToString(Formatting.None), Utility.CancellationToken).Run();
+				Utility.Cache.SetAsync("Rebuild.Cache", this.CacheRebuildStatus.ToJObject().ToString(Formatting.None), Utility.CancellationToken).Execute();
 				if (this.CacheRebuildMonitor == null)
 					this.CacheRebuildMonitor = this.StartTimer(this.MonitorCacheRebuildAsync, 2 * 60);
 			}
@@ -5899,7 +5900,7 @@ namespace net.vieapps.Services.Portals
 				if (kvp.Key != "Time" && kvp.Key != "Title")
 					logs.Add($"- {kvp.Key}: {kvp.Value}");
 			});
-			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache-{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).Run();
+			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache-{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).Execute();
 		}
 
 		async Task MonitorCacheRebuildAsync()

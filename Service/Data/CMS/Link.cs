@@ -201,7 +201,7 @@ namespace net.vieapps.Services.Portals
 		public override void ProcessPropertyChanged(string name)
 		{
 			if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
-				Utility.Cache.SetAsync(this).Run();
+				Utility.Cache.SetAsync(this).Execute();
 		}
 
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)

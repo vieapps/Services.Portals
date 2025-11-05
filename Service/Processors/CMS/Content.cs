@@ -407,7 +407,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			if (contentType != null)
-				Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), objects.Select(@object => @object.GetCacheKeyOfAliasedContent()), Utility.CancellationToken).Run();
+				Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), objects.Select(@object => @object.GetCacheKeyOfAliasedContent()), Utility.CancellationToken).Execute();
 
 			return response;
 		}
@@ -507,7 +507,7 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
-			Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, Utility.CancellationToken).Run();
+			Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, Utility.CancellationToken).Execute();
 
 			// upload inline images
 			if (inlineImages != null && inlineImages.Count > 0)
@@ -542,7 +542,7 @@ namespace net.vieapps.Services.Portals
 				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken)
-			).Run();
+			).Execute();
 			return response;
 		}
 
@@ -673,7 +673,7 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
 				Utility.Cache.AddSetMembersAsync(content.ContentType.GetSetCacheKey(), [content.GetCacheKey(), content.GetCacheKeyOfAliasedContent()], Utility.CancellationToken)
-			).Run();
+			).Execute();
 			return response;
 		}
 
@@ -787,7 +787,7 @@ namespace net.vieapps.Services.Portals
 				(
 					Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
 					content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false)
-				).Run();
+				).Execute();
 
 			var json = sendUpdatingMessages ? content.ToJson(json => json.Remove("Details")) : null;
 			if (sendUpdatingMessages)
@@ -1669,7 +1669,7 @@ namespace net.vieapps.Services.Portals
 			(
 				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				content.SendNotificationAsync("Rollback", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken)
-			).Run();
+			).Execute();
 
 			// send update messages
 			var objectName = content.GetObjectName();

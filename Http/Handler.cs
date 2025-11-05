@@ -126,9 +126,9 @@ namespace net.vieapps.Services.Portals
 			Handler.WebSocket = new Components.WebSockets.WebSocket(Logger.GetLoggerFactory(), Global.CancellationToken)
 			{
 				KeepAliveInterval = TimeSpan.FromSeconds(Int32.TryParse(UtilityService.GetAppSetting("Proxy:KeepAliveInterval", "45"), out var interval) ? interval : 45),
-				OnError = (websocket, exception) => Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).Run(),
+				OnError = (websocket, exception) => Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).Execute(),
 				OnConnectionBroken = websocket => Handler.DisconnectWebSocket(websocket),
-				OnMessageReceived = (websocket, result, data) => (websocket == null ? Task.CompletedTask : Handler.ProcessWebSocketRequestAsync(websocket, result, data)).Run(),
+				OnMessageReceived = (websocket, result, data) => (websocket == null ? Task.CompletedTask : Handler.ProcessWebSocketRequestAsync(websocket, result, data)).Execute(),
 			};
 		}
 
@@ -1093,10 +1093,10 @@ namespace net.vieapps.Services.Portals
 									if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
 									{
 										items[$"{cacheKey}:expiration"] = expiresAtTime.AddMinutes(13).ToDTString();
-										Handler.Cache.SetAsync(items, null, expiresAtTime.AddMinutes(13), Global.CancellationToken).Run();
+										Handler.Cache.SetAsync(items, null, expiresAtTime.AddMinutes(13), Global.CancellationToken).Execute();
 									}
 									else
-										Handler.Cache.SetAsync(items, null, 0, Global.CancellationToken).Run();
+										Handler.Cache.SetAsync(items, null, 0, Global.CancellationToken).Execute();
 								}
 
 								var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
