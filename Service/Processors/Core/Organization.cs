@@ -920,7 +920,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// delete
-			organization.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, Utility.CancellationToken).Execute(false, ex => Utility.WriteErrorAsync(ex, $"Error occurred while deleting an organization => {ex.Message}", "Trash", requestInfo.CorrelationID), 1234);
+			organization.DeleteAsync(requestInfo, serviceCaller, onServiceCallerGotError, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while deleting an organization => {ex.Message}", "Trash", requestInfo.CorrelationID), 1234);
 
 			// response
 			return organization.ToJson();

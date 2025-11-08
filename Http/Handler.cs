@@ -55,11 +55,11 @@ namespace net.vieapps.Services.Portals
 
 		static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
-		internal static bool TrackSessions { get; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
+		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
 
-		static bool TrackPortalSessions { get; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
+		static bool TrackPortalSessions { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
 
-		static bool TrackAPISessions { get; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
+		static bool TrackAPISessions { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
 
 		static string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
@@ -2189,8 +2189,7 @@ namespace net.vieapps.Services.Portals
 						Handler.CacheUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>
 						(
 							"messages.services.portals.http.l1cache",
-							message => Handler.Cache.SetL1CacheItem(Global.NodeID.IsEquals(message.ExcludedNodeID) ? null : message.Type, message.Data as JObject),
-							_ => { }
+							message => Handler.Cache.SetL1CacheItem(Global.NodeID.IsEquals(message.ExcludedNodeID) ? null : message.Type, message.Data as JObject)
 						);
 					}
 					Handler.CacheCommunicator?.Dispose();
@@ -2247,6 +2246,10 @@ namespace net.vieapps.Services.Portals
 				RequestExtensions.AutoBlockHarmfulRequest = false;
 			else if (message.Type.IsEquals("HarmfulIPs#Resume"))
 				RequestExtensions.AutoBlockHarmfulRequest = true;
+			else if (message.Type.IsEquals("Sessions#Track#Disable"))
+				Handler.TrackSessions = false;
+			else if (message.Type.IsEquals("Sessions#Track#Enable"))
+				Handler.TrackSessions = true;
 			return Task.CompletedTask;
 		}
 	}
