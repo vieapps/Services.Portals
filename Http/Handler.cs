@@ -1472,7 +1472,7 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Global.NodeID,
 				Type = id,
 				Data = data
-			}.Send();
+			}.Send(Router.GotBackupRouter());
 		}
 
 		async Task ProcessInitializerRequestAsync(HttpContext context, JObject systemIdentityJson)
@@ -2183,18 +2183,25 @@ namespace net.vieapps.Services.Portals
 						message => message.Type.IsEquals("Service#RequestInfo") ? Global.SendServiceInfoAsync() : Task.CompletedTask,
 						exception => Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", exception.Message, exception)
 					);
-					if (Handler.Cache.UseL1Cache)
+					if (!Router.GotBackupRouter())
 					{
-						Handler.CacheUpdater?.Dispose();
-						Handler.CacheUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>
-						(
-							"messages.services.portals.http.l1cache",
-							message => Handler.Cache.SetL1CacheItem(Global.NodeID.IsEquals(message.ExcludedNodeID) ? null : message.Type, message.Data as JObject)
-						);
+						if (Handler.Cache.UseL1Cache)
+						{
+							Handler.CacheUpdater?.Dispose();
+							Handler.CacheUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>
+							(
+								"messages.services.portals.http.l1cache",
+								message =>
+								{
+									if (!Global.NodeID.IsEquals(message.ExcludedNodeID))
+										Handler.Cache.SetL1CacheItem(message.Type, message.Data as JObject);
+								}
+							);
+						}
+						Handler.CacheCommunicator?.Dispose();
+						Handler.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Handler.Cache, Global.ServiceName);
+						Handler.Cache.AssignSendL1CacheRequest(Global.ServiceName, Global.NodeID);
 					}
-					Handler.CacheCommunicator?.Dispose();
-					Handler.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Handler.Cache, Global.ServiceName);
-					Handler.Cache.AssignSendL1CacheRequest(Global.ServiceName, Global.NodeID);
 				},
 				async (sender, arguments) =>
 				{
@@ -2215,6 +2222,21 @@ namespace net.vieapps.Services.Portals
 						}.Send();
 					}
 					catch { }
+				},
+				(sender, arguments) =>
+				{
+					if (Handler.Cache.UseL1Cache)
+					{
+						Handler.CacheUpdater?.Dispose();
+						Handler.CacheUpdater = Router.BackupChannel.Subscribe<CommunicateMessage>
+						(
+							"messages.services.portals.http.l1cache",
+							message => Handler.Cache.SetL1CacheItem(message.Type, message.Data as JObject)
+						);
+					}
+					Handler.CacheCommunicator?.Dispose();
+					Handler.CacheCommunicator = Router.BackupChannel.AssignProcessL1CacheRequest(Handler.Cache, Global.ServiceName);
+					Handler.Cache.AssignSendL1CacheRequest(Global.ServiceName, Global.NodeID, true);
 				},
 				waitingTimes
 			);

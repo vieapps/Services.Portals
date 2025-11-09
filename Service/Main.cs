@@ -118,9 +118,16 @@ namespace net.vieapps.Services.Portals
 						message => this.NodeID.IsEquals(message.ExcludedNodeID) ? Task.CompletedTask : this.ProcessCommunicateMessageAsync(message),
 						exception => this.WriteLogsAsync(UtilityService.NewUUID, this.Logger, $"Error occurred while processing a communicate message of CMS Portals => {exception.Message}", exception, this.ServiceName, "Errors", LogLevel.Error)
 					);
+					if (Router.GotBackupRouter())
+					{
+						while (Router.BackupChannel == null)
+							await Task.Delay(UtilityService.GetRandomNumber(234, 567)).ConfigureAwait(false);
+					}
 					this.CacheCommunicator?.Dispose();
-					this.CacheCommunicator = Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
-					Utility.Cache.AssignSendL1CacheRequest(this);
+					this.CacheCommunicator = Router.GotBackupRouter()
+						? Router.BackupChannel.AssignProcessL1CacheRequest(Utility.Cache, this)
+						: Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
+					Utility.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
 					if (this.IsCacheBuilder)
 					{
 						this.CacheRebuildCommunicator?.Dispose();
