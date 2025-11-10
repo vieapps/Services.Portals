@@ -1150,7 +1150,9 @@ namespace net.vieapps.Services.Portals
 				Header = new Dictionary<string, string>(requestInfo.Header)
 				{
 					["x-rebuild"] = "true",
-					["x-organization-id"] = organization.ID
+					["x-organization-id"] = organization.ID,
+					["x-max-page"] = Int32.TryParse(requestInfo.GetParameter("x-max-page"), out var maxPage) && maxPage > 0 ? maxPage.ToString() : null,
+					["x-min-time"] = DateTime.TryParse(requestInfo.GetParameter("x-min-time"), out var minTime) ? minTime.ToIsoString() : null
 				}
 			}).Execute());
 			return new JObject();
@@ -1158,11 +1160,20 @@ namespace net.vieapps.Services.Portals
 
 		internal static Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo, Organization organization, CancellationToken cancellationToken)
 		{
-			organization?.RebuildCacheAsync(Int32.TryParse(requestInfo.GetParameter("x-done"), out var done) && done > 0 ? done : 0, requestInfo.CorrelationID, requestInfo.ContainsKey("x-logs"), cancellationToken).Execute();
+			if (organization != null)
+			{
+				if (!Int32.TryParse(requestInfo.GetParameter("x-done"), out var done) || done < 0)
+					done = 0;
+				if (!Int32.TryParse(requestInfo.GetParameter("x-max-page"), out var maxPage) || maxPage < 0)
+					maxPage = 10;
+				if (!DateTime.TryParse(requestInfo.GetParameter("x-min-time"), out var minTime))
+					minTime = DateTime.Now.AddDays(-90);
+				organization.RebuildCacheAsync(done, maxPage, minTime, requestInfo.CorrelationID, requestInfo.ContainsKey("x-logs"), cancellationToken).Execute();
+			}
 			return Task.FromResult(new JObject());
 		}
 
-		internal static async Task RebuildCacheAsync(this Organization organization, int done, string correlationID, bool writeLogs, CancellationToken cancellationToken)
+		internal static async Task RebuildCacheAsync(this Organization organization, int done, int maxPage, DateTime minTime, string correlationID, bool writeLogs, CancellationToken cancellationToken)
 		{
 			if (organization == null || (organization.Status != ApprovalStatus.Approved && organization.Status != ApprovalStatus.Published))
 				return;
@@ -1192,7 +1203,7 @@ namespace net.vieapps.Services.Portals
 			await Utility.WriteLogAsync(correlationID, $"Start to rebuild caches of '{organization.Title}'\r\n- Number of Links' content-types: {organization.ContentTypesOfLink.Count}\r\n- Number of Categorys' content-types: {organization.ContentTypesOfCategory.Count}\r\n- Number of Contents' content-types: {organization.ContentTypesOfContent.Count}", "Caches").ConfigureAwait(false);
 
 			var (linkURLs, categoryURLs, contentURLs) = await organization.GetRefreshingURLsAsync(
-				true, null, true, true, null, 100, 0, DateTime.Now.AddDays(-365 * 3),
+				true, null, true, true, null, maxPage, 0, minTime,
 				link => writeLogs ? Utility.WriteLogAsync(correlationID, $"Get URLs of link '{link.FullTitle}' [{organization.Title}]", "Caches") : Task.CompletedTask,
 				category => writeLogs ? Utility.WriteLogAsync(correlationID, $"Get URLs of category '{category.FullTitle}' [{organization.Title}]", "Caches") : Task.CompletedTask,
 				(category, contentType, totalPages, pageNumber) => writeLogs ? Utility.WriteLogAsync(correlationID, $"Get content URLs of '{category.FullTitle}' [{contentType.Title} @ {organization.Title}] - Total pages: {totalPages:###,##0}", "Caches") : Task.CompletedTask,

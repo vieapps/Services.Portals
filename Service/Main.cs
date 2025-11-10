@@ -264,17 +264,16 @@ namespace net.vieapps.Services.Portals
 				// reload all to rebuild cache (5 AM at every Monday)
 				if (this.IsCacheBuilder)
 				{
-					var time = DateTime.Now.GetFirstDayOfWeek();
-					time = new DateTime(time.Year, time.Month, time.Day, 5, 13, 13);
+					var time = new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 5, 13, 13);
 					if (time < DateTime.Now)
-						time = time.AddDays(7);
-					this.StartTimer(async () =>
+						time = time.AddDays(1);
+					this.StartTimer(() =>
 					{
 						if (DateTime.Now.Day == time.Day && DateTime.Now.Hour == time.Hour && DateTime.Now.Minute > 10 && DateTime.Now.Minute < 20)
 						{
 							this.CacheRebuildStatus = new();
 							this.CacheRebuildMonitor = this.StartTimer(this.MonitorCacheRebuildAsync, 2 * 60);
-							await Task.WhenAll
+							Task.WhenAll
 							(
 								Utility.Cache.RemoveAsync("Rebuild.Cache", Utility.CancellationToken),
 								this.RebuildOrganizationsCacheAsync(this.BuildRequestInfo(requestInfo =>
@@ -282,9 +281,14 @@ namespace net.vieapps.Services.Portals
 									requestInfo.ServiceName = this.ServiceName;
 									requestInfo.ObjectName = "Cache";
 									requestInfo.Header["x-rebuild"] = "true";
+									if ("Mon".IsEquals(time.GetWeekDayName()))
+									{
+										requestInfo.Header["x-max-page"] = "100";
+										requestInfo.Header["x-min-time"] = DateTime.Now.AddDays(-365 * 3).ToIsoString();
+									}
 								}))
-							).ConfigureAwait(false);
-							time = time.AddDays(7);
+							).Execute();
+							time = time.AddDays(1);
 						}
 					}, 60 * 13);
 				}
