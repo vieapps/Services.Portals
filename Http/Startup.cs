@@ -23,7 +23,13 @@ namespace net.vieapps.Services.Portals
 	public class Startup(IConfiguration configuration)
 	{
 		public static void Main(string[] args)
-			=> WebHost.CreateDefaultBuilder(args).Run<Startup>(args);
+			=> WebApplication.CreateBuilder(args).Run
+			(
+				args,
+				configuration => new Startup(configuration),
+				(startup, services) => startup.ConfigureServices(services),
+				(startup, app) => startup.Configure(app, app.Lifetime, app.Environment)
+			);
 
 		public IConfiguration Configuration { get; } = configuration;
 

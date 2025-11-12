@@ -104,6 +104,15 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Register/Start
+		void RegisterCacheCommunicator()
+		{
+			this.CacheCommunicator?.Dispose();
+			this.CacheCommunicator = Router.GotBackupRouter()
+				? Router.BackupChannel.AssignProcessL1CacheRequest(Utility.Cache, this)
+				: Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
+			Utility.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
+		}
+
 		public override Task RegisterServiceAsync(IEnumerable<string> args, Action<IService> onSuccess = null, Action<Exception> onError = null)
 			=> base.RegisterServiceAsync
 			(
@@ -123,11 +132,7 @@ namespace net.vieapps.Services.Portals
 						while (Router.BackupChannel == null)
 							await Task.Delay(UtilityService.GetRandomNumber(234, 567)).ConfigureAwait(false);
 					}
-					this.CacheCommunicator?.Dispose();
-					this.CacheCommunicator = Router.GotBackupRouter()
-						? Router.BackupChannel.AssignProcessL1CacheRequest(Utility.Cache, this)
-						: Router.IncomingChannel.AssignProcessL1CacheRequest(Utility.Cache, this);
-					Utility.Cache.AssignSendL1CacheRequest(this, Router.GotBackupRouter());
+					this.RegisterCacheCommunicator();
 					if (this.IsCacheBuilder)
 					{
 						this.CacheRebuildCommunicator?.Dispose();
@@ -175,7 +180,7 @@ namespace net.vieapps.Services.Portals
 			}, onError);
 
 		public override Task StartAsync(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
-			=> base.StartAsync(args, initializeRepository, _ =>
+			=> this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), initializeRepository, _ =>
 			{
 				this.UpdateDefinition(this.GetDefinition());
 				this.Logger?.LogDebug($"Portals' data files directory: {Utility.DataFilesDirectory ?? "None"}");
@@ -1109,9 +1114,9 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb)
 			{
 				case "GET":
-					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchContentsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					return requestInfo.GetObjectIdentity(true) != null
+						? await requestInfo.GetContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.SearchContentsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
 					return await requestInfo.CreateContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
@@ -1133,9 +1138,9 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb)
 			{
 				case "GET":
-					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchItemsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					return requestInfo.GetObjectIdentity(true) != null
+						? await requestInfo.GetItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.SearchItemsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
 					return await requestInfo.CreateItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
@@ -1183,9 +1188,9 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb)
 			{
 				case "GET":
-					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchFormsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					return requestInfo.GetObjectIdentity(true) != null
+						? await requestInfo.GetFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.SearchFormsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
 					return await requestInfo.CreateFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);

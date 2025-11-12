@@ -563,9 +563,14 @@ namespace net.vieapps.Services.Portals
 						if (firstPathSegment.IsStartsWith("~apis"))
 						{
 							specialRequest = "service";
+
 							query["service-name"] = requestSegments.Length > 0 && !string.IsNullOrWhiteSpace(requestSegments[0]) ? requestSegments[0].GetANSIUri(true, true) : "unknown";
-							query["object-name"] = requestSegments.Length > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].GetANSIUri(true, true) : "";
-							query["object-identity"] = requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]) ? requestSegments[2].GetANSIUri() : "";
+							query["object-name"] = requestSegments.Length > 1 ? requestSegments[1].GetANSIUri(true, true) : "";
+
+							var objectIdentity = requestSegments.Length > 2 ? requestSegments[2].GetANSIUri() : "";
+							query["object-identity"] = objectIdentity;
+							if (requestSegments.Length > 3 && !objectIdentity.IsValidUUID())
+								query["object-extra-identity"] = requestSegments[3].GetANSIUri(false, true);
 						}
 
 						// a specified system

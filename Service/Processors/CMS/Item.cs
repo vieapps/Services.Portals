@@ -178,7 +178,7 @@ namespace net.vieapps.Services.Portals
 			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Item>() as FilterBys<Item> ?? Filters<Item>.And();
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Item>() ?? Sorts<Item>.Descending("Created").ThenByAscending("Title") : null;
 
-			var expression = await (requestInfo.GetParameter("x-expression") ?? requestInfo.GetParameter("x-expression-id") ?? requestInfo.GetParameter("expression-id") ?? requestInfo.GetParameter("ExpressionID") ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			var expression = await (requestInfo.GetParameter("x-expression") ?? requestInfo.GetParameter("x-expression-id") ?? requestInfo.GetParameter("expression-id") ?? requestInfo.GetParameter("ExpressionID") ?? requestInfo.GetParameter("object-extra-identity") ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
 			if (expression != null)
 			{
 				filter = expression.GetFilterBy<Item>() as FilterBys<Item> ?? filter;
