@@ -2172,6 +2172,7 @@ namespace net.vieapps.Services.Portals
 			Global.Logger.LogDebug($"Attempting to connect to API Gateway Router [{new Uri(Router.GetRouterStrInfo()).GetResolvedURI()}]");
 			Global.Connect
 			(
+				// incoming - on connection established
 				(sender, arguments) =>
 				{
 					Global.PrimaryInterCommunicateMessageUpdater?.Dispose();
@@ -2208,6 +2209,7 @@ namespace net.vieapps.Services.Portals
 						Handler.Cache.AssignSendL1CacheRequest(Global.ServiceName, Global.NodeID);
 					}
 				},
+				// outgoing - on connection established
 				async (sender, arguments) =>
 				{
 					await Global.RegisterServiceAsync().ConfigureAwait(false);
@@ -2228,6 +2230,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch { }
 				},
+				// backup - on connection established
 				(sender, arguments) =>
 				{
 					if (Handler.Cache.UseL1Cache)
