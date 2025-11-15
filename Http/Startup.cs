@@ -140,6 +140,7 @@ namespace net.vieapps.Services.Portals
 				{
 					KeepAliveInterval = Handler.WebSocket.KeepAliveInterval
 				})
+				.UseMiddleware<Authenticator>()
 				.UseMiddleware<Handler>();
 
 			// caching of centerlized services

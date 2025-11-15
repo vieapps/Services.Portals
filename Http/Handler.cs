@@ -127,9 +127,23 @@ namespace net.vieapps.Services.Portals
 			{
 				KeepAliveInterval = TimeSpan.FromSeconds(Int32.TryParse(UtilityService.GetAppSetting("Proxy:KeepAliveInterval", "45"), out var interval) ? interval : 45),
 				OnError = (websocket, exception) => Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).Execute(),
+				OnConnectionEstablished = websocket => Handler.PrepareWebSocket(websocket),
 				OnConnectionBroken = websocket => Handler.DisconnectWebSocket(websocket),
 				OnMessageReceived = (websocket, result, data) => (websocket == null ? Task.CompletedTask : Handler.ProcessWebSocketRequestAsync(websocket, result, data)).Execute(),
 			};
+		}
+
+		static void PrepareWebSocket(ManagedWebSocket websocket)
+		{
+			var session = websocket?.Get<Session>("Session");
+			if (session == null || websocket != null)
+			{
+				var context = Global.CurrentHttpContext;
+				websocket.Set("Session", session = context?.GetSession());
+				session?.SendSessionState("Users", "CONNECT /session", false, Handler.TrackAPISessions);
+				if (context != null && context.ContainsKey("x-logs"))
+					Global.WriteLogsAsync(Global.Logger, "WebSockets", $"A websocket was established {websocket?.RemoteEndPoint}\r\nSession:{session.ToJson()}").Execute();
+			}
 		}
 
 		static void DisconnectWebSocket(ManagedWebSocket websocket)
@@ -377,8 +391,6 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
-			context.SetItem("Correlation-ID", context.GetParameter("x-original-correlation-id") ?? context.GetParameter("x-correlation-id") ?? UtilityService.NewUUID);
-
 			var requestURI = context.GetRequestUri();
 			var requestPath = requestURI.GetRequestPathSegments(true).First();
 
@@ -421,112 +433,7 @@ namespace net.vieapps.Services.Portals
 			if (await this.ProcessL1CacheAsync(context, stopwatch).ConfigureAwait(false))
 				return;
 
-			// update user of the session if already signed-in
-			if (context.IsAuthenticated())
-			{
-				if (string.IsNullOrWhiteSpace(session.User.ID) && string.IsNullOrWhiteSpace(session.User.SessionID))
-				{
-					session.User = context.GetUser();
-					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.SessionID)
-						? session.SessionID
-						: UtilityService.NewUUID;
-				}
-				else
-				{
-					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
-						? session.User.SessionID
-						: !string.IsNullOrWhiteSpace(session.SessionID)
-							? session.SessionID
-							: UtilityService.NewUUID;
-					context.User = new UserPrincipal(session.User);
-				}
-
-				if (isDebugLogEnabled)
-					await context.WriteLogsAsync("Http.Process.Requests", $"Successfully update an user with authenticate ticket {session.ToJson()}").ConfigureAwait(false);
-			}
-
-			// update with authenticate token
-			else
-			{
-				// prepare token
-				var authenticateToken = context.GetParameter("x-app-token") ?? context.GetParameter("x-temp-token");
-				if (string.IsNullOrWhiteSpace(authenticateToken) && context.TryGetHeaderParameter("authorization", out authenticateToken))
-					try
-					{
-						var isBasicToken = authenticateToken.IsStartsWith("Basic");
-						authenticateToken = isBasicToken || authenticateToken.IsStartsWith("Bearer") || authenticateToken.IsStartsWith("JWT") ? authenticateToken.ToArray(" ").Last() : null;
-						if (authenticateToken != null)
-						{
-							var response = await new RequestInfo(session, "Users", "Token", "GET")
-							{
-								Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-								Header = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-								{
-									["x-authorization-token"] = authenticateToken,
-									["x-authorization-mode"] = isBasicToken ? "Basic" : "Bearer",
-									["x-authorization-signature"] = authenticateToken.GetHMACSHA256(Global.ValidationKey)
-								},
-								CorrelationID = context.GetCorrelationID()
-							}.CallServiceAsync(Global.CancellationToken).ConfigureAwait(false);
-							authenticateToken = response.Get<string>("Token");
-							session.Fill(response.Get<JObject>("Session"));
-						}
-					}
-					catch { }
-
-				// authenticate the session
-				if (!string.IsNullOrWhiteSpace(authenticateToken))
-					try
-					{
-						// authenticate
-						await context.UpdateWithAuthenticateTokenAsync(session, authenticateToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Http.Process.Requests", correlationID).ConfigureAwait(false);
-						if (isDebugLogEnabled)
-							await context.WriteLogsAsync("Http.Process.Requests", $"Successfully authenticate an user with authenticate token {session.ToJson().ToString(Formatting.Indented)}").ConfigureAwait(false);
-
-						// assign user information
-						context.User = new UserPrincipal(session.User);
-					}
-					catch (Exception ex)
-					{
-						await context.WriteLogsAsync("Http.Process.Requests", $"Failure authenticate an user with authenticate token => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
-					}
-
-				// update identities
-				else
-					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
-						? session.User.SessionID
-						: !string.IsNullOrWhiteSpace(session.SessionID)
-							? session.SessionID
-							: UtilityService.NewUUID;
-			}
-
-			// update session
-			if (string.IsNullOrWhiteSpace(session.DeviceID))
-			{
-				if (context.TryGetParameter("x-device-id", out var deviceID))
-					try
-					{
-						session.DeviceID = deviceID.Url64Decode();
-					}
-					catch
-					{
-						session.DeviceID = deviceID;
-					}
-				else if (context.TryGetParameter("x-did", out deviceID))
-					try
-					{
-						session.DeviceID = deviceID.Url64Decode();
-					}
-					catch { }
-				session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
-			}
-			session.UpdateSessionCookie(context, true);
-
-			if (context.Session.ContainsKey("Session"))
-				context.Session.Add("Session", session);
-			context.SetSession(session);
-
-			// prepare the requesting information
+			// gathering the requesting information
 			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
 			var osInfo = (session.AppAgent ?? "").GetOSInfo();
 
@@ -774,6 +681,8 @@ namespace net.vieapps.Services.Portals
 			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
 			if ("".Equals(systemIdentity))
 				await context.WriteLogsAsync("Http.Process.Requests", $"Identify the request [Prev step: {stepwatch.GetElapsedTimes()}]{(isDebugLogEnabled ? $"\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}" : "")}").ConfigureAwait(false);
+
+			session.UpdateSessionCookie(context, true);
 			stepwatch.Restart();
 
 			JObject systemIdentityJson = null;
