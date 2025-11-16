@@ -1077,7 +1077,11 @@ namespace net.vieapps.Services.Portals
 
 			if (identifyJson == null)
 			{
+				var stopwatch = Stopwatch.StartNew();
+				var stepwatch = Stopwatch.StartNew();
 				identifyJson = await context.CallServiceAsync(requestInfo, cancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+				stepwatch.Stop();
+
 				if (identifyJson != null && Handler.Cache.UseL1Cache)
 				{
 					var examinations = identifyJson.Get<JArray>("CacheExaminations")?.Select(examination => examination as JObject)					
@@ -1101,6 +1105,10 @@ namespace net.vieapps.Services.Portals
 						}
 					}
 				}
+
+				stopwatch.Stop();
+				if (stopwatch.Elapsed.TotalMilliseconds > 30)
+					await context.WriteLogsAsync("Http.Process.Requests", $"Complete the identify process - Call: {stepwatch.GetElapsedTimes()} - Overral: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 
 			return identifyJson;
