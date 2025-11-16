@@ -126,7 +126,7 @@ namespace net.vieapps.Services.Portals
 			// setup WebSocket
 			Handler.InitializeWebSocket();
 
-			// setup the middleware
+			// setup all required middlewares
 			appBuilder
 				.UseForwardedHeaders(Global.GetForwardedHeadersOptions())
 				.UseStatusCodeHandler()
@@ -139,9 +139,13 @@ namespace net.vieapps.Services.Portals
 				.UseWebSockets(new WebSocketOptions
 				{
 					KeepAliveInterval = Handler.WebSocket.KeepAliveInterval
-				})
-				.UseMiddleware<Authenticator>()
-				.UseMiddleware<Handler>();
+				});
+
+			// branch request to MCP server
+			appBuilder.Map("/~mcp", _ => { });
+
+			// setup the handler for all requests
+			appBuilder.UseMiddleware<Authenticator>().UseMiddleware<Handler>();
 
 			// caching of centerlized services
 			Handler.Cache = Cache.CreateInstance("VIEApps-Services-Portals", loggerFactory);
