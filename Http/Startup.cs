@@ -123,29 +123,37 @@ namespace net.vieapps.Services.Portals
 					Global.Logger.LogError($"Error occurred while assigning web-proxy => {ex.Message}", ex);
 				}
 
-			// setup WebSocket
-			Handler.InitializeWebSocket();
-
-			// setup all required middlewares
+			// setup required middlewares
 			appBuilder
 				.UseForwardedHeaders(Global.GetForwardedHeadersOptions())
 				.UseStatusCodeHandler()
 				.UseResponseCompression()
-				.UseCache()
-				.UseSession()
 				.UseCertificateForwarding()
+				.UseCache();
+
+			// setup middlewares of APIs pipeline
+			appBuilder.Map("/~apis", apis => apis.UseWebSockets(new WebSocketOptions
+			{
+				KeepAliveInterval = APIsHandler.WebSocket.KeepAliveInterval
+			}).UseMiddleware<Authenticator>().UseMiddleware<APIsHandler>());
+
+			// setup middlewares of MCP pipeline
+			appBuilder.Map("/~mcp", mcp => mcp.UseWebSockets(new WebSocketOptions
+			{
+				KeepAliveInterval = APIsHandler.WebSocket.KeepAliveInterval
+			}).UseMiddleware<Authenticator>().UseMiddleware<APIsHandler>());
+
+			// setup middlewares of main pipeline
+			appBuilder
+				.UseSession()
 				.UseCookiePolicy()
 				.UseAuthentication()
 				.UseWebSockets(new WebSocketOptions
 				{
-					KeepAliveInterval = Handler.WebSocket.KeepAliveInterval
-				});
-
-			// branch request to MCP server
-			appBuilder.Map("/~mcp", _ => { });
-
-			// setup the handler for all requests
-			appBuilder.UseMiddleware<Authenticator>().UseMiddleware<Handler>();
+					KeepAliveInterval = APIsHandler.WebSocket.KeepAliveInterval
+				})
+				.UseMiddleware<Authenticator>()
+				.UseMiddleware<Handler>();
 
 			// caching of centerlized services
 			Handler.Cache = Cache.CreateInstance("VIEApps-Services-Portals", loggerFactory);

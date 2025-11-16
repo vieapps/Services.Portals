@@ -19,7 +19,6 @@ using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
-using net.vieapps.Components.WebSockets;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -57,9 +56,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
 
-		static bool TrackPortalSessions { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
+		internal static bool TrackPortalSessions { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
 
-		static bool TrackAPISessions { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
+		internal static bool TrackAPISessions { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
 
 		static string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
@@ -78,8 +77,6 @@ namespace net.vieapps.Services.Portals
 		static string CMSPortalsHttpURI	{ get; } = UtilityService.GetAppSetting("HttpUri:CMSPortals", "https://cms.vieapps.net");
 
 		static string FilesHttpURI { get; } = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
-
-		internal static Components.WebSockets.WebSocket WebSocket { get; private set; }
 		#endregion
 
 		public Task Invoke(HttpContext context)
@@ -88,8 +85,8 @@ namespace net.vieapps.Services.Portals
 			if (context.WebSockets.IsWebSocketRequest)
 				return Task.WhenAll
 				(
-					Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Visits", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
-					Handler.WebSocket.WrapAsync(context)
+					Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "APIs", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
+					APIsHandler.WebSocket.WrapAsync(context)
 				);
 
 			// CORS: allow origin
@@ -121,278 +118,13 @@ namespace net.vieapps.Services.Portals
 			return this.ProcessHttpRequestAsync(context);
 		}
 
-		internal static void InitializeWebSocket()
-		{
-			Handler.WebSocket = new Components.WebSockets.WebSocket(Logger.GetLoggerFactory(), Global.CancellationToken)
-			{
-				KeepAliveInterval = TimeSpan.FromSeconds(Int32.TryParse(UtilityService.GetAppSetting("Proxy:KeepAliveInterval", "45"), out var interval) ? interval : 45),
-				OnError = (websocket, exception) => Global.WriteLogsAsync(Global.Logger, "Http.WebSockets", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).Execute(),
-				OnConnectionEstablished = websocket => Handler.PrepareWebSocket(websocket),
-				OnConnectionBroken = websocket => Handler.DisconnectWebSocket(websocket),
-				OnMessageReceived = (websocket, result, data) => (websocket == null ? Task.CompletedTask : Handler.ProcessWebSocketRequestAsync(websocket, result, data)).Execute(),
-			};
-		}
-
-		static void PrepareWebSocket(ManagedWebSocket websocket)
-		{
-			var session = websocket?.Get<Session>("Session");
-			if (session == null || websocket != null)
-			{
-				var context = Global.CurrentHttpContext;
-				websocket.Set("Session", session = context?.GetSession());
-				session?.SendSessionState("Users", "CONNECT /session", false, Handler.TrackAPISessions);
-				if (context != null && context.ContainsKey("x-logs"))
-					Global.WriteLogsAsync(Global.Logger, "WebSockets", $"A websocket was established {websocket?.RemoteEndPoint}\r\nSession:{session.ToJson()}").Execute();
-			}
-		}
-
-		static void DisconnectWebSocket(ManagedWebSocket websocket)
-		{
-			if (websocket != null && websocket.Remove("Session", out Session session) && session != null && Handler.TrackSessions)
-				session.SendSessionState("Users", "DISCONNECT /session", false, Handler.TrackAPISessions);
-		}
-
-		static async Task ProcessWebSocketRequestAsync(ManagedWebSocket websocket, WebSocketReceiveResult result, byte[] data)
-		{
-			// prepare
-			var requestMsg = result.MessageType.Equals(WebSocketMessageType.Text) ? data.GetString() : null;
-			if (string.IsNullOrWhiteSpace(requestMsg))
-				return;
-
-			var correlationID = UtilityService.NewUUID;
-			var stopwatch = Stopwatch.StartNew();
-
-			JToken requestJson = null;
-			try
-			{
-				requestJson = requestMsg.ToJSON();
-			}
-			catch (Exception ex)
-			{
-				await Global.WriteLogsAsync(Global.Logger, "WebSockets", $"Invalid message => {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
-				return;
-			}
-
-			var requestID = requestJson.Get<string>("ID");
-			var serviceName = requestJson.Get("ServiceName", "").GetANSIUri(true, true);
-			var objectName = requestJson.Get("ObjectName", "").GetANSIUri(true, true);
-			var verb = requestJson.Get("Verb", "GET").ToUpper();
-			var query = new Dictionary<string, string>(requestJson.Get<JObject>("Query")?.ToDictionary<string>() ?? [], StringComparer.OrdinalIgnoreCase);
-			var header = new Dictionary<string, string>(requestJson.Get<JObject>("Header")?.ToDictionary<string>() ?? [], StringComparer.OrdinalIgnoreCase);
-			var body = requestJson.Get("Body", new JObject());
-			var extra = new Dictionary<string, string>(requestJson.Get<JObject>("Extra")?.ToDictionary<string>() ?? [], StringComparer.OrdinalIgnoreCase);
-			query.TryGetValue("object-identity", out var objectIdentity);
-			var writeLogs = header.ContainsKey("x-logs") || query.ContainsKey("x-logs");
-
-			// session
-			var session = websocket.Get<Session>("Session") ?? Global.GetSession();
-			session.NormalizeSession();
-
-			// procsess
-			try
-			{
-				// visit logs
-				if (Global.IsVisitLogEnabled || writeLogs)
-					await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
-						$"Request starting {verb} " + $"/{serviceName.ToLower()}{(string.IsNullOrWhiteSpace(objectName) ? "" : $"/{objectName.ToLower()}")}{(string.IsNullOrWhiteSpace(objectIdentity) ? "" : $"/{objectIdentity}")}".ToLower() + (query.TryGetValue("x-request", out var xrequest) ? $"?x-request={xrequest}" : "") + " HTTPWS/1.1" + " \r\n" +
-						$"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
-						$"- WebSocket: {websocket.ID} @ {websocket.RemoteEndPoint}"
-					, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
-
-				// register/authenticate a session
-				if (serviceName.IsEquals("Session") && (verb.IsEquals("REG") || verb.IsEquals("AUTH")))
-				{
-					session.AppName = header.TryGetValue("x-app-name", out var appName) && !string.IsNullOrWhiteSpace(appName) ? appName : session.AppName;
-					session.AppPlatform = header.TryGetValue("x-app-platform", out var appPlatform) && !string.IsNullOrWhiteSpace(appPlatform) ? appPlatform : session.AppPlatform;
-
-					if (verb.IsEquals("REG"))
-					{
-						session.DeviceID = header.TryGetValue("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID) ? deviceID : string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
-						websocket.Set("Status", "Registered");
-						if (Handler.TrackSessions)
-							session.SendSessionState("Users", "REG /session", true, Handler.TrackAPISessions);
-					}
-
-					else
-					{
-						var appToken = body?.Get<string>("x-app-token") ?? "";
-						await Global.UpdateWithAuthenticateTokenAsync(session, appToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Authentications", correlationID).ConfigureAwait(false);
-						if (!string.IsNullOrWhiteSpace(session.User.ID) && !await session.IsSessionExistAsync(Global.Logger, "Authentications", correlationID).ConfigureAwait(false))
-							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
-
-						var encryptionKey = session.GetEncryptionKey(Global.EncryptionKey);
-						var encryptionIV = session.GetEncryptionIV(Global.EncryptionKey);
-
-						if (!header.TryGetValue("x-session-id", out var sessionID) || !sessionID.Decrypt(encryptionKey, encryptionIV).Equals(session.GetEncryptedID()))
-						{
-							if (Global.IsDebugLogEnabled)
-								await Global.WriteLogsAsync(Global.Logger, "Authentications", $"The session identity is invalid [{session.GetEncryptedID()} != {(sessionID ?? "").Decrypt(encryptionKey, encryptionIV)}]", null, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
-							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
-						}
-
-						if (!header.TryGetValue("x-device-id", out var deviceID) || !deviceID.Decrypt(encryptionKey, encryptionIV).Equals(session.DeviceID))
-						{
-							if (Global.IsDebugLogEnabled)
-								await Global.WriteLogsAsync(Global.Logger, "Authentications", $"The device identity is invalid [{session.DeviceID} != {(deviceID ?? "").Decrypt(encryptionKey, encryptionIV)}]", null, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
-							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
-						}
-
-						session.AppName = body?.Get<string>("x-app-name") ?? session.AppName;
-						session.AppPlatform = body?.Get<string>("x-app-platform") ?? session.AppPlatform;
-						websocket.Set("Status", "Authenticated");
-						websocket.Set("Token", JSONWebToken.DecodeAsJson(appToken, Global.JWTKey));
-					}
-
-					websocket.Set("Session", session);
-					await websocket.PrepareConnectionInfoAsync(correlationID, session, Global.CancellationToken, Global.Logger).ConfigureAwait(false);
-					if (Handler.TrackSessions)
-						session.SendSessionState("Users", "AUTH /session", true, Handler.TrackAPISessions);
-					if (Global.IsDebugLogEnabled)
-						await Global.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully {(verb.IsEquals("REG") ? "register" : "authenticate")} a WebSocket connection\r\n{websocket.GetConnectionInfo(session)}\r\n- Status: {websocket.Get<string>("Status")}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
-				}
-
-				// send communicate message
-				else if ("CommunicateMessage".IsEquals(requestJson.Get<string>("Type")))
-				{
-					var messages = new List<CommunicateMessage>();
-					if (serviceName.IsEquals("Files") && objectName.IsEquals("PrepareCache"))
-					{
-						serviceName = body?.Get<string>("service-name");
-						var systemID = body?.Get<string>("system-id");
-						var objectID = body?.Get<string>("object-id");
-						body?.Get<JArray>("attachments")?.ForEach(attachment => messages.Add(new CommunicateMessage("Files")
-						{
-							Type = "PrepareCache",
-							Data = new JObject
-							{
-								{ "ServiceName", serviceName },
-								{ "SystemID", systemID },
-								{ "ObjectID", objectID },
-								{ "ID", attachment.Get<string>("id") },
-								{ "Filename", attachment.Get<string>("filename") },
-								{ "ContentType", attachment.Get<string>("content-type") },
-								{ "X-Type", "Attachment" },
-								{ "X-Logs", writeLogs },
-								{ "X-Correlation-ID", correlationID }
-							}
-						}));
-					}
-					else
-						messages.Add(new CommunicateMessage(serviceName)
-						{
-							Type = requestJson.Get<string>("MessageType"),
-							Data = body
-						});
-
-					messages.ForEach(message => message.Send());
-
-					var response = new JObject
-					{
-						["Type"] = "CommunicateMessage",
-						["Data"] = new JObject
-						{
-							["Status"] = "Success",
-							["CorrelationID"] = correlationID
-						}
-					};
-					if (!string.IsNullOrWhiteSpace(requestID))
-						response["ID"] = requestID;
-
-					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
-					if (writeLogs)
-						await Global.WriteLogsAsync(Global.Logger, "Messages", $"Send communnicate messages successful\r\n{messages.Select(message => message.ToJson().ToString()).Join("\r\n")}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
-				}
-
-				// call a service
-				else
-				{
-					var requestInfo = new RequestInfo(session, serviceName, objectName, verb, query, header, body?.ToString(Formatting.None), extra, correlationID);
-					if ("discovery".IsEquals(requestInfo.ServiceName) && "definitions".IsEquals(requestInfo.ObjectName))
-					{
-						requestInfo.ServiceName = requestInfo.Query["service-name"] = requestInfo.Query["x-service-name"].GetANSIUri(true, true).GetCapitalizedFirstLetter();
-						requestInfo.Query["object-identity"] = requestInfo.Query["x-object-name"];
-						requestInfo.Query["mode"] = requestInfo.Query.TryGetValue("x-object-identity", out var mode) ? mode : "";
-						requestInfo.Verb = "GET";
-					}
-
-					if (Handler.TrackSessions)
-						requestInfo.SendSessionState(Handler.TrackAPISessions);
-					else
-						requestInfo.TrackStatistics();
-
-					var response = new JObject
-					{
-						["Type"] = $"{requestInfo.ServiceName}#{requestInfo.ObjectName}#{verb.GetCapitalizedFirstLetter()}",
-						["Data"] = await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)
-					};
-					if (!string.IsNullOrWhiteSpace(requestID))
-						response["ID"] = requestID;
-
-					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
-					if (writeLogs)
-						await Global.WriteLogsAsync(Global.Logger, objectName, $"Process a request successful\r\nRequest: {requestInfo.ToString()}\r\nResponse: {response}", null, serviceName, LogLevel.Information, correlationID).ConfigureAwait(false);
-				}
-			}
-			catch (Exception ex)
-			{
-				try
-				{
-					var code = ex.GetHttpStatusCode();
-					var message = ex.Message;
-					var type = ex.GetTypeName(true);
-					var stacks = ex.GetStacks();
-					if (ex is WampException wampException)
-					{
-						var wampDetails = wampException.GetDetails();
-						code = wampDetails.Code;
-						message = wampDetails.Message;
-						type = wampDetails.Type;
-						stacks = new JArray { wampDetails.Stack };
-						var inner = wampDetails.InnerJSON;
-						while (inner != null)
-						{
-							stacks.Add($"{inner.Get<string>("Message")} [{inner.Get<string>("Type")}] {inner.Get<string>("StackTrace")}");
-							inner = inner.Get<JObject>("InnerException");
-						}
-					}
-					var response = new JObject
-					{
-						{ "ID", requestID },
-						{ "Type", "Error" },
-						{ "Data", new JObject
-							{
-								{ "Message", message },
-								{ "Type", type },
-								{ "Verb", verb },
-								{ "Code", code },
-								{ "StackTrace", stacks },
-								{ "CorrelationID", correlationID }
-							}
-						}
-					};
-					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
-					if (ex is InvalidSessionException)
-						await websocket.CloseAsync(WebSocketCloseStatus.PolicyViolation, ex.Message, Global.CancellationToken).ConfigureAwait(false);
-				}
-				catch (Exception e)
-				{
-					Global.Logger.LogError($"Cannot send an error to client via WebSocket => {e.Message}", e);
-				}
-			}
-			finally
-			{
-				stopwatch.Stop();
-				if (Global.IsVisitLogEnabled || writeLogs)
-					await Global.WriteLogsAsync(Global.Logger, "Http.Visits", $"Request finished in {stopwatch.GetElapsedTimes()}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
-			}
-		}
-
 		async Task ProcessHttpRequestAsync(HttpContext context)
 		{
 			// prepare
 			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
 			var requestURI = context.GetRequestUri();
-			var requestPath = requestURI.GetRequestPathSegments(true).First();
+			var requestSegments = requestURI.GetRequestPathSegments();
+			var requestPath = requestSegments.First().ToLower();
 
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
@@ -404,6 +136,17 @@ namespace net.vieapps.Services.Portals
 			// request to static segments
 			else if (Global.StaticSegments.Contains(requestPath))
 				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
+
+			// request to APIs/MCP discovery
+			else if (".well-known".IsEquals(requestPath))
+			{
+				if (requestSegments.Length > 1 && requestSegments[1].IsEquals("mcp.json"))
+				{
+
+				}
+				else
+					await context.ProcessAPIsRequestAsync(requestSegments).ConfigureAwait(false);
+			}
 
 			// request to portal desktops/resources
 			else
@@ -441,14 +184,14 @@ namespace net.vieapps.Services.Portals
 			var specialRequest = string.Empty;
 			var legacyRequest = string.Empty;
 
-			var queryString = context.Request.QueryString.ToDictionary(query =>
+			var query = context.Request.QueryString.ToDictionary(queryString =>
 			{
-				if (query.TryGetValue("x-params", out var xparams))
+				if (queryString.TryGetValue("x-params", out var xparams))
 				{
-					query.Remove("x-params");
+					queryString.Remove("x-params");
 					try
 					{
-						(xparams.Url64Decode().ToJSON() as JObject).ForEach(kvp => query[kvp.Key] = (kvp.Value as JValue).Value?.ToString());
+						(xparams.Url64Decode().ToJSON() as JObject).ForEach(kvp => queryString[kvp.Key] = (kvp.Value as JValue).Value?.ToString());
 					}
 					catch { }
 				}
@@ -460,32 +203,12 @@ namespace net.vieapps.Services.Portals
 				// special parameters (like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity)
 				if (!string.IsNullOrWhiteSpace(firstPathSegment))
 				{
-					// system/oranization identity or service
+					// system/oranization identity
 					if (firstPathSegment.StartsWith("~"))
 					{
-						// normalize request segments
 						requestSegments = pathSegments.Skip(1).ToArray();
-
-						// a call to a service of APIs
-						if (firstPathSegment.IsStartsWith("~apis"))
-						{
-							specialRequest = "service";
-
-							query["service-name"] = requestSegments.Length > 0 && !string.IsNullOrWhiteSpace(requestSegments[0]) ? requestSegments[0].GetANSIUri(true, true) : "unknown";
-							query["object-name"] = requestSegments.Length > 1 ? requestSegments[1].GetANSIUri(true, true) : "";
-
-							var objectIdentity = requestSegments.Length > 2 ? requestSegments[2].GetANSIUri() : "";
-							query["object-identity"] = objectIdentity;
-							if (requestSegments.Length > 3 && !objectIdentity.IsValidUUID())
-								query["object-extra-identity"] = requestSegments[3].GetANSIUri(false, true);
-						}
-
-						// a specified system
-						else
-						{
-							systemIdentity = firstPathSegment.Right(firstPathSegment.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "").GetANSIUri(true, false);
-							query["x-system"] = systemIdentity;
-						}
+						systemIdentity = firstPathSegment.Right(firstPathSegment.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "").GetANSIUri(true, false);
+						queryString["x-system"] = systemIdentity;
 					}
 
 					// special requests (_initializer, _validator, _login, _logout, _feed, _cms, _admin) or special resources (_assets, _css, _fonts, _images, _js)
@@ -510,9 +233,9 @@ namespace net.vieapps.Services.Portals
 						else if (Handler.CmsPortals.Contains(firstPathSegment))
 						{
 							specialRequest = "cms";
-							query["x-resource"] = "cms";
-							query["x-cms-path"] = requestSegments.Skip(1).Join("/");
-							query["x-cms-mode"] = firstPathSegment.IsStartsWith("_image")
+							queryString["x-resource"] = "cms";
+							queryString["x-cms-path"] = requestSegments.Skip(1).Join("/");
+							queryString["x-cms-mode"] = firstPathSegment.IsStartsWith("_image")
 								? "Tracking"
 								: firstPathSegment.IsStartsWith("_confirm")
 									? "Confirm"
@@ -527,8 +250,8 @@ namespace net.vieapps.Services.Portals
 						else
 						{
 							systemIdentity = "~resources";
-							query["x-resource"] = firstPathSegment.Right(firstPathSegment.Length - 1).GetANSIUri(true, true);
-							query["x-path"] = pathSegments.Skip(1).Join("/");
+							queryString["x-resource"] = firstPathSegment.Right(firstPathSegment.Length - 1).GetANSIUri(true, true);
+							queryString["x-path"] = pathSegments.Skip(1).Join("/");
 						}
 
 						// no info
@@ -575,9 +298,9 @@ namespace net.vieapps.Services.Portals
 					else if (Handler.CmsPortals.Contains(firstRequestSegment))
 					{
 						specialRequest = "cms";
-						query["x-resource"] = "cms";
-						query["x-cms-path"] = requestSegments.Skip(1).Join("/");
-						query["x-cms-mode"] = firstPathSegment.IsStartsWith("_image")
+						queryString["x-resource"] = "cms";
+						queryString["x-cms-path"] = requestSegments.Skip(1).Join("/");
+						queryString["x-cms-mode"] = firstPathSegment.IsStartsWith("_image")
 							? "Tracking"
 							: firstPathSegment.IsStartsWith("_confirm")
 								? "Confirm"
@@ -593,7 +316,7 @@ namespace net.vieapps.Services.Portals
 					else if (firstPathSegment.IsEndsWith(".txt") || firstPathSegment.IsEndsWith(".xml") || firstPathSegment.IsEndsWith(".json") || firstPathSegment.IsEquals("favicon.ico"))
 					{
 						systemIdentity = "~indicators";
-						query["x-indicator"] = firstPathSegment;
+						queryString["x-indicator"] = firstPathSegment;
 						requestSegments = Array.Empty<string>();
 					}
 
@@ -609,37 +332,37 @@ namespace net.vieapps.Services.Portals
 					{
 						var value = firstRequestSegment.Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "");
 						value = value.Equals("") || value.StartsWith("-") || value.IsEquals("default") || value.IsEquals("index") || value.IsNumeric() ? "default" : value.GetANSIUri();
-						query["x-desktop"] = (value.Equals("default") ? "-" : "") + value;
+						queryString["x-desktop"] = (value.Equals("default") ? "-" : "") + value;
 
 						value = requestSegments.Length > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "") : null;
-						query["x-parent"] = string.IsNullOrWhiteSpace(value) ? null : value.GetANSIUri();
+						queryString["x-parent"] = string.IsNullOrWhiteSpace(value) ? null : value.GetANSIUri();
 
 						if (requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]))
 						{
 							value = requestSegments[2].Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "");
 							if (value.IsNumeric())
-								query["x-page"] = value;
+								queryString["x-page"] = value;
 							else
-								query["x-content"] = value.GetANSIUri();
+								queryString["x-content"] = value.GetANSIUri();
 
 							if (requestSegments.Length > 3 && !string.IsNullOrWhiteSpace(requestSegments[3]))
 							{
 								value = requestSegments[3].Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "");
 								if (value.IsNumeric())
-									query["x-page"] = value;
+									queryString["x-page"] = value;
 							}
 						}
 					}
 				}
-				else if (!systemIdentity.IsEquals("~indicators") && !systemIdentity.IsEquals("~resources") && !specialRequest.IsEquals("service"))
-					query["x-desktop"] = "-default";
+				else if (!systemIdentity.IsEquals("~indicators") && !systemIdentity.IsEquals("~resources"))
+					queryString["x-desktop"] = "-default";
 
 				// legacy parameters
-				Handler.LegacyParameters.ForEach(key => query.Remove(key));
+				Handler.LegacyParameters.ForEach(key => queryString.Remove(key));
 			});
 
 			// check request method (HTTP Verb)
-			if (!requestMethod.IsEquals("GET") && !specialRequest.IsEquals("login") && !specialRequest.IsEquals("service"))
+			if (!requestMethod.IsEquals("GET") && !specialRequest.IsEquals("login"))
 				throw context.MonitorHarmfulRequest(context.GetRemoteIPAddress().ToString(), Global.NodeID, Global.ServiceName);
 
 			// prepare headers
@@ -670,7 +393,7 @@ namespace net.vieapps.Services.Portals
 
 			// prepare extra info
 			var extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-			if (queryString.Remove("x-request-extra", out var extraInfo) && !string.IsNullOrWhiteSpace(extraInfo))
+			if (query.Remove("x-request-extra", out var extraInfo) && !string.IsNullOrWhiteSpace(extraInfo))
 				try
 				{
 					extra = extraInfo.Url64Decode().ToExpandoObject().ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString(), StringComparer.OrdinalIgnoreCase);
@@ -678,7 +401,7 @@ namespace net.vieapps.Services.Portals
 				catch { }
 
 			// process the request
-			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", queryString, headers, null, extra, correlationID);
+			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", query, headers, null, extra, correlationID);
 			if ("".Equals(systemIdentity))
 				await context.WriteLogsAsync("Http.Process.Requests", $"Identify the request [Prev step: {stepwatch.GetElapsedTimes()}]{(isDebugLogEnabled ? $"\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}" : "")}").ConfigureAwait(false);
 
@@ -884,7 +607,7 @@ namespace net.vieapps.Services.Portals
 							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
 							var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
 
-							var desktopAlias = queryString["x-desktop"].ToLower();
+							var desktopAlias = query["x-desktop"].ToLower();
 							var path = homeDesktopAlias.IsEquals(desktopAlias) || homeDesktopAliases.IsContains(desktopAlias) || "-default".IsEquals(desktopAlias) ? "-default" : null;
 							if (path == null)
 							{
@@ -1071,7 +794,7 @@ namespace net.vieapps.Services.Portals
 							var organizationAlias = systemIdentityJson.Get<string>("Alias");
 							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
 							var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
-							var desktopAlias = queryString["x-desktop"].ToLower();
+							var desktopAlias = query["x-desktop"].ToLower();
 							var path = homeDesktopAlias.IsEquals(desktopAlias) || homeDesktopAliases.IsContains(desktopAlias) || "-default".IsEquals(desktopAlias) ? "-default" : null;
 							if (path == null)
 							{
@@ -1102,7 +825,7 @@ namespace net.vieapps.Services.Portals
 					}
 					catch (Exception)
 					{
-						if ("~indicators".IsEquals(systemIdentity) && queryString.TryGetValue("x-indicator", out var indicator) && "favicon.ico".IsEquals(indicator))
+						if ("~indicators".IsEquals(systemIdentity) && query.TryGetValue("x-indicator", out var indicator) && "favicon.ico".IsEquals(indicator))
 							await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
 						else
 							throw;
@@ -1215,51 +938,6 @@ namespace net.vieapps.Services.Portals
 							else
 								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, isDebugLogEnabled);
 							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing feeds => {ex.Message}", ex).ConfigureAwait(false);
-						}
-						break;
-
-					case "service":
-						requestInfo = new RequestInfo(requestInfo)
-						{
-							ServiceName = requestInfo.Query["service-name"],
-							ObjectName = requestInfo.Query["object-name"],
-							Verb = requestMethod
-						};
-						requestInfo.Header["x-requester"] = context.TryGetParameter("x-requester", out var requester) ? requester : context.IsAuthenticated() ? $"authenticated:{context.User?.Identity?.Name}" : "anonymous";
-						if ("discovery".IsEquals(requestInfo.ServiceName) && "definitions".IsEquals(requestInfo.ObjectName))
-						{
-							requestInfo.ServiceName = requestInfo.Query["service-name"] = requestInfo.Query["x-service-name"];
-							requestInfo.Query["object-identity"] = requestInfo.Query["x-object-name"];
-							requestInfo.Query["mode"] = requestInfo.Query.TryGetValue("x-object-identity", out var mode) ? mode : "";
-							requestInfo.Verb = "GET";
-						}
-
-						requestInfo.SendSessionState(null, null, null, Handler.TrackAPISessions);
-						if (isDebugLogEnabled)
-							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
-
-						try
-						{
-							using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
-							var response = await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
-							headers = response.Get("Headers", new Dictionary<string, string>());
-							if (headers.TryGetValue("X-Node", out var nodeID))
-								headers["X-Service-Node"] = nodeID;
-							headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-							{
-								["X-Correlation-ID"] = correlationID,
-								["X-Node"] = Global.NodeID
-							};
-							await Task.WhenAll
-							(
-								context.WriteAsync(response, headers, cts.Token),
-								isDebugLogEnabled ? context.WriteLogsAsync("Http.Process.Requests", $"Successfully process request of a service {response}") : Task.CompletedTask
-							).ConfigureAwait(false);
-						}
-						catch (OperationCanceledException) { }
-						catch (Exception ex)
-						{
-							context.WriteError(Global.Logger, ex, requestInfo, $"Error occurred while calling a service => {ex.Message}", true, "Http.Process.Requests");
 						}
 						break;
 
