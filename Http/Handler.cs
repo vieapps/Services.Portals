@@ -1611,11 +1611,10 @@ namespace net.vieapps.Services.Portals
 						},
 						CorrelationID = correlationID
 					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
-
 					await Task.WhenAll
 					(
-							context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
-							Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully register a new session {response}") : Task.CompletedTask
+						context.WriteAsync(session.GetSessionJson(), Formatting.Indented, correlationID, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully register a new session {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
