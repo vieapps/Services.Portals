@@ -132,16 +132,13 @@ namespace net.vieapps.Services.Portals
 				.UseCache();
 
 			// setup middlewares of APIs pipeline
-			appBuilder.Map("/~apis", apis => apis.UseWebSockets(new WebSocketOptions
+			appBuilder.Map("/~apis", branch => branch.UseWebSockets(new WebSocketOptions
 			{
 				KeepAliveInterval = APIsHandler.WebSocket.KeepAliveInterval
 			}).UseMiddleware<Authenticator>().UseMiddleware<APIsHandler>());
 
 			// setup middlewares of MCP pipeline
-			appBuilder.Map("/~mcp", mcp => mcp.UseWebSockets(new WebSocketOptions
-			{
-				KeepAliveInterval = APIsHandler.WebSocket.KeepAliveInterval
-			}).UseMiddleware<Authenticator>().UseMiddleware<APIsHandler>());
+			appBuilder.Map("/~mcp", branch => branch.UseMiddleware<Authenticator>().UseMiddleware<APIsHandler>());
 
 			// setup middlewares of main pipeline
 			appBuilder

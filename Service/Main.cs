@@ -5813,6 +5813,11 @@ namespace net.vieapps.Services.Portals
 				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", "Updates").ConfigureAwait(false);
 		}
 
+		protected override Task ProcessGatewayCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
+		{
+			return Task.CompletedTask;
+		}
+
 		async Task ProcessCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
 			var correlationID = UtilityService.NewUUID;

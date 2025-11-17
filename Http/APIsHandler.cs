@@ -251,9 +251,6 @@ namespace net.vieapps.Services.Portals
 				return;
 			}
 
-			if (requestJson == null)
-				return;
-
 			var requestID = requestJson.Get<string>("ID");
 			var serviceName = requestJson.Get("ServiceName", "").GetANSIUri(true, true);
 			var objectName = requestJson.Get("ObjectName", "").GetANSIUri(true, true);
@@ -267,17 +264,17 @@ namespace net.vieapps.Services.Portals
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || header.ContainsKey("x-logs") || query.ContainsKey("x-logs");
 			var session = websocket.Get<Session>("Session") ?? Global.GetSession();
 
+			// visit logs
+			if (Global.IsVisitLogEnabled || isDebugLogEnabled)
+				await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
+					$"Request starting {verb} " + $"/{serviceName.ToLower()}{(string.IsNullOrWhiteSpace(objectName) ? "" : $"/{objectName.ToLower()}")}{(string.IsNullOrWhiteSpace(objectIdentity) ? "" : $"/{objectIdentity}")}".ToLower() + (query.TryGetValue("x-request", out var xrequest) ? $"?x-request={xrequest}" : "") + " HTTPWS/1.1" + " \r\n" +
+					$"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
+					$"- WebSocket: {websocket.ID} @ {websocket.RemoteEndPoint}"
+				, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+
 			// process the request
 			try
 			{
-				// visit logs
-				if (Global.IsVisitLogEnabled || isDebugLogEnabled)
-					await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
-						$"Request starting {verb} " + $"/{serviceName.ToLower()}{(string.IsNullOrWhiteSpace(objectName) ? "" : $"/{objectName.ToLower()}")}{(string.IsNullOrWhiteSpace(objectIdentity) ? "" : $"/{objectIdentity}")}".ToLower() + (query.TryGetValue("x-request", out var xrequest) ? $"?x-request={xrequest}" : "") + " HTTPWS/1.1" + " \r\n" +
-						$"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
-						$"- WebSocket: {websocket.ID} @ {websocket.RemoteEndPoint}"
-					, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
-
 				// register/authenticate a session
 				if (serviceName.IsEquals("Session") && (verb.IsEquals("REG") || verb.IsEquals("AUTH")))
 				{

@@ -380,6 +380,7 @@ namespace net.vieapps.Services.Portals
 							json["Category"] = new JObject
 							{
 								["Title"] = @object.Category.Title,
+								["FullTitle"] = @object.Category.FullTitle,
 								["URL"] = organization.NormalizeURLs(@object.Category.GetURL(), true, siteURL)
 							};
 

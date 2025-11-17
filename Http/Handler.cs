@@ -137,16 +137,9 @@ namespace net.vieapps.Services.Portals
 			else if (Global.StaticSegments.Contains(requestPath))
 				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
 
-			// request to APIs/MCP discovery
+			// request to APIs discovery
 			else if (".well-known".IsEquals(requestPath))
-			{
-				if (requestSegments.Length > 1 && requestSegments[1].IsEquals("mcp.json"))
-				{
-
-				}
-				else
-					await context.ProcessAPIsRequestAsync(requestSegments).ConfigureAwait(false);
-			}
+				await context.ProcessAPIsRequestAsync(requestSegments).ConfigureAwait(false);
 
 			// request to portal desktops/resources
 			else
@@ -164,8 +157,7 @@ namespace net.vieapps.Services.Portals
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs") || context.ContainsKey("x-cache-logs");
 
 			var stepwatch = Stopwatch.StartNew();
-			var session = context.Session.Get<Session>("Session") ?? context.GetSession();
-			session.NormalizeSession(context);
+			var session = context.GetSession();
 
 			var requestURI = context.GetRequestUri();
 			var requestMethod = (context.Request.Method ?? "GET").ToUpper();
@@ -405,13 +397,11 @@ namespace net.vieapps.Services.Portals
 			if ("".Equals(systemIdentity))
 				await context.WriteLogsAsync("Http.Process.Requests", $"Identify the request [Prev step: {stepwatch.GetElapsedTimes()}]{(isDebugLogEnabled ? $"\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}" : "")}").ConfigureAwait(false);
 
-			session.UpdateSessionCookie(context, true);
-			stepwatch.Restart();
-
 			JObject systemIdentityJson = null;
 			var alwaysUseHTTPs = false;
 			var alwaysReturnHTTPs = false;
 			var redirectToNoneWWW = false;
+			stepwatch.Restart();
 
 			if (string.IsNullOrWhiteSpace(specialRequest))
 				try
@@ -852,6 +842,10 @@ namespace net.vieapps.Services.Portals
 						context.ShowError(statusCode, ex.Message, type, correlationID, ex, isDebugLogEnabled);
 					}
 					await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred ({statusCode}) => {context.Request.Method} {requestURI}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				}
+				finally
+				{
+					context.StoreSession(session);
 				}
 
 			else
@@ -1819,7 +1813,7 @@ namespace net.vieapps.Services.Portals
 					Global.SecondaryInterCommunicateMessageUpdater = Router.IncomingChannel.Subscribe<CommunicateMessage>
 					(
 						"messages.services.apigateway",
-						message => message.Type.IsEquals("Service#RequestInfo") ? Global.SendServiceInfoAsync() : Task.CompletedTask,
+						message => Global.NodeID.IsEquals(message.ExcludedNodeID) ? Task.CompletedTask : Handler.ProcessGatewayCommunicateMessageAsync(message),
 						exception => Global.WriteLogsAsync(Global.Logger, "Http.Process.Requests", exception.Message, exception)
 					);
 					if (!Router.GotBackupRouter())
@@ -1925,6 +1919,12 @@ namespace net.vieapps.Services.Portals
 				Handler.TrackSessions = true;
 			return Task.CompletedTask;
 		}
+
+		internal static async Task ProcessGatewayCommunicateMessageAsync(CommunicateMessage message)
+		{
+			if (message.Type.IsEquals("Service#RequestInfo"))
+				await Global.SendServiceInfoAsync().ConfigureAwait(false);
+		}
 	}
 
 	internal static class HandlerExtentions
@@ -1945,83 +1945,6 @@ namespace net.vieapps.Services.Portals
 				}, trackStatistics);
 			else
 				requestInfo.TrackStatistics();
-		}
-
-		public static Session NormalizeSession(this Session session, HttpContext context = null)
-		{
-			var appName = context?.GetParameter("x-app-name");
-			try
-			{
-				session.AppName = (appName ?? session.AppName).Url64Decode();
-			}
-			catch
-			{
-				session.AppName = appName ?? session.AppName;
-			}
-
-			var appPlatform = context?.GetParameter("x-app-platform");
-			try
-			{
-				session.AppPlatform = (appPlatform ?? session.AppPlatform).Url64Decode();
-			}
-			catch
-			{
-				session.AppPlatform = appPlatform ?? session.AppPlatform;
-			}
-
-			var deviceID = context?.GetParameter("x-device-id");
-			try
-			{
-				session.DeviceID = (deviceID ?? session.DeviceID).Url64Decode();
-			}
-			catch
-			{
-				session.DeviceID = deviceID ?? session.DeviceID;
-			}
-
-			if (context != null)
-			{
-				var cookie = context.Request?.Cookies[".VIEApps-SessionP"];
-				if (!string.IsNullOrWhiteSpace(cookie) && (string.IsNullOrWhiteSpace(session.SessionID) || string.IsNullOrWhiteSpace(session.DeviceID)))
-					try
-					{
-						var info = cookie.Decrypt(Global.EncryptionKey, true).ToList("|");
-						if (string.IsNullOrWhiteSpace(session.SessionID) && info.Count > 0)
-							session.SessionID = session.User.SessionID = info[0];
-						if (string.IsNullOrWhiteSpace(session.DeviceID) && info.Count > 1)
-							session.DeviceID = info[1];
-					}
-					catch { }
-				else
-					session.UpdateSessionCookie(context);
-			}
-
-			return session;
-		}
-
-		public static Session UpdateSessionCookie(this Session session, HttpContext context, bool check = false)
-		{
-			if (context != null && !string.IsNullOrWhiteSpace(session.SessionID) && !string.IsNullOrWhiteSpace(session.DeviceID))
-				try
-				{
-					var update = true;
-					if (check)
-					{
-						update = string.IsNullOrWhiteSpace(session.SessionID) || string.IsNullOrWhiteSpace(session.DeviceID);
-						var cookie = update ? null : context.Request?.Cookies[".VIEApps-SessionP"];
-						if (!string.IsNullOrWhiteSpace(cookie))
-							try
-							{
-								var info = cookie.Decrypt(Global.EncryptionKey, true).ToList("|");
-								update = (info.Count > 0 && !session.SessionID.IsEquals(info[0])) || (info.Count > 1 && !session.DeviceID.IsEquals(info[1]));
-							}
-							catch { }
-					}
-					if (update)
-						context.Response?.Cookies?.Append(".VIEApps-SessionP", $"{session.SessionID}|{session.DeviceID}".Encrypt(Global.EncryptionKey, true), new CookieOptions { Expires = DateTime.Now.AddDays(366) });
-				}
-				catch { }
-			return session;
 		}
 
 		public static string NormalizeHtml(this HttpContext context, string html, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL)
