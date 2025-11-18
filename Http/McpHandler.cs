@@ -123,7 +123,11 @@ namespace net.vieapps.Services.Portals
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
-			var headers = context.Request.Headers.ToDictionary();
+			var headers = context.Request.Headers.ToDictionary(header =>
+			{
+				header["x-host"] = context.GetRequestUri().Host;
+				header["x-brief"] = "1";
+			});
 
 			if (!headers.TryGetValue("MCP-Protocol-Version", out var mcpProtocolVersion))
 			{
@@ -302,7 +306,7 @@ namespace net.vieapps.Services.Portals
 				resource.Name,
 				tool.Name,
 				context.Request.QueryString.ToDictionary(),
-				context.Request.Headers.ToDictionary(),
+				context.Request.Headers.ToDictionary(header => header["x-system-id"] = mcpSettings.SystemID),
 				mcpRequest.Get<JObject>("params")?.Get<JObject>("arguments")?.ToString(Formatting.None),
 				null,
 				Global.GetCorrelationID()
@@ -348,7 +352,7 @@ namespace net.vieapps.Services.Portals
 		static async Task ProcessResourceListRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
 		{
 			var query = context.Request.QueryString.ToDictionary();
-			var headers = context.Request.Headers.ToDictionary();
+			var headers = context.Request.Headers.ToDictionary(header => header["x-system-id"] = mcpSettings.SystemID);
 			var correlationID = Global.GetCorrelationID();
 			try
 			{
@@ -425,7 +429,7 @@ namespace net.vieapps.Services.Portals
 				resource.Name,
 				"resources/read",
 				context.Request.QueryString.ToDictionary(query => query["object-identity"] = objectIdentity),
-				context.Request.Headers.ToDictionary(),
+				context.Request.Headers.ToDictionary(header => header["x-system-id"] = mcpSettings.SystemID),
 				null,
 				null,
 				Global.GetCorrelationID()
@@ -459,33 +463,39 @@ namespace net.vieapps.Services.Portals
 			{
 				var requestInfo = new RequestInfo(Global.GetSession(), serviceName, "", "capabilities", new Dictionary<string, string> { ["object-identity"] = systemID }, null, null, null, Global.GetCorrelationID());
 				var settings = (await requestInfo.ProcessRequestAsync(Global.CancellationToken).ConfigureAwait(false)).As<Settings.McpSettings>();
-				if (string.IsNullOrWhiteSpace(settings.SystemID) || settings.Resources == null || settings.Resources.Count < 1)
-					return;
-
-				if (!McpHandler.Settings.TryGetValue(systemID, out var mcpSettings))
-				{
-					mcpSettings = new Settings.McpSettings();
-					McpHandler.Settings[systemID] = mcpSettings;
-				}
-
-				mcpSettings.SystemID = systemID;
-				mcpSettings.Instructions = settings.Instructions;
-				mcpSettings.Resources ??= new();
-				settings.Resources.ForEach(resource =>
-				{
-					var mcpResource = mcpSettings.Resources.FirstOrDefault(res => res.Name == resource.Name);
-					if (mcpResource == null)
-					{
-						mcpResource = new();
-						mcpSettings.Resources.Add(mcpResource);
-					}
-					mcpResource.CopyFrom(resource);
-				});
+				settings.UpdateInfo(serviceName, systemID);
 			}
 			catch (Exception ex)
 			{
 				await Global.WriteLogsAsync("MCP", $"Cannot gathering info [{serviceName}/{systemID}]=> {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 			}
+		}
+
+		public static void UpdateInfo(this Settings.McpSettings settings, string serviceName, string systemID)
+		{
+			if (string.IsNullOrWhiteSpace(systemID) || !systemID.IsEquals(settings.SystemID) || settings.Resources == null || settings.Resources.Count < 1)
+				return;
+
+			if (!McpHandler.Settings.TryGetValue(systemID, out var mcpSettings))
+			{
+				mcpSettings = new Settings.McpSettings();
+				McpHandler.Settings[systemID] = mcpSettings;
+			}
+
+			mcpSettings.SystemID = systemID;
+			mcpSettings.Instructions = settings.Instructions;
+			mcpSettings.Resources ??= new();
+			settings.Resources.ForEach(resource =>
+			{
+				var mcpResource = mcpSettings.Resources.FirstOrDefault(res => res.Name == resource.Name);
+				if (mcpResource == null)
+				{
+					mcpResource = new();
+					mcpSettings.Resources.Add(mcpResource);
+				}
+				mcpResource.CopyFrom(resource);
+				mcpResource.ServiceName = serviceName;
+			});
 		}
 
 		static async Task ShowErrorAsync(this HttpContext context, Exception exception, string id = null, string message = null)
@@ -506,6 +516,10 @@ namespace net.vieapps.Services.Portals
 			else if (exception is ServiceNotFoundException)
 				errorCode = -32003;
 
+			message ??= exception.Message;
+			if (exception is WampException wampException)
+				message = wampException.GetDetails().Message;
+
 			var body = new JObject
 			{
 				["jsonrpc"] = "2.0",
@@ -513,7 +527,7 @@ namespace net.vieapps.Services.Portals
 				["error"] = new JObject
 				{
 					["code"] = errorCode,
-					["message"] = message ?? exception.Message
+					["message"] = message
 				}
 			};
 

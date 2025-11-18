@@ -289,6 +289,7 @@ namespace net.vieapps.Services.Portals
 		public JObject ToJson(bool addModules, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
+				json["McpSettings"] = this.McpSettings?.ToJson().ToString(Formatting.Indented);
 				json.Remove("OriginalPrivileges");
 				if (addModules)
 					json["Modules"] = this.Modules.ToJArray(module => module?.ToJson(true, addTypeOfExtendedProperties));

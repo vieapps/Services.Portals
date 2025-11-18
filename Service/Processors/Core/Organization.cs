@@ -28,7 +28,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,ScriptLibraries,Scripts,AlwaysUseHtmlSuffix,RefreshURLs,RedirectURLs,ExamineURLs,EmailSettings,WebHookSettings,HttpIndicators,FakeFilesHttpURI,FakePortalsHttpURI,McpSettings".ToHashSet();
 
-		internal static List<string> MustUpdatedProperties { get; } = "HomeDesktopID,SearchDesktopID,MetaTags,Stylesheets,ScriptLibraries,Scripts,FakeFilesHttpURI,FakePortalsHttpURI,McpSettings".ToList();
+		internal static List<string> MustUpdatedProperties { get; } = "HomeDesktopID,SearchDesktopID,MetaTags,Stylesheets,ScriptLibraries,Scripts,FakeFilesHttpURI,FakePortalsHttpURI".ToList();
 
 		static Organization Normalize(this Organization organization, ExpandoObject data, Action<Organization> onCompleted = null)
 		{
@@ -850,6 +850,18 @@ namespace net.vieapps.Services.Portals
 				organization.SendRefreshingTasksAsync()
 			).ConfigureAwait(false);
 
+			// tell HTTP server update MCP settings
+			if (organization.McpSettings != null)
+				new CommunicateMessage("APIGateway")
+				{
+					Type = "McpServer#UpdateInfo",
+					Data = organization.McpSettings.ToJson(json =>
+					{
+						json["ServiceName"] = Utility.ServiceName;
+						json["SystemID"] = organization.ID;
+					})
+				}.Send();
+
 			// response
 			return response;
 		}
@@ -884,15 +896,16 @@ namespace net.vieapps.Services.Portals
 
 			// gathering information
 			var privileges = organization.OriginalPrivileges?.Copy();
-			organization.Update(request, "ID,OwnerID,HomeDesktopID,SearchDesktopID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
+			organization.Update(request, "ID,OwnerID,HomeDesktopID,SearchDesktopID,Status,Instructions,Privileges,Created,CreatedID,LastModified,LastModifiedID,McpSettings", _ =>
 			{
 				OrganizationProcessor.MustUpdatedProperties.ForEach(name => organization.SetProperty(name, request.Get(name)));
 				organization.OwnerID = isSystemAdministrator ? request.Get("OwnerID", organization.OwnerID) : organization.OwnerID;
 				organization.Status = isSystemAdministrator ? request.Get("Status", organization.Status.ToString()).ToEnum<ApprovalStatus>() : organization.Status;
 				organization.Alias = string.IsNullOrWhiteSpace(organization.Alias) ? oldAlias : organization.Alias;
-				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
 				organization.LastModified = DateTime.Now;
 				organization.LastModifiedID = requestInfo.Session.User.ID;
+				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
+				organization.McpSettings = request.Get<string>("McpSettings")?.ToJson().As<McpSettings>();
 				organization.NormalizeExtras();
 			}).Remove();
 			organization.Notifications?.WebHooks?.Validate(requestInfo, organization);

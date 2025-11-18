@@ -579,11 +579,13 @@ namespace net.vieapps.Services.Portals.Settings
 		/// <summary>
 		/// Gets or Sets the name of MCP server
 		/// </summary>
+		[JsonIgnore]
 		public string Name { get; set; }
 
 		/// <summary>
 		/// Gets or Sets the system identifier of MCP server
 		/// </summary>
+		[JsonIgnore]
 		public string SystemID { get; set; }
 
 		/// <summary>
@@ -598,6 +600,17 @@ namespace net.vieapps.Services.Portals.Settings
 
 		public McpSettings Normalize()
 			=> this.Resources == null || this.Resources.Count < 1 ? null : this;
+
+		public JObject ToJson(Action<JObject> onCompleted)
+		{
+			var json = this.ToJson((JToken token) => { }) as JObject;
+			json.Get<JObject>("Resource")?.ForEach(token =>
+			{
+				new[] { "ContentTypeID", "ExpressionID", "CategoryID", "AllowStatus" }.ForEach(name => (token as JObject).Remove(name));
+			});
+			onCompleted?.Invoke(json);
+			return json;
+		}
 
 		/// <summary>
 		/// Definition of a MCP resource
@@ -624,6 +637,7 @@ namespace net.vieapps.Services.Portals.Settings
 			/// <summary>
 			/// Gets or Sets the service name of resource
 			/// </summary>
+			[JsonIgnore]
 			public string ServiceName { get; set; }
 
 			/// <summary>

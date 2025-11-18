@@ -1884,6 +1884,16 @@ namespace net.vieapps.Services.Portals
 
 			else if (message.Type.IsEquals("McpServer#Info"))
 				await message.GatheringInfoAsync().ConfigureAwait(false);
+
+			else if (message.Type.IsEquals("McpServer#UpdateInfo"))
+				try
+				{
+					message.Data.As<Settings.McpSettings>().UpdateInfo(message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"));
+				}
+				catch { }
+
+			else if (message.Type.IsEquals("McpServer#ClearInfo"))
+				McpHandler.Settings.Clear();
 		}
 	}
 
