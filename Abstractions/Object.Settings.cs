@@ -567,4 +567,118 @@ namespace net.vieapps.Services.Portals.Settings
 		}
 	}
 
+	// ---------------------------------------------------------------
+
+	/// <summary>
+	/// Definition of MCP server
+	/// </summary>
+	public class McpSettings
+	{
+		public McpSettings() { }
+
+		/// <summary>
+		/// Gets or Sets the name of MCP server
+		/// </summary>
+		public string Name { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the system identifier of MCP server
+		/// </summary>
+		public string SystemID { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the instructions of the MCP server
+		/// </summary>
+		public string Instructions { get; set; }
+
+		/// <summary>
+		/// Gets or Sets the collection of available resources
+		/// </summary>
+		public List<Resource> Resources { get; set; }
+
+		public McpSettings Normalize()
+			=> this.Resources == null || this.Resources.Count < 1 ? null : this;
+
+		/// <summary>
+		/// Definition of a MCP resource
+		/// </summary>
+		public class Resource
+		{
+			public Resource() { }
+
+			/// <summary>
+			/// Gets or Sets the name of resource
+			/// </summary>
+			public string Name { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the title of resource
+			/// </summary>
+			public string Title { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the description of resource
+			/// </summary>
+			public string Description { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the service name of resource
+			/// </summary>
+			public string ServiceName { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the content-type identifier of resource
+			/// </summary>
+			public string ContentTypeID { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the expression identifier of resource (for using with default search tool)
+			/// </summary>
+			public string ExpressionID { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the category identifier of resource (for using with default search tool)
+			/// </summary>
+			public string CategoryID { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the state of publishing statue of resource (for using with default search tool)
+			/// </summary>
+			public bool AllowStatus { get; set; } = false;
+
+			/// <summary>
+			/// Gets or Sets the collection of available tools
+			/// </summary>
+			public List<Tool> Tools { get; set; }
+		}
+
+		/// <summary>
+		/// Definition of a tool for working with a MCP resource
+		/// </summary>
+		public class Tool
+		{
+			public Tool() { }
+
+			/// <summary>
+			/// Gets or Sets the name of tool (search/read/create/update)
+			/// </summary>
+			public string Name { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the title of tool
+			/// </summary>
+			public string Title { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the description of tool
+			/// </summary>
+			public string Description { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the JSON schema of tool
+			/// </summary>
+			public JObject Schema { get; set; }
+		}
+	}
+
 }

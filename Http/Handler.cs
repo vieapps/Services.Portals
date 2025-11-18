@@ -410,7 +410,7 @@ namespace net.vieapps.Services.Portals
 					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 					if (!"~resources".IsEquals(systemIdentity))
 					{
-						systemIdentityJson = await this.IdentifySystemAsync(context, requestInfo, cts.Token).ConfigureAwait(false);
+						systemIdentityJson = await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 						alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
 						alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
@@ -590,7 +590,7 @@ namespace net.vieapps.Services.Portals
 						else if (!"~indicators".IsEquals(systemIdentity))
 						{
 							var logstep = "".Equals(systemIdentity) && systemIdentityJson == null;
-							systemIdentityJson ??= await this.IdentifySystemAsync(context, requestInfo, cts.Token).ConfigureAwait(false);
+							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
 
 							var siteURI = $"//{systemIdentityJson.Get<string>("SiteHost")}";
 							var organizationAlias = systemIdentityJson.Get<string>("Alias");
@@ -853,7 +853,7 @@ namespace net.vieapps.Services.Portals
 				{
 					case "initializer":
 						if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-							systemIdentityJson ??= await this.IdentifySystemAsync(context, requestInfo, Global.CancellationToken).ConfigureAwait(false);
+							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
 						await this.ProcessInitializerRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
 						break;
 
@@ -863,20 +863,20 @@ namespace net.vieapps.Services.Portals
 
 					case "login":
 						if (!context.Request.Method.IsEquals("GET") || context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-							systemIdentityJson ??= await this.IdentifySystemAsync(context, requestInfo, Global.CancellationToken).ConfigureAwait(false);
+							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
 						await this.ProcessLogInRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
 						break;
 
 					case "logout":
 						if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-							systemIdentityJson ??= await this.IdentifySystemAsync(context, requestInfo, Global.CancellationToken).ConfigureAwait(false);
+							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
 						await this.ProcessLogOutRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
 						break;
 
 					case "cms":
 						try
 						{
-							systemIdentityJson ??= await this.IdentifySystemAsync(context, requestInfo, Global.CancellationToken).ConfigureAwait(false);
+							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
 							await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID"), systemIdentityJson?.Get<string>("ObjectID"), systemIdentityJson?.Get<string>("RepositoryEntityID") ?? systemIdentityJson?.Get<string>("ObjectName"), systemIdentityJson?.Get<string>("Location"), systemIdentityJson?.Get<string>("TrackingContentType"), systemIdentityJson?.Get<string>("TrackingBody"), systemIdentityJson?.Get<string>("TrackingBodyEncoding"), systemIdentityJson?.Get<string>("TrackingCacheControl")).ConfigureAwait(false);
 						}
 						catch (OperationCanceledException) { }
@@ -897,7 +897,7 @@ namespace net.vieapps.Services.Portals
 						try
 						{
 							using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
-							systemIdentityJson ??= await this.IdentifySystemAsync(context, requestInfo, cts.Token).ConfigureAwait(false);
+							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 
@@ -1059,53 +1059,6 @@ namespace net.vieapps.Services.Portals
 				Type = id,
 				Data = data
 			}.Send(Router.GotBackupRouter());
-		}
-
-		async Task<JObject> IdentifySystemAsync(HttpContext context, RequestInfo requestInfo, CancellationToken cancellationToken)
-		{
-			var requestURI = context.GetRequestUri();
-			var requestHost = requestURI.Host.Replace("www.", "");
-			var identifyJson = Handler.Cache.UseL1Cache
-				? Handler.Cache.GetL1CacheItem<JObject>(requestHost)
-				: null;
-
-			if (identifyJson == null)
-			{
-				var stopwatch = Stopwatch.StartNew();
-				var stepwatch = Stopwatch.StartNew();
-				identifyJson = await context.CallServiceAsync(requestInfo, cancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-				stepwatch.Stop();
-
-				if (identifyJson != null && Handler.Cache.UseL1Cache)
-				{
-					var examinations = identifyJson.Get<JArray>("CacheExaminations")?.Select(examination => examination as JObject)					
-						.Select(examination => examination?.Copy<Settings.ExamineURLs>())
-						.Where(examination => examination != null)
-						.ToList();
-					if (examinations != null && examinations.Count > 0)
-					{
-						var path = requestURI.AbsolutePath.ToLower();
-						var pathWithoutExtention = path.Replace("/default.aspx", "").Replace(".aspx", "").Replace(".php", "").Replace(".html", "");
-						var examination = examinations.FirstOrDefault(exam => exam.Start <= DateTime.Now && exam.End >= DateTime.Now && ((exam.URLs.Any(url => url.IsStartsWith("s:/") ? path.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? path.IsContains(url.Right(url.Length - 2)) : path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/") ? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? pathWithoutExtention.IsContains(url.Right(url.Length - 2)) : pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*"))));
-						if (examination == null)
-						{
-							Handler.Cache.SetL1CacheItem(requestHost, identifyJson, TimeSpan.FromMinutes(3));
-							new CommunicateMessage($"{Global.ServiceName}.HTTP.L1Cache")
-							{
-								ExcludedNodeID = Global.NodeID,
-								Type = $"{requestHost}#3",
-								Data = identifyJson
-							}.Send(Router.GotBackupRouter());
-						}
-					}
-				}
-
-				stopwatch.Stop();
-				if (stopwatch.Elapsed.TotalMilliseconds > 30)
-					await context.WriteLogsAsync("Http.Process.Requests", $"Complete the identify process - Call: {stepwatch.GetElapsedTimes()} - Overral: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
-			}
-
-			return identifyJson;
 		}
 
 		async Task ProcessInitializerRequestAsync(HttpContext context, JObject systemIdentityJson)
@@ -1864,6 +1817,10 @@ namespace net.vieapps.Services.Portals
 							Type = "HarmfulIPs#Sync",
 							ExcludedNodeID = Global.NodeID
 						}.Send();
+						new CommunicateMessage("APIGateway")
+						{
+							Type = "McpServer#RequestInfo"
+						}.Send();
 					}
 					catch { }
 				},
@@ -1924,6 +1881,9 @@ namespace net.vieapps.Services.Portals
 		{
 			if (message.Type.IsEquals("Service#RequestInfo"))
 				await Global.SendServiceInfoAsync().ConfigureAwait(false);
+
+			else if (message.Type.IsEquals("McpServer#Info"))
+				await message.GatheringInfoAsync().ConfigureAwait(false);
 		}
 	}
 
@@ -1993,6 +1953,53 @@ namespace net.vieapps.Services.Portals
 			html = html.Replace(StringComparison.OrdinalIgnoreCase, "<link rel=\"next\" href=\"/", $"<link rel=\"next\" href=\"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/");
 
 			return html;
+		}
+
+		public static async Task<JObject> IdentifySystemAsync(this HttpContext context, RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			var requestURI = context.GetRequestUri();
+			var requestHost = requestURI.Host.Replace("www.", "");
+			var identifyJson = Handler.Cache.UseL1Cache
+				? Handler.Cache.GetL1CacheItem<JObject>(requestHost)
+				: null;
+
+			if (identifyJson == null)
+			{
+				var stopwatch = Stopwatch.StartNew();
+				var stepwatch = Stopwatch.StartNew();
+				identifyJson = await context.CallServiceAsync(requestInfo, cancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+				stepwatch.Stop();
+
+				if (identifyJson != null && Handler.Cache.UseL1Cache)
+				{
+					var examinations = identifyJson.Get<JArray>("CacheExaminations")?.Select(examination => examination as JObject)
+						.Select(examination => examination?.Copy<Settings.ExamineURLs>())
+						.Where(examination => examination != null)
+						.ToList();
+					if (examinations != null && examinations.Count > 0)
+					{
+						var path = requestURI.AbsolutePath.ToLower();
+						var pathWithoutExtention = path.Replace("/default.aspx", "").Replace(".aspx", "").Replace(".php", "").Replace(".html", "");
+						var examination = examinations.FirstOrDefault(exam => exam.Start <= DateTime.Now && exam.End >= DateTime.Now && ((exam.URLs.Any(url => url.IsStartsWith("s:/") ? path.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? path.IsContains(url.Right(url.Length - 2)) : path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/") ? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? pathWithoutExtention.IsContains(url.Right(url.Length - 2)) : pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*"))));
+						if (examination == null)
+						{
+							Handler.Cache.SetL1CacheItem(requestHost, identifyJson, TimeSpan.FromMinutes(3));
+							new CommunicateMessage($"{Global.ServiceName}.HTTP.L1Cache")
+							{
+								ExcludedNodeID = Global.NodeID,
+								Type = $"{requestHost}#3",
+								Data = identifyJson
+							}.Send(Router.GotBackupRouter());
+						}
+					}
+				}
+
+				stopwatch.Stop();
+				if (stopwatch.Elapsed.TotalMilliseconds > 30)
+					await context.WriteLogsAsync("Http.Process.Requests", $"Complete the identify process - Call: {stepwatch.GetElapsedTimes()} - Overral: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+			}
+
+			return identifyJson;
 		}
 	}
 

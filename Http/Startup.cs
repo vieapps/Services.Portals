@@ -138,7 +138,7 @@ namespace net.vieapps.Services.Portals
 			}).UseMiddleware<Authenticator>().UseMiddleware<APIsHandler>());
 
 			// setup middlewares of MCP pipeline
-			appBuilder.Map("/~mcp", branch => branch.UseMiddleware<Authenticator>().UseMiddleware<APIsHandler>());
+			appBuilder.Map("/~mcp", branch => branch.UseMiddleware<Authenticator>().UseMiddleware<McpHandler>());
 
 			// setup middlewares of main pipeline
 			appBuilder

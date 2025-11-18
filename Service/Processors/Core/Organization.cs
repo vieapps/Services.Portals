@@ -26,9 +26,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",APIs,CMS,CRM,MCP,Portals,Dashboard,Dashboards,Temp,Feed,Feeds,Atom,Rss").ToLower().ToHashSet();
 
-		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,ScriptLibraries,Scripts,AlwaysUseHtmlSuffix,RefreshURLs,RedirectURLs,ExamineURLs,EmailSettings,WebHookSettings,HttpIndicators,FakeFilesHttpURI,FakePortalsHttpURI".ToHashSet();
+		internal static HashSet<string> ExtraProperties { get; } = "Notifications,Instructions,Socials,Trackings,MetaTags,ScriptLibraries,Scripts,AlwaysUseHtmlSuffix,RefreshURLs,RedirectURLs,ExamineURLs,EmailSettings,WebHookSettings,HttpIndicators,FakeFilesHttpURI,FakePortalsHttpURI,McpSettings".ToHashSet();
 
-		internal static List<string> MustUpdatedProperties { get; } = "HomeDesktopID,SearchDesktopID,MetaTags,Stylesheets,ScriptLibraries,Scripts,FakeFilesHttpURI,FakePortalsHttpURI".ToList();
+		internal static List<string> MustUpdatedProperties { get; } = "HomeDesktopID,SearchDesktopID,MetaTags,Stylesheets,ScriptLibraries,Scripts,FakeFilesHttpURI,FakePortalsHttpURI,McpSettings".ToList();
 
 		static Organization Normalize(this Organization organization, ExpandoObject data, Action<Organization> onCompleted = null)
 		{

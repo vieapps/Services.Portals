@@ -196,6 +196,9 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore]
 		public List<Settings.ExamineURLs> ExamineURLs { get; set; }
 
+		[Ignore, BsonIgnore, XmlIgnore]
+		public McpSettings McpSettings { get; set; }
+
 		internal List<string> _siteIDs = null;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
@@ -358,6 +361,7 @@ namespace net.vieapps.Services.Portals
 					.ToList();
 			})).Where(examineURL => examineURL != null).ToList();
 			this.ExamineURLs = this.ExamineURLs != null && this.ExamineURLs.Count > 0 ? this.ExamineURLs : null;
+			this.McpSettings = this.McpSettings?.Normalize();
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			OrganizationProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
 			this._extras = this._json.ToString(Formatting.None);
@@ -385,6 +389,7 @@ namespace net.vieapps.Services.Portals
 				this.FakeFilesHttpURI = this._json["FakeFilesHttpURI"]?.As<string>();
 				this.FakePortalsHttpURI = this._json["FakePortalsHttpURI"]?.As<string>();
 				this.ExamineURLs = (this._json["ExamineURLs"] as JArray)?.Select(examineURLs => examineURLs as JObject).Select(examineURLs => examineURLs.As<Settings.ExamineURLs>()).Where(examineURLs => examineURLs != null).ToList();
+				this.McpSettings = this._json["McpSettings"]?.As<Settings.McpSettings>();
 				this.PrepareRedirectAddresses();
 			}
 			else if (OrganizationProcessor.ExtraProperties.Contains(name))

@@ -226,6 +226,13 @@ namespace net.vieapps.Services.Portals
 						ExcludedNodeID = this.NodeID
 					}.Send();
 
+					// send request for MCP server
+					if (this.IsRequester)
+						new CommunicateMessage("APIGateway")
+						{
+							Type = "McpServer#RequestInfo"
+						}.Send();
+
 					// prepare OEmbed providers and i18n Languages
 					await Task.WhenAll(this.GetOEmbedProvidersAsync(this.CancellationToken), this.PrepareLanguagesAsync(this.CancellationToken)).ConfigureAwait(false);
 
@@ -1333,7 +1340,7 @@ namespace net.vieapps.Services.Portals
 				}
 				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
 
-			if (!string.IsNullOrWhiteSpace(requestInfo.Session.DeviceID) || (requestInfo.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx")))
+			if (!requestInfo.ContainsKey("x-brief") && (!string.IsNullOrWhiteSpace(requestInfo.Session.DeviceID) || (requestInfo.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx"))))
 			{
 				identityJson["FilesHttpURI"] = this.GetFilesHttpURI(organization);
 				identityJson["PortalsHttpURI"] = this.GetPortalsHttpURI(organization);
@@ -5813,9 +5820,21 @@ namespace net.vieapps.Services.Portals
 				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", "Updates").ConfigureAwait(false);
 		}
 
-		protected override Task ProcessGatewayCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
+		protected override async Task ProcessGatewayCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
 		{
-			return Task.CompletedTask;
+			if (message.Type.IsEquals("McpServer#RequestInfo") && this.IsRequester)
+			{
+				var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
+				organizations.Where(organization => organization.McpSettings != null).ForEach(organization => new CommunicateMessage("APIGateway")
+				{
+					Type = "McpServer#Info",
+					Data = new JObject
+					{
+						["ServiceName"] = this.ServiceName,
+						["SystemID"] = organization.ID
+					}
+				}.Send());
+			}
 		}
 
 		async Task ProcessCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
