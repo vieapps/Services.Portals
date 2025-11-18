@@ -100,7 +100,7 @@ namespace net.vieapps.Services.Portals
 
 		ConcurrentDictionary<string, JObject> CacheRebuildStatus { get; set; }
 
-		bool IsCacheBuilder { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Builder", "false"));
+		bool IsRequester { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Requester", "false"));
 		#endregion
 
 		#region Register/Start
@@ -133,7 +133,7 @@ namespace net.vieapps.Services.Portals
 							await Task.Delay(UtilityService.GetRandomNumber(234, 567)).ConfigureAwait(false);
 					}
 					this.RegisterCacheCommunicator();
-					if (this.IsCacheBuilder)
+					if (this.IsRequester)
 					{
 						this.CacheRebuildCommunicator?.Dispose();
 						this.CacheRebuildCommunicator = Router.IncomingChannel.Subscribe<CommunicateMessage>("messages.services.portals.cache.rebuild", this.ProcessCacheRebuildCommunicateMessageAsync);
@@ -264,10 +264,10 @@ namespace net.vieapps.Services.Portals
 				this.StartTimer(() => this.SendDefinitionInfo(), 12 * 60 * 60);
 
 				// re-load all orangizations/sites (once per day)
-				this.StartTimer(() => DateTime.Now.Hour == 4 ? this.ReloadOrganizationsAsync(this.IsCacheBuilder) : Task.CompletedTask, 60 * 61);
+				this.StartTimer(() => DateTime.Now.Hour == 4 ? this.ReloadOrganizationsAsync(this.IsRequester) : Task.CompletedTask, 60 * 61);
 
 				// reload all to rebuild cache (5 AM at every Monday)
-				if (this.IsCacheBuilder)
+				if (this.IsRequester)
 				{
 					var time = new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 5, 13, 13);
 					if (time < DateTime.Now)
@@ -5799,7 +5799,7 @@ namespace net.vieapps.Services.Portals
 				this.RebuildCacheCTS.Cancel();
 				this.RebuildCacheCTS.Dispose();
 				this.RebuildCacheCTS = null;
-				if (this.IsCacheBuilder)
+				if (this.IsRequester)
 				{
 					this.CacheRebuildStatus = null;
 					if (this.CacheRebuildMonitor != null)

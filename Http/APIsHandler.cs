@@ -267,7 +267,7 @@ namespace net.vieapps.Services.Portals
 			// visit logs
 			if (Global.IsVisitLogEnabled || isDebugLogEnabled)
 				await Global.WriteLogsAsync(Global.Logger, "Http.Visits",
-					$"Request starting {verb} " + $"/{serviceName.ToLower()}{(string.IsNullOrWhiteSpace(objectName) ? "" : $"/{objectName.ToLower()}")}{(string.IsNullOrWhiteSpace(objectIdentity) ? "" : $"/{objectIdentity}")}".ToLower() + (query.TryGetValue("x-request", out var xrequest) ? $"?x-request={xrequest}" : "") + " HTTPWS/1.1" + " \r\n" +
+					$"Request starting {verb} " + $"/~apis/{serviceName.ToLower()}{(string.IsNullOrWhiteSpace(objectName) ? "" : $"/{objectName.ToLower()}")}{(string.IsNullOrWhiteSpace(objectIdentity) ? "" : $"/{objectIdentity}")}".ToLower() + (query.TryGetValue("x-request", out var xrequest) ? $"?x-request={xrequest}" : "") + " HTTPWS/1.1" + " \r\n" +
 					$"- App: {session.AppName ?? "Unknown"} @ {session.AppPlatform ?? "Unknown"} [{session.AppAgent ?? "Unknown"}]" + " \r\n" +
 					$"- WebSocket: {websocket.ID} @ {websocket.RemoteEndPoint}"
 				, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
