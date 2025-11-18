@@ -138,7 +138,7 @@ namespace net.vieapps.Services.Portals
 				var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", context.Request.QueryString.ToDictionary(), headers, null, null, context.GetCorrelationID());
 				var identifyJson = await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
 				if (!McpHandler.Settings.TryGetValue(identifyJson.Get<string>("ID"), out mcpSettings))
-					throw new NotImplementedException("Not available");
+					throw new ServiceNotFoundException("Service is unavailable");
 
 				if (string.IsNullOrWhiteSpace(mcpSettings.Name))
 					mcpSettings.Name = $"{identifyJson.Get<string>("Alias")}-mcp";
@@ -332,7 +332,7 @@ namespace net.vieapps.Services.Portals
 			var resourceTemplates = new JArray();
 			mcpSettings.Resources.ForEach(mcpResource => resourceTemplates.Add(new JObject
 			{
-				["uriTemplate"] = $"{mcpResource.ServiceName}://{mcpResource.Name}" + "{id}",
+				["uriTemplate"] = $"{mcpResource.ServiceName.ToLower()}://{mcpResource.Name}" + "{id}",
 				["name"] = mcpResource.Name,
 				["title"] = mcpResource.Title,
 				["description"] = mcpResource.Description,
@@ -371,7 +371,7 @@ namespace net.vieapps.Services.Portals
 					result.Select(resource => resource as JObject).ToList().ForEach(resource =>
 					{
 						var id = resource.Get<string>("ID") ?? resource.Get<string>("Id") ?? resource.Get<string>("id");
-						var uri = $"{mcpResource.ServiceName}://{mcpResource.Name}/{id}";
+						var uri = $"{mcpResource.ServiceName.ToLower()}://{mcpResource.Name}/{id}";
 						var name = $"{mcpResource.Name}/{id}";
 						var title = resource.Get<string>("Title") ?? resource.Get<string>("title");
 						var description = resource.Get<string>("Description") ?? resource.Get<string>("description") ?? resource.Get<string>("Summary") ?? resource.Get<string>("summary");
@@ -503,27 +503,40 @@ namespace net.vieapps.Services.Portals
 				errorCode = -32601;
 			else if (exception is InvalidMcpParamsException)
 				errorCode = -32602;
+			else if (exception is ServiceNotFoundException)
+				errorCode = -32003;
 
-			context.WriteError
-			(
-				statusCode,
-				new JObject
+			var body = new JObject
+			{
+				["jsonrpc"] = "2.0",
+				["id"] = id,
+				["error"] = new JObject
 				{
-					["jsonrpc"] = "2.0",
-					["id"] = id,
-					["error"] = new JObject
-					{
-						["code"] = errorCode,
-						["message"] = message ?? exception.Message
-					}
-				},
-				new Dictionary<string, string>
+					["code"] = errorCode,
+					["message"] = message ?? exception.Message
+				}
+			};
+
+			var headers = context.Request.Headers.ContainsKey("Mcp-Session-Id")
+				? new Dictionary<string, string>
 				{
 					["Mcp-Session-Id"] = context.Request.Headers["Mcp-Session-Id"].ToString()
 				}
-			);
+				: null;
 
-			await context.WriteLogsAsync("MCP", message ?? exception.Message, exception, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+			try
+			{
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+				await Task.WhenAll
+				(
+					statusCode != (int)HttpStatusCode.OK ? Task.CompletedTask : context.WriteAsync(body, headers, cts.Token),
+					context.WriteLogsAsync("MCP", message ?? exception.Message, exception, Global.ServiceName, LogLevel.Error)
+				).ConfigureAwait(false);
+				if (statusCode != (int)HttpStatusCode.OK)
+					context.WriteError(statusCode, body, headers);
+			}
+			catch { }
+
 			if (Global.IsVisitLogEnabled)
 				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 		}
@@ -573,7 +586,7 @@ namespace net.vieapps.Services.Portals
 				["result"] = result
 			};
 			additional?.ForEach(kvp => response[kvp.Key] = kvp.Value);
-			return context.WriteAsync(response,	new Dictionary<string, string> { ["Mcp-Session-Id"] = sessionID ?? context.Request.Headers["Mcp-Session-Id"].ToString() },	cancellationToken);
+			return context.WriteAsync(response,	new Dictionary<string, string> { ["Mcp-Session-Id"] = sessionID ?? context.Request.Headers["Mcp-Session-Id"].ToString() }, cancellationToken);
 		}
 
 		static Task<JToken> ProcessRequestAsync(this RequestInfo requestInfo, CancellationToken cancellationToken)
