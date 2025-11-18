@@ -517,12 +517,13 @@ namespace net.vieapps.Services.Portals
 				}
 			};
 
-			var headers = context.Request.Headers.ContainsKey("Mcp-Session-Id")
-				? new Dictionary<string, string>
-				{
-					["Mcp-Session-Id"] = context.Request.Headers["Mcp-Session-Id"].ToString()
-				}
-				: null;
+			var headers = new Dictionary<string, string>
+			{
+				["X-Node"] = Global.NodeID,
+				["X-Correlation-ID"] = context.GetCorrelationID()
+			};
+			if (context.Request.Headers.ContainsKey("Mcp-Session-Id"))
+				headers["Mcp-Session-Id"] = context.Request.Headers["Mcp-Session-Id"].ToString();
 
 			try
 			{
