@@ -6748,5 +6748,37 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
+		public override async Task<JToken> ProcessMcpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		{
+			var stopwatch = Stopwatch.StartNew();
+			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Begin process MCP request ({requestInfo.GetURI()})", null, this.ServiceName, "MCP").ConfigureAwait(false);
+			try
+			{
+				JToken json = null;
+				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
+
+				if (requestInfo.Verb.IsEquals("capabilities"))
+				{
+					var organization = await (requestInfo.GetObjectIdentity(true) ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+					if (organization.McpSettings == null)
+						throw new InformationInvalidException();
+
+					json = organization.McpSettings.ToJson();
+				}
+
+				stopwatch.Stop();
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process MCP request completed - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs") ? $"\r\n\r\n- Request: {requestInfo.ToString(this.JsonFormat)}\r\n\r\n- Response: {json?.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "MCP").ConfigureAwait(false);
+				return json;
+			}
+			catch (RepositoryOperationException ex)
+			{
+				throw ex.InnerException is not OperationCanceledException ? this.GetRuntimeException(requestInfo, ex, stopwatch) : ex;
+			}
+			catch (Exception ex)
+			{
+				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
+			}
+		}
+
 	}
 }

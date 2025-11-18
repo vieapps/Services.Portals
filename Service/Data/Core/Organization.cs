@@ -196,7 +196,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore]
 		public List<Settings.ExamineURLs> ExamineURLs { get; set; }
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public McpSettings McpSettings { get; set; }
 
 		internal List<string> _siteIDs = null;
