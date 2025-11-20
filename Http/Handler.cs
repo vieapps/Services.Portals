@@ -1866,12 +1866,12 @@ namespace net.vieapps.Services.Portals
 	}
 
 
-	public class RequestStarter
+	public class Starter
 	{
 		readonly RequestDelegate NextAsync;
 		readonly string AllowMethods;
 
-		public RequestStarter(RequestDelegate next, string allowMethods = null)
+		public Starter(RequestDelegate next, string allowMethods = null)
 		{
 			this.NextAsync = next;
 			this.AllowMethods = allowMethods;
@@ -1895,6 +1895,7 @@ namespace net.vieapps.Services.Portals
 				{
 					var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 					{
+						["X-Node"] = Global.NodeID,
 						["Access-Control-Allow-Methods"] = this.AllowMethods ?? "GET,POST"
 					};
 					if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))

@@ -135,10 +135,10 @@ namespace net.vieapps.Services.Portals
 			appBuilder.Map("/~apis", branch => branch.UseWebSockets(new WebSocketOptions
 			{
 				KeepAliveInterval = APIsHandler.WebSocket.KeepAliveInterval
-			}).UseMiddleware<RequestStarter>("HEAD,GET,POST,PUT,PATCH,DELETE").UseMiddleware<Authenticator>().UseMiddleware<APIsHandler>());
+			}).UseMiddleware<Starter>("HEAD,GET,POST,PUT,PATCH,DELETE").UseMiddleware<Authenticator>(true, true).UseMiddleware<APIsHandler>());
 
 			// setup middlewares of MCP pipeline
-			appBuilder.Map("/~mcp", branch => branch.UseMiddleware<RequestStarter>().UseMiddleware<Authenticator>().UseMiddleware<McpHandler>());
+			appBuilder.Map("/~mcp", branch => branch.UseMiddleware<Starter>().UseMiddleware<Authenticator>(true, true).UseMiddleware<McpHandler>());
 
 			// setup middlewares of main pipeline
 			appBuilder
@@ -149,7 +149,7 @@ namespace net.vieapps.Services.Portals
 				{
 					KeepAliveInterval = APIsHandler.WebSocket.KeepAliveInterval
 				})
-				.UseMiddleware<RequestStarter>()
+				.UseMiddleware<Starter>()
 				.UseMiddleware<Authenticator>()
 				.UseMiddleware<Handler>();
 
