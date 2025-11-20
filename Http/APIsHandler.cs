@@ -193,17 +193,13 @@ namespace net.vieapps.Services.Portals
 
 		public static async Task ProcessAPIsRequestAsync(this ManagedWebSocket websocket, WebSocketReceiveResult result, byte[] data)
 		{
-			// receive continuous messages
+			// prepare the request
 			object requestMsg;
 			if (!result.EndOfMessage)
 			{
 				websocket.Extra["Message"] = websocket.Extra.TryGetValue("Message", out requestMsg) ? (requestMsg as byte[]).Concat(data) : data;
 				return;
 			}
-
-			// last message or single small message
-			var stopwatch = Stopwatch.StartNew();
-			var correlationID = UtilityService.NewUUID;
 
 			if (websocket.Extra.TryGetValue("Message", out requestMsg))
 			{
@@ -213,8 +209,10 @@ namespace net.vieapps.Services.Portals
 			else
 				requestMsg = data;
 
-			// prepare the request
+			var stopwatch = Stopwatch.StartNew();
+			var correlationID = UtilityService.NewUUID;
 			JToken requestJson = null;
+
 			try
 			{
 				requestJson = (requestMsg as byte[])?.GetString()?.ToJSON();
@@ -249,60 +247,8 @@ namespace net.vieapps.Services.Portals
 			// process the request
 			try
 			{
-				// register/authenticate a session
-				if (serviceName.IsEquals("Session") && (verb.IsEquals("REG") || verb.IsEquals("AUTH")))
-				{
-					session.AppName = header.TryGetValue("x-app-name", out var appName) && !string.IsNullOrWhiteSpace(appName) ? appName : session.AppName;
-					session.AppPlatform = header.TryGetValue("x-app-platform", out var appPlatform) && !string.IsNullOrWhiteSpace(appPlatform) ? appPlatform : session.AppPlatform;
-
-					if (verb.IsEquals("REG"))
-					{
-						session.DeviceID = header.TryGetValue("x-device-id", out var deviceID) && !string.IsNullOrWhiteSpace(deviceID) ? deviceID : string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
-						websocket.Set("Status", "Registered");
-						if (Handler.TrackSessions)
-							session.SendSessionState("Users", "REG /session", true, Handler.TrackAPISessions);
-					}
-
-					else
-					{
-						var appToken = body?.Get<string>("x-app-token") ?? "";
-						await Global.UpdateWithAuthenticateTokenAsync(session, appToken, Handler.ExpiresAfter, null, null, null, Global.Logger, "Authentications", correlationID).ConfigureAwait(false);
-						if (!string.IsNullOrWhiteSpace(session.User.ID) && !await session.IsSessionExistAsync(Global.Logger, "Authentications", correlationID).ConfigureAwait(false))
-							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
-
-						var encryptionKey = session.GetEncryptionKey(Global.EncryptionKey);
-						var encryptionIV = session.GetEncryptionIV(Global.EncryptionKey);
-
-						if (!header.TryGetValue("x-session-id", out var sessionID) || !sessionID.Decrypt(encryptionKey, encryptionIV).Equals(session.GetEncryptedID()))
-						{
-							if (Global.IsDebugLogEnabled)
-								await Global.WriteLogsAsync(Global.Logger, "Authentications", $"The session identity is invalid [{session.GetEncryptedID()} != {(sessionID ?? "").Decrypt(encryptionKey, encryptionIV)}]", null, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
-							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
-						}
-
-						if (!header.TryGetValue("x-device-id", out var deviceID) || !deviceID.Decrypt(encryptionKey, encryptionIV).Equals(session.DeviceID))
-						{
-							if (Global.IsDebugLogEnabled)
-								await Global.WriteLogsAsync(Global.Logger, "Authentications", $"The device identity is invalid [{session.DeviceID} != {(deviceID ?? "").Decrypt(encryptionKey, encryptionIV)}]", null, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
-							throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
-						}
-
-						session.AppName = body?.Get<string>("x-app-name") ?? session.AppName;
-						session.AppPlatform = body?.Get<string>("x-app-platform") ?? session.AppPlatform;
-						websocket.Set("Status", "Authenticated");
-						websocket.Set("Token", JSONWebToken.DecodeAsJson(appToken, Global.JWTKey));
-					}
-
-					websocket.Set("Session", session);
-					await websocket.PrepareConnectionInfoAsync(correlationID, session, Global.CancellationToken, Global.Logger).ConfigureAwait(false);
-					if (Handler.TrackSessions)
-						session.SendSessionState("Users", "AUTH /session", true, Handler.TrackAPISessions);
-					if (Global.IsDebugLogEnabled)
-						await Global.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully {(verb.IsEquals("REG") ? "register" : "authenticate")} a WebSocket connection\r\n{websocket.GetConnectionInfo(session)}\r\n- Status: {websocket.Get<string>("Status")}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
-				}
-
 				// send communicate message
-				else if ("CommunicateMessage".IsEquals(requestJson.Get<string>("Type")))
+				if ("CommunicateMessage".IsEquals(requestJson.Get<string>("Type")))
 				{
 					var messages = new List<CommunicateMessage>();
 					if (serviceName.IsEquals("Files") && objectName.IsEquals("PrepareCache"))
@@ -372,8 +318,9 @@ namespace net.vieapps.Services.Portals
 
 					var response = new JObject
 					{
+						["Data"] = await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false),
 						["Type"] = $"{requestInfo.ServiceName}#{requestInfo.ObjectName}#{verb.GetCapitalizedFirstLetter()}",
-						["Data"] = await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)
+						["CorrelationID"] = correlationID
 					};
 					if (!string.IsNullOrWhiteSpace(requestID))
 						response["ID"] = requestID;
@@ -385,26 +332,26 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
+				var code = ex.GetHttpStatusCode();
+				var message = ex.Message;
+				var type = ex.GetTypeName(true);
+				var stacks = ex.GetStacks();
+				if (ex is WampException wampException)
+				{
+					var wampDetails = wampException.GetDetails();
+					code = wampDetails.Code;
+					message = wampDetails.Message;
+					type = wampDetails.Type;
+					stacks = new JArray { wampDetails.Stack };
+					var inner = wampDetails.InnerJSON;
+					while (inner != null)
+					{
+						stacks.Add($"{inner.Get<string>("Message")} [{inner.Get<string>("Type")}] {inner.Get<string>("StackTrace")}");
+						inner = inner.Get<JObject>("InnerException");
+					}
+				}
 				try
 				{
-					var code = ex.GetHttpStatusCode();
-					var message = ex.Message;
-					var type = ex.GetTypeName(true);
-					var stacks = ex.GetStacks();
-					if (ex is WampException wampException)
-					{
-						var wampDetails = wampException.GetDetails();
-						code = wampDetails.Code;
-						message = wampDetails.Message;
-						type = wampDetails.Type;
-						stacks = new JArray { wampDetails.Stack };
-						var inner = wampDetails.InnerJSON;
-						while (inner != null)
-						{
-							stacks.Add($"{inner.Get<string>("Message")} [{inner.Get<string>("Type")}] {inner.Get<string>("StackTrace")}");
-							inner = inner.Get<JObject>("InnerException");
-						}
-					}
 					var response = new JObject
 					{
 						{ "ID", requestID },
@@ -428,13 +375,11 @@ namespace net.vieapps.Services.Portals
 				{
 					await Global.WriteLogsAsync(Global.Logger, "APIs", $"Cannot send an error to client via WebSocket => {exception.Message}", exception, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 				}
+				await Global.WriteLogsAsync(Global.Logger, "APIs", message, ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 			}
-			finally
-			{
-				stopwatch.Stop();
-				if (Global.IsVisitLogEnabled || isDebugLogEnabled)
-					await Global.WriteLogsAsync(Global.Logger, "Http.Visits", $"Request finished in {stopwatch.GetElapsedTimes()}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
-			}
+
+			if (Global.IsVisitLogEnabled || isDebugLogEnabled)
+				await Global.WriteLogsAsync(Global.Logger, "Http.Visits", $"Request finished in {stopwatch.GetElapsedTimes()}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 		}
 	}
 }
