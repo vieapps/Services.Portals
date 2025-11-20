@@ -22,34 +22,17 @@ namespace net.vieapps.Services.Portals
 	{
 		public McpHandler(RequestDelegate _) { }
 
-		public Task Invoke(HttpContext context)
+		public async Task Invoke(HttpContext context)
 		{
-			// CORS: allow origin
-			context.Response.Headers.AccessControlAllowOrigin = "*";
-
-			// CORS: options
-			if (context.Request.Method.IsEquals("OPTIONS"))
-			{
-				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					["Access-Control-Allow-Methods"] = "GET,POST"
-				};
-				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
-					headers["Access-Control-Allow-Headers"] = requestHeaders;
-				context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
-				return Task.CompletedTask;
-			}
-
-			// requests of the APIs
-			if (context.IsBlackIP(context.GetRemoteIPAddress()))
-			{
-				context.SetResponseHeaders((int)HttpStatusCode.Forbidden);
-				return Task.CompletedTask;
-			}
-
-			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
-			return context.ProcessMcpRequestAsync();
+			await this.ProcessRequestAsync(context).ConfigureAwait(false);
+			if (!context.Request.Method.IsEquals("OPTIONS") && !context.WebSockets.IsWebSocketRequest && Global.IsVisitLogEnabled)
+				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 		}
+
+		Task ProcessRequestAsync(HttpContext context)
+			=> context.Request.Method.IsEquals("OPTIONS")
+				? Task.CompletedTask
+				: context.ProcessMcpRequestAsync();
 
 		internal static ConcurrentDictionary<string, Settings.McpSettings> Settings { get; } = new();
 
@@ -115,9 +98,6 @@ namespace net.vieapps.Services.Portals
 				await context.ShowErrorAsync(new MethodNotAllowedException()).ConfigureAwait(false);
 				return;
 			}
-
-			if (Global.IsVisitLogEnabled)
-				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
 
 			// prepare
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
@@ -230,9 +210,6 @@ namespace net.vieapps.Services.Portals
 
 				else if (!mcpMethod.IsStartsWith("notifications/"))
 					throw new NotImplementedException();
-
-				if (Global.IsVisitLogEnabled)
-					await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 			}
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
@@ -458,21 +435,31 @@ namespace net.vieapps.Services.Portals
 		{
 			var serviceName = message.Data.Get<string>("ServiceName");
 			var systemID = message.Data.Get<string>("SystemID");
-
+			var correlationID = UtilityService.NewUUID;
 			try
 			{
-				var requestInfo = new RequestInfo(Global.GetSession(), serviceName, "", "capabilities", new Dictionary<string, string> { ["object-identity"] = systemID }, null, null, null, Global.GetCorrelationID());
+				var session = Global.GetSession();
+				var query = new Dictionary<string, string>
+				{
+					["object-identity"] = systemID
+				};
+				var header = new Dictionary<string, string>
+				{
+					["x-requester"] = "vieapps-ngx-portals"
+				};
+				var requestInfo = new RequestInfo(session, serviceName, "", "capabilities", query, header, null, null, correlationID);
 				var settings = (await requestInfo.ProcessRequestAsync(Global.CancellationToken).ConfigureAwait(false)).As<Settings.McpSettings>();
 				settings.UpdateInfo(serviceName, systemID);
 			}
 			catch (Exception ex)
 			{
-				await Global.WriteLogsAsync("MCP", $"Cannot gathering info [{serviceName}/{systemID}]=> {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				await Global.WriteLogsAsync("MCP", $"Cannot gathering info [{serviceName}/{systemID}] => {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 			}
 		}
 
-		public static void UpdateInfo(this Settings.McpSettings settings, string serviceName, string systemID)
+		public static void UpdateInfo(this Settings.McpSettings settings, string serviceName, string systemID, string correlationID = null)
 		{
+			correlationID ??= UtilityService.NewUUID;
 			if (string.IsNullOrWhiteSpace(systemID) || !systemID.IsEquals(settings.SystemID) || settings.Resources == null || settings.Resources.Count < 1)
 				return;
 
@@ -496,6 +483,8 @@ namespace net.vieapps.Services.Portals
 				mcpResource.CopyFrom(resource);
 				mcpResource.ServiceName = serviceName;
 			});
+
+			Global.WriteLogs("MCP", $"Success gathering info [{serviceName}/{systemID}]", null, Global.ServiceName, LogLevel.Information, correlationID);
 		}
 
 		static async Task ShowErrorAsync(this HttpContext context, Exception exception, string id = null, string message = null)
@@ -551,9 +540,6 @@ namespace net.vieapps.Services.Portals
 					context.WriteError(statusCode, body, headers);
 			}
 			catch { }
-
-			if (Global.IsVisitLogEnabled)
-				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 		}
 
 		static async Task ShowErrorAsync(this HttpContext context, string id, Exception exception, CancellationToken cancellationToken)

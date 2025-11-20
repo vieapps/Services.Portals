@@ -27,6 +27,13 @@ namespace net.vieapps.Services.Portals
 	{
 		public Handler(RequestDelegate _) { }
 
+		public async Task Invoke(HttpContext context)
+		{
+			await this.ProcessRequestAsync(context).ConfigureAwait(false);
+			if (!context.Request.Method.IsEquals("OPTIONS") && !context.WebSockets.IsWebSocketRequest && Global.IsVisitLogEnabled)
+				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+		}
+
 		#region Properties
 		static HashSet<string> Validators { get; } = "_validator,validator.aspx".ToHashSet();
 
@@ -79,9 +86,9 @@ namespace net.vieapps.Services.Portals
 		static string FilesHttpURI { get; } = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
 		#endregion
 
-		public Task Invoke(HttpContext context)
+		Task ProcessRequestAsync(HttpContext context)
 		{
-			// request of WebSocket
+			// WebSocket
 			if (context.WebSockets.IsWebSocketRequest)
 				return Task.WhenAll
 				(
@@ -89,64 +96,25 @@ namespace net.vieapps.Services.Portals
 					APIsHandler.WebSocket.WrapAsync(context)
 				);
 
-			// CORS: allow origin
-			context.Response.Headers.AccessControlAllowOrigin = "*";
-
-			// CORS: options
+			// CORS options
 			if (context.Request.Method.IsEquals("OPTIONS"))
-			{
-				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					["Access-Control-Allow-Methods"] = "HEAD,GET,POST,PUT,PATCH"
-				};
-				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
-					headers["Access-Control-Allow-Headers"] = requestHeaders;
-				context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
 				return Task.CompletedTask;
-			}
 
-			// health check
+			// load balancer
 			if (context.Request.Path.Value.IsEquals(Handler.LoadBalancerHealthCheckURL))
 				return context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken);
 
-			// requests of the service
-			if (context.IsBlackIP(context.GetRemoteIPAddress()))
-			{
-				context.SetResponseHeaders((int)HttpStatusCode.Forbidden);
-				return Task.CompletedTask;
-			}
-			return this.ProcessHttpRequestAsync(context);
-		}
-
-		async Task ProcessHttpRequestAsync(HttpContext context)
-		{
-			// prepare
-			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
+			// HTTP
 			var requestURI = context.GetRequestUri();
 			var requestSegments = requestURI.GetRequestPathSegments();
 			var requestPath = requestSegments.First().ToLower();
-
-			if (Global.IsVisitLogEnabled)
-				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
-
-			// request to favicon.ico file
-			if (requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(Handler.PortalsHttpHost))
-				await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
-
-			// request to static segments
-			else if (Global.StaticSegments.Contains(requestPath))
-				await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
-
-			// request to APIs discovery
-			else if (".well-known".IsEquals(requestPath))
-				await context.ProcessAPIsRequestAsync(requestSegments).ConfigureAwait(false);
-
-			// request to portal desktops/resources
-			else
-				await this.ProcessPortalRequestAsync(context).ConfigureAwait(false);
-
-			if (Global.IsVisitLogEnabled)
-				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+			return requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(Handler.PortalsHttpHost)
+				? context.ProcessFavouritesIconFileRequestAsync()
+				: Global.StaticSegments.Contains(requestPath)
+					? context.ProcessStaticFileRequestAsync()
+					: ".well-known".IsEquals(requestPath)
+						? context.ProcessAPIsRequestAsync(requestSegments)
+						: this.ProcessPortalRequestAsync(context);
 		}
 
 		async Task ProcessPortalRequestAsync(HttpContext context)
@@ -165,7 +133,7 @@ namespace net.vieapps.Services.Portals
 				await context.WriteLogsAsync("Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod}: {requestURI}]").ConfigureAwait(false);
 
 			// process L1-Cache first
-			if (await this.ProcessL1CacheAsync(context, stopwatch).ConfigureAwait(false))
+			if (await this.ProcessPortalL1CacheAsync(context, stopwatch).ConfigureAwait(false))
 				return;
 
 			// gathering the requesting information
@@ -692,7 +660,7 @@ namespace net.vieapps.Services.Portals
 								context.SetResponseHeaders((int)HttpStatusCode.NotModified, headers);
 
 								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
-									this.SetL1Cache(context, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, cacheKey);
+									this.SetPortalL1Cache(context, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, cacheKey);
 
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag}/{lastModified}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
@@ -739,7 +707,7 @@ namespace net.vieapps.Services.Portals
 								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
 
 								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
-									this.SetL1Cache(context, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, cacheKey);
+									this.SetPortalL1Cache(context, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, cacheKey);
 
 								stepwatch.Stop();
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
@@ -806,7 +774,7 @@ namespace net.vieapps.Services.Portals
 								baseURL = $"{(portalsHttpURI.IsEndsWith(siteURI) ? portalsHttpURI : Handler.PortalsHttpURI)}/~{organizationAlias}/";
 								rootURL = "";
 							}
-							this.SetL1Cache(context, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID());
+							this.SetPortalL1Cache(context, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID());
 						}
 
 						stepwatch.Stop();
@@ -946,7 +914,7 @@ namespace net.vieapps.Services.Portals
 				await context.WriteLogsAsync("Http.Process.Requests", $"Done process a request of CMS Portals - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 		}
 
-		async Task<bool> ProcessL1CacheAsync(HttpContext context, Stopwatch stopwatch)
+		async Task<bool> ProcessPortalL1CacheAsync(HttpContext context, Stopwatch stopwatch)
 		{
 			if (!Handler.Cache.UseL1Cache || context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache") || context.ContainsKey("x-sliding-cache"))
 				return false;
@@ -1034,7 +1002,7 @@ namespace net.vieapps.Services.Portals
 			return true;
 		}
 
-		void SetL1Cache(HttpContext context, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL, string rootURL, string portalsHttpURI, string filesHttpURI, Dictionary<string, string> headers, string cacheKey)
+		void SetPortalL1Cache(HttpContext context, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL, string rootURL, string portalsHttpURI, string filesHttpURI, Dictionary<string, string> headers, string cacheKey)
 		{
 			if (!Handler.Cache.UseL1Cache)
 				return;
@@ -1894,6 +1862,57 @@ namespace net.vieapps.Services.Portals
 
 			else if (message.Type.IsEquals("McpServer#ClearInfo"))
 				McpHandler.Settings.Clear();
+		}
+	}
+
+
+	public class RequestStarter
+	{
+		readonly RequestDelegate NextAsync;
+		readonly string AllowMethods;
+
+		public RequestStarter(RequestDelegate next, string allowMethods = null)
+		{
+			this.NextAsync = next;
+			this.AllowMethods = allowMethods;
+		}
+
+		public async Task Invoke(HttpContext context)
+		{
+			// black IPs
+			if (context.IsBlackIP(context.GetRemoteIPAddress()))
+			{
+				context.SetResponseHeaders((int)HttpStatusCode.Forbidden);
+				return;
+			}
+
+			// HTTP request
+			if (!context.WebSockets.IsWebSocketRequest)
+			{
+				// CORS options
+				context.Response.Headers.AccessControlAllowOrigin = "*";
+				if (context.Request.Method.IsEquals("OPTIONS"))
+				{
+					var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+					{
+						["Access-Control-Allow-Methods"] = this.AllowMethods ?? "GET,POST"
+					};
+					if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
+						headers["Access-Control-Allow-Headers"] = requestHeaders;
+					context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
+				}
+
+				// visit logs
+				else
+				{
+					context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
+					if (Global.IsVisitLogEnabled)
+						await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
+				}
+			}
+
+			// next step
+			await this.NextAsync(context).ConfigureAwait(false);
 		}
 	}
 

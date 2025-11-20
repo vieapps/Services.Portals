@@ -28,42 +28,23 @@ namespace net.vieapps.Services.Portals
 	{
 		public APIsHandler(RequestDelegate _) { }
 
-		public Task Invoke(HttpContext context)
+		public async Task Invoke(HttpContext context)
 		{
-			// request of WebSocket
-			if (context.WebSockets.IsWebSocketRequest)
-				return Task.WhenAll
+			await this.ProcessRequestAsync(context).ConfigureAwait(false);
+			if (!context.Request.Method.IsEquals("OPTIONS") && !context.WebSockets.IsWebSocketRequest && Global.IsVisitLogEnabled)
+				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+		}
+
+		Task ProcessRequestAsync(HttpContext context)
+			=> context.WebSockets.IsWebSocketRequest
+				? Task.WhenAll
 				(
 					Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "APIs", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled || context.ContainsKey("x-logs") ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
 					APIsHandler.WebSocket.WrapAsync(context)
-				);
-
-			// CORS: allow origin
-			context.Response.Headers.AccessControlAllowOrigin = "*";
-
-			// CORS: options
-			if (context.Request.Method.IsEquals("OPTIONS"))
-			{
-				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					["Access-Control-Allow-Methods"] = "HEAD,GET,POST,PUT,PATCH,DELETE"
-				};
-				if (context.Request.Headers.TryGetValue("Access-Control-Request-Headers", out var requestHeaders))
-					headers["Access-Control-Allow-Headers"] = requestHeaders;
-				context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
-				return Task.CompletedTask;
-			}
-
-			// requests of the APIs
-			if (context.IsBlackIP(context.GetRemoteIPAddress()))
-			{
-				context.SetResponseHeaders((int)HttpStatusCode.Forbidden);
-				return Task.CompletedTask;
-			}
-
-			context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
-			return context.ProcessAPIsRequestAsync();
-		}
+				)
+				: context.Request.Method.IsEquals("OPTIONS")
+					? Task.CompletedTask
+					: context.ProcessAPIsRequestAsync();
 
 		internal static Components.WebSockets.WebSocket WebSocket { get; } = new(Logger.GetLoggerFactory(), Global.CancellationToken)
 		{
@@ -79,10 +60,6 @@ namespace net.vieapps.Services.Portals
 	{
 		public static async Task ProcessAPIsRequestAsync(this HttpContext context, string[] requestSegments = null)
 		{
-			var writeVisitLog = Global.IsVisitLogEnabled && requestSegments == null;
-			if (writeVisitLog)
-				await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
-
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 			requestSegments ??= context.GetRequestPathSegments().Skip(1).ToArray();
@@ -191,9 +168,6 @@ namespace net.vieapps.Services.Portals
 			{
 				context.WriteError(Global.Logger, ex, requestInfo, $"Error occurred while calling a service => {ex.Message}", true, "APIs");
 			}
-
-			if (writeVisitLog)
-				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 		}
 
 		public static Task PrepareAPIsAsync(this ManagedWebSocket websocket)
