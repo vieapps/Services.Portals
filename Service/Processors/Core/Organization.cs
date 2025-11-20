@@ -855,7 +855,7 @@ namespace net.vieapps.Services.Portals
 				new CommunicateMessage("APIGateway")
 				{
 					Type = "McpServer#UpdateInfo",
-					Data = organization.McpSettings.ToJson(json =>
+					Data = organization.McpSettings.ToJSON(json =>
 					{
 						json["ServiceName"] = Utility.ServiceName;
 						json["SystemID"] = organization.ID;

@@ -1775,16 +1775,19 @@ namespace net.vieapps.Services.Portals
 					{
 						while (Router.IncomingChannel == null)
 							await Task.Delay(UtilityService.GetRandomNumber(13, 123), Global.CancellationToken).ConfigureAwait(false);
+
 						new CommunicateMessage(Global.ServiceName)
 						{
 							Type = "BlackIPs#Sync",
 							ExcludedNodeID = Global.NodeID
 						}.Send();
+
 						new CommunicateMessage(Global.ServiceName)
 						{
 							Type = "HarmfulIPs#Sync",
 							ExcludedNodeID = Global.NodeID
 						}.Send();
+
 						new CommunicateMessage("APIGateway")
 						{
 							Type = "McpServer#RequestInfo"
@@ -1856,7 +1859,9 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEquals("McpServer#UpdateInfo"))
 				try
 				{
-					message.Data.As<Settings.McpSettings>().UpdateInfo(message.Data.Get<string>("ServiceName"), message.Data.Get<string>("SystemID"));
+					var serviceName = message.Data.Get<string>("ServiceName");
+					var systemID = message.Data.Get<string>("SystemID");
+					message.Data.As<Settings.McpSettings>(true, (mcpSettings, _) => mcpSettings.SystemID = systemID).UpdateInfo(serviceName, systemID);
 				}
 				catch { }
 

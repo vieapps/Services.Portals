@@ -6760,7 +6760,7 @@ namespace net.vieapps.Services.Portals
 				if (requestInfo.Verb.IsEquals("capabilities"))
 				{
 					var organization = await (requestInfo.GetObjectIdentity(true) ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false) ?? throw new InformationNotFoundException();
-					json = organization.McpSettings?.ToJson(mcpSettings => mcpSettings["SystemID"] = organization.ID) ?? throw new InformationInvalidException();
+					json = organization.McpSettings?.ToJSON(mcpSettings => mcpSettings["SystemID"] = organization.ID) ?? throw new InformationInvalidException();
 				}
 
 				stopwatch.Stop();

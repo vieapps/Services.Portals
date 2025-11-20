@@ -601,13 +601,13 @@ namespace net.vieapps.Services.Portals.Settings
 		public McpSettings Normalize()
 			=> this.Resources == null || this.Resources.Count < 1 ? null : this;
 
-		public JObject ToJson(Action<JObject> onCompleted)
+		public JObject ToJSON(Action<JObject> onCompleted = null)
 		{
-			var json = this.ToJson((JToken token) => { }) as JObject;
-			json.Get<JObject>("Resource")?.ForEach(token =>
+			var json = new JObject
 			{
-				new[] { "ContentTypeID", "ExpressionID", "CategoryID", "AllowStatus" }.ForEach(name => (token as JObject).Remove(name));
-			});
+				["Instructions"] = this.Instructions,
+				["Resources"] = this.Resources.Select(resource => resource.ToJSON()).ToJArray()
+			};
 			onCompleted?.Invoke(json);
 			return json;
 		}
@@ -664,6 +664,19 @@ namespace net.vieapps.Services.Portals.Settings
 			/// Gets or Sets the collection of available tools
 			/// </summary>
 			public List<Tool> Tools { get; set; }
+
+			public JObject ToJSON(Action<JObject> onCompleted = null)
+			{
+				var json = new JObject
+				{
+					["Name"] = this.Name,
+					["Title"] = this.Title,
+					["Description"] = this.Description,
+					["Tools"] = this.Tools.Select(tool => tool.ToJSON()).ToJArray()
+				};
+				onCompleted?.Invoke(json);
+				return json;
+			}
 		}
 
 		/// <summary>
@@ -692,6 +705,19 @@ namespace net.vieapps.Services.Portals.Settings
 			/// Gets or Sets the JSON schema of tool
 			/// </summary>
 			public JObject Schema { get; set; }
+
+			public JObject ToJSON(Action<JObject> onCompleted = null)
+			{
+				var json = new JObject
+				{
+					["Name"] = this.Name,
+					["Title"] = this.Title,
+					["Description"] = this.Description,
+					["Schema"] = this.Schema,
+				};
+				onCompleted?.Invoke(json);
+				return json;
+			}
 		}
 	}
 
