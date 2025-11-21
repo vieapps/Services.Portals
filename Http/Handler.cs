@@ -1792,6 +1792,7 @@ namespace net.vieapps.Services.Portals
 						{
 							Type = "McpServer#RequestInfo"
 						}.Send();
+						McpHandler.SyncSessionInfo();
 					}
 					catch { }
 				},
@@ -1845,6 +1846,8 @@ namespace net.vieapps.Services.Portals
 				Handler.TrackSessions = false;
 			else if (message.Type.IsEquals("Sessions#Track#Enable"))
 				Handler.TrackSessions = true;
+			else if (message.Type.IsEquals("McpServer#SessionInfo"))
+				message.UpdateSessionInfo();
 			return Task.CompletedTask;
 		}
 
