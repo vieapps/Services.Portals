@@ -33,13 +33,16 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
+		internal static void SyncSessionInfo()
+			=> McpHandlerExtensions.SyncSessionInfo();
+
+		#region Properties
 		internal static ConcurrentDictionary<string, Settings.McpSettings> Settings { get; } = new ConcurrentDictionary<string, Settings.McpSettings>(StringComparer.OrdinalIgnoreCase);
 
 		internal static ConcurrentDictionary<string, (string SessionID, string IP, long LastActivity)> Sessions { get; } = new ConcurrentDictionary<string, (string SessionID, string IP, long LastActivity)>(StringComparer.OrdinalIgnoreCase);
 
 		internal static List<string> SupportedProtocols { get; } = new() { "2025-06-18" };
-
-		internal static void SyncSessionInfo() => McpHandlerExtensions.SyncSessionInfo();
+		#endregion
 
 		#region Exceptions
 		public class MalformedMcpRequestException : AppException
@@ -129,13 +132,17 @@ namespace net.vieapps.Services.Portals
 				var identifyJson = await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
 				var systemID = identifyJson.Get<string>("ID");
 				var alias = identifyJson.Get<string>("Alias");
-				await context.WriteLogsAsync("MCP", $"Process request [{systemID}/{alias}]").ConfigureAwait(false);
 
 				if (!McpHandler.Settings.TryGetValue(systemID, out mcpSettings))
 					throw new ServiceNotFoundException("Unavailable");
 
+				if (!mcpSettings.AllowAnonymous && !context.IsAuthenticated())
+					throw new AccessDeniedException("Anonymous is not allowed");
+
 				if (string.IsNullOrWhiteSpace(mcpSettings.Name))
 					mcpSettings.Name = $"{alias}-mcp";
+
+				await context.WriteLogsAsync("MCP", $"Start process request [{systemID}/{alias}]").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -234,7 +241,7 @@ namespace net.vieapps.Services.Portals
 				await context.ShowErrorAsync(ex, mcpRequestID).ConfigureAwait(false);
 			}
 
-			await context.WriteLogsAsync("MCP", $"Request is completed - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+			await context.WriteLogsAsync("MCP", $"End process request - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 		}
 
 		static Task ProcessInitializeRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
@@ -508,6 +515,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			mcpSettings.SystemID = systemID;
+			mcpSettings.AllowAnonymous = settings.AllowAnonymous;
 			mcpSettings.Instructions = settings.Instructions;
 			mcpSettings.Resources ??= new();
 			settings.Resources.ForEach(resource =>

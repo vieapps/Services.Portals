@@ -30,21 +30,22 @@ namespace net.vieapps.Services.Portals
 
 		public async Task Invoke(HttpContext context)
 		{
-			await this.ProcessRequestAsync(context).ConfigureAwait(false);
-			if (!context.Request.Method.IsEquals("OPTIONS") && !context.WebSockets.IsWebSocketRequest && Global.IsVisitLogEnabled)
-				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+			if (!context.Request.Method.IsEquals("OPTIONS"))
+			{
+				if (context.WebSockets.IsWebSocketRequest)
+					await Task.WhenAll
+					(
+						Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "APIs", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled || context.ContainsKey("x-logs") ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
+						APIsHandler.WebSocket.WrapAsync(context)
+					).ConfigureAwait(false);
+				else
+				{
+					await context.ProcessAPIsRequestAsync().ConfigureAwait(false);
+					if (Global.IsVisitLogEnabled)
+						await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+				}
+			}
 		}
-
-		Task ProcessRequestAsync(HttpContext context)
-			=> context.WebSockets.IsWebSocketRequest
-				? Task.WhenAll
-				(
-					Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "APIs", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled || context.ContainsKey("x-logs") ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
-					APIsHandler.WebSocket.WrapAsync(context)
-				)
-				: context.Request.Method.IsEquals("OPTIONS")
-					? Task.CompletedTask
-					: context.ProcessAPIsRequestAsync();
 
 		internal static Components.WebSockets.WebSocket WebSocket { get; } = new(Logger.GetLoggerFactory(), Global.CancellationToken)
 		{

@@ -6763,7 +6763,7 @@ namespace net.vieapps.Services.Portals
 				if (organization?.McpSettings != null)
 				{
 					if (requestInfo.Verb.IsEquals("capabilities"))
-						response = organization.McpSettings.ToJSON(mcpSettings => mcpSettings["SystemID"] = organization.ID);
+						response = organization.McpSettings.ToJSON(json => json["SystemID"] = organization.ID);
 					else
 					{
 						var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cts.Token).ConfigureAwait(false);

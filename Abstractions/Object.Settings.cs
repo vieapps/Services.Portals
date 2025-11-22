@@ -589,6 +589,11 @@ namespace net.vieapps.Services.Portals.Settings
 		public string SystemID { get; set; }
 
 		/// <summary>
+		/// Gets or Sets the state to allow anonymous
+		/// </summary>
+		public bool AllowAnonymous { get; set; } = false;
+
+		/// <summary>
 		/// Gets or Sets the instructions of the MCP server
 		/// </summary>
 		public string Instructions { get; set; }
@@ -656,7 +661,7 @@ namespace net.vieapps.Services.Portals.Settings
 			public string CategoryID { get; set; }
 
 			/// <summary>
-			/// Gets or Sets the state of publishing statue of resource (for using with default search tool)
+			/// Gets or Sets the state of publishing status of resource (for using with default search tool)
 			/// </summary>
 			public bool AllowStatus { get; set; } = false;
 

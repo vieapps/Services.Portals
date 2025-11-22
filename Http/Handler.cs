@@ -29,9 +29,12 @@ namespace net.vieapps.Services.Portals
 
 		public async Task Invoke(HttpContext context)
 		{
-			await this.ProcessRequestAsync(context).ConfigureAwait(false);
-			if (!context.Request.Method.IsEquals("OPTIONS") && !context.WebSockets.IsWebSocketRequest && Global.IsVisitLogEnabled)
-				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+			if (!context.Request.Method.IsEquals("OPTIONS"))
+			{
+				await this.ProcessRequestAsync(context).ConfigureAwait(false);
+				if (!context.WebSockets.IsWebSocketRequest && Global.IsVisitLogEnabled)
+					await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+			}
 		}
 
 		#region Properties
@@ -95,10 +98,6 @@ namespace net.vieapps.Services.Portals
 					Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "APIs", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
 					APIsHandler.WebSocket.WrapAsync(context)
 				);
-
-			// CORS options
-			if (context.Request.Method.IsEquals("OPTIONS"))
-				return Task.CompletedTask;
 
 			// load balancer
 			if (context.Request.Path.Value.IsEquals(Handler.LoadBalancerHealthCheckURL))
@@ -1877,6 +1876,9 @@ namespace net.vieapps.Services.Portals
 
 			else if (message.Type.IsEquals("McpServer#SessionInfo"))
 				message.UpdateSessionInfo();
+
+			else if (message.Type.IsEquals("McpServer#ClearSessionInfo"))
+				McpHandler.Sessions.Clear();
 		}
 	}
 
