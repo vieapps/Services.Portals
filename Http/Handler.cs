@@ -1792,7 +1792,10 @@ namespace net.vieapps.Services.Portals
 						{
 							Type = "McpServer#RequestInfo"
 						}.Send();
-						McpHandler.SyncSessionInfo();
+						new CommunicateMessage("APIGateway")
+						{
+							Type = "McpServer#SyncSession"
+						}.Send();
 					}
 					catch { }
 				},
@@ -1846,8 +1849,6 @@ namespace net.vieapps.Services.Portals
 				Handler.TrackSessions = false;
 			else if (message.Type.IsEquals("Sessions#Track#Enable"))
 				Handler.TrackSessions = true;
-			else if (message.Type.IsEquals("McpServer#SessionInfo"))
-				message.UpdateSessionInfo();
 			return Task.CompletedTask;
 		}
 
@@ -1870,9 +1871,14 @@ namespace net.vieapps.Services.Portals
 
 			else if (message.Type.IsEquals("McpServer#ClearInfo"))
 				McpHandler.Settings.Clear();
+
+			else if (message.Type.IsEquals("McpServer#SyncSession"))
+				McpHandler.SyncSessionInfo();
+
+			else if (message.Type.IsEquals("McpServer#SessionInfo"))
+				message.UpdateSessionInfo();
 		}
 	}
-
 
 	public class Starter
 	{

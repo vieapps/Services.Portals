@@ -2,19 +2,19 @@
 using System;
 using System.Net;
 using System.Linq;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using WampSharp.V2.Core.Contracts;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Utility;
-using static net.vieapps.Services.Portals.McpHandler;
 using net.vieapps.Components.Security;
+using static net.vieapps.Services.Portals.McpHandler;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -25,19 +25,19 @@ namespace net.vieapps.Services.Portals
 
 		public async Task Invoke(HttpContext context)
 		{
-			await this.ProcessRequestAsync(context).ConfigureAwait(false);
-			if (!context.Request.Method.IsEquals("OPTIONS") && Global.IsVisitLogEnabled)
-				await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+			if (!context.Request.Method.IsEquals("OPTIONS"))
+			{
+				await context.ProcessMcpRequestAsync().ConfigureAwait(false);
+				if (Global.IsVisitLogEnabled)
+					await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+			}
 		}
-
-		Task ProcessRequestAsync(HttpContext context)
-			=> context.Request.Method.IsEquals("OPTIONS")
-				? Task.CompletedTask
-				: context.ProcessMcpRequestAsync();
 
 		internal static ConcurrentDictionary<string, Settings.McpSettings> Settings { get; } = new ConcurrentDictionary<string, Settings.McpSettings>(StringComparer.OrdinalIgnoreCase);
 
-		internal static ConcurrentDictionary<string, (string SessionID, string IP)> Sessions { get; } = new ConcurrentDictionary<string, (string SessionID, string IP)>(StringComparer.OrdinalIgnoreCase);
+		internal static ConcurrentDictionary<string, (string SessionID, string IP, long LastActivity)> Sessions { get; } = new ConcurrentDictionary<string, (string SessionID, string IP, long LastActivity)>(StringComparer.OrdinalIgnoreCase);
+
+		internal static List<string> SupportedProtocols { get; } = new() { "2025-06-18" };
 
 		internal static void SyncSessionInfo() => McpHandlerExtensions.SyncSessionInfo();
 
@@ -115,32 +115,27 @@ namespace net.vieapps.Services.Portals
 				header["x-brief"] = "1";
 			});
 
-			if (!headers.TryGetValue("MCP-Protocol-Version", out var mcpProtocolVersion))
+			if (!headers.TryGetValue("MCP-Protocol-Version", out var mcpProtocolVersion) || McpHandler.SupportedProtocols.FirstOrDefault(version => version == mcpProtocolVersion) == null)
 			{
-				await context.ShowErrorAsync(new InvalidMcpProtocolException()).ConfigureAwait(false);
+				await context.ShowErrorAsync(new InvalidMcpProtocolException($"Protocol version ({mcpProtocolVersion}) is invalid - supported version(s): {McpHandler.SupportedProtocols.Join(", ")}")).ConfigureAwait(false);
 				return;
 			}
 
 			// identify the system
 			Settings.McpSettings mcpSettings;
+			var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", context.Request.QueryString.ToDictionary(), headers, null, null, context.GetCorrelationID());
 			try
 			{
-				var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", context.Request.QueryString.ToDictionary(), headers, null, null, context.GetCorrelationID());
 				var identifyJson = await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
 				var systemID = identifyJson.Get<string>("ID");
 				var alias = identifyJson.Get<string>("Alias");
 				await context.WriteLogsAsync("MCP", $"Process request [{systemID}/{alias}]").ConfigureAwait(false);
 
 				if (!McpHandler.Settings.TryGetValue(systemID, out mcpSettings))
-					throw new ServiceNotFoundException("Service is unavailable");
+					throw new ServiceNotFoundException("Unavailable");
 
 				if (string.IsNullOrWhiteSpace(mcpSettings.Name))
 					mcpSettings.Name = $"{alias}-mcp";
-
-				if (Handler.TrackSessions)
-					requestInfo.SendSessionState(Handler.TrackAPISessions);
-				else
-					requestInfo.TrackStatistics();
 			}
 			catch (Exception ex)
 			{
@@ -197,6 +192,12 @@ namespace net.vieapps.Services.Portals
 				return;
 			}
 
+			// track
+			if (Handler.TrackSessions)
+				requestInfo.SendSessionState(Handler.TrackAPISessions);
+			else
+				requestInfo.TrackStatistics();
+
 			// process the request
 			try
 			{
@@ -223,6 +224,9 @@ namespace net.vieapps.Services.Portals
 
 				else
 					throw new NotImplementedException();
+
+				if (!mcpInitializeStage)
+					context.GetSession().SendSessionInfo(mcpSessionID);
 			}
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
@@ -235,10 +239,12 @@ namespace net.vieapps.Services.Portals
 
 		static Task ProcessInitializeRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
 		{
+			var protocolVersion = context.GetParameter("MCP-Protocol-Version");
 			var sessionID = UtilityService.NewUUID;
+
 			var result = new JObject
 			{
-				["protocolVersion"] = context.Request.Headers["MCP-Protocol-Version"].ToString(),
+				["protocolVersion"] = protocolVersion,
 				["serverInfo"] = new JObject
 				{
 					["name"] = mcpSettings.Name,
@@ -250,6 +256,7 @@ namespace net.vieapps.Services.Portals
 					["resources"] = new JObject { ["listChanged"] = true }
 				}
 			};
+
 			var additional = string.IsNullOrWhiteSpace(mcpSettings.Instructions)
 				? null
 				: new JObject
@@ -257,22 +264,9 @@ namespace net.vieapps.Services.Portals
 					["instructions"] = mcpSettings.Instructions
 				};
 
-			var session = context.GetSession();
-			McpHandler.Sessions[sessionID] = (session.SessionID, session.IP);
+			context.GetSession().SendSessionInfo(sessionID);
 
-			new CommunicateMessage(Global.ServiceName)
-			{
-				ExcludedNodeID = Global.NodeID,
-				Type = "McpServer#SessionInfo",
-				Data = new JObject
-				{
-					["ID"] = sessionID,
-					["SessionID"] = session.SessionID,
-					["IP"] = session.IP
-				}
-			}.Send();
-
-			return context.ShowResultAsync(mcpRequest.Get<string>("id"), result, additional, sessionID, cancellationToken);
+			return context.ShowResultAsync(mcpRequest.Get<string>("id"), result, additional, protocolVersion, sessionID, cancellationToken);
 		}
 
 		static Task ProcessToolListRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
@@ -295,27 +289,30 @@ namespace net.vieapps.Services.Portals
 		static async Task ProcessToolCallRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
 		{
 			var mcpParams = mcpRequest.Get<JObject>("params");
-			var name = mcpParams?.Get<string>("name");
-			if (string.IsNullOrWhiteSpace(name))
+			var name = mcpParams?.Get<string>("name")?.ToArray(".");
+			if (name == null || name.Length != 2)
 				throw new InvalidMcpParamsException();
 
-			var resource = mcpSettings.Resources.FirstOrDefault(mcpResource => mcpResource.Name == name.ToArray(".").First());
-			if (resource == null)
+			var mcpResource = mcpSettings.Resources.FirstOrDefault(resource => resource.Name == name.First());
+			if (mcpResource == null)
 				throw new InvalidMcpMethodException();
 
-			name = name.ToArray(".").Last();
-			var tool = resource.Tools.FirstOrDefault(mcpTool => mcpTool.Name == name);
-			if (tool == null)
+			var mcpTool = mcpResource.Tools.FirstOrDefault(tool => tool.Name == name.Last());
+			if (mcpTool == null)
 				throw new InvalidMcpMethodException();
 
 			var requestInfo = new RequestInfo
 			(
 				context.GetSession(),
-				resource.ServiceName,
-				resource.Name,
-				tool.Name,
-				context.Request.QueryString.ToDictionary(),
-				context.Request.Headers.ToDictionary(header => header["x-system-id"] = mcpSettings.SystemID),
+				mcpResource.ServiceName,
+				mcpResource.Name,
+				"tools/call",
+				context.Request.QueryString.ToDictionary(query => query["object-identity"] = mcpTool.Name),
+				context.Request.Headers.ToDictionary(header =>
+				{
+					header["x-system-id"] = mcpSettings.SystemID;
+					header["x-requester"] = "vieapps-ngx-portals";
+				}),
 				mcpParams?.Get<JObject>("arguments")?.ToString(Formatting.None),
 				null,
 				context.GetCorrelationID()
@@ -330,7 +327,7 @@ namespace net.vieapps.Services.Portals
 					["content"] = new JArray(new JObject
 					{
 						["type"] = "text",
-						["text"] = $"```json\n{result?.ToString(Formatting.None) ?? "null"}\n```"
+						["text"] = result == null ? null : $"```json\n{result.ToString(Formatting.None) ?? "null"}\n```"
 					})
 				}, cancellationToken).ConfigureAwait(false);
 			}
@@ -345,11 +342,15 @@ namespace net.vieapps.Services.Portals
 			var resourceTemplates = new JArray();
 			mcpSettings.Resources.ForEach(mcpResource => resourceTemplates.Add(new JObject
 			{
-				["uriTemplate"] = $"{mcpResource.ServiceName.ToLower()}://{mcpResource.Name}/" + "{id}",
+				["uriTemplate"] = $"{mcpResource.ServiceName}://{mcpResource.Name}/" + "{id}",
 				["name"] = mcpResource.Name,
 				["title"] = mcpResource.Title,
 				["description"] = mcpResource.Description,
-				["mimeType"] = "application/json"
+				["mimeType"] = "application/json",
+				["annotations"] = new JObject
+				{
+					["category"] = mcpResource.Name
+				}
 			}));
 			return context.ShowResultAsync(mcpRequest.Get<string>("id"), new JObject
 			{
@@ -362,7 +363,11 @@ namespace net.vieapps.Services.Portals
 		{
 			var session = context.GetSession();
 			var query = context.Request.QueryString.ToDictionary();
-			var headers = context.Request.Headers.ToDictionary(header => header["x-system-id"] = mcpSettings.SystemID);
+			var headers = context.Request.Headers.ToDictionary(header =>
+			{
+				header["x-system-id"] = mcpSettings.SystemID;
+				header["x-requester"] = "vieapps-ngx-portals";
+			});
 			var correlationID = context.GetCorrelationID();
 			try
 			{
@@ -381,11 +386,11 @@ namespace net.vieapps.Services.Portals
 						null,
 						correlationID
 					);
-					var result = await requestInfo.ProcessRequestAsync(cancellationToken).ConfigureAwait(false) as JArray;
-					result?.Select(resource => resource as JObject).ToList().ForEach(resource =>
+					var result = await requestInfo.ProcessRequestAsync(cancellationToken).ConfigureAwait(false);
+					(result as JArray ?? result?.Get<JArray>("items"))?.Select(resource => resource as JObject).ToList().ForEach(resource =>
 					{
 						var id = resource.Get<string>("ID") ?? resource.Get<string>("Id") ?? resource.Get<string>("id");
-						var uri = $"{mcpResource.ServiceName.ToLower()}://{mcpResource.Name}/{id}";
+						var uri = $"{mcpResource.ServiceName}://{mcpResource.Name}/{id}";
 						var name = $"{mcpResource.Name}/{id}";
 						var title = resource.Get<string>("Title") ?? resource.Get<string>("title");
 						var description = resource.Get<string>("Description") ?? resource.Get<string>("description") ?? resource.Get<string>("Summary") ?? resource.Get<string>("summary");
@@ -400,8 +405,9 @@ namespace net.vieapps.Services.Portals
 							["annotations"] = new JObject
 							{
 								["audience"] = new JArray("assistant"),
-								["priority"] = 0.8,
-								["lastModified"] = lastModified
+								["priority"] = 0.85,
+								["lastModified"] = DateTime.TryParse(lastModified, out var time) ? time.ToIsoString() : null,
+								["category"] = mcpResource.Name
 							}
 						});
 					});
@@ -428,18 +434,22 @@ namespace net.vieapps.Services.Portals
 			var objectIdentity = uriParts.Last();
 			var name = uriParts[uriParts.Length - 2];
 
-			var resource = mcpSettings.Resources.FirstOrDefault(mcpResource => mcpResource.Name == name);
-			if (resource == null)
+			var mcpResource = mcpSettings.Resources.FirstOrDefault(resource => resource.Name == name);
+			if (mcpResource == null)
 				throw new InvalidMcpParamsException();
 
 			var requestInfo = new RequestInfo
 			(
 				context.GetSession(),
-				resource.ServiceName,
-				resource.Name,
+				mcpResource.ServiceName,
+				mcpResource.Name,
 				"resources/read",
 				context.Request.QueryString.ToDictionary(query => query["object-identity"] = objectIdentity),
-				context.Request.Headers.ToDictionary(header => header["x-system-id"] = mcpSettings.SystemID),
+				context.Request.Headers.ToDictionary(header =>
+				{
+					header["x-system-id"] = mcpSettings.SystemID;
+					header["x-requester"] = "vieapps-ngx-portals";
+				}),
 				null,
 				null,
 				context.GetCorrelationID()
@@ -454,7 +464,7 @@ namespace net.vieapps.Services.Portals
 					{
 						["uri"] = uri,
 						["type"] = "application/json",
-						["text"] = $"```json\n{result?.ToString(Formatting.None) ?? "null"}\n```"
+						["text"] = result == null ? null : $"```json\n{result.ToString(Formatting.None) ?? "null"}\n```"
 					})
 				}, cancellationToken).ConfigureAwait(false);
 			}
@@ -471,19 +481,14 @@ namespace net.vieapps.Services.Portals
 			var correlationID = UtilityService.NewUUID;
 			try
 			{
-				var session = Global.GetSession();
-				var query = new Dictionary<string, string>
+				var requestInfo = new RequestInfo(Global.GetSession(), serviceName, "", "capabilities", null, new Dictionary<string, string>
 				{
-					["object-identity"] = systemID
-				};
-				var header = new Dictionary<string, string>
-				{
+					["x-system-id"] = systemID,
 					["x-requester"] = "vieapps-ngx-portals"
-				};
-				var requestInfo = new RequestInfo(session, serviceName, "", "capabilities", query, header, null, null, correlationID);
+				}, null, null, correlationID);
 				var response = await requestInfo.ProcessRequestAsync(Global.CancellationToken).ConfigureAwait(false);
 				response.As<Settings.McpSettings>(true, (mcpSettings, _) => mcpSettings.SystemID = systemID).UpdateInfo(serviceName, systemID, correlationID);
-				await Global.WriteLogsAsync("MCP", $"Sucess gathering info [{serviceName}/{systemID}]", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+				await Global.WriteLogsAsync("MCP", $"Success gathering info [{serviceName}/{systemID}]", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -514,17 +519,34 @@ namespace net.vieapps.Services.Portals
 					mcpSettings.Resources.Add(mcpResource);
 				}
 				mcpResource.CopyFrom(resource);
-				mcpResource.ServiceName = serviceName;
+				mcpResource.ServiceName = serviceName.ToLower();
 			});
 
 			Global.WriteLogs("MCP", $"Success update info [{serviceName}/{systemID}]", null, Global.ServiceName, LogLevel.Information, correlationID ?? UtilityService.NewUUID);
 		}
 
 		public static void UpdateSessionInfo(this CommunicateMessage message)
-			=> McpHandler.Sessions[message.Data.Get<string>("ID")] = (message.Data.Get<string>("SessionID"), message.Data.Get<string>("IP"));
+			=> McpHandler.Sessions[message.Data.Get<string>("ID")] = (message.Data.Get<string>("SessionID"), message.Data.Get<string>("IP"), message.Data.Get<long>("LastActivity"));
+
+		public static void SendSessionInfo(this Session session, string sessionID)
+		{
+			McpHandler.Sessions[sessionID] = (session.SessionID, session.IP, DateTime.Now.ToUnixTimestamp());
+			new CommunicateMessage("APIGateway")
+			{
+				ExcludedNodeID = Global.NodeID,
+				Type = "McpServer#SessionInfo",
+				Data = new JObject
+				{
+					["ID"] = sessionID,
+					["SessionID"] = session.SessionID,
+					["IP"] = session.IP,
+					["LastActivity"] = DateTime.Now.ToUnixTimestamp()
+				}
+			}.Send();
+		}
 
 		public static void SyncSessionInfo()
-			=> McpHandler.Sessions.ForEach(kvp => new CommunicateMessage(Global.ServiceName)
+			=> McpHandler.Sessions.ForEach(kvp => new CommunicateMessage("APIGateway")
 			{
 				ExcludedNodeID = Global.NodeID,
 				Type = "McpServer#SessionInfo",
@@ -532,7 +554,8 @@ namespace net.vieapps.Services.Portals
 				{
 					["ID"] = kvp.Key,
 					["SessionID"] = kvp.Value.SessionID,
-					["IP"] = kvp.Value.IP
+					["IP"] = kvp.Value.IP,
+					["LastActivity"] = kvp.Value.LastActivity
 				}
 			}.Send());
 
@@ -574,8 +597,8 @@ namespace net.vieapps.Services.Portals
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = context.GetCorrelationID()
 			};
-			if (context.Request.Headers.ContainsKey("MCP-Session-ID"))
-				headers["MCP-Session-ID"] = context.Request.Headers["MCP-Session-ID"].ToString();
+			if (context.ContainsKey("MCP-Session-ID"))
+				headers["MCP-Session-ID"] = context.GetParameter("MCP-Session-ID");
 
 			try
 			{
@@ -614,7 +637,7 @@ namespace net.vieapps.Services.Portals
 						{
 							["code"] = code,
 							["message"] = message,
-							["type"] = type,
+							["type"] = type.IndexOf('+') > 0 ? type.Right(type.Length - type.IndexOf('+')) : type,
 							["correlationID"] = context.GetCorrelationID()
 						}.ToString(Formatting.None)}\n```"
 					})
@@ -624,9 +647,9 @@ namespace net.vieapps.Services.Portals
 		}
 
 		static Task ShowResultAsync(this HttpContext context, string id, JObject result, CancellationToken cancellationToken)
-			=> context.ShowResultAsync(id, result, null, null, cancellationToken);
+			=> context.ShowResultAsync(id, result, null, null, null, cancellationToken);
 
-		static Task ShowResultAsync(this HttpContext context, string id, JObject result, JObject additional, string sessionID, CancellationToken cancellationToken)
+		static Task ShowResultAsync(this HttpContext context, string id, JObject result, JObject additional, string protocolVersion, string sessionID, CancellationToken cancellationToken)
 		{
 			var response = new JObject
 			{
@@ -637,7 +660,8 @@ namespace net.vieapps.Services.Portals
 			additional?.ForEach(kvp => response[kvp.Key] = kvp.Value);
 			var headers = new Dictionary<string, string>
 			{
-				["MCP-Session-ID"] = sessionID ?? context.Request.Headers["MCP-Session-ID"].ToString(),
+				["MCP-Protocol-Version"] = protocolVersion ?? context.GetParameter("MCP-Protocol-Version"),
+				["MCP-Session-ID"] = sessionID ?? context.GetParameter("MCP-Session-ID"),
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = context.GetCorrelationID()
 			};

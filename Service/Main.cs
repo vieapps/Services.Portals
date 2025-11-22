@@ -6748,24 +6748,35 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
+		#region Process MCP requests
 		public override async Task<JToken> ProcessMcpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
 			var stopwatch = Stopwatch.StartNew();
+			var isDebugResultsEnabled = this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs");
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Begin process MCP request ({requestInfo.GetURI()})", null, this.ServiceName, "MCP").ConfigureAwait(false);
+
+			JToken response = null;
 			try
 			{
-				JToken json = null;
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
-
-				if (requestInfo.Verb.IsEquals("capabilities"))
+				var organization = await (requestInfo.GetParameter("x-system-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false);
+				if (organization?.McpSettings != null)
 				{
-					var organization = await (requestInfo.GetObjectIdentity(true) ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false) ?? throw new InformationNotFoundException();
-					json = organization.McpSettings?.ToJSON(mcpSettings => mcpSettings["SystemID"] = organization.ID) ?? throw new InformationInvalidException();
+					if (requestInfo.Verb.IsEquals("capabilities"))
+						response = organization.McpSettings.ToJSON(mcpSettings => mcpSettings["SystemID"] = organization.ID);
+					else
+					{
+						var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						var mcpResource = organization.McpSettings.Resources.FirstOrDefault(resource => resource.Name.IsEquals(requestInfo.ObjectName));
+						var contentType = await (mcpResource?.ContentTypeID ?? "").GetContentTypeByIDAsync(cts.Token).ConfigureAwait(false);
+						response = contentType?.ContentTypeDefinition.ID == "B0000000000000000000000000000002"
+							? await requestInfo.ProcessContentMcpRequestAsync(contentType, isSystemAdministrator, cts.Token).ConfigureAwait(false)
+							: contentType?.ContentTypeDefinition.ID == "B0000000000000000000000000000003"
+								? await requestInfo.ProcessItemMcpRequestAsync(contentType, isSystemAdministrator, cts.Token).ConfigureAwait(false)
+								: null;
+					}
 				}
-
-				stopwatch.Stop();
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process MCP request completed - Execution times: {stopwatch.GetElapsedTimes()}" + (this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs") ? $"\r\n\r\n- Request: {requestInfo.ToString(this.JsonFormat)}\r\n\r\n- Response: {json?.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "MCP").ConfigureAwait(false);
-				return json;
+				return response;
 			}
 			catch (RepositoryOperationException ex)
 			{
@@ -6775,7 +6786,12 @@ namespace net.vieapps.Services.Portals
 			{
 				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
 			}
+			finally
+			{
+				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process MCP request completed - Execution times: {stopwatch.GetElapsedTimes()}" + (isDebugResultsEnabled ? $"\r\n\r\n- Request: {requestInfo?.ToString(this.JsonFormat)}\r\n\r\n- Response: {response?.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "MCP").ConfigureAwait(false);
+			}
 		}
+		#endregion
 
 	}
 }

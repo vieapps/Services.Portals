@@ -1695,5 +1695,212 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 			return response;
 		}
+
+		internal static async Task<JToken> ProcessContentMcpRequestAsync(this RequestInfo requestInfo, ContentType contentType, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		{
+			var mcpResource = contentType.Organization.McpSettings.Resources.FirstOrDefault(resource => resource.Name.IsEquals(requestInfo.ObjectName));
+			var expression = await (mcpResource.ExpressionID ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			var category = await (mcpResource.CategoryID ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+			var objectIdentity = requestInfo.GetObjectIdentity();
+
+			var verb = "SEARCH";
+			if (requestInfo.Verb.IsEquals("resources/read"))
+				verb = "READ";
+
+			else if (requestInfo.Verb.IsEquals("tools/call"))
+			{
+				var mcpTool = mcpResource.Tools?.FirstOrDefault(tool => tool.Name.IsEquals(objectIdentity));
+				if (mcpTool == null)
+					verb = "UNKNOWN";
+				else if ("read".IsEquals(mcpTool?.Name))
+				{
+					verb = "READ";
+					objectIdentity = requestInfo.BodyAsJson?.Get<string>("ID");
+				}
+			}
+
+			JToken response = null;
+
+			if (verb.IsEquals("SEARCH"))
+			{
+				var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(category?.WorkingPrivileges, contentType?.WorkingPrivileges, contentType.Organization);
+				if (!gotRights)
+					throw new AccessDeniedException();
+
+				JObject requestJson = null;
+				string query = null;
+				
+				var bodyJson = requestInfo.BodyAsJson as JObject ?? new();
+				try
+				{
+					requestJson = (bodyJson.Get<string>("cursor") ?? bodyJson.Get<string>("nextCursor")).FromBase64().ToJSON() as JObject;
+				}
+				catch { }
+
+				if (requestJson == null)
+				{
+					query = bodyJson.Get<string>("query");
+
+					var filterBy = new JArray(
+						new JObject
+						{
+							["SystemID"] = new JObject { ["Equals"] = contentType.SystemID }
+						},
+						new JObject
+						{
+							["RepositoryID"] = new JObject { ["Equals"] = contentType.RepositoryID }
+						},
+						new JObject
+						{
+							["RepositoryEntityID"] = new JObject { ["Equals"] = contentType.ID }
+						}
+					);
+
+					var categoryID = bodyJson.Get("categoryID", category?.ID);
+					if (categoryID != null)
+						filterBy.Add(new JObject
+						{
+							["CategoryID"] = new JObject { ["Equals"] = categoryID }
+						});
+
+					var from_Date = bodyJson.Get<string>("fromDate");
+					var to_Date = bodyJson.Get<string>("toDate");
+					if (DateTime.TryParse(from_Date, out var fromDate) && DateTime.TryParse(to_Date, out var toDate))
+						filterBy.Add(new JObject
+						{
+							["And"] = new JArray
+							{
+								new JObject
+								{
+									["StartDate"] = new JObject { ["GreaterOrEquals"] = fromDate.ToDTString(false, false) }
+								},
+								new JObject
+								{
+									["StartDate"] = new JObject { ["LessThanOrEquals"] = toDate.ToDTString(false, false) }
+								}
+							}
+						});
+					else if (DateTime.TryParse(from_Date, out fromDate))
+						filterBy.Add(new JObject
+						{
+							["StartDate"] = new JObject { ["GreaterOrEquals"] = fromDate.ToDTString(false, false) }
+						});
+					else if (DateTime.TryParse(to_Date, out toDate))
+						filterBy.Add(new JObject
+						{
+							["StartDate"] = new JObject { ["LessThanOrEquals"] = toDate.ToDTString(false, false) }
+						});
+					else
+						filterBy.Add(new JObject
+						{
+							["StartDate"] = new JObject { ["LessThanOrEquals"] = DateTime.Now.ToDTString(false, false) }
+						});
+
+					filterBy.Add(new JObject
+					{
+						["Or"] = new JArray
+						{
+							new JObject
+							{
+								["EndDate"] = "IsNull"
+							},
+							new JObject
+							{
+								["EndDate"] = new JObject { ["GreaterOrEquals"] = DateTime.Now.ToDTString(false, false) }
+							}
+						}
+					});
+
+					var status = mcpResource.AllowStatus
+						? Enum.TryParse(bodyJson.Get<string>("status"), out ApprovalStatus approvalStatus) ? approvalStatus.ToString() : null
+						: ApprovalStatus.Published.ToString();
+					if (status != null)
+						filterBy.Add(new JObject
+						{
+							["Status"] = new JObject { ["Equals"] = status }
+						});
+
+					requestJson = new JObject
+					{
+						["FilterBy"] = new JObject
+						{
+							["Query"] = query,
+							["And"] = filterBy
+						},
+						["SortBy"] = null
+					};
+				}
+				else
+					query = requestJson.Get<JObject>("FilterBy")?.Get<string>("Query");
+
+				var pagination = requestJson.Get<JObject>("Pagination");
+				var totalRecords = pagination != null ? pagination.Get<long>("TotalRecords") : -1;
+				var pageSize = pagination != null ? pagination.Get<int>("PageSize") : Int32.TryParse(bodyJson.Get<string>("pageSize"), out var thePageSize) && thePageSize > 0 ? thePageSize : 20;
+				var totalPages = pagination != null ? pagination.Get<int>("TotalPages") : 0;
+				var pageNumber = pagination != null ? pagination.Get<int>("PageNumber") + 1 : 1;
+
+				var request = requestJson.ToExpandoObject();
+				var filter = expression?.GetFilterBy<Content>() as FilterBys<Content> ?? request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Content>() as FilterBys<Content> ?? Filters<Content>.And();
+				var sort = string.IsNullOrWhiteSpace(query) ? expression?.GetSortBy<Content>() ?? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Content>() ?? Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime") : null;
+				var result = await new RequestInfo().SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, totalRecords, cancellationToken).ConfigureAwait(false);
+
+				totalPages = (result.TotalRecords, pageSize).GetTotalPages();
+				requestJson["Pagination"] = new JObject
+				{
+					["TotalRecords"] = result.TotalRecords,
+					["PageSize"] = pageSize,
+					["TotalPages"] = totalPages,
+					["PageNumber"] = result.PageNumber
+				};
+
+				var lastID = requestJson.Get<string>("LastID");
+				requestJson["LastID"] = result.Objects.Count > 0 ? result.Objects.Last().ID : null;
+
+				response = new JObject
+				{
+					["items"] = result.Objects.Where(@object => @object.ID != lastID).Select(@object => @object.ToJSON()).ToJArray(),
+					["nextCursor"] = result.PageNumber < totalPages ? requestJson.ToString(Formatting.None).ToBase64() : null
+				};
+			}
+
+			else if (verb.IsEquals("READ"))
+			{
+				var content = await Content.GetAsync<Content>(objectIdentity, cancellationToken).ConfigureAwait(false);
+				var privileges = content?.WorkingPrivileges;
+				var parentPrivileges = content?.ContentType?.WorkingPrivileges ?? contentType.WorkingPrivileges;
+
+				var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(content?.Organization.OwnerID);
+				if (!gotRights)
+					gotRights = content != null && content.Status.Equals(ApprovalStatus.Published)
+						? requestInfo.Session.User.IsViewer(privileges, parentPrivileges, content?.Organization)
+						: requestInfo.Session.User.ID.IsEquals(content?.CreatedID) || requestInfo.Session.User.IsEditor(privileges, parentPrivileges, content.Organization);
+				if (!gotRights)
+					throw new AccessDeniedException();
+
+				response = content?.ToJSON();
+			}
+
+			return response;
+		}
+
+		internal static JObject ToJSON(this Content content, Action<JObject> onCompleted = null)
+			=> content?.ToJson(json =>
+			{
+				var siteURL = $"{content.Organization?.DefaultSite?.GetURL()}/";
+				new[] { "CategoryID", "OtherCategories", "StartDate", "EndDate", "Relateds", "ExternalRelateds", "Alias", "Tags", "AllowComments", "InlineScripts", "CreatedID", "LastModifiedID", "SystemID", "RepositoryID", "RepositoryEntityID", "Privileges" }.ForEach(name => json.Remove(name));
+				json["Details"] = content.Details?.Replace("~~/", (content.Organization?.FakeFilesHttpURI ?? Utility.FilesHttpURI) + "/").Replace("~/", siteURL);
+				json["Created"] = content.Created.ToIsoString();
+				json["LastModified"] = content.LastModified.ToIsoString();
+				json["URL"] = content.GetURL().Replace("~/", siteURL);
+				json["Category"] = new JObject
+				{
+					["ID"] = content.CategoryID,
+					["Title"] = content.Category?.Title,
+					["Description"] = content.Category?.Description,
+					["Breadcrumbs"] = content.Category?.FullTitle,
+					["URL"] = content.Category?.GetURL().Replace("~/", siteURL)
+				};
+				onCompleted?.Invoke(json);
+			});
 	}
 }

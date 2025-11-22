@@ -1,20 +1,18 @@
 ﻿#region Related components
+using System;
+using System.Linq;
+using System.Xml.Linq;
+using System.Dynamic;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Globalization;
+using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using System;
-using System.Collections.Generic;
-using System.Dynamic;
-using System.Globalization;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Xml.Linq;
-using static System.Runtime.InteropServices.JavaScript.JSType;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -123,7 +121,7 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 		}
 
-		static async Task<(long TotalRecords, List<Item> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
+		internal static async Task<(long TotalRecords, List<Item> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -1075,5 +1073,146 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 			return response;
 		}
+
+		internal static async Task<JToken> ProcessItemMcpRequestAsync(this RequestInfo requestInfo, ContentType contentType, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
+		{
+			var mcpResource = contentType.Organization.McpSettings.Resources.FirstOrDefault(resource => resource.Name.IsEquals(requestInfo.ObjectName));
+			var expression = await (mcpResource.ExpressionID ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			var objectIdentity = requestInfo.GetObjectIdentity();
+
+			var verb = "SEARCH";
+			if (requestInfo.Verb.IsEquals("resources/read"))
+				verb = "READ";
+
+			else if (requestInfo.Verb.IsEquals("tools/call"))
+			{
+				var mcpTool = mcpResource.Tools?.FirstOrDefault(tool => tool.Name.IsEquals(objectIdentity));
+				if (mcpTool == null)
+					verb = "UNKNOWN";
+				else if ("read".IsEquals(mcpTool?.Name))
+				{
+					verb = "READ";
+					objectIdentity = requestInfo.BodyAsJson?.Get<string>("ID");
+				}
+			}
+
+			JToken response = null;
+
+			if (verb.IsEquals("SEARCH"))
+			{
+				var gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(contentType?.WorkingPrivileges, contentType?.Module?.WorkingPrivileges, contentType.Organization);
+				if (!gotRights)
+					throw new AccessDeniedException();
+
+				JObject requestJson = null;
+				string query = null;
+
+				var bodyJson = requestInfo.BodyAsJson as JObject ?? new();
+				try
+				{
+					requestJson = (bodyJson.Get<string>("cursor") ?? bodyJson.Get<string>("nextCursor")).FromBase64().ToJSON() as JObject;
+				}
+				catch { }
+
+				if (requestJson == null)
+				{
+					query = bodyJson.Get<string>("query");
+
+					var filterBy = new JArray(
+						new JObject
+						{
+							["SystemID"] = new JObject { ["Equals"] = contentType.SystemID }
+						},
+						new JObject
+						{
+							["RepositoryID"] = new JObject { ["Equals"] = contentType.RepositoryID }
+						},
+						new JObject
+						{
+							["RepositoryEntityID"] = new JObject { ["Equals"] = contentType.ID }
+						}
+					);
+
+					var status = mcpResource.AllowStatus
+						? Enum.TryParse(bodyJson.Get<string>("status"), out ApprovalStatus approvalStatus) ? approvalStatus.ToString() : null
+						: ApprovalStatus.Published.ToString();
+					if (status != null)
+						filterBy.Add(new JObject
+						{
+							["Status"] = new JObject { ["Equals"] = status }
+						});
+
+					requestJson = new JObject
+					{
+						["FilterBy"] = new JObject
+						{
+							["Query"] = query,
+							["And"] = filterBy
+						},
+						["SortBy"] = null
+					};
+				}
+				else
+					query = requestJson.Get<JObject>("FilterBy")?.Get<string>("Query");
+
+				var pagination = requestJson.Get<JObject>("Pagination");
+				var totalRecords = pagination != null ? pagination.Get<long>("TotalRecords") : -1;
+				var pageSize = pagination != null ? pagination.Get<int>("PageSize") : Int32.TryParse(bodyJson.Get<string>("pageSize"), out var thePageSize) && thePageSize > 0 ? thePageSize : 20;
+				var totalPages = pagination != null ? pagination.Get<int>("TotalPages") : 0;
+				var pageNumber = pagination != null ? pagination.Get<int>("PageNumber") + 1 : 1;
+
+				var request = requestJson.ToExpandoObject();
+				var filter = expression?.GetFilterBy<Item>() as FilterBys<Item> ?? request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Item>() as FilterBys<Item> ?? Filters<Item>.And();
+				var sort = string.IsNullOrWhiteSpace(query) ? expression?.GetSortBy<Item>() ?? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Item>() ?? Sorts<Item>.Descending("Created").ThenByAscending("Title") : null;
+				var result = await new RequestInfo().SearchAsync(query, filter, sort, pageSize, pageNumber, contentType.ID, totalRecords, cancellationToken).ConfigureAwait(false);
+
+				totalPages = (result.TotalRecords, pageSize).GetTotalPages();
+				requestJson["Pagination"] = new JObject
+				{
+					["TotalRecords"] = result.TotalRecords,
+					["PageSize"] = pageSize,
+					["TotalPages"] = totalPages,
+					["PageNumber"] = pageNumber
+				};
+
+				var lastID = requestJson.Get<string>("LastID");
+				requestJson["LastID"] = result.Objects.Count > 0 ? result.Objects.Last().ID : null;
+
+				response = new JObject
+				{
+					["items"] = result.Objects.Where(@object => @object.ID != lastID).Select(@object => @object.ToJSON()).ToJArray(),
+					["nextCursor"] = pageNumber < totalPages ? requestJson.ToString(Formatting.None).ToBase64() : null
+				};
+			}
+
+			else if (verb.IsEquals("READ"))
+			{
+				var item = await Content.GetAsync<Item>(objectIdentity, cancellationToken).ConfigureAwait(false);
+				var privileges = item?.WorkingPrivileges;
+				var parentPrivileges = item?.ContentType?.WorkingPrivileges ?? contentType.WorkingPrivileges;
+
+				var gotRights = isSystemAdministrator || requestInfo.Session.User.ID.IsEquals(item?.Organization.OwnerID);
+				if (!gotRights)
+					gotRights = item != null && item.Status.Equals(ApprovalStatus.Published)
+						? requestInfo.Session.User.IsViewer(privileges, parentPrivileges, item?.Organization)
+						: requestInfo.Session.User.ID.IsEquals(item?.CreatedID) || requestInfo.Session.User.IsEditor(privileges, parentPrivileges, item.Organization);
+				if (!gotRights)
+					throw new AccessDeniedException();
+
+				response = item?.ToJSON();
+			}
+
+			return response;
+		}
+
+		internal static JObject ToJSON(this Item item, Action<JObject> onCompleted = null)
+			=> item?.ToJson(json =>
+			{
+				new[] { "Alias", "Tags", "AllowComments", "InlineScripts", "CreatedID", "LastModifiedID", "SystemID", "RepositoryID", "RepositoryEntityID", "Privileges" }.ForEach(name => json.Remove(name));
+				json["Created"] = item.Created.ToIsoString();
+				json["LastModified"] = item.LastModified.ToIsoString();
+				json["URL"] = item.GetURL().Replace("~/", $"{item.Organization?.DefaultSite?.GetURL()}/");
+				onCompleted?.Invoke(json);
+			});
 	}
 }
