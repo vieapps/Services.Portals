@@ -604,7 +604,11 @@ namespace net.vieapps.Services.Portals.Settings
 		public List<Resource> Resources { get; set; }
 
 		public McpSettings Normalize()
-			=> this.Resources == null || this.Resources.Count < 1 ? null : this;
+		{
+			this.Resources = this.Resources?.Select(resource => resource.Normalize()).Where(resource => resource != null).ToList();
+			this.Resources = this.Resources == null || this.Resources.Count < 1 ? null : this.Resources;
+			return this.Resources == null ? null : this;
+		}
 
 		public JObject ToJSON(Action<JObject> onCompleted = null)
 		{
@@ -670,6 +674,13 @@ namespace net.vieapps.Services.Portals.Settings
 			/// </summary>
 			public List<Tool> Tools { get; set; }
 
+			public Resource Normalize()
+			{
+				this.Tools = this.Tools?.Select(tool => tool.Normalize()).Where(tool => tool != null).ToList();
+				this.Tools = this.Tools == null || this.Tools.Count < 1 ? null : this.Tools;
+				return string.IsNullOrWhiteSpace(this.Name) || string.IsNullOrWhiteSpace(this.Title) || string.IsNullOrWhiteSpace(this.Description) ? null : this;
+			}
+
 			public JObject ToJSON(Action<JObject> onCompleted = null)
 			{
 				var json = new JObject
@@ -707,9 +718,21 @@ namespace net.vieapps.Services.Portals.Settings
 			public string Description { get; set; }
 
 			/// <summary>
-			/// Gets or Sets the JSON schema of tool
+			/// Gets or Sets the JSON schema of tool for inputing structured data
 			/// </summary>
-			public JObject Schema { get; set; }
+			public JObject InputSchema { get; set; }
+
+			/// <summary>
+			/// Gets or Sets the JSON schema of tool for outputing structured data
+			/// </summary>
+			public JObject OutputSchema { get; set; }
+
+			public Tool Normalize()
+			{
+				this.InputSchema = this.InputSchema == null || this.InputSchema.Count < 1 ? null : this.InputSchema;
+				this.OutputSchema = this.OutputSchema == null || this.OutputSchema.Count < 1 ? null : this.OutputSchema;
+				return string.IsNullOrWhiteSpace(this.Name) || string.IsNullOrWhiteSpace(this.Title) || string.IsNullOrWhiteSpace(this.Description) ? null : this;
+			}
 
 			public JObject ToJSON(Action<JObject> onCompleted = null)
 			{
@@ -718,7 +741,8 @@ namespace net.vieapps.Services.Portals.Settings
 					["Name"] = this.Name,
 					["Title"] = this.Title,
 					["Description"] = this.Description,
-					["Schema"] = this.Schema,
+					["InputSchema"] = this.InputSchema,
+					["OutputSchema"] = this.OutputSchema
 				};
 				onCompleted?.Invoke(json);
 				return json;

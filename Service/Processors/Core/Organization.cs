@@ -699,7 +699,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// gathering information
-			var organization = request.CreateOrganization("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var organization = request.CreateOrganization("Status,Instructions,Privileges,OriginalPrivileges,Created,CreatedID,LastModified,LastModifiedID,McpSettings", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.Alias = string.IsNullOrWhiteSpace(obj.Alias) ? $"{obj.Title}{UtilityService.GetRandomNumber()}".NormalizeAlias(false) : obj.Alias;
@@ -712,6 +712,11 @@ namespace net.vieapps.Services.Portals
 				obj.OriginalPrivileges = (isSystemAdministrator ? request.Get<Privileges>("OriginalPrivileges") : null) ?? new Privileges(true);
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
+				try
+				{
+					obj.McpSettings = request.Get<string>("McpSettings")?.ToJson().As<McpSettings>();
+				}
+				catch { }
 				obj.NormalizeExtras();
 			});
 			organization.Notifications?.WebHooks?.Validate(requestInfo, organization);
@@ -905,7 +910,11 @@ namespace net.vieapps.Services.Portals
 				organization.LastModified = DateTime.Now;
 				organization.LastModifiedID = requestInfo.Session.User.ID;
 				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
-				organization.McpSettings = request.Get<string>("McpSettings")?.ToJson().As<McpSettings>();
+				try
+				{
+					organization.McpSettings = request.Get<string>("McpSettings")?.ToJson().As<McpSettings>();
+				}
+				catch { }
 				organization.NormalizeExtras();
 			}).Remove();
 			organization.Notifications?.WebHooks?.Validate(requestInfo, organization);

@@ -1110,7 +1110,8 @@ namespace net.vieapps.Services.Portals
 				var bodyJson = requestInfo.BodyAsJson as JObject ?? new();
 				try
 				{
-					requestJson = (bodyJson.Get<string>("cursor") ?? bodyJson.Get<string>("nextCursor")).FromBase64().ToJSON() as JObject;
+					var cursor = bodyJson.Get<string>("nextCursor");
+					requestJson = string.IsNullOrWhiteSpace(cursor) ? null : cursor.FromBase64Url().ToJSON() as JObject;
 				}
 				catch { }
 
@@ -1181,7 +1182,7 @@ namespace net.vieapps.Services.Portals
 				response = new JObject
 				{
 					["items"] = result.Objects.Where(@object => @object.ID != lastID).Select(@object => @object.ToJSON()).ToJArray(),
-					["nextCursor"] = pageNumber < totalPages ? requestJson.ToString(Formatting.None).ToBase64() : null
+					["nextCursor"] = pageNumber < totalPages ? requestJson.ToString(Formatting.None).ToBase64Url() : null
 				};
 			}
 

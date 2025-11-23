@@ -27,7 +27,14 @@ namespace net.vieapps.Services.Portals
 		{
 			if (!context.Request.Method.IsEquals("OPTIONS"))
 			{
-				await context.ProcessMcpRequestAsync().ConfigureAwait(false);
+				try
+				{
+					await context.ProcessMcpRequestAsync().ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await context.ShowErrorAsync(ex).ConfigureAwait(false);
+				}
 				if (Global.IsVisitLogEnabled)
 					await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 			}
@@ -41,7 +48,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, (string SessionID, string IP, long LastActivity)> Sessions { get; } = new ConcurrentDictionary<string, (string SessionID, string IP, long LastActivity)>(StringComparer.OrdinalIgnoreCase);
 
-		internal static List<string> SupportedProtocols { get; } = new() { "2025-06-18" };
+		internal static List<string> SupportedProtocols { get; } = new() { "2025-06-18", "2025-03-26" };
 		#endregion
 
 		#region Exceptions
@@ -93,6 +100,14 @@ namespace net.vieapps.Services.Portals
 			public InvalidMcpParamsException(string message) : base(message) { }
 			public InvalidMcpParamsException(string message, Exception innerException) : base(message, innerException) { }
 		}
+
+		public class InvalidMcpCursorException : AppException
+		{
+			public InvalidMcpCursorException() : base("Invalid cursor") { }
+			public InvalidMcpCursorException(string message) : base(message) { }
+			public InvalidMcpCursorException(Exception innerException) : base("Invalid cursor", innerException) { }
+			public InvalidMcpCursorException(string message, Exception innerException) : base(message, innerException) { }
+		}
 		#endregion
 
 	}
@@ -101,115 +116,96 @@ namespace net.vieapps.Services.Portals
 	{
 		public static async Task ProcessMcpRequestAsync(this HttpContext context)
 		{
+			// check method
 			if (!context.Request.Method.IsEquals("POST"))
-			{
-				await context.ShowErrorAsync(new MethodNotAllowedException()).ConfigureAwait(false);
-				return;
-			}
+				throw new MethodNotAllowedException();
 
-			// prepare
+			// identify the system
 			var stopwatch = Stopwatch.StartNew();
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
+			var session = context.GetSession();
 			var headers = context.Request.Headers.ToDictionary(header =>
 			{
 				header["x-host"] = context.GetRequestUri().Host;
 				header["x-brief"] = "1";
 			});
 
-			if (!headers.TryGetValue("MCP-Protocol-Version", out var mcpProtocolVersion) || McpHandler.SupportedProtocols.FirstOrDefault(version => version == mcpProtocolVersion) == null)
-			{
-				await context.ShowErrorAsync(new InvalidMcpProtocolException($"Protocol version ({mcpProtocolVersion}) is invalid - supported version(s): {McpHandler.SupportedProtocols.Join(", ")}")).ConfigureAwait(false);
-				return;
-			}
+			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", context.Request.QueryString.ToDictionary(), headers, null, null, context.GetCorrelationID());
+			var identifyJson = await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+			var systemID = identifyJson.Get<string>("ID");
+			var alias = identifyJson.Get<string>("Alias");
 
-			// identify the system
+			// get MCP server settings
 			Settings.McpSettings mcpSettings;
-			var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", context.Request.QueryString.ToDictionary(), headers, null, null, context.GetCorrelationID());
-			try
+			if (!McpHandler.Settings.TryGetValue(systemID, out mcpSettings))
 			{
-				var identifyJson = await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
-				var systemID = identifyJson.Get<string>("ID");
-				var alias = identifyJson.Get<string>("Alias");
-
-				if (!McpHandler.Settings.TryGetValue(systemID, out mcpSettings))
-					throw new ServiceNotFoundException("Unavailable");
-
-				if (!mcpSettings.AllowAnonymous && !context.IsAuthenticated())
-					throw new AccessDeniedException("Anonymous is not allowed");
-
-				if (string.IsNullOrWhiteSpace(mcpSettings.Name))
-					mcpSettings.Name = $"{alias}-mcp";
-
-				await context.WriteLogsAsync("MCP", $"Start process request [{systemID}/{alias}]").ConfigureAwait(false);
-			}
-			catch (Exception ex)
-			{
-				await context.ShowErrorAsync(ex).ConfigureAwait(false);
-				return;
+				await session.GatheringInfoAsync(Global.ServiceName, systemID, context.GetCorrelationID()).ConfigureAwait(false);
+				await Task.Delay(UtilityService.GetRandomNumber(456, 789), cts.Token).ConfigureAwait(false);
+				McpHandler.Settings.TryGetValue(systemID, out mcpSettings);
 			}
 
-			// validate the JSON-RPC message
+			if (mcpSettings == null)
+				throw new ServiceNotFoundException("Unavailable");
+
+			if (!mcpSettings.AllowAnonymous && !context.IsAuthenticated())
+				throw new UnauthorizedException("Unauthorized (anonymous is not allowed)");
+
+			// prepare
 			JObject mcpRequest = null;
-			string mcpRequestID = null, mcpMethod = null;
-			var mcpInitializeStage = false;
-
 			try
 			{
-				try
-				{
-					var msg = await context.ReadTextAsync(cts.Token).ConfigureAwait(false);
-					mcpRequest = msg.ToJson() as JObject;
-					if (mcpRequest == null)
-						throw new InvalidMcpBodyException();
-				}
-				catch (InvalidMcpBodyException)
-				{
-					throw;
-				}
-				catch (Exception ex)
-				{
-					throw new MalformedMcpRequestException("Malformed", ex);
-				}
-
-				var jsonrpc = mcpRequest.Get<string>("jsonrpc");
-				if (string.IsNullOrWhiteSpace(jsonrpc) || jsonrpc != "2.0")
-					throw new InvalidMcpRequestException();
-
-				mcpMethod = mcpRequest.Get<string>("method");
-				if (string.IsNullOrWhiteSpace(mcpMethod))
-					throw new InvalidMcpMethodException();
-
-				mcpInitializeStage = mcpMethod.IsEquals("initialize");
-				mcpRequestID = mcpRequest.Get<string>("id");
-				if (string.IsNullOrWhiteSpace(mcpRequestID) && !mcpMethod.IsStartsWith("notifications/"))
-					throw new InvalidMcpRequestException();
+				var body = await context.ReadTextAsync(cts.Token).ConfigureAwait(false);
+				mcpRequest = body.ToJson() as JObject;
+				if (mcpRequest == null)
+					throw new InvalidMcpBodyException();
 			}
 			catch (Exception ex)
 			{
-				await context.ShowErrorAsync(ex, mcpRequestID).ConfigureAwait(false);
-				return;
+				throw ex is InvalidMcpBodyException ? ex : new MalformedMcpRequestException("Malformed", ex);
 			}
 
-			headers.TryGetValue("MCP-Session-ID", out var mcpSessionID);
-			if (!mcpInitializeStage && (string.IsNullOrWhiteSpace(mcpSessionID) || !McpHandler.Sessions.ContainsKey(mcpSessionID)))
+			var jsonrpc = mcpRequest.Get<string>("jsonrpc");
+			if (string.IsNullOrWhiteSpace(jsonrpc) || jsonrpc != "2.0")
+				throw new InvalidMcpRequestException("Invalid JSON-RPC version");
+
+			var mcpMethod = mcpRequest.Get<string>("method");
+			if (string.IsNullOrWhiteSpace(mcpMethod))
+				throw new InvalidMcpMethodException("Invalid JSON-RPC method");
+
+			var mcpRequestID = mcpRequest.Get<string>("id");
+			if (string.IsNullOrWhiteSpace(mcpRequestID) && !mcpMethod.IsStartsWith("notifications/"))
+				throw new InvalidMcpRequestException("Invalid JSON-RPC identifier");
+
+			string mcpSessionID = null;
+			var mcpInitializeStage = mcpMethod.IsEquals("initialize");
+
+			if (mcpInitializeStage)
 			{
-				await context.ShowErrorAsync(new InvalidMcpSessionException($"Invalid session ({(string.IsNullOrWhiteSpace(mcpSessionID) ? "no identity" : "not found")})"), mcpRequestID).ConfigureAwait(false);
-				return;
+				if (!headers.TryGetValue("MCP-Protocol-Version", out var mcpProtocolVersion))
+					mcpProtocolVersion = mcpRequest.Get<JObject>("params")?.Get<string>("protocolVersion") ?? mcpRequest.Get<string>("protocolVersion");
+				if (string.IsNullOrWhiteSpace(mcpProtocolVersion) || McpHandler.SupportedProtocols.FirstOrDefault(version => version == mcpProtocolVersion) == null)
+					throw new InvalidMcpProtocolException($"Protocol version ({mcpProtocolVersion ?? "null"}) is invalid - supported version(s): {McpHandler.SupportedProtocols.Join(", ")}");
 			}
+			else if (!headers.TryGetValue("MCP-Session-ID", out mcpSessionID) || !McpHandler.Sessions.ContainsKey(mcpSessionID))
+				throw new InvalidMcpSessionException($"Invalid session ({(string.IsNullOrWhiteSpace(mcpSessionID) ? "no identity" : "not found")})");
 
-			// track
+			// process the request
+			await context.WriteLogsAsync("MCP", $"Start process request [{systemID}/{alias}]{(isDebugLogEnabled ? $"\r\nRequest JSON-RPC: {mcpRequest}" : "")}").ConfigureAwait(false);
 			if (Handler.TrackSessions)
 				requestInfo.SendSessionState(Handler.TrackAPISessions);
 			else
 				requestInfo.TrackStatistics();
 
-			// process the request
 			try
 			{
 				if (mcpInitializeStage)
+				{
+					if (string.IsNullOrWhiteSpace(mcpSettings.Name))
+						mcpSettings.Name = $"{alias}-mcp";
 					await context.ProcessInitializeRequestAsync(mcpSettings, mcpRequest, cts.Token).ConfigureAwait(false);
+				}
 
 				else if (mcpMethod.IsEquals("tools/list"))
 					await context.ProcessToolListRequestAsync(mcpSettings, mcpRequest, cts.Token).ConfigureAwait(false);
@@ -233,7 +229,7 @@ namespace net.vieapps.Services.Portals
 					throw new NotImplementedException();
 
 				if (!mcpInitializeStage)
-					context.GetSession().SendSessionInfo(mcpSessionID);
+					session.SendSessionInfo(mcpSessionID);
 			}
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
@@ -246,7 +242,7 @@ namespace net.vieapps.Services.Portals
 
 		static Task ProcessInitializeRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
 		{
-			var protocolVersion = context.GetParameter("MCP-Protocol-Version");
+			var protocolVersion = context.GetParameter("MCP-Protocol-Version") ?? mcpRequest.Get<JObject>("params")?.Get<string>("protocolVersion") ?? mcpRequest.Get<string>("protocolVersion");
 			var sessionID = UtilityService.NewUUID;
 
 			var result = new JObject
@@ -263,34 +259,36 @@ namespace net.vieapps.Services.Portals
 					["resources"] = new JObject { ["listChanged"] = true }
 				}
 			};
-
-			var additional = string.IsNullOrWhiteSpace(mcpSettings.Instructions)
-				? null
-				: new JObject
-				{
-					["instructions"] = mcpSettings.Instructions
-				};
+			if (!string.IsNullOrWhiteSpace(mcpSettings.Instructions))
+				result["instructions"] = mcpSettings.Instructions;
 
 			context.GetSession().SendSessionInfo(sessionID);
-
-			return context.ShowResultAsync(mcpRequest.Get<string>("id"), result, additional, protocolVersion, sessionID, cancellationToken);
+			return context.ShowResultAsync(mcpRequest.Get<string>("id"), result, sessionID, cancellationToken);
 		}
 
 		static Task ProcessToolListRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
 		{
 			var tools = new JArray();
-			mcpSettings.Resources.ForEach(mcpResource => mcpResource.Tools.ForEach(mcpTool => tools.Add(new JObject
+			mcpSettings.Resources.ForEach(mcpResource => mcpResource.Tools.ForEach(mcpTool =>
 			{
-				["name"] = $"{mcpResource.Name}.{mcpTool.Name}",
-				["title"] = mcpTool.Title,
-				["description"] = mcpTool.Description,
-				["inputSchema"] = mcpTool.Schema
-			})));
-			return context.ShowResultAsync(mcpRequest.Get<string>("id"), new JObject
+				var tool = new JObject
+				{
+					["name"] = $"{mcpResource.Name}.{mcpTool.Name}",
+					["title"] = mcpTool.Title,
+					["description"] = mcpTool.Description
+				};
+				if (mcpTool.InputSchema != null)
+					tool["inputSchema"] = mcpTool.InputSchema;
+				if (mcpTool.OutputSchema != null)
+					tool["outputSchema"] = mcpTool.OutputSchema;
+				tools.Add(tool);
+			}));
+			var result = new JObject
 			{
 				["tools"] = tools,
 				["nextCursor"] = null
-			}, cancellationToken);
+			};
+			return context.ShowResultAsync(mcpRequest.Get<string>("id"), result, cancellationToken);
 		}
 
 		static async Task ProcessToolCallRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
@@ -308,6 +306,33 @@ namespace net.vieapps.Services.Portals
 			if (mcpTool == null)
 				throw new InvalidMcpMethodException();
 
+			var mcpBody = mcpParams?.Get<JObject>("arguments");
+			if (mcpBody == null)
+				throw new InvalidMcpBodyException();
+
+			var nextCursor = mcpBody.Get<string>("nextCursor");
+			if (!string.IsNullOrWhiteSpace(nextCursor))
+				try
+				{
+					var cursor = nextCursor.ToBase64(false, true).Decrypt(Global.EncryptionKey).ToJson() as JObject;
+					nextCursor = cursor.Get<string>("cursor");
+					if (string.IsNullOrWhiteSpace(nextCursor))
+						throw new InvalidMcpCursorException();
+					var actualSignature = cursor.Get<string>("signature");
+					if (string.IsNullOrWhiteSpace(actualSignature))
+						throw new InvalidMcpCursorException();
+					var computeSignature = nextCursor.GetHMAC(Global.ValidationKey);
+					if (computeSignature != actualSignature)
+						throw new InvalidMcpCursorException();
+					mcpBody["nextCursor"] = nextCursor;
+				}
+				catch (Exception ex)
+				{
+					if (ex is InvalidMcpCursorException)
+						throw;
+					throw new InvalidMcpCursorException(ex);
+				}
+
 			var requestInfo = new RequestInfo
 			(
 				context.GetSession(),
@@ -320,23 +345,32 @@ namespace net.vieapps.Services.Portals
 					header["x-system-id"] = mcpSettings.SystemID;
 					header["x-requester"] = "vieapps-ngx-portals";
 				}),
-				mcpParams?.Get<JObject>("arguments")?.ToString(Formatting.None),
+				mcpBody.ToString(Formatting.None),
 				null,
 				context.GetCorrelationID()
 			);
 			
 			try
 			{
-				var result = await requestInfo.ProcessRequestAsync(cancellationToken).ConfigureAwait(false);
-				await context.ShowResultAsync(mcpRequest.Get<string>("id"), new JObject
+				var response = await requestInfo.ProcessRequestAsync(cancellationToken).ConfigureAwait(false);
+				nextCursor = response?.Get<string>("nextCursor");
+				if (!string.IsNullOrWhiteSpace(nextCursor))
+					response["nextCursor"] = new JObject
+					{
+						["cursor"] = nextCursor,
+						["signature"] = nextCursor.GetHMAC(Global.ValidationKey)
+					}.ToString(Formatting.None).Encrypt(Global.EncryptionKey).ToBase64Url(true);
+				var result = new JObject
 				{
 					["isError"] = false,
 					["content"] = new JArray(new JObject
 					{
 						["type"] = "text",
-						["text"] = result == null ? null : $"```json\n{result.ToString(Formatting.None) ?? "null"}\n```"
-					})
-				}, cancellationToken).ConfigureAwait(false);
+						["text"] = response?.ToString(Formatting.None)
+					}),
+					["structuredContent"] = response
+				};
+				await context.ShowResultAsync(mcpRequest.Get<string>("id"), result, cancellationToken).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -359,11 +393,12 @@ namespace net.vieapps.Services.Portals
 					["category"] = mcpResource.Name
 				}
 			}));
-			return context.ShowResultAsync(mcpRequest.Get<string>("id"), new JObject
+			var result = new JObject
 			{
 				["resourceTemplates"] = resourceTemplates,
 				["nextCursor"] = null
-			}, cancellationToken);
+			};
+			return context.ShowResultAsync(mcpRequest.Get<string>("id"), result, cancellationToken);
 		}
 
 		static async Task ProcessResourceListRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
@@ -393,8 +428,8 @@ namespace net.vieapps.Services.Portals
 						null,
 						correlationID
 					);
-					var result = await requestInfo.ProcessRequestAsync(cancellationToken).ConfigureAwait(false);
-					(result as JArray ?? result?.Get<JArray>("items"))?.Select(resource => resource as JObject).ToList().ForEach(resource =>
+					var response = await requestInfo.ProcessRequestAsync(cancellationToken).ConfigureAwait(false);
+					(response as JArray ?? response?.Get<JArray>("items"))?.Select(resource => resource as JObject).ToList().ForEach(resource =>
 					{
 						var id = resource.Get<string>("ID") ?? resource.Get<string>("Id") ?? resource.Get<string>("id");
 						var uri = $"{mcpResource.ServiceName}://{mcpResource.Name}/{id}";
@@ -419,11 +454,12 @@ namespace net.vieapps.Services.Portals
 						});
 					});
 				}, true, false).ConfigureAwait(false);
-				await context.ShowResultAsync(mcpRequest.Get<string>("id"), new JObject
+				var result = new JObject
 				{
 					["resources"] = resources,
 					["nextCursor"] = null
-				}, cancellationToken).ConfigureAwait(false);
+				};
+				await context.ShowResultAsync(mcpRequest.Get<string>("id"), result, cancellationToken).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -464,16 +500,17 @@ namespace net.vieapps.Services.Portals
 
 			try
 			{
-				var result = await requestInfo.ProcessRequestAsync(cancellationToken).ConfigureAwait(false);
-				await context.ShowResultAsync(mcpRequest.Get<string>("id"), new JObject
+				var response = await requestInfo.ProcessRequestAsync(cancellationToken).ConfigureAwait(false);
+				var result = new JObject
 				{
 					["contents"] = new JArray(new JObject
 					{
 						["uri"] = uri,
-						["type"] = "application/json",
-						["text"] = result == null ? null : $"```json\n{result.ToString(Formatting.None) ?? "null"}\n```"
+						["mimeType"] = "application/json",
+						["text"] = response?.ToString(Formatting.None)
 					})
-				}, cancellationToken).ConfigureAwait(false);
+				};
+				await context.ShowResultAsync(mcpRequest.Get<string>("id"), result, cancellationToken).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -481,14 +518,20 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		public static async Task GatheringInfoAsync(this CommunicateMessage message)
+		public static Task GatheringInfoAsync(this CommunicateMessage message)
 		{
 			var serviceName = message.Data.Get<string>("ServiceName");
 			var systemID = message.Data.Get<string>("SystemID");
-			var correlationID = UtilityService.NewUUID;
+			return GatheringInfoAsync(Global.GetSession(), serviceName, systemID);
+		}
+
+		public static async Task GatheringInfoAsync(this Session session, string serviceName, string systemID, string correlationID = null)
+		{
+			session ??= Global.GetSession();
+			correlationID ??= Global.GetCorrelationID() ?? UtilityService.NewUUID;
 			try
 			{
-				var requestInfo = new RequestInfo(Global.GetSession(), serviceName, "", "capabilities", null, new Dictionary<string, string>
+				var requestInfo = new RequestInfo(session, serviceName, "", "capabilities", null, new Dictionary<string, string>
 				{
 					["x-system-id"] = systemID,
 					["x-requester"] = "vieapps-ngx-portals"
@@ -567,108 +610,106 @@ namespace net.vieapps.Services.Portals
 				}
 			}.Send());
 
-		static async Task ShowErrorAsync(this HttpContext context, Exception exception, string id = null, string message = null)
+		public static async Task ShowErrorAsync(this HttpContext context, Exception exception, string id = null)
 		{
-			var statusCode = exception is MalformedMcpRequestException || exception is MethodNotAllowedException
-				? (int)HttpStatusCode.BadRequest
-				: (int)HttpStatusCode.OK;
-
-			var errorCode = -32603;
+			var code = -32603;
 			if (exception is InvalidMcpRequestException)
-				errorCode = -32600;
+				code = -32600;
 			else if (exception is InvalidMcpBodyException)
-				errorCode = -32700;
+				code = -32700;
 			else if (exception is InvalidMcpMethodException)
-				errorCode = -32601;
+				code = -32601;
 			else if (exception is InvalidMcpParamsException)
-				errorCode = -32602;
+				code = -32602;
 			else if (exception is ServiceNotFoundException)
-				errorCode = -32003;
+				code = -32003;
 
-			message ??= exception is WampException wampException
-				? wampException.GetDetails().Message
-				: exception.Message;
-
-			var body = new JObject
+			var message = exception.Message ?? "Unknown error";
+			var type = exception.GetTypeName(true) ?? "UnknownException";
+			var stack = exception.StackTrace;
+			if (exception is WampException wampException)
 			{
-				["jsonrpc"] = "2.0",
-				["id"] = id,
-				["error"] = new JObject
+				var details = wampException.GetDetails();
+				message = details.Message;
+				type = details.Type;
+				stack = details.Stack;
+			}
+
+			var error = new JObject
+			{
+				["code"] = code,
+				["message"] = message,
+				["data"] = new JObject
 				{
-					["code"] = errorCode,
-					["message"] = message
+					["httpStatus"] = exception is MethodNotAllowedException || exception is MalformedMcpRequestException || exception is InvalidMcpCursorException ? (int)HttpStatusCode.BadRequest : (int)exception.GetHttpStatusCode(),
+					["type"] = type.IndexOf('+') > 0 ? type.Right(type.Length - type.IndexOf('+') - 1) : type,
+					["stack"] = stack,
+					["correlationID"] = context.GetCorrelationID()
 				}
 			};
 
-			var headers = new Dictionary<string, string>
-			{
-				["X-Node"] = Global.NodeID,
-				["X-Correlation-ID"] = context.GetCorrelationID()
-			};
-			if (context.ContainsKey("MCP-Session-ID"))
-				headers["MCP-Session-ID"] = context.GetParameter("MCP-Session-ID");
-
-			try
-			{
-				await Task.WhenAll
-				(
-					statusCode != (int)HttpStatusCode.OK ? Task.CompletedTask : context.WriteAsync(body, headers, Global.CancellationToken),
-					context.WriteLogsAsync("MCP", message, exception, Global.ServiceName, LogLevel.Error)
-				).ConfigureAwait(false);
-				if (statusCode != (int)HttpStatusCode.OK)
-					context.WriteError(statusCode, body, headers);
-			}
-			catch { }
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+			await Task.WhenAll
+			(
+				context.ShowJsonRpcAsync(id, "error", error, null, cts.Token),
+				context.WriteLogsAsync("MCP", message, exception, Global.ServiceName, LogLevel.Error)
+			).ConfigureAwait(false);
 		}
 
-		static async Task ShowErrorAsync(this HttpContext context, string id, Exception exception, CancellationToken cancellationToken)
+		public static Task ShowErrorAsync(this HttpContext context, string id, Exception exception, CancellationToken cancellationToken)
 		{
 			var code = exception.GetHttpStatusCode();
 			var message = exception.Message ?? "Unknown error";
 			var type = exception.GetTypeName(true) ?? "UnknownException";
+			var stack = exception.StackTrace;
 			if (exception is WampException wampException)
 			{
 				var details = wampException.GetDetails();
 				code = details.Code;
 				message = details.Message;
 				type = details.Type;
+				stack = details.Stack;
 			}
-			await Task.WhenAll
-			(
-				context.ShowResultAsync(id, new JObject
+			var result = new JObject
+			{
+				["isError"] = true,
+				["content"] = new JArray(new JObject
 				{
-					["isError"] = true,
-					["content"] = new JArray(new JObject
-					{
-						["type"] = "text",
-						["text"] = $"```json\n{new JObject
-						{
-							["code"] = code,
-							["message"] = message,
-							["type"] = type.IndexOf('+') > 0 ? type.Right(type.Length - type.IndexOf('+')) : type,
-							["correlationID"] = context.GetCorrelationID()
-						}.ToString(Formatting.None)}\n```"
-					})
-				}, cancellationToken),
+					["type"] = "text",
+					["text"] = message
+				}),
+				["structuredContent"] = new JObject
+				{
+					["code"] = code,
+					["message"] = message,
+					["type"] = type.IndexOf('+') > 0 ? type.Right(type.Length - type.IndexOf('+') - 1) : type,
+					["stack"] = stack,
+					["correlationID"] = context.GetCorrelationID()
+				}
+			};
+			return Task.WhenAll
+			(
+				context.ShowResultAsync(id, result, cancellationToken),
 				context.WriteLogsAsync("MCP", message, exception, Global.ServiceName, LogLevel.Error)
-			).ConfigureAwait(false);
+			);
 		}
 
-		static Task ShowResultAsync(this HttpContext context, string id, JObject result, CancellationToken cancellationToken)
-			=> context.ShowResultAsync(id, result, null, null, null, cancellationToken);
+		public static Task ShowResultAsync(this HttpContext context, string id, JObject result, CancellationToken cancellationToken)
+			=> context.ShowResultAsync(id, result, null, cancellationToken);
 
-		static Task ShowResultAsync(this HttpContext context, string id, JObject result, JObject additional, string protocolVersion, string sessionID, CancellationToken cancellationToken)
+		public static Task ShowResultAsync(this HttpContext context, string id, JObject result, string sessionID, CancellationToken cancellationToken)
+			=> context.ShowJsonRpcAsync(id, "result", result, sessionID, cancellationToken);
+
+		public static Task ShowJsonRpcAsync(this HttpContext context, string id, string name, JObject json, string sessionID, CancellationToken cancellationToken)
 		{
 			var response = new JObject
 			{
 				["jsonrpc"] = "2.0",
-				["id"] = id,
-				["result"] = result
+				["id"] = Int64.TryParse(id, out var idAsNumber) ? idAsNumber : id,
+				[name] = json
 			};
-			additional?.ForEach(kvp => response[kvp.Key] = kvp.Value);
 			var headers = new Dictionary<string, string>
 			{
-				["MCP-Protocol-Version"] = protocolVersion ?? context.GetParameter("MCP-Protocol-Version"),
 				["MCP-Session-ID"] = sessionID ?? context.GetParameter("MCP-Session-ID"),
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = context.GetCorrelationID()
@@ -676,7 +717,7 @@ namespace net.vieapps.Services.Portals
 			return Task.WhenAll
 			(
 				context.WriteAsync(response, headers, cancellationToken),
-				Global.IsDebugLogEnabled || context.ContainsKey("x-logs") ? context.WriteLogsAsync("MCP", $"Response: {response}") : Task.CompletedTask
+				Global.IsDebugLogEnabled || context.ContainsKey("x-logs") ? context.WriteLogsAsync("MCP", $"Response JSON-RPC: {response}") : Task.CompletedTask
 			);
 		}
 
