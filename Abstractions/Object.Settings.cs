@@ -614,6 +614,7 @@ namespace net.vieapps.Services.Portals.Settings
 		{
 			var json = new JObject
 			{
+				["AllowAnonymous"] = this.AllowAnonymous,
 				["Instructions"] = this.Instructions,
 				["Resources"] = this.Resources.Select(resource => resource.ToJSON()).ToJArray()
 			};

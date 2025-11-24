@@ -714,7 +714,7 @@ namespace net.vieapps.Services.Portals
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 				try
 				{
-					obj.McpSettings = request.Get<string>("McpSettings")?.ToJson().As<McpSettings>();
+					obj.McpSettings = request.Get<string>("McpSettings")?.ToJson().As<McpSettings>(true);
 				}
 				catch { }
 				obj.NormalizeExtras();
@@ -750,6 +750,18 @@ namespace net.vieapps.Services.Portals
 				organization.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, organization.Status, requestInfo, cancellationToken),
 				organization.SendRefreshingTasksAsync()
 			).ConfigureAwait(false);
+
+			// tell HTTP servers to update MCP settings
+			if (organization.McpSettings != null)
+				new CommunicateMessage("APIGateway")
+				{
+					Type = "McpServer#UpdateInfo",
+					Data = organization.McpSettings.ToJSON(json =>
+					{
+						json["ServiceName"] = Utility.ServiceName;
+						json["SystemID"] = organization.ID;
+					})
+				}.Send();
 
 			// response
 			return response;
@@ -855,7 +867,7 @@ namespace net.vieapps.Services.Portals
 				organization.SendRefreshingTasksAsync()
 			).ConfigureAwait(false);
 
-			// tell HTTP server update MCP settings
+			// tell HTTP servers to update MCP settings
 			if (organization.McpSettings != null)
 				new CommunicateMessage("APIGateway")
 				{
@@ -912,7 +924,7 @@ namespace net.vieapps.Services.Portals
 				organization.OriginalPrivileges = organization.OriginalPrivileges ?? new Privileges(true);
 				try
 				{
-					organization.McpSettings = request.Get<string>("McpSettings")?.ToJson().As<McpSettings>();
+					organization.McpSettings = request.Get<string>("McpSettings")?.ToJson().As<McpSettings>(true);
 				}
 				catch { }
 				organization.NormalizeExtras();

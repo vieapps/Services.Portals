@@ -1733,7 +1733,7 @@ namespace net.vieapps.Services.Portals
 				var bodyJson = requestInfo.BodyAsJson as JObject ?? new();
 				try
 				{
-					var cursor = bodyJson.Get<string>("nextCursor");
+					var cursor = bodyJson.Get<string>("cursor");
 					requestJson = string.IsNullOrWhiteSpace(cursor) ? null : cursor.FromBase64Url().ToJSON() as JObject;
 				}
 				catch { }

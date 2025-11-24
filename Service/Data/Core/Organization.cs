@@ -148,43 +148,43 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Desktop SearchDesktop => (this.SearchDesktopID ?? "").GetDesktopByID();
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Settings.Notifications Notifications { get; set; } = new();
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Dictionary<string, Dictionary<string, Settings.Instruction>> Instructions { get; set; } = [];
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<string> Socials { get; set; } = new();
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Dictionary<string, string> Trackings { get; set; } = [];
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string MetaTags { get; set; }
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string ScriptLibraries { get; set; }
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string Scripts { get; set; }
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public bool AlwaysUseHtmlSuffix { get; set; } = true;
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Settings.RefreshURLs RefreshURLs { get; set; } = new();
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Settings.RedirectURLs RedirectURLs { get; set; } = new();
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Settings.Email EmailSettings { get; set; } = new();
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public Settings.WebHookSetting WebHookSettings { get; set; } = new();
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Settings.HttpIndicator> HttpIndicators { get; set; }
 
 		[Ignore, BsonIgnore, XmlIgnore]
@@ -193,7 +193,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore]
 		public string FakePortalsHttpURI { get; set; }
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Settings.ExamineURLs> ExamineURLs { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]

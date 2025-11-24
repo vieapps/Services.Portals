@@ -310,21 +310,21 @@ namespace net.vieapps.Services.Portals
 			if (mcpBody == null)
 				throw new InvalidMcpBodyException();
 
-			var nextCursor = mcpBody.Get<string>("nextCursor");
-			if (!string.IsNullOrWhiteSpace(nextCursor))
+			var cursor = mcpBody.Get<string>("cursor");
+			if (!string.IsNullOrWhiteSpace(cursor))
 				try
 				{
-					var cursor = nextCursor.ToBase64(false, true).Decrypt(Global.EncryptionKey).ToJson() as JObject;
-					nextCursor = cursor.Get<string>("cursor");
-					if (string.IsNullOrWhiteSpace(nextCursor))
+					var cursorJson = cursor.ToBase64(false, true).Decrypt(Global.EncryptionKey).ToJson() as JObject;
+					cursor = cursorJson.Get<string>("cursor");
+					if (string.IsNullOrWhiteSpace(cursor))
 						throw new InvalidMcpCursorException();
-					var actualSignature = cursor.Get<string>("signature");
+					var actualSignature = cursorJson.Get<string>("signature");
 					if (string.IsNullOrWhiteSpace(actualSignature))
 						throw new InvalidMcpCursorException();
-					var computeSignature = nextCursor.GetHMAC(Global.ValidationKey);
+					var computeSignature = cursor.GetHMAC(Global.ValidationKey);
 					if (computeSignature != actualSignature)
 						throw new InvalidMcpCursorException();
-					mcpBody["nextCursor"] = nextCursor;
+					mcpBody["cursor"] = cursor;
 				}
 				catch (Exception ex)
 				{
@@ -353,12 +353,12 @@ namespace net.vieapps.Services.Portals
 			try
 			{
 				var response = await requestInfo.ProcessRequestAsync(cancellationToken).ConfigureAwait(false);
-				nextCursor = response?.Get<string>("nextCursor");
-				if (!string.IsNullOrWhiteSpace(nextCursor))
+				cursor = response?.Get<string>("nextCursor");
+				if (!string.IsNullOrWhiteSpace(cursor))
 					response["nextCursor"] = new JObject
 					{
-						["cursor"] = nextCursor,
-						["signature"] = nextCursor.GetHMAC(Global.ValidationKey)
+						["cursor"] = cursor,
+						["signature"] = cursor.GetHMAC(Global.ValidationKey)
 					}.ToString(Formatting.None).Encrypt(Global.EncryptionKey).ToBase64Url(true);
 				var result = new JObject
 				{
@@ -411,10 +411,45 @@ namespace net.vieapps.Services.Portals
 				header["x-requester"] = "vieapps-ngx-portals";
 			});
 			var correlationID = context.GetCorrelationID();
+			
+			var mcpParams = mcpRequest.Get<JObject>("params");
+			var cursor = mcpParams?.Get<string>("cursor");
+			var cursors = new JObject();
+			if (!string.IsNullOrWhiteSpace(cursor))
+				try
+				{
+					var jsonCursors = cursor.ToBase64(false, true).Decrypt(Global.EncryptionKey).ToJson() as JObject;
+					foreach(var mcpResource in mcpSettings.Resources)
+					{
+						var mcpCursor = jsonCursors.Get<JObject>(mcpResource.Name);
+						if (mcpCursor == null)
+							continue;
+						var cursorStr = mcpCursor.Get<string>("cursor");
+						if (string.IsNullOrWhiteSpace(cursorStr))
+							throw new InvalidMcpCursorException();
+						var actualSignature = mcpCursor.Get<string>("signature");
+						if (string.IsNullOrWhiteSpace(actualSignature))
+							throw new InvalidMcpCursorException();
+						var computeSignature = cursorStr.GetHMAC(Global.ValidationKey);
+						if (computeSignature != actualSignature)
+							throw new InvalidMcpCursorException();
+						cursors[mcpResource.Name] = cursorStr;
+					}
+				}
+				catch (Exception ex)
+				{
+					if (ex is InvalidMcpCursorException)
+						throw;
+					throw new InvalidMcpCursorException(ex);
+				}
+
 			try
 			{
 				var resources = new JArray();
-				await mcpSettings.Resources.ForEachAsync(async mcpResource =>
+				var nextCursors = new JObject();
+
+				var mcpResources = mcpSettings.Resources.Where(mcpResource => string.IsNullOrWhiteSpace(cursor) || cursors.Get<string>(mcpResource.Name) != null).ToList();
+				await mcpResources.ForEachAsync(async mcpResource =>
 				{
 					var requestInfo = new RequestInfo
 					(
@@ -424,7 +459,7 @@ namespace net.vieapps.Services.Portals
 						"resources/list",
 						query,
 						headers,
-						null,
+						string.IsNullOrWhiteSpace(cursor) ? null : new JObject { ["cursor"] = cursors.Get<string>(mcpResource.Name) }.ToString(Formatting.None),
 						null,
 						correlationID
 					);
@@ -453,11 +488,19 @@ namespace net.vieapps.Services.Portals
 							}
 						});
 					});
+					var nextCursor = response?.Get<string>("nextCursor");
+					if (!string.IsNullOrWhiteSpace(nextCursor))
+						nextCursors[mcpResource.Name] = new JObject
+						{
+							["cursor"] = nextCursor,
+							["signature"] = nextCursor.GetHMAC(Global.ValidationKey)
+						};
 				}, true, false).ConfigureAwait(false);
+
 				var result = new JObject
 				{
 					["resources"] = resources,
-					["nextCursor"] = null
+					["nextCursor"] = nextCursors.Count < 1 ? null : nextCursors.ToString(Formatting.None).Encrypt(Global.EncryptionKey).ToBase64Url(true)
 				};
 				await context.ShowResultAsync(mcpRequest.Get<string>("id"), result, cancellationToken).ConfigureAwait(false);
 			}
@@ -573,7 +616,7 @@ namespace net.vieapps.Services.Portals
 				mcpResource.ServiceName = serviceName.ToLower();
 			});
 
-			Global.WriteLogs("MCP", $"Success update info [{serviceName}/{systemID}]", null, Global.ServiceName, LogLevel.Information, correlationID ?? UtilityService.NewUUID);
+			Global.WriteLogs("MCP", $"Success update info [{serviceName.ToLower()}/{systemID}]", null, Global.ServiceName, LogLevel.Information, correlationID ?? UtilityService.NewUUID);
 		}
 
 		public static void UpdateSessionInfo(this CommunicateMessage message)
@@ -610,6 +653,23 @@ namespace net.vieapps.Services.Portals
 				}
 			}.Send());
 
+		public static (int Code, string Message, string Type, string Stack) GetErrorDetails(this Exception exception)
+		{
+			var code = exception.GetHttpStatusCode();
+			var message = exception.Message ?? "Unknown error";
+			var type = exception.GetTypeName(true) ?? "UnknownException";
+			var stack = exception.StackTrace;
+			if (exception is WampException wampException)
+			{
+				var details = wampException.GetDetails();
+				code = details.Code;
+				message = details.Message;
+				type = details.Type;
+				stack = details.Stack;
+			}
+			return (code, message, type.IndexOf('+') > 0 ? type.Right(type.Length - type.IndexOf('+') - 1) : type, stack);
+		}
+
 		public static async Task ShowErrorAsync(this HttpContext context, Exception exception, string id = null)
 		{
 			var code = -32603;
@@ -624,16 +684,7 @@ namespace net.vieapps.Services.Portals
 			else if (exception is ServiceNotFoundException)
 				code = -32003;
 
-			var message = exception.Message ?? "Unknown error";
-			var type = exception.GetTypeName(true) ?? "UnknownException";
-			var stack = exception.StackTrace;
-			if (exception is WampException wampException)
-			{
-				var details = wampException.GetDetails();
-				message = details.Message;
-				type = details.Type;
-				stack = details.Stack;
-			}
+			var (httpStatus, message, type, stack) = exception.GetErrorDetails();
 
 			var error = new JObject
 			{
@@ -641,8 +692,8 @@ namespace net.vieapps.Services.Portals
 				["message"] = message,
 				["data"] = new JObject
 				{
-					["httpStatus"] = exception is MethodNotAllowedException || exception is MalformedMcpRequestException || exception is InvalidMcpCursorException ? (int)HttpStatusCode.BadRequest : (int)exception.GetHttpStatusCode(),
-					["type"] = type.IndexOf('+') > 0 ? type.Right(type.Length - type.IndexOf('+') - 1) : type,
+					["httpStatus"] = exception is MethodNotAllowedException || exception is MalformedMcpRequestException || exception is InvalidMcpCursorException ? (int)HttpStatusCode.BadRequest : httpStatus,
+					["type"] = type,
 					["stack"] = stack,
 					["correlationID"] = context.GetCorrelationID()
 				}
@@ -658,18 +709,7 @@ namespace net.vieapps.Services.Portals
 
 		public static Task ShowErrorAsync(this HttpContext context, string id, Exception exception, CancellationToken cancellationToken)
 		{
-			var code = exception.GetHttpStatusCode();
-			var message = exception.Message ?? "Unknown error";
-			var type = exception.GetTypeName(true) ?? "UnknownException";
-			var stack = exception.StackTrace;
-			if (exception is WampException wampException)
-			{
-				var details = wampException.GetDetails();
-				code = details.Code;
-				message = details.Message;
-				type = details.Type;
-				stack = details.Stack;
-			}
+			var (code, message, type, stack) = exception.GetErrorDetails();
 			var result = new JObject
 			{
 				["isError"] = true,
@@ -682,7 +722,7 @@ namespace net.vieapps.Services.Portals
 				{
 					["code"] = code,
 					["message"] = message,
-					["type"] = type.IndexOf('+') > 0 ? type.Right(type.Length - type.IndexOf('+') - 1) : type,
+					["type"] = type,
 					["stack"] = stack,
 					["correlationID"] = context.GetCorrelationID()
 				}
