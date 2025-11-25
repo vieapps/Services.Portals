@@ -54,35 +54,36 @@ namespace net.vieapps.Services.Portals
 		#region Exceptions
 		public class MalformedMcpRequestException : AppException
 		{
-			public MalformedMcpRequestException() : base("Bad request") { }
+			public MalformedMcpRequestException() : base("Parse error: malformed JSON") { }
 			public MalformedMcpRequestException(string message) : base(message) { }
+			public MalformedMcpRequestException(Exception innerException) : base("Parse error: malformed JSON", innerException) { }
 			public MalformedMcpRequestException(string message, Exception innerException) : base(message, innerException) { }
 		}
 
 		public class InvalidMcpProtocolException : AppException
 		{
-			public InvalidMcpProtocolException()	: base("Invalid protocol") { }
+			public InvalidMcpProtocolException()	: base("Unsupported or invalid MCP protocol version") { }
 			public InvalidMcpProtocolException(string message) : base(message) { }
 			public InvalidMcpProtocolException(string message, Exception innerException) : base(message, innerException) { }
 		}
 
 		public class InvalidMcpSessionException : AppException
 		{
-			public InvalidMcpSessionException() : base("Invalid session") { }
+			public InvalidMcpSessionException() : base("Invalid or expired session") { }
 			public InvalidMcpSessionException(string message) : base(message) { }
 			public InvalidMcpSessionException(string message, Exception innerException) : base(message, innerException) { }
 		}
 
 		public class InvalidMcpRequestException : AppException
 		{
-			public InvalidMcpRequestException() : base("Invalid request") { }
+			public InvalidMcpRequestException() : base("Invalid JSON-RPC request") { }
 			public InvalidMcpRequestException(string message) : base(message) { }
 			public InvalidMcpRequestException(string message, Exception innerException) : base(message, innerException) { }
 		}
 
 		public class InvalidMcpBodyException : AppException
 		{
-			public InvalidMcpBodyException() : base("Invalid body") { }
+			public InvalidMcpBodyException() : base("Invalid JSON-RPC request body") { }
 			public InvalidMcpBodyException(string message) : base(message) { }
 			public InvalidMcpBodyException(string message, Exception innerException) : base(message, innerException) { }
 		}
@@ -103,7 +104,7 @@ namespace net.vieapps.Services.Portals
 
 		public class InvalidMcpCursorException : AppException
 		{
-			public InvalidMcpCursorException() : base("Invalid cursor") { }
+			public InvalidMcpCursorException() : base("Invalid cursor parameter") { }
 			public InvalidMcpCursorException(string message) : base(message) { }
 			public InvalidMcpCursorException(Exception innerException) : base("Invalid cursor", innerException) { }
 			public InvalidMcpCursorException(string message, Exception innerException) : base(message, innerException) { }
@@ -142,7 +143,6 @@ namespace net.vieapps.Services.Portals
 			if (!McpHandler.Settings.TryGetValue(systemID, out mcpSettings))
 			{
 				await session.GatheringInfoAsync(Global.ServiceName, systemID, context.GetCorrelationID()).ConfigureAwait(false);
-				await Task.Delay(UtilityService.GetRandomNumber(456, 789), cts.Token).ConfigureAwait(false);
 				McpHandler.Settings.TryGetValue(systemID, out mcpSettings);
 			}
 
@@ -150,7 +150,7 @@ namespace net.vieapps.Services.Portals
 				throw new ServiceNotFoundException("Unavailable");
 
 			if (!mcpSettings.AllowAnonymous && !context.IsAuthenticated())
-				throw new UnauthorizedException("Unauthorized (anonymous is not allowed)");
+				throw new UnauthorizedException("Unauthorized: missing or invalid credentials");
 
 			// prepare
 			JObject mcpRequest = null;
@@ -163,7 +163,7 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (Exception ex)
 			{
-				throw ex is InvalidMcpBodyException ? ex : new MalformedMcpRequestException("Malformed", ex);
+				throw ex is InvalidMcpBodyException ? ex : new MalformedMcpRequestException(ex);
 			}
 
 			var jsonrpc = mcpRequest.Get<string>("jsonrpc");
@@ -186,10 +186,10 @@ namespace net.vieapps.Services.Portals
 				if (!headers.TryGetValue("MCP-Protocol-Version", out var mcpProtocolVersion))
 					mcpProtocolVersion = mcpRequest.Get<JObject>("params")?.Get<string>("protocolVersion") ?? mcpRequest.Get<string>("protocolVersion");
 				if (string.IsNullOrWhiteSpace(mcpProtocolVersion) || McpHandler.SupportedProtocols.FirstOrDefault(version => version == mcpProtocolVersion) == null)
-					throw new InvalidMcpProtocolException($"Protocol version ({mcpProtocolVersion ?? "null"}) is invalid - supported version(s): {McpHandler.SupportedProtocols.Join(", ")}");
+					throw new InvalidMcpProtocolException($"Unsupported or invalid MCP protocol version ({mcpProtocolVersion ?? "null"}) - supported version(s): {McpHandler.SupportedProtocols.Join(", ")}");
 			}
 			else if (!headers.TryGetValue("MCP-Session-ID", out mcpSessionID) || !McpHandler.Sessions.ContainsKey(mcpSessionID))
-				throw new InvalidMcpSessionException($"Invalid session ({(string.IsNullOrWhiteSpace(mcpSessionID) ? "no identity" : "not found")})");
+				throw new InvalidMcpSessionException($"Invalid or expired session ({(string.IsNullOrWhiteSpace(mcpSessionID) ? "no identity" : "not found")})");
 
 			// process the request
 			await context.WriteLogsAsync("MCP", $"Start process request [{systemID}/{alias}]{(isDebugLogEnabled ? $"\r\nRequest JSON-RPC: {mcpRequest}" : "")}").ConfigureAwait(false);
@@ -328,9 +328,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					if (ex is InvalidMcpCursorException)
-						throw;
-					throw new InvalidMcpCursorException(ex);
+					throw ex is InvalidMcpCursorException ? ex : new InvalidMcpCursorException(ex);
 				}
 
 			var requestInfo = new RequestInfo
@@ -438,9 +436,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					if (ex is InvalidMcpCursorException)
-						throw;
-					throw new InvalidMcpCursorException(ex);
+					throw ex is InvalidMcpCursorException ? ex : new InvalidMcpCursorException(ex);
 				}
 
 			try
@@ -482,7 +478,7 @@ namespace net.vieapps.Services.Portals
 							["annotations"] = new JObject
 							{
 								["audience"] = new JArray("assistant"),
-								["priority"] = 0.85,
+								["priority"] = string.IsNullOrWhiteSpace(cursor) ? 0.85 : 0.75,
 								["lastModified"] = DateTime.TryParse(lastModified, out var time) ? time.ToIsoString() : null,
 								["category"] = mcpResource.Name
 							}
@@ -581,11 +577,11 @@ namespace net.vieapps.Services.Portals
 				}, null, null, correlationID);
 				var response = await requestInfo.ProcessRequestAsync(Global.CancellationToken).ConfigureAwait(false);
 				response.As<Settings.McpSettings>(true, (mcpSettings, _) => mcpSettings.SystemID = systemID).UpdateInfo(serviceName, systemID, correlationID);
-				await Global.WriteLogsAsync("MCP", $"Success gathering info [{serviceName}/{systemID}]", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+				await Global.WriteLogsAsync("MCP", $"Success gathering info [{serviceName.ToLower()}/{systemID}]", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await Global.WriteLogsAsync("MCP", $"Cannot gathering info [{serviceName}/{systemID}] => {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+				await Global.WriteLogsAsync("MCP", $"Cannot gathering info [{serviceName.ToLower()}/{systemID}] => {ex.Message}", ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 			}
 		}
 
@@ -615,8 +611,6 @@ namespace net.vieapps.Services.Portals
 				mcpResource.CopyFrom(resource);
 				mcpResource.ServiceName = serviceName.ToLower();
 			});
-
-			Global.WriteLogs("MCP", $"Success update info [{serviceName.ToLower()}/{systemID}]", null, Global.ServiceName, LogLevel.Information, correlationID ?? UtilityService.NewUUID);
 		}
 
 		public static void UpdateSessionInfo(this CommunicateMessage message)
@@ -667,22 +661,32 @@ namespace net.vieapps.Services.Portals
 				type = details.Type;
 				stack = details.Stack;
 			}
+			if (type == "AccessDeniedException")
+				message = "Access denied: insufficient permissions";
 			return (code, message, type.IndexOf('+') > 0 ? type.Right(type.Length - type.IndexOf('+') - 1) : type, stack);
 		}
 
 		public static async Task ShowErrorAsync(this HttpContext context, Exception exception, string id = null)
 		{
 			var code = -32603;
-			if (exception is InvalidMcpRequestException)
+			if (exception is InvalidMcpProtocolException || exception is MalformedMcpRequestException || exception is InvalidMcpRequestException)
 				code = -32600;
-			else if (exception is InvalidMcpBodyException)
-				code = -32700;
-			else if (exception is InvalidMcpMethodException)
+			else if (exception is InvalidMcpMethodException || exception is NotImplementedException)
 				code = -32601;
-			else if (exception is InvalidMcpParamsException)
+			else if (exception is InvalidMcpBodyException || exception is InvalidMcpParamsException)
 				code = -32602;
-			else if (exception is ServiceNotFoundException)
+			else if (exception is UnauthorizedException)
+				code = -32001;
+			else if (exception is InvalidMcpSessionException)
+				code = -32002;
+			else if (exception is AccessDeniedException)
 				code = -32003;
+			else if (exception is ServiceNotFoundException)
+				code = -32004;
+			else if (exception is MethodNotAllowedException)
+				code = -32005;
+			else if (exception is InvalidMcpCursorException)
+				code = -32010;
 
 			var (httpStatus, message, type, stack) = exception.GetErrorDetails();
 
