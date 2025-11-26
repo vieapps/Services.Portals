@@ -33,7 +33,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					await context.ShowErrorAsync(ex).ConfigureAwait(false);
+					await context.ShowErrorAsync(context.GetItem<JObject>("RequestBody")?.Get<string>("id"), ex).ConfigureAwait(false);
 				}
 				if (Global.IsVisitLogEnabled)
 					await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
@@ -121,10 +121,24 @@ namespace net.vieapps.Services.Portals
 			if (!context.Request.Method.IsEquals("POST"))
 				throw new MethodNotAllowedException();
 
-			// identify the system
+			// prepare the request body
 			var stopwatch = Stopwatch.StartNew();
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 
+			JObject mcpRequest = null;
+			try
+			{
+				var requestBody = await context.ReadTextAsync(cts.Token).ConfigureAwait(false);
+				context.SetItem("RequestBody", mcpRequest = requestBody.ToJson() as JObject);
+				if (mcpRequest == null)
+					throw new InvalidMcpBodyException();
+			}
+			catch (Exception ex)
+			{
+				throw ex is InvalidMcpBodyException ? ex : new MalformedMcpRequestException(ex);
+			}
+
+			// identify the system
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 			var session = context.GetSession();
 			var headers = context.Request.Headers.ToDictionary(header =>
@@ -153,19 +167,6 @@ namespace net.vieapps.Services.Portals
 				throw new UnauthorizedException("Unauthorized: missing or invalid credentials");
 
 			// prepare
-			JObject mcpRequest = null;
-			try
-			{
-				var body = await context.ReadTextAsync(cts.Token).ConfigureAwait(false);
-				mcpRequest = body.ToJson() as JObject;
-				if (mcpRequest == null)
-					throw new InvalidMcpBodyException();
-			}
-			catch (Exception ex)
-			{
-				throw ex is InvalidMcpBodyException ? ex : new MalformedMcpRequestException(ex);
-			}
-
 			var jsonrpc = mcpRequest.Get<string>("jsonrpc");
 			if (string.IsNullOrWhiteSpace(jsonrpc) || jsonrpc != "2.0")
 				throw new InvalidMcpRequestException("Invalid JSON-RPC version");
@@ -234,7 +235,7 @@ namespace net.vieapps.Services.Portals
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
 			{
-				await context.ShowErrorAsync(ex, mcpRequestID).ConfigureAwait(false);
+				await context.ShowErrorAsync(mcpRequestID, ex).ConfigureAwait(false);
 			}
 
 			await context.WriteLogsAsync("MCP", $"End process request - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
@@ -666,7 +667,7 @@ namespace net.vieapps.Services.Portals
 			return (code, message, type.IndexOf('+') > 0 ? type.Right(type.Length - type.IndexOf('+') - 1) : type, stack);
 		}
 
-		public static async Task ShowErrorAsync(this HttpContext context, Exception exception, string id = null)
+		public static async Task ShowErrorAsync(this HttpContext context, string id, Exception exception)
 		{
 			var code = -32603;
 			if (exception is InvalidMcpProtocolException || exception is MalformedMcpRequestException || exception is InvalidMcpRequestException)
