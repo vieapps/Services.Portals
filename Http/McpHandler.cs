@@ -126,17 +126,18 @@ namespace net.vieapps.Services.Portals
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 
 			JObject mcpRequest = null;
-			try
-			{
-				var requestBody = await context.ReadTextAsync(cts.Token).ConfigureAwait(false);
-				context.SetItem("RequestBody", mcpRequest = requestBody.ToJson() as JObject);
-				if (mcpRequest == null)
-					throw new InvalidMcpBodyException();
-			}
-			catch (Exception ex)
-			{
-				throw ex is InvalidMcpBodyException ? ex : new MalformedMcpRequestException(ex);
-			}
+			if (context.Request.Method.IsEquals("POST"))
+				try
+				{
+					var requestBody = await context.ReadTextAsync(cts.Token).ConfigureAwait(false);
+					context.SetItem("RequestBody", mcpRequest = requestBody.ToJson() as JObject);
+					if (mcpRequest == null)
+						throw new InvalidMcpBodyException();
+				}
+				catch (Exception ex)
+				{
+					throw ex is InvalidMcpBodyException ? ex : new MalformedMcpRequestException(ex);
+				}
 
 			// identify the system
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
