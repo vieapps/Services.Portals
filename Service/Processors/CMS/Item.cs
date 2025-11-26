@@ -171,21 +171,25 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetRequestExpando();
 			var verifyRequest = !isSystemAdministrator || !requestInfo.ContainsKey("x-dont-verify");
 
-			var query = request.Get<string>("FilterBy.Query");
-
-			var filter = request.Get<ExpandoObject>("FilterBy")?.ToFilterBy<Item>() as FilterBys<Item> ?? Filters<Item>.And();
-			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Item>() ?? Sorts<Item>.Descending("Created").ThenByAscending("Title") : null;
-
 			var expression = await (requestInfo.GetParameter("x-expression") ?? requestInfo.GetParameter("x-expression-id") ?? requestInfo.GetParameter("expression-id") ?? requestInfo.GetParameter("ExpressionID") ?? requestInfo.GetParameter("object-extra-identity") ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (expression != null)
-			{
-				filter = expression.GetFilterBy<Item>() as FilterBys<Item> ?? filter;
-				sort = expression.GetSortBy<Item>() ?? sort;
-			}
 
-			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
+			ExpandoObject cursor = null;
+			try
+			{
+				cursor = requestInfo.GetParameter("x-cursor")?.FromBase64Url().ToJson().ToExpandoObject();
+			}
+			catch { }
+			var useCursor = cursor != null || (expression != null && expression.UseCursor) || requestInfo.ContainsKey("x-use-cursor");
+
+			var query = (useCursor ? cursor?.Get<string>("FilterBy.Query") : null) ?? request.Get<string>("FilterBy.Query");
+
+			var filter = expression?.GetFilterBy<Item>() as FilterBys<Item> ?? ((useCursor ? cursor?.Get<ExpandoObject>("FilterBy") : null) ?? request.Get<ExpandoObject>("FilterBy"))?.ToFilterBy<Item>() as FilterBys<Item> ?? Filters<Item>.And();
+			var sort = string.IsNullOrWhiteSpace(query) ? expression?.GetSortBy<Item>() ?? ((useCursor ? cursor?.Get<ExpandoObject>("SortBy") : null) ?? request.Get<ExpandoObject>("SortBy"))?.ToSortBy<Item>() ?? Sorts<Item>.Descending("Created").ThenByAscending("Title") : null;
+
+			var pagination = ((useCursor ? cursor?.Get<ExpandoObject>("Pagination") : null) ?? request.Get<ExpandoObject>("Pagination"))?.GetPagination() ?? (-1, 0, 20, useCursor ? 0 : 1);
 			var pageSize = pagination.PageSize;
 			var pageNumber = pagination.PageNumber;
+			pageNumber += useCursor ? 1 : 0;
 
 			var organizationID = expression?.SystemID ?? filter.GetValue("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("OrganizationID") ?? requestInfo.GetParameter("x-system-id");
 			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationInvalidException("The organization is invalid");
@@ -249,7 +253,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var json = await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsJson, cancellationToken).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(json))
-					return JObject.Parse(json);
+					return useCursor ? JObject.Parse(json).ToCursor() : JObject.Parse(json);
 			}
 
 			// search if has no cache
@@ -268,24 +272,34 @@ namespace net.vieapps.Services.Portals
 
 			var showURLs = requestInfo.ContainsKey("ShowURLs");
 			var siteURL = showURLs ? organization.DefaultSite?.GetURL(requestInfo.GetHeaderParameter("x-srp-host"), requestInfo.GetParameter("x-url")) + "/" : null;
+			var objectName = objects.Count > 0 ? objects.First().GetObjectName().ToLower() : null;
 
 			var response = new JObject()
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", (totalRecords, totalPages, pageSize, pageNumber).GetPagination() },
-				{
-					"Objects",
-					objects.Select(@object => @object.ToJson(false, json =>
+				{	"Objects", objects.Select(@object => !string.IsNullOrWhiteSpace(expression?.SearchTransformScript)
+					? expression.SearchTransformScript.JsEvaluate(@object, requestInfo, new JObject
 					{
-						json["Thumbnails"] = (thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
-						if (showAttachments)
-							json["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
+						["URI"] = $"apis://{Utility.ServiceName.ToLower()}/{objectName}/{@object.ID}/{expression.ID}",
+						["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL),
+						["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID)?.NormalizeURIs(organization.FakeFilesHttpURI),
+						["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI)
+					}.ToExpandoObject()).ToString().ToJson()
+					: @object.ToJson(false, json =>
+					{
 						if (showURLs)
 						{
 							json["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL);
 							json["Summary"] = @object.Summary?.NormalizeHTMLBreaks();
 						}
+
+						json["Thumbnails"] = (thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
+						if (showAttachments)
+							json["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
+
+						json["URI"] = $"apis://{Utility.ServiceName.ToLower()}/{objectName}/{@object.ID}{(expression != null ? $"/{expression.ID}" : "")}";
 					})).ToJArray()
 				}
 			};
@@ -301,7 +315,8 @@ namespace net.vieapps.Services.Portals
 					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS items\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n{(contentType != null ? $"- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n" : "")}- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
 				).Execute();
 			}
-			return response;
+
+			return useCursor ? response.ToCursor() : response;
 		}
 
 		internal static async Task<JObject> CreateItemAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
@@ -436,19 +451,32 @@ namespace net.vieapps.Services.Portals
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
-			var response = item.ToJson(json =>
-			{
-				json.UpdateVersions(versions);
-				json["Thumbnails"] = thumbnailsTask.Result;
-				json["Attachments"] = attachmentsTask.Result;
-			});
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
-				Data = response,
-				DeviceID = "*",
-				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
-			}.Send();
+
+			var expression = await (requestInfo.GetParameter("object-extra-identity") ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			var response = !string.IsNullOrWhiteSpace(expression?.GetTransformScript)
+				? expression.GetTransformScript.JsEvaluate(item, requestInfo, new JObject
+				{
+					["URI"] = $"apis://{Utility.ServiceName.ToLower()}/{item.GetObjectName().ToLower()}/{item.ID}/{(expression != null ? $"/{expression.ID}" : "")}",
+					["URL"] = item.GetURL(),
+					["Thumbnails"] = thumbnailsTask.Result,
+					["Attachments"] = attachmentsTask.Result,
+				}.ToExpandoObject()).ToString().ToJson() as JObject
+				: item.ToJson(json =>
+				{
+					json.UpdateVersions(versions);
+					json["Thumbnails"] = thumbnailsTask.Result;
+					json["Attachments"] = attachmentsTask.Result;
+				});
+
+			if (expression == null)
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{item.GetObjectName()}#Update",
+					Data = response,
+					DeviceID = "*",
+					ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
+				}.Send();
+
 			return response;
 		}
 
@@ -1077,8 +1105,12 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JToken> ProcessItemMcpRequestAsync(this RequestInfo requestInfo, ContentType contentType, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			var mcpResource = contentType.Organization.McpSettings.Resources.FirstOrDefault(resource => resource.Name.IsEquals(requestInfo.ObjectName));
-			var expression = await (mcpResource.ExpressionID ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+
 			var objectIdentity = requestInfo.GetObjectIdentity();
+			var mcpTool = mcpResource.Tools?.FirstOrDefault(tool => tool.Name.IsEquals(objectIdentity));
+
+			var expression = await (mcpResource.ExpressionID ?? "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false);
+			var siteURL = $"{contentType.Organization?.DefaultSite?.GetURL()}/";
 
 			var verb = "SEARCH";
 			if (requestInfo.Verb.IsEquals("resources/read"))
@@ -1086,7 +1118,6 @@ namespace net.vieapps.Services.Portals
 
 			else if (requestInfo.Verb.IsEquals("tools/call"))
 			{
-				var mcpTool = mcpResource.Tools?.FirstOrDefault(tool => tool.Name.IsEquals(objectIdentity));
 				if (mcpTool == null)
 					verb = "UNKNOWN";
 				else if ("read".IsEquals(mcpTool?.Name))
@@ -1181,7 +1212,13 @@ namespace net.vieapps.Services.Portals
 
 				response = new JObject
 				{
-					["items"] = result.Objects.Where(@object => @object.ID != lastID).Select(@object => @object.ToJSON()).ToJArray(),
+					["items"] = result.Objects.Where(@object => @object.ID != lastID).Select(@object => !string.IsNullOrWhiteSpace(mcpTool?.TransformScript)
+						? mcpTool.TransformScript.JsEvaluate(@object, requestInfo, new JObject
+						{
+							["URL"] = @object.GetURL().Replace("~/", siteURL),
+						}.ToExpandoObject()).ToString().ToJson() as JObject
+						: @object.ToJSON()
+					).ToJArray(),
 					["nextCursor"] = pageNumber < totalPages ? requestJson.ToString(Formatting.None).ToBase64Url() : null
 				};
 			}
@@ -1200,7 +1237,12 @@ namespace net.vieapps.Services.Portals
 				if (!gotRights)
 					throw new AccessDeniedException();
 
-				response = item?.ToJSON();
+				response = !string.IsNullOrWhiteSpace(mcpTool?.TransformScript)
+					? mcpTool.TransformScript.JsEvaluate(item, requestInfo, new JObject
+					{
+						["URL"] = item?.GetURL().Replace("~/", siteURL),
+					}.ToExpandoObject()).ToString().ToJson() as JObject
+					: item?.ToJSON();
 			}
 
 			return response;

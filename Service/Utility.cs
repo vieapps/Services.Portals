@@ -1,22 +1,24 @@
 ﻿#region Related components
-using System;
-using System.IO;
-using System.Linq;
-using System.Dynamic;
-using System.Xml.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
-using System.Text.RegularExpressions;
+using DocumentFormat.OpenXml.Office2016.Excel;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json.Linq;
-using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Settings;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Dynamic;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+using WampSharp.V2.Core.Contracts;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -1289,6 +1291,26 @@ namespace net.vieapps.Services.Portals
 			await (trackAsync == null ? Task.CompletedTask : trackAsync($"Send to trigger URL successful [{url}] => {await httpResponseMessage.ReadAsStringAsync(Utility.CancellationToken).ConfigureAwait(false)}")).ConfigureAwait(false);
 		}
 
+		internal static JObject ToCursor(this JObject json, Action<JObject> onCompleted = null)
+		{
+			var pagination = json.Get<JObject>("Pagination");
+			var objects = json.Get<JArray>("Objects");
+			var (_, totalPages, _, pageNumber) = pagination.GetPagination();
+			var cursor = new JObject
+			{
+				["Objects"] = objects,
+				["Cursor"] = objects != null && objects.Count > 0 && totalPages > 0 && totalPages > pageNumber
+					? new JObject
+					{
+						["FilterBy"] = json.Get<JObject>("FilterBy"),
+						["SortBy"] = json.Get<JObject>("SortBy"),
+						["Pagination"] = pagination
+					}.ToString(Newtonsoft.Json.Formatting.None).ToBase64Url()
+					: null
+			};
+			onCompleted?.Invoke(cursor);
+			return cursor;
+		}
 	}
 
 	//  --------------------------------------------------------------------------------------------

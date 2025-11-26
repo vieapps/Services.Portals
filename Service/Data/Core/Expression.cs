@@ -63,6 +63,17 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Excluded = true)]
 		public List<SortBy> Sorts { get; set; }
 
+		[FormControl(Segment = "integrations", Label = "{{portals.expressions.controls.[name].label}}", PlaceHolder = "{{portals.expressions.controls.[name].placeholder}}", Description = "{{portals.expressions.controls.[name].description}}")]
+		public bool UseCursor { get; set; } = false;
+
+		[Property(IsCLOB = true)]
+		[FormControl(Segment = "integrations", ControlType = "TextArea", Label = "{{portals.expressions.controls.[name].label}}", PlaceHolder = "{{portals.expressions.controls.[name].placeholder}}", Description = "{{portals.expressions.controls.[name].description}}")]
+		public string SearchTransformScript { get; set; }
+
+		[Property(IsCLOB = true)]
+		[FormControl(Segment = "integrations", ControlType = "TextArea", Label = "{{portals.expressions.controls.[name].label}}", PlaceHolder = "{{portals.expressions.controls.[name].placeholder}}", Description = "{{portals.expressions.controls.[name].description}}")]
+		public string GetTransformScript { get; set; }
+
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
 		public DateTime Created { get; set; }

@@ -91,8 +91,8 @@ namespace net.vieapps.Services.Portals
 				queryString["object-name"] = objectName;
 				queryString["object-identity"] = objectIdentity;
 
-				if (requestSegments.Length > 3 && !objectIdentity.IsValidUUID())
-					queryString["object-extra-identity"] = requestSegments[3].GetANSIUri(false, true);
+				if (requestSegments.Length > 3 && requestSegments[3].IsValidUUID())
+					queryString["object-extra-identity"] = requestSegments[3];
 			});
 
 			var headers = context.Request.Headers.ToDictionary(header =>

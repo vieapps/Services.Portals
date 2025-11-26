@@ -728,6 +728,11 @@ namespace net.vieapps.Services.Portals.Settings
 			/// </summary>
 			public JObject OutputSchema { get; set; }
 
+			/// <summary>
+			/// Gets or Sets the scripts to transform an object while using tool
+			/// </summary>
+			public string TransformScript { get; set; }
+
 			public Tool Normalize()
 			{
 				this.InputSchema = this.InputSchema == null || this.InputSchema.Count < 1 ? null : this.InputSchema;
