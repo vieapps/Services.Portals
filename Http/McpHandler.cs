@@ -48,7 +48,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<string, (string SessionID, string IP, long LastActivity)> Sessions { get; } = new ConcurrentDictionary<string, (string SessionID, string IP, long LastActivity)>(StringComparer.OrdinalIgnoreCase);
 
-		internal static List<string> SupportedProtocols { get; } = new() { "2025-06-18", "2025-03-26" };
+		internal static List<string> SupportedProtocolVersions { get; } = new() { "2025-06-18", "2025-03-26" };
 		#endregion
 
 		#region Exceptions
@@ -148,12 +148,12 @@ namespace net.vieapps.Services.Portals
 				header["x-brief"] = "1";
 			});
 
-			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", context.Request.QueryString.ToDictionary(), headers, null, null, context.GetCorrelationID());
+			var requestInfo = new RequestInfo(session, Global.ServiceName, "Identify.System", "GET", context.Request.QueryString.ToDictionary(), headers, null, null, context.GetCorrelationID());
 			var identifyJson = await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
 			var systemID = identifyJson.Get<string>("ID");
 			var alias = identifyJson.Get<string>("Alias");
 
-			// get MCP server settings
+			// get settings
 			Settings.McpSettings mcpSettings;
 			if (!McpHandler.Settings.TryGetValue(systemID, out mcpSettings))
 			{
@@ -187,8 +187,8 @@ namespace net.vieapps.Services.Portals
 			{
 				if (!headers.TryGetValue("MCP-Protocol-Version", out var mcpProtocolVersion))
 					mcpProtocolVersion = mcpRequest.Get<JObject>("params")?.Get<string>("protocolVersion") ?? mcpRequest.Get<string>("protocolVersion");
-				if (string.IsNullOrWhiteSpace(mcpProtocolVersion) || McpHandler.SupportedProtocols.FirstOrDefault(version => version == mcpProtocolVersion) == null)
-					throw new InvalidMcpProtocolException($"Unsupported or invalid MCP protocol version ({mcpProtocolVersion ?? "null"}) - supported version(s): {McpHandler.SupportedProtocols.Join(", ")}");
+				if (string.IsNullOrWhiteSpace(mcpProtocolVersion) || McpHandler.SupportedProtocolVersions.FirstOrDefault(protocolVersion => protocolVersion == mcpProtocolVersion) == null)
+					throw new InvalidMcpProtocolException($"Unsupported or invalid MCP protocol version ({mcpProtocolVersion ?? "null"}) - supported version(s): {McpHandler.SupportedProtocolVersions.Join(", ")}");
 			}
 			else if (!headers.TryGetValue("MCP-Session-ID", out mcpSessionID) || !McpHandler.Sessions.ContainsKey(mcpSessionID))
 				throw new InvalidMcpSessionException($"Invalid or expired session ({(string.IsNullOrWhiteSpace(mcpSessionID) ? "no identity" : "not found")})");
@@ -446,8 +446,7 @@ namespace net.vieapps.Services.Portals
 				var resources = new JArray();
 				var nextCursors = new JObject();
 
-				var mcpResources = mcpSettings.Resources.Where(mcpResource => string.IsNullOrWhiteSpace(cursor) || cursors.Get<string>(mcpResource.Name) != null).ToList();
-				await mcpResources.ForEachAsync(async mcpResource =>
+				await mcpSettings.Resources.Where(mcpResource => string.IsNullOrWhiteSpace(cursor) || cursors.Get<string>(mcpResource.Name) != null).ToList().ForEachAsync(async mcpResource =>
 				{
 					var requestInfo = new RequestInfo
 					(
@@ -602,6 +601,8 @@ namespace net.vieapps.Services.Portals
 			mcpSettings.AllowAnonymous = settings.AllowAnonymous;
 			mcpSettings.Instructions = settings.Instructions;
 			mcpSettings.Resources ??= new();
+
+			var beRemoved = mcpSettings.Resources.Select(resource => resource.Name).Except(settings.Resources.Select(resource => resource.Name)).ToList();
 			settings.Resources.ForEach(resource =>
 			{
 				var mcpResource = mcpSettings.Resources.FirstOrDefault(res => res.Name == resource.Name);
@@ -613,6 +614,7 @@ namespace net.vieapps.Services.Portals
 				mcpResource.CopyFrom(resource);
 				mcpResource.ServiceName = serviceName.ToLower();
 			});
+			beRemoved.ForEach(name => mcpSettings.Resources.RemoveAt(mcpSettings.Resources.FindIndex(resource => resource.Name == name)));
 		}
 
 		public static void UpdateSessionInfo(this CommunicateMessage message)
