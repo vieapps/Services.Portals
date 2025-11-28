@@ -4,7 +4,7 @@ using net.vieapps.Components.Repository;
 
 namespace net.vieapps.Services.Portals.Portlets
 {
-	[Serializable, BsonIgnoreExtraElements]
+	[BsonIgnoreExtraElements]
 	public class CommonSettings
 	{
 		public CommonSettings() { }
@@ -24,7 +24,7 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public Settings.UI ContentUISettings { get; set; }
 
-		public void Normalize(Action<CommonSettings> onCompleted = null)
+		public CommonSettings Normalize(Action<CommonSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
 			this.TitleURL = string.IsNullOrWhiteSpace(this.TitleURL) ? null : this.TitleURL.Trim();
@@ -34,10 +34,11 @@ namespace net.vieapps.Services.Portals.Portlets
 			this.ContentUISettings?.Normalize();
 			this.ContentUISettings = this.ContentUISettings != null && string.IsNullOrWhiteSpace(this.ContentUISettings.Padding) && string.IsNullOrWhiteSpace(this.ContentUISettings.Margin) && string.IsNullOrWhiteSpace(this.ContentUISettings.Width) && string.IsNullOrWhiteSpace(this.ContentUISettings.Height) && string.IsNullOrWhiteSpace(this.ContentUISettings.Color) && string.IsNullOrWhiteSpace(this.ContentUISettings.BackgroundColor) && string.IsNullOrWhiteSpace(this.ContentUISettings.BackgroundImageURI) && string.IsNullOrWhiteSpace(this.ContentUISettings.BackgroundImageRepeat) && string.IsNullOrWhiteSpace(this.ContentUISettings.BackgroundImagePosition) && string.IsNullOrWhiteSpace(this.ContentUISettings.BackgroundImageSize) && string.IsNullOrWhiteSpace(this.ContentUISettings.Css) && string.IsNullOrWhiteSpace(this.ContentUISettings.Style) ? null : this.ContentUISettings;
 			onCompleted?.Invoke(this);
+			return this;
 		}
 	}
 
-	[Serializable, BsonIgnoreExtraElements]
+	[BsonIgnoreExtraElements]
 	public class ListSettings
 	{
 		public ListSettings() { }
@@ -56,15 +57,16 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public bool ShowPagination { get; set; } = true;
 
-		public void Normalize(Action<ListSettings> onCompleted = null)
+		public ListSettings Normalize(Action<ListSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
 			this.Options = string.IsNullOrWhiteSpace(this.Options) ? null : this.Options.Trim();
 			onCompleted?.Invoke(this);
+			return this;
 		}
 	}
 
-	[Serializable, BsonIgnoreExtraElements]
+	[BsonIgnoreExtraElements]
 	public class ViewSettings
 	{
 		public ViewSettings() { }
@@ -79,15 +81,16 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public bool ShowPagination { get; set; } = true;
 
-		public void Normalize(Action<ViewSettings> onCompleted = null)
+		public ViewSettings Normalize(Action<ViewSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
 			this.Options = string.IsNullOrWhiteSpace(this.Options) ? null : this.Options.Trim();
 			onCompleted?.Invoke(this);
+			return this;
 		}
 	}
 
-	[Serializable, BsonIgnoreExtraElements]
+	[BsonIgnoreExtraElements]
 	public class PaginationSettings
 	{
 		public PaginationSettings() { }
@@ -105,7 +108,7 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public int NumberOfPageLinks { get; set; } = 7;
 
-		public void Normalize(Action<PaginationSettings> onCompleted = null)
+		public PaginationSettings Normalize(Action<PaginationSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
 			this.PreviousPageLabel = string.IsNullOrWhiteSpace(this.PreviousPageLabel) ? null : this.PreviousPageLabel.Trim();
@@ -114,10 +117,11 @@ namespace net.vieapps.Services.Portals.Portlets
 			if (this.NumberOfPageLinks < 0)
 				this.NumberOfPageLinks = 7;
 			onCompleted?.Invoke(this);
+			return this;
 		}
 	}
 
-	[Serializable, BsonIgnoreExtraElements]
+	[BsonIgnoreExtraElements]
 	public class BreadcrumbSettings
 	{
 		public BreadcrumbSettings() { }
@@ -163,7 +167,7 @@ namespace net.vieapps.Services.Portals.Portlets
 
 		public int NumberOfNodes { get; set; } = 0;
 
-		public void Normalize(Action<BreadcrumbSettings> onCompleted = null)
+		public BreadcrumbSettings Normalize(Action<BreadcrumbSettings> onCompleted = null)
 		{
 			this.Template = string.IsNullOrWhiteSpace(this.Template) ? null : this.Template.Trim();
 			this.SeparatedLabel = string.IsNullOrWhiteSpace(this.SeparatedLabel) ? ">" : this.SeparatedLabel.Trim();
@@ -181,6 +185,7 @@ namespace net.vieapps.Services.Portals.Portlets
 			this.ContentTypeAdditionalURL = string.IsNullOrWhiteSpace(this.ContentTypeAdditionalURL) ? null : this.ContentTypeAdditionalURL.Trim();
 			this.NumberOfNodes = this.NumberOfNodes < 0 ? 0 : this.NumberOfNodes;
 			onCompleted?.Invoke(this);
+			return this;
 		}
 	}
 }

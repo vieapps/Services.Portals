@@ -1,24 +1,22 @@
 ﻿#region Related components
-using DocumentFormat.OpenXml.Office2016.Excel;
+using System;
+using System.IO;
+using System.Linq;
+using System.Dynamic;
+using System.Xml.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
+using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Settings;
-using Newtonsoft.Json.Linq;
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Dynamic;
-using System.IO;
-using System.Linq;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Xml.Linq;
-using WampSharp.V2.Core.Contracts;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -1237,13 +1235,14 @@ namespace net.vieapps.Services.Portals
 			return roles.Intersect(user?.Roles ?? []).Concat(user != null ? users.Intersect([user.ID]) : []).ToList();
 		}
 
-		internal static JObject UpdateVersions(this JObject json, List<VersionContent> versions)
+		internal static JObject UpdateVersions(this JObject json, List<VersionContent> versions, Action<JObject> onCompleted = null)
 		{
 			if (versions != null)
 			{
 				json["Versions"] = versions.Select(version => version.ToJson(jtoken => (jtoken as JObject).Remove("Data"))).ToJArray();
 				json["TotalVersions"] = versions.Count;
 			}
+			onCompleted?.Invoke(json);
 			return json;
 		}
 

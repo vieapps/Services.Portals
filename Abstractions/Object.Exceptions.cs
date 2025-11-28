@@ -1,10 +1,8 @@
 ﻿using System;
-using System.Runtime.Serialization;
 using net.vieapps.Components.Utility;
 
 namespace net.vieapps.Services.Portals.Exceptions
 {
-	[Serializable]
 	public class AliasIsExistedException : AppException
 	{
 		public AliasIsExistedException() : this("The alias was used by other") { }
@@ -14,7 +12,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public AliasIsExistedException(string message, Exception innerException) : base(message, innerException) { }
 	}
 
-	[Serializable]
 	public class TemplateIsInvalidException : AppException
 	{
 		public TemplateIsInvalidException() : this("The XHTML template is invalid") { }
@@ -26,7 +23,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public TemplateIsInvalidException(string message, Exception innerException) : base(message, innerException) { }
 	}
 
-	[Serializable]
 	public class XslTemplateIsInvalidException : TemplateIsInvalidException
 	{
 		public XslTemplateIsInvalidException() : this("The XSL template is invalid") { }
@@ -38,7 +34,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public XslTemplateIsInvalidException(string message, Exception innerException) : base(message, innerException) { }
 	}
 
-	[Serializable]
 	public class XslTemplateExecutionIsProhibitedException : AppException
 	{
 		public XslTemplateExecutionIsProhibitedException() : this("Execution of the 'document()' function and inline script was prohibited. Please set the 'EnableDocumentFunctionAndInlineScripts' of the options to true to allow its.") { }
@@ -50,7 +45,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public XslTemplateExecutionIsProhibitedException(string message, Exception innerException) : base(message, innerException) { }
 	}
 
-	[Serializable]
 	public class XslTemplateIsNotCompiledException : AppException
 	{
 		public XslTemplateIsNotCompiledException() : this("Please use the extension objects (via arguments) while transforming, because the XSLT engine requires a pre-compiled .DLL file to execute XSL's inline scripts (that is impossible at the run-time)") { }
@@ -62,7 +56,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public XslTemplateIsNotCompiledException(string message, Exception innerException) : base(message, innerException) { }
 	}
 
-	[Serializable]
 	public class MetaTagsAreInvalidException : AppException
 	{
 		public MetaTagsAreInvalidException() : this("The meta-tags are invalid") { }
@@ -74,7 +67,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public MetaTagsAreInvalidException(string message, Exception innerException) : base(message, innerException) { }
 	}
 
-	[Serializable]
 	public class OptionsAreInvalidException : AppException
 	{
 		public OptionsAreInvalidException() : this("The options are invalid") { }
@@ -86,7 +78,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public OptionsAreInvalidException(string message, Exception innerException) : base(message, innerException) { }
 	}
 
-	[Serializable]
 	public class SiteNotRecognizedException : AppException
 	{
 		public SiteNotRecognizedException() : this("The requested site is not recognized") { }
@@ -98,7 +89,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public SiteNotRecognizedException(string message, Exception innerException) : base(message, innerException) { }
 	}
 
-	[Serializable]
 	public class SiteFrozenException : AppException
 	{
 		public SiteFrozenException() : this("The requested site is frozen, please contact your administrator") { }
@@ -110,7 +100,6 @@ namespace net.vieapps.Services.Portals.Exceptions
 		public SiteFrozenException(string message, Exception innerException) : base(message, innerException) { }
 	}
 
-	[Serializable]
 	public class DesktopNotFoundException : AppException
 	{
 		public DesktopNotFoundException() : this("The requested desktop is not found") { }

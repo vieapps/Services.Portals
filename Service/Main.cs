@@ -1095,9 +1095,10 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb)
 			{
 				case "GET":
-					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchCategoriesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					var objectIdentity = requestInfo.GetObjectIdentity();
+					return objectIdentity != null && (objectIdentity.IsValidUUID() || objectIdentity.IsEquals("refresh") || objectIdentity.IsEquals("cache"))
+						? await requestInfo.GetCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.SearchCategoriesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
 					return await requestInfo.CreateCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
@@ -1121,7 +1122,8 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb)
 			{
 				case "GET":
-					return requestInfo.GetObjectIdentity(true) != null
+					var objectIdentity = requestInfo.GetObjectIdentity();
+					return objectIdentity != null && (objectIdentity.IsValidUUID() || objectIdentity.IsEquals("refresh"))
 						? await requestInfo.GetContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.SearchContentsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
@@ -1145,7 +1147,8 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb)
 			{
 				case "GET":
-					return requestInfo.GetObjectIdentity(true) != null
+					var objectIdentity = requestInfo.GetObjectIdentity();
+					return objectIdentity != null && (objectIdentity.IsValidUUID() || objectIdentity.IsEquals("refresh"))
 						? await requestInfo.GetItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.SearchItemsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
@@ -1169,9 +1172,10 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb)
 			{
 				case "GET":
-					return "search".IsEquals(requestInfo.GetObjectIdentity())
-						? await requestInfo.SearchLinksAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
-						: await requestInfo.GetLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+					var objectIdentity = requestInfo.GetObjectIdentity();
+					return objectIdentity != null && (objectIdentity.IsValidUUID() || objectIdentity.IsEquals("refresh"))
+						? await requestInfo.GetLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
+						: await requestInfo.SearchLinksAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "POST":
 					return await requestInfo.CreateLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
@@ -1195,7 +1199,8 @@ namespace net.vieapps.Services.Portals
 			switch (requestInfo.Verb)
 			{
 				case "GET":
-					return requestInfo.GetObjectIdentity(true) != null
+					var objectIdentity = requestInfo.GetObjectIdentity();
+					return objectIdentity != null && (objectIdentity.IsValidUUID() || objectIdentity.IsEquals("refresh"))
 						? await requestInfo.GetFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.SearchFormsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
@@ -1331,6 +1336,7 @@ namespace net.vieapps.Services.Portals
 				{
 					{ "ID", organization.ID },
 					{ "Alias", organization.Alias },
+					{ "Title", organization.Title },
 					{ "HomeDesktopAlias", homeDesktopAlias },
 					{ "HomeDesktopAliases", $"{homeDesktopAlias}{(string.IsNullOrWhiteSpace(homeDesktopAliases) ? "" : $";{homeDesktopAliases}")}" },
 					{ "SiteID", site?.ID },
@@ -6769,11 +6775,13 @@ namespace net.vieapps.Services.Portals
 						var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						var mcpResource = organization.McpSettings.Resources.FirstOrDefault(resource => resource.Name.IsEquals(requestInfo.ObjectName));
 						var contentType = await (mcpResource?.ContentTypeID ?? "").GetContentTypeByIDAsync(cts.Token).ConfigureAwait(false);
-						response = contentType?.ContentTypeDefinition.ID == "B0000000000000000000000000000002"
-							? await requestInfo.ProcessContentMcpRequestAsync(contentType, isSystemAdministrator, cts.Token).ConfigureAwait(false)
-							: contentType?.ContentTypeDefinition.ID == "B0000000000000000000000000000003"
-								? await requestInfo.ProcessItemMcpRequestAsync(contentType, isSystemAdministrator, cts.Token).ConfigureAwait(false)
-								: null;
+						response = contentType != null
+							? contentType.IsContent
+								? await requestInfo.ProcessContentMcpRequestAsync(contentType, isSystemAdministrator, cts.Token).ConfigureAwait(false)
+								: contentType.IsItem
+									? await requestInfo.ProcessItemMcpRequestAsync(contentType, isSystemAdministrator, cts.Token).ConfigureAwait(false)
+									: null
+							: null;
 					}
 				}
 				return response;

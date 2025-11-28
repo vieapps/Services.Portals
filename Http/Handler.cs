@@ -741,7 +741,7 @@ namespace net.vieapps.Services.Portals
 						if (body != null)
 							await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
 
-						if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
+						if (!context.IsAuthenticated() && (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now)))
 						{
 							var baseURL = "";
 							var rootURL = "/";

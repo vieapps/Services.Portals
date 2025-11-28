@@ -182,6 +182,12 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		internal string ObjectCacheKeys => this.GetSetCacheKey(":ObjectIDs");
 
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		internal bool IsContent => this.Module?.ContentTypesOfContent.FirstOrDefault(contentType => contentType.ID == this.ID) != null;
+
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		internal bool IsItem => this.Module?.ContentTypesOfItem.FirstOrDefault(contentType => contentType.ID == this.ID) != null;
+
 		internal void NormalizeExtras()
 		{
 			this.Notifications = this.Notifications?.Normalize();
