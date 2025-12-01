@@ -141,8 +141,7 @@ namespace net.vieapps.Services.Portals
 			if (context.Request.Method.IsEquals("POST"))
 				try
 				{
-					var requestBody = await context.ReadTextAsync(cts.Token).ConfigureAwait(false);
-					context.SetItem("RequestBody", mcpRequest = requestBody.ToJson() as JObject);
+					mcpRequest = context.SetItem("RequestBody", await context.ReadJsonAsync(cts.Token).ConfigureAwait(false) as JObject);
 					if (mcpRequest == null)
 						throw new InvalidMcpBodyException();
 				}
@@ -166,8 +165,7 @@ namespace net.vieapps.Services.Portals
 			var alias = identifyJson.Get<string>("Alias");
 
 			// get settings
-			Settings.McpSettings mcpSettings;
-			if (!McpHandler.Settings.TryGetValue(systemID, out mcpSettings))
+			if (!McpHandler.Settings.TryGetValue(systemID, out var mcpSettings))
 			{
 				await session.GatheringServerInfoAsync(Global.ServiceName, systemID, context.GetCorrelationID()).ConfigureAwait(false);
 				McpHandler.Settings.TryGetValue(systemID, out mcpSettings);
@@ -273,12 +271,10 @@ namespace net.vieapps.Services.Portals
 
 		static Task ProcessInitializeRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
 		{
-			var session = context.GetSession();
-			var mcpProtocolVersion = context.GetParameter("MCP-Protocol-Version") ?? mcpRequest.Get<JObject>("params")?.Get<string>("protocolVersion") ?? mcpRequest.Get<string>("protocolVersion");
 			var mcpSessionID = UtilityService.NewUUID;
-			var mcpSession = new McpSession(mcpSessionID, mcpProtocolVersion, session.SessionID, session.IP, DateTime.Now.ToUnixTimestamp());
-			McpHandler.Sessions[mcpSessionID] = mcpSession;
-			mcpSession.SendSessionInfo();
+			var mcpProtocolVersion = context.GetParameter("MCP-Protocol-Version") ?? mcpRequest.Get<JObject>("params")?.Get<string>("protocolVersion") ?? mcpRequest.Get<string>("protocolVersion");
+			var session = context.GetSession();
+			McpHandler.Sessions[mcpSessionID] = new McpSession(mcpSessionID, mcpProtocolVersion, session.SessionID, session.IP, DateTime.Now.ToUnixTimestamp()).SendSessionInfo();
 
 			var result = new JObject
 			{

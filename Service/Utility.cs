@@ -1297,16 +1297,15 @@ namespace net.vieapps.Services.Portals
 			var (_, totalPages, _, pageNumber) = pagination.GetPagination();
 			var cursor = new JObject
 			{
-				["Objects"] = objects,
-				["Cursor"] = objects != null && objects.Count > 0 && totalPages > 0 && totalPages > pageNumber
-					? new JObject
-					{
-						["FilterBy"] = json.Get<JObject>("FilterBy"),
-						["SortBy"] = json.Get<JObject>("SortBy"),
-						["Pagination"] = pagination
-					}.ToString(Newtonsoft.Json.Formatting.None).ToBase64Url()
-					: null
+				["Objects"] = objects
 			};
+			if (objects != null && objects.Count > 0 && totalPages > 0 && totalPages > pageNumber)
+				cursor["Cursor"] = new JObject
+				{
+					["FilterBy"] = json.Get<JObject>("FilterBy"),
+					["SortBy"] = json.Get<JObject>("SortBy"),
+					["Pagination"] = pagination
+				}.ToString(Newtonsoft.Json.Formatting.None).ToBase64Url();
 			onCompleted?.Invoke(cursor);
 			return cursor;
 		}
