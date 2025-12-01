@@ -374,7 +374,7 @@ namespace net.vieapps.Services.Portals
 				{ "Objects", objects.Select(@object => !string.IsNullOrWhiteSpace(expression?.SearchTransformScript)
 					? expression.SearchTransformScript.JsEvaluate(@object, requestInfo, new JObject
 					{
-						["URI"] = $"apis://{Utility.ServiceName.ToLower()}/{objectName}/{@object.ID}/{expression.ID}",
+						["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}",
 						["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL),
 						["Summary"] = @object.Summary?.NormalizeHTMLBreaks(),
 						["Details"] = organization.NormalizeURLs(@object.Details),
@@ -408,7 +408,7 @@ namespace net.vieapps.Services.Portals
 						if (showURLs || showCategories || !showDetails)
 							ExcludedProperties.ForEach(name => json.Remove(name));
 
-						json["URI"] = $"apis://{Utility.ServiceName.ToLower()}/{objectName}/{@object.ID}{(expression != null ? $"/{expression.ID}" : "")}";
+						json["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}";
 					})).ToJArray()
 				}
 			};

@@ -282,7 +282,7 @@ namespace net.vieapps.Services.Portals
 				{	"Objects", objects.Select(@object => !string.IsNullOrWhiteSpace(expression?.SearchTransformScript)
 					? expression.SearchTransformScript.JsEvaluate(@object, requestInfo, new JObject
 					{
-						["URI"] = $"apis://{Utility.ServiceName.ToLower()}/{objectName}/{@object.ID}/{expression.ID}",
+						["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}",
 						["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL),
 						["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID)?.NormalizeURIs(organization.FakeFilesHttpURI),
 						["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI)
@@ -299,7 +299,7 @@ namespace net.vieapps.Services.Portals
 						if (showAttachments)
 							json["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
 
-						json["URI"] = $"apis://{Utility.ServiceName.ToLower()}/{objectName}/{@object.ID}{(expression != null ? $"/{expression.ID}" : "")}";
+						json["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}";
 					})).ToJArray()
 				}
 			};

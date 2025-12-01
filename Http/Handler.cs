@@ -1857,14 +1857,14 @@ namespace net.vieapps.Services.Portals
 				await Global.SendServiceInfoAsync().ConfigureAwait(false);
 
 			else if (message.Type.IsEquals("McpServer#Info"))
-				await message.GatheringInfoAsync().ConfigureAwait(false);
+				await message.GatheringServerInfoAsync().ConfigureAwait(false);
 
 			else if (message.Type.IsEquals("McpServer#UpdateInfo"))
 				try
 				{
 					var serviceName = message.Data.Get<string>("ServiceName");
 					var systemID = message.Data.Get<string>("SystemID");
-					message.Data.As<Settings.McpSettings>(true, (mcpSettings, _) => mcpSettings.SystemID = systemID).UpdateInfo(serviceName, systemID);
+					message.Data.As<Settings.McpSettings>(true, (mcpSettings, _) => mcpSettings.SystemID = systemID).UpdateServerInfo(serviceName, systemID);
 				}
 				catch { }
 
