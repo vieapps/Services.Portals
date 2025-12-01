@@ -23,12 +23,14 @@ __vieapps.countToNumber = function (element, selector, opts) {
 	});
 };
 __vieapps.counter = __vieapps.countToNumber;
-
-$(function () {
-	["[data-count-number]", "[data-count-to-number]"].forEach(selector => $(selector).each(function () {
-		$(this).addClass("wow");
-	}));
-	if ($("[data-count-number]").length || $("[data-count-to-number]").length) {
-		__vieapps.wow.callbacks.push(__vieapps.countToNumber);
-	}
-});
+["[data-count-number]", "[data-count-to-number]"].forEach(selector => $(selector).each(function () {
+	$(this).addClass("wow");
+}));
+if ($("[data-count-number]").length || $("[data-count-to-number]").length) {
+	__vieapps.wow.callbacks.push(node => {
+		node = $(node);
+		if (!!node.data("countToNumber") || !!node.data("countNumber")) {
+			__vieapps.countToNumber(node);
+		}
+	});
+}

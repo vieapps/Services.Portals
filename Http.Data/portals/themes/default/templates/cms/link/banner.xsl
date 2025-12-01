@@ -191,7 +191,7 @@
 								</xsl:call-template>
 								<picture>
 									<source srcset="{./ThumbnailURL/@Alternative}"/>
-									<img alt="{./Title}" src="{./ThumbnailURL}"/>
+									<img alt="{./Title}" decoding="async" loading="lazy" src="{./ThumbnailURL}"/>
 								</picture>
 							</div>
 						</xsl:when>
@@ -530,7 +530,7 @@
 							</xsl:if>
 							<picture>
 								<source srcset="{./ThumbnailURL/@Alternative}"/>
-								<img alt="" src="{./ThumbnailURL}"/>
+								<img alt="" src="{./ThumbnailURL/@Original}"/>
 							</picture>
 						</a>
 					</div>
@@ -624,7 +624,7 @@
 									</xsl:if>
 									<picture>
 										<source srcset="{./ThumbnailURL/@Alternative}"/>
-										<img alt="" src="{./ThumbnailURL}"/>
+										<img alt="" src="{./ThumbnailURL/@Original}"/>
 									</picture>
 								</a>
 							</figure>

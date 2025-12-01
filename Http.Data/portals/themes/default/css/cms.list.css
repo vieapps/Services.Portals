@@ -148,36 +148,40 @@ ul.cms.list {
 	clear: both;
 	overflow: hidden;
 	list-style-type: none;
-	margin: 0;
 	padding: 0;
 }
-ul.cms.list.row {
-	margin-left: -15px;
-	margin-right: -15px;
+ul.cms.list:not(.row) {
+	margin: 0;
 }
 ul.cms.list > li {
 	display: block;
 	position: relative;
-	padding-top: 15px;
-	padding-bottom: 15px;
+	padding-bottom: calc(var(--bs-gutter-x) * .5);
 }
 ul.cms.list > li.all {
 	text-align: center;
 }
 @media (min-width: 1200px) {
-	.desktop .zone.content ul.cms.list > li {
-		padding-top: 30px;
-		padding-bottom: 30px;
+	.desktop .zone.content ul.cms.list.row > li {
+		padding-bottom: var(--bs-gutter-x);
 	}
 	.desktop .zone.content ul.cms.list > li.big {
-		padding-top: 15px;
+		padding-top: var(--bs-gutter-x);
+	}
+}
+@media (min-width: 1400px) {
+	.desktop .zone.content ul.cms.list > li {
+		padding-bottom: calc(var(--bs-gutter-x) * 1.5);
+	}
+	.desktop .zone.content ul.cms.list > li.big {
+		padding-top: calc(var(--bs-gutter-x) * 1.5);
 	}
 }
 ul.cms.list > li > a > figure {
 	margin-bottom: 0;
 }
 ul.cms.list > li > h3 + a > figure {
-	margin-bottom: 15px;
+	margin-bottom: calc(var(--bs-gutter-x) * .5);
 }
 ul.cms.list:not(.grid) > li {
 	clear: both;
@@ -191,15 +195,15 @@ ul.cms.list:not(.grid) > li > a > figure {
 .cms.view.others .cms.list > li,
 .desktop .zone.sidebar ul.cms.list:not(.grid) > li {
 	border-bottom: solid .5px #eee;
-	padding-top: 15px;
+	padding-top: calc(var(--bs-gutter-x) * .5);
 }
 .cms.view.external.relateds .cms.list > li {
-	padding-top: 30px;
+	padding-top: var(--bs-gutter-x);
 }
 .desktop .portlet.special ul.cms.list > li > a > figure,
 .desktop .zone.sidebar ul.cms.list:not(.grid) > li > a > figure {
 	float: right;
-	margin-left: 15px;
+	margin-left: calc(var(--bs-gutter-x) * .5);
 	margin-right: 0;
 	width: 100px;
 }
@@ -226,7 +230,7 @@ ul.cms.list > li > a > figure.background.thumbnail {
 		float: left;
 		width: 160px;
 		max-width: 50%;
-		margin-right: 15px;
+		margin-right: calc(var(--bs-gutter-x) * .5);
 	}
 	.desktop .portlet.special ul.cms.list > li > a > figure.background.thumbnail {
 		height: 50px;
@@ -267,23 +271,23 @@ ul.cms.list > li > a > figure.background.thumbnail {
 }
 @media (min-width: 768px) {
 	.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li > a > figure.background.thumbnail {
-		height: 160px;
+		height: 176px;
 	}
 	.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li.big > a > figure.background.thumbnail {
-		height: calc(100vw / 2);
+		height: 350px;
 	}
 }
-@media (max-width: 991px) {
+@media (min-width: 992px) {
 	.desktop .zone.sidebar .portlet:not(.special) ul.cms.list.grid > li > a > figure.background.thumbnail {
-		height: calc(100vw / 4);
+		height: 130px;
 	}
 	.desktop .zone.sidebar .portlet:not(.special) ul.cms.list.grid > li.big > a > figure.background.thumbnail {
-		height: calc(100vw / 2);
+		height: 260px;
 	}
 }
 @media (min-width: 1200px) {
 	.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li > a > figure.background.thumbnail {
-		height: 210px;
+		height: 202px;
 	}
 	.desktop .zone.content .portlet:not(.special) ul.cms.list.grid > li.big > a > figure.background.thumbnail {
 		height: 420px;
@@ -371,7 +375,7 @@ ul.cms.list > li > div a {
 ul.cms.list > li > span {
 	display: block;
 	color: inherit;
-	margin-top: 15px;
+	margin-top: calc(var(--bs-gutter-x) * .5);
 }
 ul.cms.list > li > section {
 	margin: 7.5px 0;
@@ -385,20 +389,20 @@ ul.cms.list > li > section a {
 	theme: all - CMS list without thumbnail images
 */
 ul.cms.list:not(.grid) > li.no.thumbnail {
-	padding-left: 15px;
+	padding-left: calc(var(--bs-gutter-x) * .5);
 }
 ul.cms.list:not(.grid) > li.no.thumbnail > h3 {
 	margin: 0;
 }
 ul.cms.list:not(.grid) > li.no.thumbnail > h3 + div {
-	margin-top: 15px;
+	margin-top: calc(var(--bs-gutter-x) * .5);
 }
 ul.cms.list:not(.grid) > li.no.thumbnail > div {
 	margin-bottom: 0;
 }
 ul.cms.list:not(.grid) > li.no.thumbnail::before {
 	content: "\f0da";
-	font-family: "Font Awesome 5 Free";
+	font-family: "Font Awesome 6 Free";
 	font-weight: 900;
 	display: block;
 	float: left;

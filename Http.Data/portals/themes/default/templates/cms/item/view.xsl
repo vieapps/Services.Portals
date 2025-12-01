@@ -114,7 +114,7 @@
 									<a href="{./URL}">
 										<picture>
 											<source srcset="{./ThumbnailURL/@Alternative}"/>
-											<img alt="" src="{./ThumbnailURL}"/>
+											<img alt="" decoding="async" loading="lazy" src="{./ThumbnailURL/@Original}"/>
 										</picture>
 									</a>
 								</figure>

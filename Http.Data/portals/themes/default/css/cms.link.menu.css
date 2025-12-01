@@ -6,6 +6,12 @@
 	MMenuJs
 */
 
+/* title */
+nav.navigator.mm-menu .mm-navbar__title:hover,
+nav.navigator.mm-menu .mm-navbar__title > span {
+	text-decoration: none;
+}
+
 /* search box */
 nav.navigator.mm-menu ul.mm-listview > li.search.box > span > span {
 	display: block;

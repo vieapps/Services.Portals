@@ -1,6 +1,6 @@
 /** 
  * RSAjs - Encrypts and Decrypts text data using RSA with PKCS1 padding
- * by David Shapiro & Eric Wilde (http://www.ohdave.com/rsa)
+ * by David Shapiro & Eric Wilde (https://www.ohdave.com/rsa/)
 */
 var RSA = function () {
 	var biRadixBase = 2;

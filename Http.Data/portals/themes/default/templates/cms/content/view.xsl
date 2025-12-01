@@ -26,6 +26,9 @@
 		<xsl:variable name="ThumbnailURLAlternative">
 			<xsl:value-of select="/VIEApps/Data/Content/Thumbnails/Thumbnail[1]/@Alternative"/>
 		</xsl:variable>
+		<xsl:variable name="ThumbnailURLOriginal">
+			<xsl:value-of select="/VIEApps/Data/Content/Thumbnails/Thumbnail[1]/@Original"/>
+		</xsl:variable>
 		<xsl:variable name="ShowThumbnailAsBackgroundImage">
 			<xsl:choose>
 				<xsl:when test="$ShowThumbnail = 'true' and (/VIEApps/Options/ShowThumbnailAsBackgroundImage = 'true' or /VIEApps/Options/ShowThumbnailsAsBackgroundImage = 'true')">true</xsl:when>
@@ -210,7 +213,7 @@
 							<xsl:attribute name="class">animate__animated animate__fadeIn</xsl:attribute>
 							<picture>
 								<source srcset="{$ThumbnailURLAlternative}"/>
-								<img alt="" src="{$ThumbnailURL}"/>
+								<img alt="" decoding="async" loading="lazy" src="{$ThumbnailURLOriginal}"/>
 							</picture>
 						</xsl:otherwise>
 					</xsl:choose>
@@ -246,7 +249,7 @@
 				</span>
 			</xsl:if>
 			<xsl:if test="$ShowDetails != 'false' and $Details != ''">
-				<section>
+				<section class="body">
 					<xsl:value-of select="$Details" disable-output-escaping="yes"/>
 				</section>
 			</xsl:if>
@@ -275,25 +278,25 @@
 					</xsl:if>
 					<section>
 						<xsl:if test="$ShowSocialShares != 'false'">
-							<span class="shares facebook">
+							<span class="shares" data-share-to="facebook">
 								<a href="#">
 									<i class="fab fa-facebook">&#xa0;</i>
 									Facebook
 								</a>
 							</span>
-							<span class="shares twitter">
+							<span class="shares" data-share-to="twitter">
 								<a href="#">
 									<i class="fab fa-twitter">&#xa0;</i>
 									Twitter
 								</a>
 							</span>
-							<span class="shares linkedin">
+							<span class="shares" data-share-to="linkedin">
 								<a href="#">
 									<i class="fab fa-linkedin">&#xa0;</i>
 									LinkedIn
 								</a>
 							</span>
-							<span class="shares pinterest">
+							<span class="shares" data-share-to="pinterest">
 								<a href="#">
 									<i class="fab fa-pinterest">&#xa0;</i>
 									Pinterest
@@ -301,20 +304,7 @@
 							</span>
 							<script>
 								<xsl:text disable-output-escaping="yes">
-								$(function () {
-									$(".shares.facebook").on("click tap", function (event) {
-										__vieapps.shares.facebook(event);
-									});
-									$(".shares.twitter").on("click tap", function (event) {
-										__vieapps.shares.twitter(event);
-									});
-									$(".shares.linkedin").on("click tap", function (event) {
-										__vieapps.shares.linkedin(event);
-									});
-									$(".shares.pinterest").on("click tap", function (event) {
-										__vieapps.shares.pinterest(event);
-									});
-								});
+								$(() => $(".shares").on("click tap", event => __vieapps.share(event)));
 								</xsl:text>
 							</script>
 						</xsl:if>
@@ -346,12 +336,10 @@
 					</xsl:for-each>
 					<script>
 						<xsl:text disable-output-escaping="yes">
-						$(function () {
-							$(".tags > a").on("click tap", function (event) {
-								event.preventDefault();
-								__search(`"${$(this).text()}"`, "tags");
-							});
-						});
+						$(() => $(".tags > a").on("click tap", event => {
+							event.preventDefault();
+							__search(`"${$(event.currentTarget).text()}"`, "tags");
+						}));
 						</xsl:text>
 					</script>
 				</div>
@@ -427,15 +415,11 @@
 							</a>
 							<script>
 								<xsl:text disable-output-escaping="yes">
-								$(function () {
-									$(".cms.view.internal.relateds .cms.list .all a").on("click tap", function (event) {
-										event.preventDefault();
-										$(".cms.view.internal.relateds .cms.list li.d-none").each(function () {
-											$(this).removeClass("d-none");
-										});
-										$(this).parent().addClass("d-none");
-									});
-								});
+								$(() => $(".cms.view.internal.relateds .cms.list .all a").on("click tap", event => {
+									event.preventDefault();
+									$(".cms.view.internal.relateds .cms.list li.d-none").removeClass("d-none");
+									$(event.currentTarget).parent().addClass("d-none");
+								}));
 								</xsl:text>
 							</script>
 						</li>
@@ -488,15 +472,11 @@
 							</a>
 							<script>
 								<xsl:text disable-output-escaping="yes">
-								$(function () {
-									$(".cms.view.external.relateds .cms.list .all a").on("click tap", function (event) {
-										event.preventDefault();
-										$(".cms.view.external.relateds .cms.list li.d-none").each(function () {
-											$(this).removeClass("d-none");
-										});
-										$(this).parent().addClass("d-none");
-									});
-								});
+								$(() => $(".cms.view.external.relateds .cms.list .all a").on("click tap", event => {
+									event.preventDefault();
+									$(".cms.view.external.relateds .cms.list li.d-none").removeClass("d-none");
+									$(event.currentTarget).parent().addClass("d-none");
+								}));
 								</xsl:text>
 							</script>
 						</li>
@@ -560,6 +540,13 @@
 					</xsl:for-each>
 				</ul>
 			</div>
+		</xsl:if>
+
+		<!-- inline scripts -->
+		<xsl:if test="/VIEApps/Data/Content/InlineScripts != ''">
+			<script>
+				<xsl:value-of select="/VIEApps/Data/Content/InlineScripts" disable-output-escaping="yes"/>
+			</script>
 		</xsl:if>
 
 	</xsl:template>

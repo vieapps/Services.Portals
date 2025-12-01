@@ -11,7 +11,7 @@ __vieapps.wowCallbacks = __vieapps.wow.callbacks;
 
 __vieapps.slideAnimates = ["fadeOut", "fadeOutUp", "fadeOutDown", "fadeOutLeft", "fadeOutRight", "lightSpeedOutRight", "lightSpeedOutLeft", "flipOutX", "flipOutY", "rotateOut", "rotateOutDownLeft", "rotateOutDownRight", "rotateOutUpLeft", "rotateOutUpRight", "rollOut", "zoomOut", "zoomOutDown", "zoomOutLeft", "zoomOutRight", "zoomOutUp", "slideOut", "slideOutDown", "slideOutLeft", "slideOutRight", "slideOutUp"];
 
-__vieapps.prepareResponsiveImages = function() {
+__vieapps.prepareResponsiveImages = function () {
 	var screenWidth = $(window).width();
 	var selectors = ["data-src-mode", "data-bg-mode"];
 	selectors = screenWidth < 768
@@ -19,29 +19,27 @@ __vieapps.prepareResponsiveImages = function() {
 		: screenWidth < 1024
 			? selectors.map(selector => selector.replace("-mode", "-tablet"))
 			: selectors.map(selector => selector.replace("-mode", "-desktop"));
-	selectors.forEach(selector => {
-		$(`[${selector}]`).each(function () {
-			var ctrl = $(this), url = ctrl.attr(selector);
-			if (!!url) {
-				if (selector.indexOf("-src-") > 0) {
-					ctrl.attr("src", url);
-				}
-				else {
-					ctrl.css("background-image", `url(${url})`);
-				}
+	selectors.forEach(selector => $(`[${selector}]`).each(function () {
+		var ctrl = $(this), url = ctrl.attr(selector);
+		if (!!url) {
+			if (selector.indexOf("-src-") > 0) {
+				ctrl.attr("src", url);
 			}
-		});
-	});
+			else {
+				ctrl.css("background-image", `url(${url})`);
+			}
+		}
+	}));
 };
 
 __vieapps.prepareLazyImage = function(element) {
-	var image = $(element), src = image.data("lazySrc");
+	var image = $(element), src = image.data().lazySrc;
 	if (!!src) {
 		image.attr("src", src);
 	}
 };
 
-$(function () {
+$(() => {
 	$("a.inline.popup").each(function () {
 		var anchor = $(this);
 		var href = anchor[0].href.indexOf("?") > 0
@@ -64,9 +62,9 @@ $(function () {
 		["a.inline.popup.image", "a.inline.popup.iframe"].forEach(selector => $(selector).fancybox());
 	}
 
-	$("a.smooth.scroll").on("click tap", function (event) {
+	$("a.smooth.scroll").on("click tap", event => {
 		event.preventDefault();
-		var target = $($(this).attr("href"));
+		var target = $($(event.currentTarget).attr("href"));
 		if (target.length) {
 			$("html,body").stop().animate({ scrollTop: target.offset().top - 50 }, 567);
 		}
@@ -75,13 +73,8 @@ $(function () {
 	__vieapps.prepareResponsiveImages();
 });
 
-$(window).on("load", function () {
-	$("body").addClass("loaded");
-	$("img[data-lazy-src]").each(function () {
-		__vieapps.prepareLazyImage(this);
-	});
-});
+$(window).on("load", () => $("img[data-lazy-src]").each(function () {
+	__vieapps.prepareLazyImage(this);
+}));
 
-$(window).on("resize", function () {
-	__vieapps.prepareResponsiveImages();
-});
+$(window).on("resize", () => __vieapps.prepareResponsiveImages());

@@ -1,31 +1,47 @@
 ﻿/**
  * --------------------------------------
+ * global object
+*/
+__vieapps = __vieapps || {};
+
+/**
+ * --------------------------------------
  * URLs
 */
-__vieapps.URLs.get = function (url) {
-	url += url.indexOf("?") > 0 ? url.endsWith("&") ? "" : "&" : "?";
-	if (!!__vieapps.session.id && !!__vieapps.session.token && !!__vieapps.crypto._jwt) {
-		url += `x-session-id=${__vieapps.session.id}&x-app-token=${__vieapps.crypto.jwtEncode(__vieapps.session.token, __vieapps.crypto._jwt, true)}&`;
+Object.assign(__vieapps.URLs, {
+	get: function (url) {
+		url += url.indexOf("?") > 0 ? url.endsWith("&") ? "" : "&" : "?";
+		if (!!__vieapps.session.id && !!__vieapps.session.token && !!__vieapps.crypto._jwt) {
+			url += `x-app-token=${__vieapps.crypto.jwtEncode(__vieapps.session.token)}&x-session-id=${__vieapps.crypto.base64urlEncode(__vieapps.session.id)}&`;
+		}
+		url += `x-device-id=${__vieapps.utils.getDeviceID(true)}&x-app-name=${__vieapps.crypto.base64urlEncode(__vieapps.session.app.name)}&x-app-platform=${__vieapps.crypto.base64urlEncode(__vieapps.session.app.platform)}&language=${__vieapps.language}`;
+		return url;
+	},
+
+	getSite: function (url, params) {
+		url = url.startsWith("/") ? url.substr(1) : url;
+		var base = $("base");
+		return (!!base && !!base.length ? base.attr("href") : this.root) + (!!params ? this.get(url) : url);
+	},
+
+	getPortals: function (url, params) {
+		url = url.startsWith("/") ? url : "/" + url;
+		return this.portals + (!!params ? this.get(url) : url);
+	},
+
+	getFiles: function (url, params) {
+		url = url.startsWith("/") ? url : "/" + url;
+		return this.files + (!!params ? this.get(url) : url);
+	},
+
+	getAPIs: function (serviceName, objectName, query) {
+		query = query || {};
+		var objectIdentity = query["object-identity"];
+		var url = `/~apis/${serviceName}/${objectName}${(!!objectIdentity ? `/${objectIdentity}` : "")}?`;
+		Object.keys(query).filter(key => key != "service-name" && key != "object-name" && key != "object-identity" && key != "x-app-token" && key != "x-session-id" && key != "x-device-id").forEach(key => url += `${key}=${encodeURIComponent(query[key])}&`);
+		return this.getPortals(url, serviceName !== "discovery" && objectName !== "definitions");
 	}
-	url += `x-device-id=${__vieapps.utils.getDeviceID(true)}&x-app-name=${__vieapps.crypto.base64urlEncode(__vieapps.session.app.name)}&x-app-platform=${__vieapps.crypto.base64urlEncode(__vieapps.session.app.platform)}&language=${__vieapps.language}`;
-	return url;
-};
-__vieapps.URLs.getSite = function (url, params) {
-	url = url.startsWith("/") ? url.substr(1) : url;
-	var base = $("base");
-	return (!!base && !!base.length ? base.attr("href") : this.root) + (!!params ? this.get(url) : url);
-};
-__vieapps.URLs.getPortals = function (url, params) {
-	url = url.startsWith("/") ? url : "/" + url;
-	return this.portals + (!!params ? this.get(url) : url);
-};
-__vieapps.URLs.getAPIs = function (serviceName, objectName, query) {
-	query = query || {};
-	var objectIdentity = query["object-identity"];
-	var url = `/~apis/${serviceName}/${objectName}${(!!objectIdentity ? `/${objectIdentity}` : "")}?`;
-	Object.keys(query).filter(key => key != "service-name" && key != "object-name" && key != "object-identity" && key != "x-app-token" && key != "x-session-id" && key != "x-device-id").forEach(key => url += `${key}=${encodeURIComponent(query[key])}&`);
-	return this.getPortals(url, serviceName !== "discovery" && objectName !== "definitions");
-};
+});
 
 /**
  * --------------------------------------
@@ -52,9 +68,10 @@ __vieapps.session = {
 		logged: false,
 		post: false
 	},
+
 	update: function (data, callback, verb) {
 		var keys = data.keys || data.Keys;
-		if (keys) {
+		if (!!keys) {
 			__vieapps.crypto.init({
 				jwt: keys.JWT,
 				aes: {
@@ -76,8 +93,7 @@ __vieapps.session = {
 			localStorage.setItem("vieapps:DeviceID", __vieapps.session.deviceID);
 		}
 		this.state.registered = !!this.id && !!this.token && !!__vieapps.crypto._aes.key && !!__vieapps.crypto._aes.iv && !!__vieapps.crypto._jwt;
-		this.state.logged = this.state.registered && !!this.token.uid && this.token.uid !== "";
-		__vieapps.ws.authenticate(verb || (this.state.registered ? "AUTH" : "REG"));
+		this.state.logged = this.state.registered && !!this.token.uid;
 		sessionStorage.setItem("vieapps:Session", __vieapps.crypto.stringify({
 			id: this.id,
 			token: this.token,
@@ -87,6 +103,7 @@ __vieapps.session = {
 			callback(this);
 		}
 	},
+
 	register: function (callback, verb) {
 		if (!this.state.registered) {
 			try {
@@ -108,6 +125,7 @@ __vieapps.session = {
 			callback(this);
 		}
 	},
+
 	unregister: function (callback) {
 		sessionStorage.removeItem("vieapps:Session");
 		this.id = undefined;
@@ -118,6 +136,7 @@ __vieapps.session = {
 			callback(this);
 		}
 	},
+
 	open: function (mode, callback) {
 		this.register();
 		var prefix = mode || "login";
@@ -148,7 +167,7 @@ __vieapps.session = {
 						<div class="card-header">
 							<h3>${title}</h3>
 							<div class="d-flex justify-content-end icon">
-								<span class="close"><i class="fas fa-times"></i></span>
+								<span class="close"><i class="fa fas fa-times"></i></span>
 							</div>
 						</div>
 						<div class="card-body">
@@ -157,13 +176,13 @@ __vieapps.session = {
 							</div>
 							<div class="input-group account">
 								<div class="input-group-prepend">
-									<span class="input-group-text"><i class="fas fa-user"></i></span>
+									<span class="input-group-text"><i class="fa fas fa-user"></i></span>
 								</div>
 								<input id="${prefix}-account" type="text" class="form-control" maxlength="250" placeholder="${account}"/>
 							</div>
 							<div class="input-group password">
 								<div class="input-group-prepend">
-									<span class="input-group-text"><i class="fas fa-key"></i></span>
+									<span class="input-group-text"><i class="fa fas fa-key"></i></span>
 								</div>
 								<input id="${prefix}-password" type="${"otp" === mode ? "number" : "password"}" class="form-control" maxlength="${"otp" === mode ? 12 : 250}" placeholder="${password}"/>
 							</div>`;
@@ -172,7 +191,7 @@ __vieapps.session = {
 				html += `
 							<div class="input-group retype-password">
 								<div class="input-group-prepend">
-									<span class="input-group-text"><i class="fas fa-key"></i></span>
+									<span class="input-group-text"><i class="fa fas fa-key"></i></span>
 								</div>
 								<input id="forgot-retype-password" type="password" class="form-control" maxlength="250" placeholder="${confirmPassword}"/>
 							</div>`;
@@ -201,7 +220,7 @@ __vieapps.session = {
 							</div>
 							<div class="d-flex justify-content-center">
 						`;
-				this.oAuths.forEach(provider => html += `<a href="#" data-provider="${provider}" title="${provider}"><i class="fab fa-${provider}"></i></a>`);
+				this.oAuths.forEach(provider => html += `<a href="#" data-provider="${provider}" title="${provider}"><i class="fab fa fa-${provider}"></i></a>`);
 				html += `</div></div>`;
 			}
 			html += `
@@ -210,31 +229,23 @@ __vieapps.session = {
 			</div>
 			`;
 			$("body").append(html);
-			$(`#${prefix}-form .close`).on("click tap", function () {
-				__vieapps.session.close(mode);
-			});
+			$(`#${prefix}-form .close`).on("click tap", () => __vieapps.session.close(mode));
 			if ("forgot" === mode) {
-				$("#forgot-form .forgot").on("click tap", function () {
-					__vieapps.session.forgot();
-				});
+				$("#forgot-form .forgot").on("click tap", () => __vieapps.session.forgot());
 			}
 			else if ("otp" === mode) {
-				$("#otp-form .otp").on("click tap", function () {
-					__vieapps.session.otp();
-				});
+				$("#otp-form .otp").on("click tap", () => __vieapps.session.otp());
 			}
 			else {
-				$("#login-form .login").on("click tap", function () {
-					__vieapps.session.login();
-				});
-				$("#login-form .forgot").on("click tap", function (event) {
+				$("#login-form .login").on("click tap", () => __vieapps.session.login());
+				$("#login-form .forgot").on("click tap", event => {
 					event.preventDefault();
 					__vieapps.session.close("login", true);
 					__vieapps.session.open("forgot");
 				});
-				$("#login-form .oauth > a").on("click tap", function (event) {
+				$("#login-form .oauth > a").on("click tap", event => {
 					event.preventDefault();
-					__vieapps.session.oauth($(this).data("provider"));
+					__vieapps.session.oauth($(event.currentTarget).data("provider"));
 				});
 			}
 		}
@@ -260,12 +271,14 @@ __vieapps.session = {
 			callback(__vieapps.session);
 		}
 	},
+
 	close: function (mode, dontFireEvent) {
 		$(`#${mode || "login"}-form`).toggleClass("active");
 		if (!!!dontFireEvent && !!this.events && typeof this.events.close === "function") {
 			this.events.close();
 		}
 	},
+
 	login: function () {
 		var account = $("#login-account").val();
 		var password = $("#login-password").val();
@@ -317,6 +330,7 @@ __vieapps.session = {
 			})
 		);
 	},
+
 	otp: function () {
 		var otp = $("#otp-password").val();
 		if (typeof otp === "undefined" || otp.trim() == "" || otp.length > 12) {
@@ -366,9 +380,11 @@ __vieapps.session = {
 			})
 		);
 	},
+
 	oauth: function (provider) {
 		console.warn("oauth", provider);
 	},
+
 	forgot: function () {
 		var account = $("#forgot-account").val();
 		var password = $("#forgot-password").val();
@@ -424,6 +440,7 @@ __vieapps.session = {
 			})
 		);
 	},
+
 	activate: function (mode, error) {
 		this.unregister();
 		this.open("login", () => {
@@ -444,6 +461,7 @@ __vieapps.session = {
 			}
 		});
 	},
+
 	logout: function () {
 		__vieapps.utils.ajax(
 			__vieapps.URLs.getSite("_logout", true),
@@ -457,6 +475,7 @@ __vieapps.session = {
 			error => console.error("Error occurred while logging out", error)
 		);
 	},
+
 	prepare: function () {
 		__vieapps.utils.ajax(
 			__vieapps.URLs.getAPIs("discovery", "definitions", { "x-service-name": "users", "x-object-name": "oauths" }),
@@ -466,23 +485,51 @@ __vieapps.session = {
 			}
 		);
 	},
+
+	prepareURL: function (url) {
+		var token = this.state.logged && (url.indexOf("z-temp-token=") > 0 || url.indexOf("x-temp-token=") > 0)
+			? "x-temp-token=" + __vieapps.crypto.jwtEncode(this.token)
+			: undefined;
+		if (!!token) {
+			var start = url.indexOf("x-temp-token=");
+			var end = start > 0 ? url.indexOf("&", start + 1) : -1;
+			url = start > 0 ? url.substring(0, start) + token + url.substring(end > 0 ? end : url.length) : url;
+			url = url.replace(/z\-temp\-token\=/g, token);
+		}
+		return url;
+	},
+
+	prepareToken: function (element) {
+		var href = element.attr("href");
+		if (!!href) {
+			element.attr("href", this.prepareURL(href));
+		}
+		var src = element.attr("src");
+		if (!!src) {
+			element.attr("src", this.prepareURL(src));
+		}
+	},
+
 	init: function (callback) {
-		if (!!__vieapps.session.events && typeof __vieapps.session.events.init === "function") {
-			__vieapps.session.events.init();
+		if (!!this.events && typeof this.events.init === "function") {
+			this.events.init();
 		}
 		var oAuths = sessionStorage.getItem("vieapps:OAuths");
 		if (!!oAuths) {
 			this.oAuths = JSON.parse(oAuths);
-			setTimeout(() => __vieapps.session.prepare(), 12345);
+			setTimeout(() => this.prepare(), 12345);
 		}
 		else {
 			this.prepare();
 		}
 		var session = JSON.parse(sessionStorage.getItem("vieapps:Session") || "{}");
 		if (!!session.id && !!session.token && !!session.keys) {
-			if (!!!__vieapps.session.id && !!!__vieapps.session.token) {
-				this.register(function () {
-					console.log("The session was " + (__vieapps.session.token.uid !== "" ? "authenticated" : "registered"));
+			if (!!!this.id && !!!this.token) {
+				this.register(() => {
+					console.log("The session was " + (!!__vieapps.session.token.uid ? "authenticated" : "registered"));
+					if (typeof __onSessionInit === "function") {
+						__onSessionInit(this);
+					}
 					if (typeof callback === "function") {
 						callback(this);
 					}
@@ -490,18 +537,35 @@ __vieapps.session = {
 			}
 			else {
 				this.state.registered = true;
-				this.state.logged = !!this.token.uid && this.token.uid !== "";
+				this.state.logged = !!this.token.uid;
 				console.log("The session was " + (this.state.logged ? "authenticated & logged" : "registered"));
+				if (this.state.logged) {
+					$("a,img,source").each(function () {
+						__vieapps.session.prepareToken($(this));
+					});
+				}
+				if (typeof __onSessionInit === "function") {
+					__onSessionInit(this);
+				}
 				if (typeof callback === "function") {
 					callback(this);
 				}
 			}
 		}
-		else if (typeof callback === "function") {
-			callback(this);
+		else {
+			this.register(() => {
+				console.log("The session was " + (!!__vieapps.session.token.uid ? "authenticated" : "registered"));
+				if (typeof __onSessionInit === "function") {
+					__onSessionInit(this);
+				}
+				if (typeof callback === "function") {
+					callback(this);
+				}
+			});
 		}
 	}
 };
+
 setTimeout(() => __vieapps.session.init(), 123);
 var __redirect = function (url) {
 	__vieapps.utils.redirect(typeof url === "string" && url !== "" ? url : __vieapps.URLs.root);
@@ -526,7 +590,7 @@ var __activate = function (mode, error) {
 };
 var __login = function (callback, url) {
 	__vieapps.session.events.in = function () {
-		__redirect(url);
+		__redirect(url || location.href);
 	};
 	__vieapps.session.open("login", () => {
 		if (typeof callback === "function") {
@@ -555,29 +619,28 @@ __vieapps.crypto = {
 	},
 	_rsa: new RSA(),
 	_jwt: undefined,
-	stringify: function (object, replacer) {
-		return JSON.stringify(
-			object || {},
-			(key, value) => typeof replacer === "function"
-				? replacer(key, value)
-				: typeof value === "undefined"
-					? null
-					: value instanceof Set || value instanceof Map
-						? Array.from(value.entries())
-						: value
-		);
-	},
-	md5: function (text) {
-		return CryptoJS.MD5(text).toString();
-	},
+
+	stringify: (object, replacer) => JSON.stringify(
+		object || {},
+		(key, value) => typeof replacer === "function"
+			? replacer(key, value)
+			: typeof value === "undefined"
+				? null
+				: value instanceof Set || value instanceof Map
+					? Array.from(value.entries())
+					: value
+	),
+
+	md5: text => CryptoJS.MD5(text).toString(),
+
 	sign: function (text, key, asBase64) {
 		var signature = CryptoJS.enc.Base64.stringify(CryptoJS.HmacSHA256(text, key));
 		return !!!asBase64 ? this.toBase64Url(signature) : signature;
 	},
-	toBase64Url: function (base64) {
-		return base64.replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
-	},
-	toBase64: function (base64url) {
+
+	toBase64Url: base64 => base64.replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_"),
+
+	toBase64: base64url => {
 		var base64 = base64url.replace(/\-/g, "+").replace(/\_/g, "/");
 		switch (base64.length % 4) {
 			case 0:
@@ -593,50 +656,60 @@ __vieapps.crypto = {
 		}
 		return base64;
 	},
-	base64Encode: function (text) {
-		return CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(text));
-	},
-	base64Decode: function (base64) {
-		return CryptoJS.enc.Utf8.stringify(CryptoJS.enc.Base64.parse(base64));
-	},
+
+	base64Encode: text => CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(text)),
+
+	base64Decode: base64 => CryptoJS.enc.Utf8.stringify(CryptoJS.enc.Base64.parse(base64)),
+
 	base64urlEncode: function (text) {
 		return this.toBase64Url(this.base64Encode(text));
 	},
+
 	base64urlDecode: function (base64url) {
 		return this.base64Decode(this.toBase64(base64url));
 	},
+
 	jsonEncode: function (json) {
 		return this.base64urlEncode(this.stringify(json || {}));
 	},
+
 	jsonDecode: function (text) {
 		return JSON.parse(this.base64urlDecode(text));
 	},
-	jwtEncode: function (jwt, key, updateIssuedAt) {
-		if (!!updateIssuedAt) {
+
+	jwtEncode: function (jwt, key, dontUpdateIssuedAt) {
+		if (!!!dontUpdateIssuedAt) {
 			jwt.iat = Math.round(+new Date() / 1000);
 		}
 		var encoded = `${this.jsonEncode({ typ: "JWT", alg: "HS256" })}.${this.jsonEncode(jwt)}`;
 		return `${encoded}.${this.sign(encoded, key || this._jwt)}`;
 	},
+
 	jwtDecode: function (jwt, key, dontVerify) {
 		var elements = jwt.split(".");
 		var token = this.jsonDecode(elements[1]);
-		if (!!dontVerify || (elements.length > 2 && this.sign(`${elements[0]}.${elements[1]}`, key || this._jwt) === elements[2]))
+		if (!!dontVerify || (elements.length > 2 && this.sign(`${elements[0]}.${elements[1]}`, key || this._jwt) === elements[2])) {
 			return token;
+		}
 		return undefined;
 	},
+
 	aesEncrypt: function (text, key, iv) {
 		return CryptoJS.AES.encrypt(text, key || this._aes.key, { iv: iv || this._aes.iv }).toString();
 	},
+
 	aesDecrypt: function (text, key, iv) {
 		return CryptoJS.AES.decrypt(text, key || this._aes.key, { iv: iv || this._aes.iv }).toString(CryptoJS.enc.Utf8);
 	},
+
 	rsaEncrypt: function (text) {
 		return this._rsa.encrypt(text);
 	},
+
 	rsaDecrypt: function (text) {
 		return this._rsa.decrypt(text);
 	},
+
 	init: function (keys) {
 		if (keys.aes) {
 			this._aes.key = CryptoJS.enc.Hex.parse(keys.aes.key);
@@ -656,13 +729,8 @@ __vieapps.crypto = {
  * utility
 */
 __vieapps.utils = {
-	existed: function (id) {
-		if (typeof id === "string" && id.trim() !== "") {
-			var existed = $("#" + id);
-			return existed && existed.length;
-		}
-		return false;
-	},
+	existed: id => typeof id === "string" && id.trim() !== "" ? !!$("#" + id).length : false,
+
 	importCss: function (url, id, attributes) {
 		if (!this.existed(id) && typeof url === "string" && url.trim() !== "") {
 			var element = "<link rel=\"stylesheet\" href=\"" + url + "\""
@@ -672,6 +740,7 @@ __vieapps.utils = {
 			$("head").append(element);
 		}
 	},
+
 	importJs: function (url, id, attributes) {
 		if (!this.existed(id) && url != undefined && url.trim() !== "") {
 			var element = "<scri" + "pt src=\"" + url + "\""
@@ -681,44 +750,50 @@ __vieapps.utils = {
 			$("body").append(element);
 		}
 	},
-	getQueryParameter: function (name, url) {
+
+	getQueryParameter: (name, url) => {
 		var regex = new RegExp("[?&]" + (name || "x-search-query") + "(=([^&#]*)|&|#|$)");
 		var results = regex.exec(url || location.href);
 		return results && results.length > 2 && results[2]
 			? decodeURIComponent(results[2].replace(/\+/g, " "))
 			: undefined;
 	},
-	onKey: function (event, control, callback) {
-		if (event && event.keyCode && event.keyCode === 13 && typeof callback === "function") {
+
+	onKey: (event, control, callback) => {
+		if (!!event && event.keyCode === 13 && typeof callback === "function") {
 			event.preventDefault();
 			if (control && control.value && control.value !== "") {
 				callback(control.value);
 			}
 		}
 	},
-	addDataAttribute: function (element, key, value, callback) {
+
+	addDataAttribute: (element, key, value, callback) => {
 		$(element).attr("data-" + key.toLowerCase(), value);
 		if (typeof callback === "function") {
 			callback(element);
 		}
 	},
-	openWindow: function (url, target, width, height, options) {
+
+	openWindow: (url, target, width, height, options) => {
 		if (url != undefined && url !== null && url !== "" && url !== "#") {
 			window.open(url, target || "_blank", `width=${width},height=${height},${options || "left=100,top=100,location=no,status=no,resizeable=yes,toolbar=no"}`);
 		}
 	},
-	redirect: function (param) {
+
+	redirect: param => {
 		var url = typeof param === "string" && param.trim() !== "" ? param.trim() : location.href;
 		if (typeof param === "boolean" && !!param) {
 			var pos = url.indexOf("#");
 			param = `${url.indexOf("?") > 0 ? "&" : "?"}x-rnd=${Math.random()}`;
 			url = pos > 0
-				? url.substr(0, pos) + param + url.substr(pos)
+				? url.substring(0, pos) + param + url.substring(pos)
 				: url + param;
 		}
 		location.href = url;
 	},
-	getDeviceID: function (toBase64Url) {
+
+	getDeviceID: toBase64Url => {
 		if (!!__vieapps.session) {
 			if (!!!__vieapps.session.deviceID) {
 				__vieapps.session.deviceID = localStorage.getItem("vieapps:DeviceID");
@@ -734,7 +809,8 @@ __vieapps.utils = {
 			return !!toBase64Url ? __vieapps.crypto.base64urlEncode(deviceID) : deviceID;
 		}
 	},
-	ajax: function (url, onSuccess, onError, method, data, contentType) {
+
+	ajax: (url, onSuccess, onError, method, data, contentType) => {
 		$.ajax(url, {
 			crossDomain: true,
 			method: method || "GET",
@@ -752,8 +828,9 @@ __vieapps.utils = {
 			}
 		});
 	},
+
 	fetchCountries: function (callback) {
-		this.ajax(__vieapps.URLs.getPortals(`/statics/geo/countries.json?v=${Math.random()}`), function (data) {
+		this.ajax(__vieapps.URLs.getPortals(`/statics/geo/countries.json?v=${Math.random()}`), data => {
 			__vieapps.utils.countries = data.countries || [];
 			__vieapps.countries = __vieapps.utils.countries;
 			localStorage.setItem("vieapps:Countries", __vieapps.crypto.stringify(__vieapps.utils.countries));
@@ -762,9 +839,10 @@ __vieapps.utils = {
 			}
 		});
 	},
+
 	fetchProvinces: function (code, callback) {
 		code = code || __vieapps.language.substr(3);
-		this.ajax(__vieapps.URLs.getPortals(`/statics/geo/provinces/${code}.json?v=${Math.random()}`), function (data) {
+		this.ajax(__vieapps.URLs.getPortals(`/statics/geo/provinces/${code}.json?v=${Math.random()}`), data => {
 			__vieapps.utils.provinces = __vieapps.utils.provinces || {};
 			__vieapps.utils.provinces[code] = data.provinces;
 			__vieapps.provinces = __vieapps.utils.provinces;
@@ -774,7 +852,8 @@ __vieapps.utils = {
 			}
 		});
 	},
-	toURI: function (input) {
+
+	toURI: input => {
 		if (typeof input !== "string" || input.trim() === "") {
 			return "";
 		}
@@ -790,6 +869,7 @@ __vieapps.utils = {
 		result = result.replace(/\_\-\_/g, "-").replace(/\-\_\-/g, "-").replace(/\-\-\-/g, "-").replace(/\-\-/g, "-");
 		return result.toLowerCase();
 	},
+
 	toANSI: function (input, asURI) {
 		if (typeof input !== "string" || input.trim() === "") {
 			return "";
@@ -941,11 +1021,13 @@ __vieapps.utils = {
 		result = result.replace(/\s\s+/g, " ");
 		return !!asURI ? this.toURI(result) : result.trim();
 	},
-	toRegExp: function (regex) {
+
+	toRegExp: regex => {
 		var flags = regex.replace(/.*\/([gimy]*)$/, "$1");
 		var pattern = regex.replace(new RegExp("^/(.*?)/" + flags + "$"), "$1");
 		return new RegExp(pattern, flags);
 	},
+
 	time: {
 		diff: function (start, end, unit) {
 			unit = 1000 * 60 * (typeof unit !== "undefined" && +unit > 0 ? +unit : 1);	// 1: minutes, 60: hours, 60 * 24: days, 30 * 60 * 24: months, 12 * 30 * 60 * 24: years
@@ -953,19 +1035,20 @@ __vieapps.utils = {
 			var endTime = (end ? new Date(end) : new Date()).getTime();
 			return parseInt((endTime - startTime) / unit);
 		},
-		getFriendly: function (time) {
+
+		getFriendly: time => {
 			var hour = `0${time.getHours()}`;
 			var minute = `0${time.getMinutes()}`;
-			return `${hour.substr(hour.length - 2)}:${minute.substr(minute.length - 2)} - ${time.toLocaleDateString(__vieapps.language)}`;
+			return `${hour.substring(hour.length - 2)}:${minute.substring(minute.length - 2)} - ${time.toLocaleDateString(__vieapps.language)}`;
 		}
 	},
+
 	template: {
-		parse: function (template) {
-			return (template.match(/{{([^{}]*)}}/g) || []).map(param => ({
-				token: param,
-				name: param.match(/[\w\.]+/)[0]
-			}));
-		},
+		parse: template => (template.match(/{{([^{}]*)}}/g) || []).map(param => ({
+			token: param,
+			name: param.match(/[\w\.]+/)[0]
+		})),
+
 		format: function (template, params) {
 			var tokenParams = this.parse(template);
 			Object.keys(params).forEach(key => {
@@ -976,6 +1059,7 @@ __vieapps.utils = {
 		}
 	}
 };
+
 setTimeout(() => {
 	if (!__vieapps.utils.dontFetchCountries) {
 		if (!__vieapps.utils.countries || !__vieapps.utils.countries.length) {
@@ -1010,41 +1094,30 @@ __vieapps.provinces = __vieapps.utils.provinces;
  * --------------------------------------
  * social sharings
 */
-__vieapps.shares = {
-	facebook: function (event) {
-		if (!!event) {
-			event.preventDefault();
-		}
-		var url = $("meta[property='og:url']").attr("content") || location.href;
-		url += (url.indexOf("?") > 0 ? "&" : "?") + "utm_source=Facebook&utm_medium=WebPortals&utm_campaign=Shares";
-		__vieapps.utils.openWindow(`https://www.facebook.com/sharer.php?u=${encodeURIComponent(url)}`, "_blank", 626, 436);
-	},
-	twitter: function (event) {
-		if (!!event) {
-			event.preventDefault();
-		}
-		var url = $("meta[name='twitter:url']").attr("content") || $("meta[property='og:url']").attr("content") || location.href;
-		url += (url.indexOf("?") > 0 ? "&" : "?") + "utm_source=Twitter&utm_medium=WebPortals&utm_campaign=Shares";
-		__vieapps.utils.openWindow(`https://twitter.com/share?url=${encodeURIComponent(url)}`, "_blank", 626, 436);
-	},
-	linkedin: function (event) {
-		if (!!event) {
-			event.preventDefault();
-		}
-		var url = $("meta[name='twitter:url']").attr("content") || $("meta[property='og:url']").attr("content") || location.href;
-		url += (url.indexOf("?") > 0 ? "&" : "?") + "utm_source=LinkedIn&utm_medium=WebPortals&utm_campaign=Shares";
-		__vieapps.utils.openWindow(`https://www.linkedin.com/shareArticle?mini=true&url=${encodeURIComponent(url)}`, "_blank", 626, 436);
-	},
-	pinterest: function (event) {
-		if (!!event) {
-			event.preventDefault();
-		}
-		var url = $("meta[name='twitter:url']").attr("content") || $("meta[property='og:url']").attr("content") || location.href;
-		url += (url.indexOf("?") > 0 ? "&" : "?") + "utm_source=Pinterest&utm_medium=WebPortals&utm_campaign=Shares";
+__vieapps.share = function (event) {
+	event.preventDefault();
+	var element = $(event.currentTarget);
+	var mode = (element.data("shareTo") || "facebook").toLowerCase();
+	var url = $("meta[name='twitter:url']").attr("content") || $("meta[property='og:url']").attr("content") || location.href;
+	url = mode == "facebook"
+		? `https://www.facebook.com/sharer.php?u=${encodeURIComponent(url + (url.indexOf("?") > 0 ? "&" : "?") + "utm_source=Facebook&utm_medium=WebPortals&utm_campaign=Shares")}`
+		:  mode == "twitter"
+			? `https://twitter.com/share?url=${encodeURIComponent(url + (url.indexOf("?") > 0 ? "&" : "?") + "utm_source=Twitter&utm_medium=WebPortals&utm_campaign=Shares")}`
+			:  mode == "linkedin"
+				? `https://www.linkedin.com/shareArticle?mini=true&url=${encodeURIComponent(url + (url.indexOf("?") > 0 ? "&" : "?") + "utm_source=LinkedIn&utm_medium=WebPortals&utm_campaign=Shares")}`
+				: `https://www.pinterest.com/pin/create/button/?url=${encodeURIComponent(url + (url.indexOf("?") > 0 ? "&" : "?") + "utm_source=LinkedIn&utm_medium=WebPortals&utm_campaign=Shares")}`;
+	if (mode == "pinterest") {
 		var description = $("meta[name='twitter:title']").attr("content") || $("meta[property='og:title']").attr("content") || document.title;
 		var media = $("meta[name='twitter:image']").attr("content") || $("meta[property='og:image']").attr("content") || "";
-		__vieapps.utils.openWindow(`https://www.pinterest.com/pin/create/button/?url=${encodeURIComponent(url)}&description=${encodeURIComponent(description)}&media=${encodeURIComponent(media)}`, "_blank", 626, 436);
+		url += `&description=${encodeURIComponent(description)}&media=${encodeURIComponent(media)}`;
 	}
+	__vieapps.utils.openWindow(url, "_blank", 626, 436);
+};
+__vieapps.shares = {
+	facebook: event => __vieapps.share(event),
+	twitter: event => __vieapps.share(event),
+	linkedin: event => __vieapps.share(event),
+	pinterest: event => __vieapps.share(event)
 };
 
 /**
@@ -1060,6 +1133,7 @@ __vieapps.ws = {
 	schedulingHandlers: [],
 	refreshingHandlers: [],
 	onMessage: undefined,
+
 	init: function () {
 		var session = JSON.parse(sessionStorage.getItem("vieapps:Session") || "{}");
 		if (!!session.id && !!session.token && !!session.keys && !!!__vieapps.session.id && !!!__vieapps.session.token) {
@@ -1079,10 +1153,9 @@ __vieapps.ws = {
 			__vieapps.session.id = session.id;
 			__vieapps.session.token = session.token;
 		}
-		this.instance = new WebSocket(__vieapps.URLs.get(`${__vieapps.URLs.portals.replace("http://", "ws://").replace("https://", "wss://")}/v`));
+		this.instance = new WebSocket(__vieapps.URLs.get(`${(__vieapps.URLs.websockets || __vieapps.URLs.portals).replace("http://", "ws://").replace("https://", "wss://")}/~apis`));
 		this.instance.onopen = () => {
 			console.log("The websocket was opened");
-			__vieapps.ws.authenticate();
 		};
 		this.instance.onclose = () => {
 			console.log("The websocket was closed");
@@ -1136,34 +1209,13 @@ __vieapps.ws = {
 			}
 		};
 	},
-	authenticate: function (verb) {
-		var isAuthenticated = !!__vieapps.session.id && !!__vieapps.session.token && !!__vieapps.crypto._jwt;
-		var request = {
-			ServiceName: "Session",
-			Verb: verb || (isAuthenticated ? "AUTH" : "REG"),
-			Header: {
-				"x-device-id": __vieapps.utils.getDeviceID(),
-				"x-app-name": __vieapps.session.app.name,
-				"x-app-platform": __vieapps.session.app.platform
-			}
-		};
-		if (isAuthenticated) {
-			request.Header["x-device-id"] = __vieapps.crypto.aesEncrypt(__vieapps.utils.getDeviceID());
-			request.Header["x-session-id"] = __vieapps.crypto.aesEncrypt(__vieapps.session.id);
-			request.Body = {
-				"x-app-token": __vieapps.crypto.jwtEncode(__vieapps.session.token, __vieapps.crypto._jwt, true),
-				"x-app-name": __vieapps.session.app.name,
-				"x-app-platform": __vieapps.session.app.platform
-			};
-		}
-		if (!!this.instance && this.instance.readyState == 1) {
-			this.instance.send(__vieapps.crypto.stringify(request));
-			console.log("The websocket was " + (isAuthenticated ? "authenticated" : "registered"));
-		}
-	}
 };
+
 if (typeof WebSocket !== "undefined" && !__vieapps.ws.disabled) {
-	__vieapps.ws.init();
+	__onSessionInit = () => __vieapps.ws.init();
+	if (typeof __vieapps.session !== "object" || typeof __vieapps.session.init !== "function") {
+		__vieapps.ws.init();
+	}
 }
 $(window).on("load", function () {
 	if (!!__vieapps.ws.instance && __vieapps.ws.instance.readyState === 1 && __vieapps.ws.disabled) {
@@ -1177,7 +1229,7 @@ $(window).on("load", function () {
  * working with APIs
 */
 __vieapps.apis = {
-	call: function (request, onSuccess, onError, useXHR) {
+	call: (request, onSuccess, onError, useXHR) => {
 		request = request || {};
 		if (!!useXHR || !!!__vieapps.ws.instance || __vieapps.ws.disabled || __vieapps.ws.instance.readyState !== 1) {
 			__vieapps.utils.ajax(
@@ -1202,6 +1254,7 @@ __vieapps.apis = {
 			__vieapps.ws.instance.send(__vieapps.crypto.stringify(request));
 		}
 	},
+
 	fetch: function (serviceName, objectName, objectIdentity, header, query, onSuccess, onError, useXHR) {
 		var request = {
 			ServiceName: serviceName,
@@ -1212,6 +1265,7 @@ __vieapps.apis = {
 		request.Query["object-identity"] = objectIdentity;
 		this.call(request, onSuccess, onError, useXHR);
 	},
+
 	fetchDefinition: function (query, callback) {
 		this.call({ ServiceName: "discovery", ObjectName: "definitions", Query: query }, callback, undefined, true);
 	},
@@ -1247,12 +1301,14 @@ __vieapps.paginator = {
 		icon: "<i class=\"fa fa-arrow-circle-right\"></i>"
 	},
 	handlers: {},
+
 	go: function (name, page) {
 		var handler = this.handlers[name];
 		if (typeof handler === "function") {
 			handler(page);
 		}
 	},
+
 	show: function (selector, name, pageNumber, pageSize, totalRecords, showPages, maxPages, hidePreviousNext) {
 		var totalPages = Math.floor(totalRecords / pageSize);
 		if (totalRecords - (totalPages * pageSize) > 0)
@@ -1328,6 +1384,7 @@ __vieapps.paginator = {
 			this.hide(selector);
 		}
 	},
+
 	hide: function (selector) {
 		$(selector).html("");
 	}
@@ -1355,10 +1412,11 @@ __vieapps.searcher = {
 			PageNumber: 0
 		},
 		indicators: {
-			time: `<i class="far fa-clock"></i>`,
-			author: `<i class="far fa-user"></i>`
+			time: `<i class="fa far fa-clock"></i>`,
+			author: `<i class="fa far fa-user"></i>`
 		}
 	},
+
 	getFilterBy: function () {
 		var filterBy = {
 			Query: undefined,
@@ -1395,6 +1453,7 @@ __vieapps.searcher = {
 		});
 		return filterBy;
 	},
+
 	getRequest: function () {
 		return {
 			ServiceName: typeof this.data.serviceName === "string" && this.data.serviceName.trim() !== "" ? this.data.serviceName : "portals",
@@ -1408,21 +1467,23 @@ __vieapps.searcher = {
 					SortBy: this.data.sortBy || { LastModified: "Descending" },
 					Pagination: this.data.pagination || { TotalRecords: -1, TotalPages: 0, PageSize: 20, PageNumber: 0 }
 				}),
-				"ShowURLs": "x"
+				"x-object-urls": __vieapps.URLs.root !== ""
 			}
 		};
 	},
+
 	search: function (callback) {
-		__vieapps.apis.call(this.getRequest(), function (data) {
+		__vieapps.apis.call(this.getRequest(), data => {
 			if (typeof callback === "function") {
 				callback(data)
 			}
 		});
 	},
+
 	show: function (selector, items) {
 		var html = "";
 		(items || []).forEach(item => {
-			var url = (item.URL || `~/_permanentlink/${item.RepositoryEntityID}/${item.ID}`).replace("~/", __vieapps.URLs.root);
+			var url = (item.URL || `/_permanentlink/${item.RepositoryEntityID}/${item.ID}`).replace("~" + "/", __vieapps.URLs.root);
 			var time = new Date(item.PublishedTime || item.Created);
 			html += `
 				<li class="no thumbnail">
@@ -1438,9 +1499,11 @@ __vieapps.searcher = {
 		});
 		$(selector).html(`<ul class="cms list">${html}</ul>`);
 	},
+
 	hide: function (selector) {
 		$(selector).html(`<div class="loading"></div>`);
 	},
+
 	perform: function (resultsSelector, paginationSelector, callback) {
 		__vieapps.paginator.hide(paginationSelector);
 		this.hide(resultsSelector);
@@ -1457,11 +1520,13 @@ __vieapps.searcher = {
 			}
 		});
 	},
+
 	open: function (query, mode) {
 		if (typeof query === "string" && query.trim() !== "") {
 			location.href = __vieapps.URLs.root + (__vieapps.desktops.search || __vieapps.desktops.home || "-default") + "?x-search-query=" + encodeURIComponent(query) + (typeof mode === "string" && mode !== "" ? "&x-search-mode=" + encodeURIComponent(mode) : "") + "&x-language=" + __vieapps.language;
 		}
 	},
+
 	redirect: function (query, mode) {
 		this.open(query, mode);
 	}
@@ -1497,7 +1562,7 @@ __vieapps.forms = {
 		},
 		captcha: {
 			label: undefined,
-			button: `<i class="fas fa-sync-alt"></i>`
+			button: `<i class="fa fas fa-sync-alt fa-refresh"></i>`
 		}
 	},
 	processors: {
@@ -1507,6 +1572,7 @@ __vieapps.forms = {
 		error: undefined
 	},
 	definitions: {},
+
 	fetchDefinition: function (contentTypeID, callback) {
 		if (!!!this.definitions[contentTypeID]) {
 			__vieapps.apis.fetchDefinition({ "x-service-name": "portals", "x-object-name": "cms.form", "x-content-type-id": contentTypeID }, data => {
@@ -1520,6 +1586,7 @@ __vieapps.forms = {
 			callback();
 		}
 	},
+
 	autoComplete: function (input, items, onClick) {
 		var currentFocus;
 		input.addEventListener("input", () => {
@@ -1600,6 +1667,7 @@ __vieapps.forms = {
 		}
 		document.addEventListener("click", () => closeAllLists());
 	},
+
 	track: function (action) {
 		if (!!this.request.options && !!this.request.options.Tracking && !!this.request.options.Tracking.Category) {
 			var data = {
@@ -1614,12 +1682,14 @@ __vieapps.forms = {
 			gtag("event", action, data);
 		}
 	},
+
 	create: function () {
 		var container = $(`#${this.request.form}`);
 		if (container.length) {
 			container[0].outerHTML = `<form autocomplete="off" novalidate><div id="vieapps-form-${this.request.form}" class="vieapps-form row"></div></form>`;
 		}
 	},
+
 	show: function () {
 		this.create();
 		this.data = {};
@@ -1645,10 +1715,10 @@ __vieapps.forms = {
 			var country = this.data["Country"] = __vieapps.utils.country || "VN";
 			var provinces = __vieapps.utils.provinces[country];
 			if (!!provinces && Array.isArray(provinces)) {
-				provinces.forEach(province => province.counties.forEach(county => this.addresses.push({
-					title: `${county.title}, ${province.title}, ${country}`,
-					ansiTitle: __vieapps.utils.toANSI(`${county.title}, ${province.title}, ${country}`).toLowerCase(),
-					county: county.title,
+				provinces.forEach(province => province.units.forEach(unit => this.addresses.push({
+					title: `${unit.title}, ${province.title}, ${country}`,
+					ansiTitle: __vieapps.utils.toANSI(`${unit.title}, ${province.title}, ${country}`).toLowerCase(),
+					unit: unit.title,
 					province: province.title,
 					country: country
 				})));
@@ -1662,7 +1732,7 @@ __vieapps.forms = {
 						PlaceHolder: __vieapps.languages.get("users.register.controls.Address.placeholder")
 					}
 				}, control.Order + 1);
-				this.config.removeAt(this.config.findIndex(ctrl => ctrl.Name === "County"));
+				this.config.removeAt(this.config.findIndex(ctrl => ctrl.Name === "Unit"));
 				this.config.removeAt(this.config.findIndex(ctrl => ctrl.Name === "Province"));
 				this.config.removeAt(this.config.findIndex(ctrl => ctrl.Name === "Country"));
 			}
@@ -1690,13 +1760,13 @@ __vieapps.forms = {
 			var html = isAddresses
 				? `<div class="col-12${css} auto-complete">`
 				: isContainer
-					? `<div class="${ctrl.Name === "Phone" || ctrl.Name === "Postal" || ctrl.Options.Type === "number" ? "col-12 col-md-4" : ctrl.Name === "Email" ? "col-12 col-md-8" : "col-12"}${css}">${!!ctrl.Options.Label ? `<label for="${id}-${ctrl.Name}" class="form-label">${ctrl.Options.Label}</label>` : ""}`
+					? `<div class="${ctrl.Name === "Phone" || ctrl.Name === "Postal" || ctrl.Options.Type === "number" ? "col-12 col-lg-5" : ctrl.Name === "Email" ? "col-12 col-lg-7" : "col-12"}${css} contact-${ctrl.Name.toLowerCase()}">${!!ctrl.Options.Label ? `<label for="${id}-${ctrl.Name}" class="form-label">${ctrl.Options.Label}</label>` : ""}`
 					: "";
 			if (isAddresses) {
 				html += `<input type="text" class="form-control" name="${ctrl.Name}" id="${id}-${ctrl.Name}"${placeholder}/>`;
 			}
 			else if (ctrl.Type === "TextArea" || ctrl.Type === "TextEditor") {
-				var rows = !!ctrl.Options.Rows && +ctrl.Options.Rows > 0 ? +ctrl.Options.Rows : 2;
+				var rows = !!ctrl.Options.Rows && +ctrl.Options.Rows > 0 ? +ctrl.Options.Rows : 5;
 				html += `<textarea class="form-control" name="${ctrl.Name}" id="${id}-${ctrl.Name}" rows="${rows}"${placeholder}${maxlength}${required}>${ctrl.Options.DefaultValue || ""}</textarea>`;
 			}
 			else if (ctrl.Type === "Select") {
@@ -1772,7 +1842,7 @@ __vieapps.forms = {
 		var addressesCtrl = !!control ? document.getElementById(`${id}-${control.Name}`) : undefined;
 		if (!!addressesCtrl) {
 			this.autoComplete(addressesCtrl, this.addresses, data => {
-				this.data["County"] = !!!data ? undefined : data.county;
+				this.data["Unit"] = !!!data ? undefined : data.unit;
 				this.data["Province"] = !!!data ? undefined : data.province;
 				this.data["Country"] = !!!data ? undefined : data.country;
 			});
@@ -1787,7 +1857,7 @@ __vieapps.forms = {
 			this.resources.captcha.label = __vieapps.languages.get("users.login.reset.controls.Captcha.label");
 		}
 		if (!!!this.resources.captcha.button) {
-			this.resources.captcha.button = `<i class="fas fa-sync-alt"></i>`;
+			this.resources.captcha.button = `<i class="fa fas fa-sync-alt fa-refresh"></i>`;
 		}
 		controlCss = !!this.css && !!this.css.button ? " " + this.css.button : "";
 		var buttons = {
@@ -1828,11 +1898,12 @@ __vieapps.forms = {
 			}
 		});
 	},
+
 	success: function (message, callback) {
 		this.create();
 		var id = `vieapps-form-${this.request.form}`;
 		var control = $(`#${id}`);
-		control.html(`<div class="alert alert-success col-12" role="alert"><span class="close float-end float-right"><i class="fas fa-times"></i></span><h4 class="alert-heading">${message}</h4></div>`);
+		control.html(`<div class="alert alert-success col-12" role="alert"><span class="close float-end float-right"><i class="fa fas fa-times"></i></span><h4 class="alert-heading">${message}</h4></div>`);
 		$(`#${id} .alert .close`).on("click tap", function (event) {
 			event.preventDefault();
 			$(`#vieapps-form-${__vieapps.forms.request.form}`).html("");
@@ -1843,7 +1914,12 @@ __vieapps.forms = {
 			callback();
 		}
 	},
+
 	refresh: function (callback) {
+		if (!!!__vieapps.session.id) {
+			setTimeout(() => __vieapps.session.register(() => this.refresh(callback)), 123);
+			return;
+		}
 		this.captcha.Code = undefined;
 		__vieapps.apis.call(
 			{ ServiceName: "users", ObjectName: "captcha", Query: { register: __vieapps.session.id } },
@@ -1856,6 +1932,7 @@ __vieapps.forms = {
 				}
 			},
 			error => {
+				setTimeout(() => __vieapps.session.register(() => this.refresh()), 123);
 				console.error("Error while refreshing", error);
 				if (typeof callback === "function") {
 					callback();
@@ -1863,6 +1940,7 @@ __vieapps.forms = {
 			}
 		);
 	},
+
 	submit: function () {
 		var id = `vieapps-form-${this.request.form}`;
 		var controls = this.config.filter(ctrl => !!ctrl.Required).map(ctrl => $(`#${id}-${ctrl.Name}`)).filter(ctrl => !!!ctrl.val());
@@ -1870,13 +1948,13 @@ __vieapps.forms = {
 		var addrCtrl = $(`#${id}-Addresses`);
 		if (!!controls.length) {
 			controls.forEach(ctrl => ctrl.addClass("is-invalid"));
-			if (!!addCtrl && !!addCtrl.Required && ["County", "Province", "Country"].some(name => this.data[name] === undefined) && !!addrCtrl.length) {
+			if (!!addCtrl && !!addCtrl.Required && ["Unit", "Province", "Country"].some(name => this.data[name] === undefined) && !!addrCtrl.length) {
 				addrCtrl.addClass("is-invalid");
 			}
 			controls.first().focus();
 			return;
 		}
-		if (!!addCtrl && !!addCtrl.Required && ["County", "Province", "Country"].some(name => this.data[name] === undefined) && !!addrCtrl.length) {
+		if (!!addCtrl && !!addCtrl.Required && ["Unit", "Province", "Country"].some(name => this.data[name] === undefined) && !!addrCtrl.length) {
 			addrCtrl.addClass("is-invalid");
 			addrCtrl.focus();
 			return;
@@ -1947,7 +2025,7 @@ __vieapps.forms = {
 						else {
 							var addCtrl = this.config.find(ctrl => ctrl.Name === "Address");
 							var addrCtrl = $(`#${id}-Addresses`);
-							names = ["County", "Province", "Country"];
+							names = ["Unit", "Province", "Country"];
 							if (!!addCtrl && !!addCtrl.Required && names.some(name => this.data[name] === undefined) && !!addrCtrl.length) {
 								addrCtrl.addClass("is-invalid");
 								addrCtrl.focus();
@@ -1967,11 +2045,17 @@ __vieapps.forms = {
 		);
 	}
 };
-$(window).on("load", function () {
+
+$(window).on("load", () => {
 	window.gtag = window.gtag || function () { };
 	window.fbq = window.fbq || function () { };
 	if (!!__vieapps.forms.request && !!__vieapps.forms.request.id && !!__vieapps.forms.request.form) {
-		__vieapps.forms.fetchDefinition(__vieapps.forms.request.id, () => __vieapps.forms.show());
+		__vieapps.forms.fetchDefinition(__vieapps.forms.request.id, contentTypeID => {
+			if (typeof __vieapps.forms.onFetchDefinitionCompleted === "function") {
+				__vieapps.forms.onFetchDefinitionCompleted(contentTypeID);
+			}
+			__vieapps.forms.show();
+		});
 	}
 });
 
@@ -1980,7 +2064,7 @@ $(window).on("load", function () {
  * i18n languages
 */
 __vieapps.languages = {
-	fetch: function (language) {
+	fetch: language => {
 		["common", "users", "portals", "portals.cms"].forEach(service => {
 			__vieapps.utils.ajax(__vieapps.URLs.getPortals(`/statics/i18n/${service}/${language}.json?v=${Math.random()}`), data => {
 				var languages = __vieapps.languages[language] || {};
@@ -2000,6 +2084,7 @@ __vieapps.languages = {
 			});
 		});
 	},
+
 	get: function (id, i18n) {
 		id = Array.isArray(id) ? id : typeof id === "string" && id !== "" ? id.trim().split(".") : [];
 		i18n = i18n || this[__vieapps.language];
@@ -2013,6 +2098,7 @@ __vieapps.languages = {
 			: undefined;
 	}
 };
+
 ["vi-VN", "en-US"].forEach(language => {
 	var languages = sessionStorage.getItem(`vieapps:${language}`);
 	if (!!languages) {
@@ -2023,6 +2109,365 @@ __vieapps.languages = {
 		__vieapps.languages.fetch(language);
 	}
 });
+
+
+/**
+ * --------------------------------------
+ * ads
+*/
+__vieapps.ads = {
+	counter: {
+		slots: 0,
+		shown: 0,
+		hidden: 0
+	},
+
+	checkers: {
+		home: undefined,
+		list: ".desktop.cms-content.list",
+		detail: ".desktop.cms-content.view"
+	},
+
+	showHomeAds: function () {
+		if (!!this.contents.block) {
+			if (!!this.selectors.home.all) {
+				$(this.selectors.home.all).toArray().forEach(node => {
+					$(this.contents.block).insertAfter($(node));
+					this.counter.slots++;
+				});
+			}
+			if (!!this.selectors.home.special) {
+				$(this.selectors.home.special).toArray().forEach(node => {
+					if (this.selectors.home.position === "before") {
+						$(this.contents.block).insertBefore($(node));
+					}
+					else {
+						$(this.contents.block).insertAfter($(node));
+					}
+					this.counter.slots++;
+				});
+			}
+		}
+	},
+	
+	showListAds: function () {
+		if (!!this.contents.list && !!this.selectors.list.inline) {
+			$(this.selectors.list.inline).toArray().filter((_, index) => (this.poistions.list || [1, 3]).find(number => number === index) !== undefined).forEach(node => {
+				$(this.contents.list).insertAfter($(node));
+				this.counter.slots++;
+			});
+		}
+		if (!!this.contents.block && !!this.selectors.list.special) {
+			$(this.selectors.list.special).toArray().forEach(node => {
+				if (this.selectors.list.position === "before") {
+					$(this.contents.block).insertBefore($(node));
+				}
+				else {
+					$(this.contents.block).insertAfter($(node));
+				}
+				this.counter.slots++;
+			});
+		}
+	},
+	
+	showDetailAds: function () {
+		if (!!!this.inlineDisabled && !!this.contents.inline && !!this.selectors.detail.inline) {
+			var css = "clearfix";
+			this.inline = {
+				positions: this.poistions.inline.map(position => position),
+				elements: $(this.selectors.detail.inline + " *").toArray().filter(node => ",A,UL,OL,LI,B,I,U,EM,STRONG,SUB,SUP,STYLE,SCRIPT,IMG,".indexOf("," + node.tagName + ",") < 0).map(node => $(node)).filter(node => !node.hasClass("noads")),
+				step: !!this.inline ? this.inline.step || 9 : 9
+			};
+			if ($(this.selectors.detail.inline + " p").length < 13) {				
+				if ($(this.selectors.detail.inline + " br").length > 40) {
+					css = "clearfix pt-4";
+					this.inline.positions = [4, 20, 40, 80, 100];
+					this.inline.step = 15;
+				}
+				else if ($(this.selectors.detail.inline + " div").length > 13) {
+					css = "clearfix pt-4";
+					this.inline.positions = [5, 15, 30, 60, 80];
+				}
+			}
+			this.inline.ads = "<p class=\"" + css + "\">" + this.contents.inline + "</p>";
+			var pos = this.inline.positions[this.inline.positions.length - 1] + this.inline.step;
+			while (pos < this.inline.elements.length) {
+				this.inline.positions.push(pos);
+				pos += this.inline.step;
+			}
+			this.inline.positions = this.inline.positions.filter(position => position < this.inline.elements.length);
+			this.inline.positions.forEach(position => {
+				$(this.inline.ads).insertAfter(this.inline.elements[position]);
+				this.counter.slots++;
+			});
+		}
+		if (!!this.contents.block && !!this.selectors.detail.special) {
+			$(this.selectors.detail.special).toArray().forEach(node => {
+				if (this.selectors.detail.position === "before") {
+					$(this.contents.block).insertBefore($(node));
+				}
+				else {
+					$(this.contents.block).insertAfter($(node));
+				}
+				this.counter.slots++;
+			});
+		}
+	},
+	
+	showSidebarAds: function () {
+		if (!!this.contents.sidebar && !!this.selectors.sidebar.inline) {
+			$(this.selectors.sidebar.inline).toArray().filter((_, index) => (this.poistions.sidebar || [0, 3]).find(number => number === index) !== undefined).forEach(node => {
+				$(this.contents.sidebar).insertAfter($(node));
+				this.counter.slots++;
+			});
+		}
+		if (!!this.contents.block && !!this.selectors.sidebar.special) {
+			$(this.selectors.sidebar.special).toArray().forEach(node => {
+				if (this.selectors.sidebar.position === "before") {
+					$(this.contents.block).insertBefore($(node));
+				}
+				else {
+					$(this.contents.block).insertAfter($(node));
+				}
+				this.counter.slots++;
+			});
+		}
+	},
+	
+	showAds: function (callback) {
+		this.contents = !!this.contents && !!Object.keys(this.contents).length ? this.contents : {
+			block: "<div class=\"clearfix w-100 py-4 text-center\"><ins class=\"adsbygoogle\" style=\"display:block;text-align:center;\" data-full-width-responsive=\"true\" data-ad-format=\"auto\" data-ad-client=\"ca-pub-3210879398925828\" data-ad-slot=\"6895245482\"></ins></div>",
+			inline: "<ins class=\"adsbygoogle\" style=\"display:block;text-align:center;\" data-ad-layout=\"in-article\" data-ad-format=\"fluid\" data-ad-client=\"ca-pub-3210879398925828\" data-ad-slot=\"7026144674\"></ins>",
+			list: "<div class=\"col-12 col-sm-6 pb-3\"><ins class=\"adsbygoogle\" style=\"display:block\" data-ad-format=\"fluid\" data-ad-layout-key=\"-60+ed+1l-6o+ab\" data-ad-client=\"ca-pub-3210879398925828\" data-ad-slot=\"3699814194\"></ins></div>",
+			sidebar: "<li><ins class=\"adsbygoogle\" style=\"display:block\" data-ad-format=\"fluid\" data-ad-layout-key=\"-hn-i+3g-6f+3m\" data-ad-client=\"ca-pub-3210879398925828\" data-ad-slot=\"3470043045\"></ins></li>"
+		};
+		this.selectors = !!this.selectors && !!Object.keys(this.selectors).length ? this.selectors : {
+			home: {
+				all: ".main .portlet > .content",
+				special: "",
+				position: "before"
+			},
+			list: {
+				inline: ".main .zone.content .portlet > .content ul.cms.list > li",
+				special: ".main .zone.content .portlet > .content ul.cms.list"
+			},
+			detail: {
+				inline: ".main .zone.content .portlet > .content .body",
+				special: ".main .zone.content .portlet > .content .meta, .main .zone.content .portlet > .content .body, .main .zone.content .portlet > .content .relateds ul.cms.list, .main .zone.content .portlet > .content .others ul.cms.list"
+			},
+			sidebar: {
+				inline: ".main .zone.sidebar .portlet > .content ul.cms.list > li",
+				special: ".main .zone.sidebar .portlet > .content"
+			}
+		};
+		this.poistions = !!this.poistions && !!Object.keys(this.poistions).length ? this.poistions : {
+			inline: [2, 7, 13, 21, 30],
+			list: [1, 3],
+			sidebar: [0, 3]
+		};
+		if (typeof this.preshow === "function") {
+			this.preshow();
+		}
+		if (!!__vieapps.isHome) {
+			if (!!!this.homeDisabled) {
+				this.showHomeAds();
+			}
+		}
+		else {
+			this.showSidebarAds();
+			if (!!__vieapps.isDetail) {
+				this.showDetailAds();
+			}
+			else {
+				this.showListAds();
+			}
+		}
+		if (!!this.defer) {
+			setTimeout(() => this.displayAds(callback), this.defer);
+		}
+		else {
+			this.displayAds(callback);
+		}
+	},
+	
+	displayAds: function (callback) {
+		$(".adsbygoogle:not(.adsbygoogle-noablate)").each(function () {
+			try {
+				(adsbygoogle = window["adsbygoogle"] || []).push({});
+				__vieapps.ads.counter.shown++;
+			}
+			catch (error) {
+				console.error("Error occurred while display ads", error, this);
+			}
+		});
+		if (typeof callback === "function") {
+			callback(this);
+		}
+	},
+	
+	show: function (callback) {
+		if (typeof this.configURL === "string" && this.configURL.trim() !== "") {
+			$.ajax(this.configURL, {
+				crossDomain: true,
+				method: "GET",
+				contentType: "application/json",
+				success: function (data) {
+					var contents = !!data ? data.contents || data : undefined;
+					__vieapps.ads.contents = !!contents && !!Object.keys(contents).length ? contents : undefined;
+					var selectors = !!data ? data.selectors : undefined;
+					__vieapps.ads.selectors = !!selectors && !!Object.keys(selectors).length ? selectors : undefined;
+					var poistions = !!data ? data.poistions : undefined;
+					__vieapps.ads.poistions = !!poistions && !!Object.keys(poistions).length ? poistions : undefined;
+					__vieapps.ads.showAds(callback);
+				},
+				error: function () {
+					__vieapps.ads.showAds(callback);
+				}
+			});
+		}
+		else {
+			this.showAds(callback);
+		}
+	},
+	
+	hide: function (predicate) {
+		$(".adsbygoogle:not(.adsbygoogle-noablate)").each(function () {
+			var element = $(this);
+			if (typeof predicate === "function" ? predicate(element) : element.data().adStatus === "unfilled") {
+				element.parent().remove();
+				__vieapps.ads.counter.hidden++;
+				__vieapps.ads.counter.shown--;
+			}
+		});
+		this.counter.shown = this.counter.shown > 0 ? this.counter.shown : 0;
+	}
+};
+
+// initialize
+$(() => {
+	// prepare search parameters
+	var url = new URL(location.href);
+	Object.assign(__vieapps, {
+		isHome: url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/default.aspx" || url.pathname === `/${__vieapps.desktops.home}` || (!!__vieapps.ads.checkers.home && !!$(__vieapps.ads.checkers.home).length),
+		isList: !__vieapps.isHome && !!__vieapps.ads.checkers.list && !!$(__vieapps.ads.checkers.list).length,
+		isDetail: !__vieapps.isList && !!__vieapps.ads.checkers.detail && !!$(__vieapps.ads.checkers.detail).length,
+		searchParams: {}
+	});
+	(url.search.startsWith("?") ? url.search.substring(1, url.search.length) : url.search).split("&").forEach(param => {
+		var params = param.split("=");
+		if (params[0] != "") {
+			try {
+				var value = params.length > 1 ? decodeURIComponent(params[1]).replace(/\+/g, " ") : undefined;
+				if (!!value && value !== "") {
+					__vieapps.searchParams[params[0]] = value;
+				}
+			}
+			catch (error) {
+				console.error(params[0], params.length > 1 ? params[1] : undefined, error);
+			}
+		}
+	});
+
+	// fill search parameters into controls
+	var searchParams = Object.keys(__vieapps.searchParams);
+	searchParams.forEach(name => {
+		var ctrl = $("#" + name);
+		var value = __vieapps.searchParams[name];
+		if (!!ctrl.length) {
+			if (ctrl.is("input")) {
+				var type = ctrl.attr("type");
+				if (type.startsWith("date")) {
+					try {
+						value = !!value && value !== "" ? new Date(value.indexOf("[") > 0 ? value.substring(0, value.indexOf("[")) : value).toISOString() : undefined;
+						value = !!value && type === "date" ? value.split("T")[0] : value;
+					}
+					catch (error) {
+						value = undefined;
+						console.error("Error occured while parsing date", name, value, error);
+					}
+				}
+				ctrl.val(value);
+			}
+			else {
+				ctrl.text(value);
+			}
+		}
+		else if (!!value && value.indexOf(",") < 0 && value.indexOf(";") < 0 && value.indexOf(":") < 0) {
+			try {
+				ctrl = $("#" + name + "_" + value);
+				if (!!ctrl.length && ctrl.is("input")) {
+					ctrl.prop("checked", true);
+				}
+			}
+			catch (error) {
+				console.error("Error occured while preparing forms' control", name, value, error);
+			}
+		}
+	});
+
+	// URL of logo to return/continue
+	if (!!__vieapps.searchParams["return"] || !!__vieapps.searchParams["continue"]) {
+		$(".logo a").attr("href", __vieapps.searchParams["return"] || __vieapps.searchParams["continue"] || "/");
+	}
+
+	// working with Keap/InfusionSoft
+	if (!!__vieapps.searchParams["inf_contact_key"]) {
+		$("a[rel=\"inf_link\"").each(function () {
+			var anchor = $(this);
+			var href = anchor.attr("href") || "";
+			href += href.indexOf("?") > 0 ? "&" : "?";
+			searchParams.forEach(name => href += "name=" + encodeURIComponent(__vieapps.searchParams[name]) + "&");
+			anchor.attr("href", href.substring(0, href.length - 1));
+		});
+		if (!!__vieapps.searchParams["inf_field_Phone1"]) {
+			__vieapps.searchParams["inf_field_Phone1"] = __vieapps.searchParams["inf_field_Phone1"].replace(/\s/g, "").replace(/\-/g, "").replace(/\(/g, "").replace(/\)/g, "");
+			if (!__vieapps.searchParams["inf_field_Phone1"].startsWith("0") && !__vieapps.searchParams["inf_field_Phone1"].startsWith("+")) {
+				__vieapps.searchParams["inf_field_Phone1"] = "0" + __vieapps.searchParams["inf_field_Phone1"];
+			}
+			$("#inf_field_Phone1").val(__vieapps.searchParams["inf_field_Phone1"]);
+		}
+		if (!!__vieapps.searchParams["inf_form_Image"]) {
+			$("#inf_form_Image").attr("src", __vieapps.searchParams["inf_form_Image"]);
+		}
+		else {
+			$("#inf_form_Image").parent().addClass("d-none");
+		}
+		if (__vieapps.searchParams["inf_contact_registered"] == "true") {
+			$("#inf_field_Email").prop("readonly", true);
+			$("#inf_form_Message").text(__vieapps.searchParams["inf_form_Message"] || "Thông tin của bạn đã được đăng ký thành công với hệ thống. Vui lòng kiểm tra và bấm 'Cập nhật' nếu muốn cập nhật thông tin mới.");
+			$("#inf_form_Submit").text(__vieapps.searchParams["inf_form_Submit"] || "CẬP NHẬT").removeClass("btn-danger btn-primary").addClass("btn-success");
+		}
+		else {
+			var ctrl = $("#inf_form_Message");
+			if (!!ctrl.length && ctrl.text() == "") {
+				ctrl.addClass("d-none");
+			}
+			if (!!__vieapps.searchParams["inf_field_Email"] && __vieapps.searchParams["inf_contact_email"] == "readonly") {
+				$("#inf_field_Email").prop("readonly", true);
+			}
+		}
+		if (typeof keapFormOnShown === "function") {
+			keapFormOnShown();
+		}
+	}
+
+	// prepare images
+	if (__vieapps.searchParams["x-force-cache"] !== undefined) {
+		$("picture > source, img").each(function() {
+			var element = $(this);
+			var name = element[0].localName === "source" ? "srcset" : "src";
+			var url = element.attr(name);
+			if (!!url && url.startsWith(__vieapps.URLs.files) && url.indexOf("x-force-cache") < 0) {
+				element.attr(name, url + (url.indexOf("?") > 0 ? "&" : "?") + "x-force-cache");
+			}
+	  });
+	}
+
+	if (!!__vieapps.attachments && !!__vieapps.attachments.length) {
+		__vieapps.attachments.filter(info => !info.filename.endsWith(".webp")).map(info => `${__vieapps.URLs.files}/images/${__vieapps.ids.system}/${info.id}/${encodeURIComponent(info.filename)}.webp`).forEach(url => (new Image()).src = url);
+	}
+});
+
 
 /**
  * --------------------------------------

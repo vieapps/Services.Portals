@@ -493,7 +493,7 @@
 									<xsl:if test="./ThumbnailURL/@Alternative != ''">
 										<source srcset="{./ThumbnailURL/@Alternative}"/>
 									</xsl:if>
-									<img alt="" src="{$ThumbnailURL}"/>
+									<img alt="" decoding="async" loading="lazy" src="{./ThumbnailURL/@Original}"/>
 								</picture>
 							</xsl:otherwise>
 						</xsl:choose>

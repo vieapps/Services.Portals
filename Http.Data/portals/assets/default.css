@@ -1,10 +1,14 @@
 ﻿/*
-	theme: all - settings of full width (override the setting of Bootstrap)
+	theme: all - override the setting of Bootstrap
 */
 .full, .w-100 {
 	width: 100% !important;
 	max-width: 100% !important;
 	flex: 0 0 100% !important;
+}
+.clearfix {
+	clear: both;
+	float: none;
 }
 .container-fluid > .container {
 	padding-left: 0;
@@ -138,6 +142,11 @@ video[poster], audio[poster] {
 	padding: .6em;
 	font-size: .75em;
 	outline-offset: -1px;
+}
+@media (max-width: 1024px) {
+	.desktop .zone.content figure.image.image_resized {
+		width: auto !important;
+	}
 }
 
 /*

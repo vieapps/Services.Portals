@@ -250,7 +250,7 @@
 				</xsl:if>
 				<xsl:if test="/VIEApps/Options/ShowImage = 'true' and ./Image != ''">
 					<figure>
-						<img alt="" src="{./Image}"/>
+						<img alt="" decoding="async" loading="lazy" src="{./Image}"/>
 					</figure>
 				</xsl:if>
 				<xsl:value-of select="Title"/>
