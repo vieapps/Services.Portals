@@ -231,7 +231,7 @@ namespace net.vieapps.Services.Portals
 				if (mcpInitializeStage)
 				{
 					if (string.IsNullOrWhiteSpace(mcpSettings.Name))
-						mcpSettings.Name = $"{alias}-mcp";
+						mcpSettings.Name = $"{alias}-mcp-server";
 					await context.ProcessInitializeRequestAsync(mcpSettings, mcpRequest, cts.Token).ConfigureAwait(false);
 				}
 
@@ -394,12 +394,12 @@ namespace net.vieapps.Services.Portals
 				var result = new JObject
 				{
 					["isError"] = false,
+					["structuredContent"] = response,
 					["content"] = new JArray(new JObject
 					{
 						["type"] = "text",
 						["text"] = response?.ToString(Formatting.None)
-					}),
-					["structuredContent"] = response
+					})
 				};
 				await context.ShowResultAsync(mcpRequest.Get<string>("id"), result, cancellationToken).ConfigureAwait(false);
 			}
@@ -746,14 +746,13 @@ namespace net.vieapps.Services.Portals
 		public static McpSession UpdateSessionInfo(this CommunicateMessage message)
 		{
 			var mcpSessionID = message.Data.Get<string>("McpSessionID");
-			if (!McpHandler.Sessions.TryGetValue(mcpSessionID, out var mcpSession))
+			if (McpHandler.Sessions.TryGetValue(mcpSessionID, out var mcpSession))
+				mcpSession.LastActivity = message.Data.Get("LastActivity", DateTime.Now.ToUnixTimestamp());
+			else
 			{
 				mcpSession = new McpSession(mcpSessionID, message.Data.Get<string>("McpProtocolVersion"), message.Data.Get<string>("ContextSessionID"), message.Data.Get<string>("IP"), message.Data.Get("LastActivity", DateTime.Now.ToUnixTimestamp()));
 				McpHandler.Sessions[mcpSessionID] = mcpSession;
 			}
-			else
-				mcpSession.LastActivity = message.Data.Get("LastActivity", DateTime.Now.ToUnixTimestamp());
-
 			var messages = message.Data.Get<JArray>("Messages");
 			if (messages != null)
 			{
