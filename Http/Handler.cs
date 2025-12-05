@@ -128,6 +128,7 @@ namespace net.vieapps.Services.Portals
 
 			var requestURI = context.GetRequestUri();
 			var requestMethod = (context.Request.Method ?? "GET").ToUpper();
+			var requestSegments = new List<string>();
 			if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 				await context.WriteLogsAsync("Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod}: {requestURI}]").ConfigureAwait(false);
 
@@ -157,7 +158,7 @@ namespace net.vieapps.Services.Portals
 
 				var pathSegments = context.GetRequestPathSegments().Where(segment => !segment.IsEquals("desktop.aspx") && !segment.IsEquals("default.aspx") && !segment.IsEquals("index.aspx") && !segment.IsEquals("index.php")).ToArray();
 				var firstPathSegment = pathSegments.Length > 0 ? pathSegments[0].ToLower() : "";
-				var requestSegments = pathSegments.Skip(0).ToArray();
+				requestSegments = pathSegments.Skip(0).ToList();
 
 				// special parameters (like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity)
 				if (!string.IsNullOrWhiteSpace(firstPathSegment))
@@ -165,7 +166,7 @@ namespace net.vieapps.Services.Portals
 					// system/oranization identity
 					if (firstPathSegment.StartsWith("~"))
 					{
-						requestSegments = pathSegments.Skip(1).ToArray();
+						requestSegments = pathSegments.Skip(1).ToList();
 						systemIdentity = firstPathSegment.Right(firstPathSegment.Length - 1).Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "").GetANSIUri(true, false);
 						queryString["x-system"] = systemIdentity;
 					}
@@ -214,12 +215,12 @@ namespace net.vieapps.Services.Portals
 						}
 
 						// no info
-						requestSegments = Array.Empty<string>();
+						requestSegments = new();
 					}
 				}
 
 				// normalize info of requests
-				if (requestSegments.Length > 0 && specialRequest == "")
+				if (requestSegments.Count > 0 && specialRequest == "")
 				{
 					var firstRequestSegment = requestSegments.First().ToLower();
 
@@ -227,31 +228,31 @@ namespace net.vieapps.Services.Portals
 					if (Handler.Initializers.Contains(firstRequestSegment))
 					{
 						specialRequest = "initializer";
-						requestSegments = Array.Empty<string>();
+						requestSegments = new();
 					}
 
 					else if (Handler.Validators.Contains(firstRequestSegment))
 					{
 						specialRequest = "validator";
-						requestSegments = Array.Empty<string>();
+						requestSegments = new();
 					}
 
 					else if (Handler.LogIns.Contains(firstRequestSegment))
 					{
 						specialRequest = "login";
-						requestSegments = Array.Empty<string>();
+						requestSegments = new();
 					}
 
 					else if (Handler.LogOuts.Contains(firstRequestSegment))
 					{
 						specialRequest = "logout";
-						requestSegments = Array.Empty<string>();
+						requestSegments = new();
 					}
 
 					else if (Handler.Feeds.Contains(firstRequestSegment))
 					{
 						specialRequest = "feed";
-						requestSegments = Array.Empty<string>();
+						requestSegments = new();
 					}
 
 					else if (Handler.CmsPortals.Contains(firstRequestSegment))
@@ -268,7 +269,7 @@ namespace net.vieapps.Services.Portals
 									: firstPathSegment.IsStartsWith("_visit")
 										? "Visit"
 										: "Redirect";
-						requestSegments = Array.Empty<string>();
+						requestSegments = new();
 					}
 
 					// indicators
@@ -276,7 +277,7 @@ namespace net.vieapps.Services.Portals
 					{
 						systemIdentity = "~indicators";
 						queryString["x-indicator"] = firstPathSegment;
-						requestSegments = Array.Empty<string>();
+						requestSegments = new();
 					}
 
 					// request of legacy systems
@@ -293,10 +294,10 @@ namespace net.vieapps.Services.Portals
 						value = value.Equals("") || value.StartsWith("-") || value.IsEquals("default") || value.IsEquals("index") || value.IsNumeric() ? "default" : value.GetANSIUri();
 						queryString["x-desktop"] = (value.Equals("default") ? "-" : "") + value;
 
-						value = requestSegments.Length > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "") : null;
+						value = requestSegments.Count > 1 && !string.IsNullOrWhiteSpace(requestSegments[1]) ? requestSegments[1].Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "") : null;
 						queryString["x-parent"] = string.IsNullOrWhiteSpace(value) ? null : value.GetANSIUri();
 
-						if (requestSegments.Length > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]))
+						if (requestSegments.Count > 2 && !string.IsNullOrWhiteSpace(requestSegments[2]))
 						{
 							value = requestSegments[2].Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "");
 							if (value.IsNumeric())
@@ -304,7 +305,7 @@ namespace net.vieapps.Services.Portals
 							else
 								queryString["x-content"] = value.GetANSIUri();
 
-							if (requestSegments.Length > 3 && !string.IsNullOrWhiteSpace(requestSegments[3]))
+							if (requestSegments.Count > 3 && !string.IsNullOrWhiteSpace(requestSegments[3]))
 							{
 								value = requestSegments[3].Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "");
 								if (value.IsNumeric())
@@ -320,9 +321,9 @@ namespace net.vieapps.Services.Portals
 				Handler.LegacyParameters.ForEach(key => queryString.Remove(key));
 			});
 
-			// check request method (HTTP Verb)
-			if (!requestMethod.IsEquals("GET") && !specialRequest.IsEquals("login"))
-				throw context.MonitorHarmfulRequest(context.GetRemoteIPAddress().ToString(), Global.NodeID, Global.ServiceName);
+			// check request (HTTP method & segment
+			if ((!requestMethod.IsEquals("GET") && !specialRequest.IsEquals("login")) || requestSegments.Count > 5)
+				throw context.MonitorHarmfulRequest(context.GetRemoteIPAddress().ToString(), Global.NodeID, Global.ServiceName, requestSegments.Count > 5 ? new InvalidRequestException("Bad request (segments)") : null);
 
 			// prepare headers
 			var headers = context.Request.Headers.ToDictionary(header =>
@@ -389,7 +390,7 @@ namespace net.vieapps.Services.Portals
 					// request of legacy system (files and medias)
 					if (!string.IsNullOrWhiteSpace(legacyRequest))
 					{
-						var requestSegments = legacyRequest.ToArray("/").ToList();
+						requestSegments = legacyRequest.ToArray("/").ToList();
 						if (!requestSegments.Any())
 							requestSegments.Add("");
 
@@ -1856,29 +1857,8 @@ namespace net.vieapps.Services.Portals
 			if (message.Type.IsEquals("Service#RequestInfo"))
 				await Global.SendServiceInfoAsync().ConfigureAwait(false);
 
-			else if (message.Type.IsEquals("McpServer#Info"))
-				await message.GatheringServerInfoAsync().ConfigureAwait(false);
-
-			else if (message.Type.IsEquals("McpServer#UpdateInfo"))
-				try
-				{
-					var serviceName = message.Data.Get<string>("ServiceName");
-					var systemID = message.Data.Get<string>("SystemID");
-					message.Data.As<Settings.McpSettings>(true, (mcpSettings, _) => mcpSettings.SystemID = systemID).UpdateServerInfo(serviceName, systemID);
-				}
-				catch { }
-
-			else if (message.Type.IsEquals("McpServer#ClearInfo"))
-				McpHandler.Settings.Clear();
-
-			else if (message.Type.IsEquals("McpServer#SyncSession"))
-				McpHandler.SyncSessionInfo();
-
-			else if (message.Type.IsEquals("McpServer#SessionInfo"))
-				message.UpdateSessionInfo();
-
-			else if (message.Type.IsEquals("McpServer#ClearSessionInfo"))
-				McpHandler.Sessions.Clear();
+			else if (message.Type.IsStartsWith("McpServer#"))
+				await message.ProcessGatewayMessageAsync().ConfigureAwait(false);
 		}
 	}
 

@@ -39,9 +39,6 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		internal static void SyncSessionInfo()
-			=> McpHandlerExtensions.SyncSessionInfo();
-
 		internal static ConcurrentDictionary<string, Settings.McpSettings> Settings { get; } = new ConcurrentDictionary<string, Settings.McpSettings>(StringComparer.OrdinalIgnoreCase);
 
 		internal static List<string> SupportedProtocolVersions { get; } = new() { "2025-11-25", "2025-06-18", "2025-03-26" };
@@ -126,6 +123,7 @@ namespace net.vieapps.Services.Portals
 		public long LastActivity { get; set; }
 		public List<(string ID, string Data)> Messages { get; set; } = new();
 		public int MessagesLastCounter { get; set; } = 0;
+		public ConcurrentHashSet<string> ResourceURIs { get; set; } = new();
 	}
 	#endregion
 
@@ -182,7 +180,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (!context.IsEventStreamRequest())
 					throw new InvalidMcpRequestException();
-				await context.InitializeNotificationAsync().ConfigureAwait(false);
+				await context.InitializeCommunicatorAsync().ConfigureAwait(false);
 				return;
 			}
 
@@ -248,8 +246,18 @@ namespace net.vieapps.Services.Portals
 				else if (mcpMethod.IsEquals("resources/read"))
 					await context.ProcessResourceReadRequestAsync(mcpSettings, mcpRequest, cts.Token).ConfigureAwait(false);
 
+				else if (mcpMethod.IsEquals("resources/subscribe") || mcpMethod.IsEquals("resources/unsubscribe"))
+					await Task.WhenAll
+					(
+						context.ShowResultAsync(mcpRequest.Get<string>("id"), new JObject(), mcpSessionID, cts.Token),
+						context.ProcessResourceSubscriptionRequestAsync(mcpSettings, mcpRequest, cts.Token)
+					).ConfigureAwait(false);
+
 				else if (mcpMethod.IsStartsWith("notifications/"))
+				{
 					context.SetResponseHeaders((int)HttpStatusCode.Accepted);
+					await context.ProcessNotificationRequestAsync(mcpSettings, mcpRequest, cts.Token).ConfigureAwait(false);
+				}
 
 				else
 					throw new NotImplementedException();
@@ -287,7 +295,10 @@ namespace net.vieapps.Services.Portals
 				["capabilities"] = new JObject
 				{
 					["tools"] = new JObject	{	["listChanged"] = true },
-					["resources"] = new JObject { ["listChanged"] = true }
+					["resources"] = new JObject {
+						["listChanged"] = true,
+						["subscribe"] = true
+					}
 				}
 			};
 			if (!string.IsNullOrWhiteSpace(mcpSettings.Instructions))
@@ -337,7 +348,7 @@ namespace net.vieapps.Services.Portals
 
 			var mcpBody = mcpParams?.Get<JObject>("arguments");
 			if (mcpBody == null)
-				throw new InvalidMcpBodyException();
+				throw new InvalidMcpParamsException();
 
 			var cursor = mcpBody.Get<string>("cursor");
 			if (!string.IsNullOrWhiteSpace(cursor))
@@ -381,7 +392,9 @@ namespace net.vieapps.Services.Portals
 			{
 				var response = await requestInfo.ProcessRequestAsync(cancellationToken).ConfigureAwait(false);
 				cursor = response?.Get<string>("nextCursor");
-				if (!string.IsNullOrWhiteSpace(cursor))
+				if (string.IsNullOrWhiteSpace(cursor))
+					(response as JObject)?.Remove("nextCursor");
+				else
 					response["nextCursor"] = new JObject
 					{
 						["cursor"] = cursor,
@@ -585,7 +598,31 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		static async Task InitializeNotificationAsync(this HttpContext context)
+		static Task ProcessResourceSubscriptionRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
+		{
+			var mcpSessionID = context.GetHeaderParameter("MCP-Session-ID");
+			var mcpMethod = mcpRequest.Get<string>("method");
+
+			if (mcpMethod.IsEquals("resources/subscribe") || mcpMethod.IsEquals("resources/unsubscribe"))
+				new CommunicateMessage("mcp")
+				{
+					Type = mcpMethod,
+					Data = new JObject
+					{
+						["SessionID"] = mcpSessionID,
+						["URI"] = mcpRequest.Get<JObject>("params")?.Get<string>("uri")
+					}
+				}.Send();
+
+			return Task.CompletedTask;
+		}
+
+		static Task ProcessNotificationRequestAsync(this HttpContext context, Settings.McpSettings mcpSettings, JObject mcpRequest, CancellationToken cancellationToken)
+		{
+			return Task.CompletedTask;
+		}
+
+		static async Task InitializeCommunicatorAsync(this HttpContext context)
 		{
 			var headers = context.Request.Headers.ToDictionary();
 			if (!headers.TryGetValue("MCP-Session-ID", out var mcpSessionID) || !McpHandler.Sessions.TryGetValue(mcpSessionID, out var mcpSession))
@@ -599,27 +636,97 @@ namespace net.vieapps.Services.Portals
 					await Task.Delay(UtilityService.GetRandomNumber(123, 456), cts.Token).ConfigureAwait(false);
 
 				await context.InitializeEventStreamAsync().ConfigureAwait(false);
-				context.SetItem("McpMessages", mcpSession.Messages.Select(msg => msg).ToList());
-				context.SetItem("McpMessagesLastCounter", mcpSession.MessagesLastCounter);
-
-				mcpSession.Messages = new();
-				mcpSession.MessagesLastCounter = 0;
-				mcpSession.SendSessionInfo(true);
-
 				if (Global.IsVisitLogEnabled)
-					await context.WriteLogsAsync(Global.Logger, "MCP", $"The EventStream connection (notification) was established\r\n- Session: {mcpSessionID}\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(isDebugLogEnabled ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}").ConfigureAwait(false);
+					await context.WriteLogsAsync(Global.Logger, "MCP", $"The EventStream connection was established\r\n- Session: {mcpSessionID}\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(isDebugLogEnabled ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}").ConfigureAwait(false);
 			}
 			catch (Exception ex)			
 			{
-				await context.WriteLogsAsync(Global.Logger, "MCP", $"The EventStream connection (notification) was not established => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
+				await context.WriteLogsAsync(Global.Logger, "MCP", $"The EventStream connection was not established => {ex.Message}", ex, Global.ServiceName, LogLevel.Error).ConfigureAwait(false);
 				return;
 			}
+
+			if (headers.TryGetValue("Last-Event-ID", out var lastEventID))
+			{
+				var lastEventIndex = mcpSession.Messages.FindIndex(message => message.ID == lastEventID);
+				if (lastEventIndex > -1)
+					mcpSession.Messages.RemoveRange(0, lastEventIndex);
+				await mcpSession.Messages.ForEachAsync(message => context.PushEventMessageAsync(message.Data, "mcp", message.ID), true, false).ConfigureAwait(false);
+			}
+
+			var resourceURIs = mcpSession.ResourceURIs.ToList();
+			mcpSession.Messages = new();
+			mcpSession.ResourceURIs = new();
+			mcpSession.SendSessionInfo(true, true);
+			mcpSession.ResourceURIs = new ConcurrentHashSet<string>(resourceURIs, StringComparer.OrdinalIgnoreCase);
 
 			var communicator = Services.Router.IncomingChannel.Subscribe<CommunicateMessage>
 			(
 				"messages.services.mcp",
-				context.PushNotificationAsync,
-				exception => Global.WriteLogsAsync(Global.Logger, "MCP", $"Notification error => {exception.Message}", exception)
+				message =>
+				{
+					if (message.Type.IsEquals("resources/created"))
+					{
+						mcpSession.MessagesLastCounter++;
+						var msg = (ID: mcpSession.MessagesLastCounter.ToString(), Data: new JObject
+						{
+							["jsonrpc"] = "2.0",
+							["method"] = "notifications/resources/list_changed",
+							["params"] = new JObject()
+						}.ToString(Formatting.None));
+						mcpSession.Messages.Add(msg);
+						return context.PushEventMessageAsync(msg.Data, "mcp", msg.ID);
+					}
+
+					if (message.Type.IsEquals("tools/changed"))
+					{
+						mcpSession.MessagesLastCounter++;
+						var msg = (ID: mcpSession.MessagesLastCounter.ToString(), Data: new JObject
+						{
+							["jsonrpc"] = "2.0",
+							["method"] = "notifications/tools/list_changed",
+							["params"] = new JObject()
+						}.ToString(Formatting.None));
+						mcpSession.Messages.Add(msg);
+						return context.PushEventMessageAsync(msg.Data, "mcp", msg.ID);
+					}
+
+					var uri = message.Data.Get<string>("URI");
+
+					if (message.Type.IsEquals("resources/subscribe") && mcpSessionID.IsEquals(message.Data?.Get<string>("SessionID")))
+						mcpSession.ResourceURIs.Add(uri);
+
+					else if (message.Type.IsEquals("resources/unsubscribe") && mcpSessionID.IsEquals(message.Data?.Get<string>("SessionID")))
+						mcpSession.ResourceURIs.TryRemove(uri);
+
+					else if (message.Type.IsEquals("resources/updated") && mcpSession.ResourceURIs.Contains(uri))
+					{
+						mcpSession.MessagesLastCounter++;
+						var msg1 = (ID: mcpSession.MessagesLastCounter.ToString(), Data: new JObject
+						{
+							["jsonrpc"] = "2.0",
+							["method"] = "notifications/resources/updated",
+							["params"] = new JObject
+							{
+								["uri"] = uri
+							}
+						}.ToString(Formatting.None));
+						mcpSession.Messages.Add(msg1);
+
+						mcpSession.MessagesLastCounter++;
+						var msg2 = (ID: mcpSession.MessagesLastCounter.ToString(), Data: new JObject
+						{
+							["jsonrpc"] = "2.0",
+							["method"] = "notifications/resources/list_changed",
+							["params"] = new JObject()
+						}.ToString(Formatting.None));
+						mcpSession.Messages.Add(msg2);
+
+						return context.PushEventMessageAsync(msg1.Data, "mcp", msg1.ID).ContinueWith((_,_) => context.PushEventMessageAsync(msg2.Data, "mcp", msg2.ID), cts.Token, TaskContinuationOptions.OnlyOnRanToCompletion);
+					}
+
+					return Task.CompletedTask;
+				},
+				exception => Global.WriteLogsAsync(Global.Logger, "MCP", $"Communicating error => {exception.Message}", exception)
 			);
 
 			while (true)
@@ -635,31 +742,49 @@ namespace net.vieapps.Services.Portals
 					break;
 				}
 
-			mcpSession.Messages = context.GetItem<List<(string ID, string Data)>>("McpMessages");
-			mcpSession.MessagesLastCounter = context.GetItem<int>("McpMessagesLastCounter");
-			mcpSession.SendSessionInfo(true);
-
+			mcpSession.SendSessionInfo(true, true);
 			communicator.Dispose();
+
 			if (Global.IsVisitLogEnabled)
-				await context.WriteLogsAsync(Global.Logger, "MCP", $"The EventStream connection (notification) was disconnected").ConfigureAwait(false);
+				await context.WriteLogsAsync(Global.Logger, "MCP", $"The EventStream connection was disconnected").ConfigureAwait(false);
 		}
 
-		static Task PushNotificationAsync(this HttpContext context, CommunicateMessage message)
+		public static async Task ProcessGatewayMessageAsync(this CommunicateMessage message)
 		{
-			return Task.CompletedTask;
+			if (message.Type.IsEquals("McpServer#Info"))
+				await message.GatheringServerInfoAsync().ConfigureAwait(false);
+
+			else if (message.Type.IsEquals("McpServer#UpdateInfo"))
+				try
+				{
+					var serviceName = message.Data.Get<string>("ServiceName");
+					var systemID = message.Data.Get<string>("SystemID");
+					message.Data.As<Settings.McpSettings>(true, (mcpSettings, _) => mcpSettings.SystemID = systemID).UpdateServerInfo(serviceName, systemID);
+				}
+				catch { }
+
+			else if (message.Type.IsEquals("McpServer#ClearInfo"))
+				McpHandler.Settings.Clear();
+
+			else if (message.Type.IsEquals("McpServer#SyncSession"))
+				McpHandler.Sessions.ForEach(session => session.SendSessionInfo());
+
+			else if (message.Type.IsEquals("McpServer#SessionInfo"))
+				message.UpdateSessionInfo();
+
+			else if (message.Type.IsEquals("McpServer#ClearSessionInfo"))
+				McpHandler.Sessions.Clear();
+
 		}
 
-		static Task PushNotificationAsync(this HttpContext context, string id, string data)
-			=> context.PushEventMessageAsync(data, "mcp", id);
-
-		public static Task GatheringServerInfoAsync(this CommunicateMessage message)
+		static Task GatheringServerInfoAsync(this CommunicateMessage message)
 		{
 			var serviceName = message.Data.Get<string>("ServiceName");
 			var systemID = message.Data.Get<string>("SystemID");
 			return GatheringServerInfoAsync(Global.GetSession(), serviceName, systemID);
 		}
 
-		public static async Task GatheringServerInfoAsync(this Session session, string serviceName, string systemID, string correlationID = null)
+		static async Task GatheringServerInfoAsync(this Session session, string serviceName, string systemID, string correlationID = null)
 		{
 			session ??= Global.GetSession();
 			correlationID ??= Global.GetCorrelationID() ?? UtilityService.NewUUID;
@@ -680,7 +805,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		public static void UpdateServerInfo(this Settings.McpSettings settings, string serviceName, string systemID, string correlationID = null)
+		static void UpdateServerInfo(this Settings.McpSettings settings, string serviceName, string systemID, string correlationID = null)
 		{
 			if (string.IsNullOrWhiteSpace(systemID) || !systemID.IsEquals(settings.SystemID) || settings.Resources == null || settings.Resources.Count < 1)
 				return;
@@ -709,9 +834,15 @@ namespace net.vieapps.Services.Portals
 				mcpResource.ServiceName = serviceName.ToLower();
 			});
 			beRemoved.ForEach(name => mcpSettings.Resources.RemoveAt(mcpSettings.Resources.FindIndex(resource => resource.Name == name)));
+			if (beRemoved.Count > 0)
+				new CommunicateMessage("mcp")
+				{
+					Type = "tools/changed",
+					Data = new JObject()
+				}.Send();
 		}
 
-		public static McpSession SendSessionInfo(this McpSession mcpSession, bool includeMessages = false)
+		static McpSession SendSessionInfo(this McpSession mcpSession, bool includeMessages = false, bool includeResourceURIs = false)
 		{
 			var data = new JObject
 			{
@@ -721,6 +852,7 @@ namespace net.vieapps.Services.Portals
 				["IP"] = mcpSession.IP,
 				["LastActivity"] = mcpSession.LastActivity
 			};
+
 			if (includeMessages && mcpSession.Messages != null)
 			{
 				data["Messages"] = mcpSession.Messages.ToJArray(message => new JObject
@@ -730,6 +862,10 @@ namespace net.vieapps.Services.Portals
 				});
 				data["MessagesLastCounter"] = mcpSession.MessagesLastCounter;
 			}
+
+			if (includeResourceURIs)
+				data["ResourceURIs"] = mcpSession.ResourceURIs.ToJArray();
+
 			new CommunicateMessage("APIGateway")
 			{
 				ExcludedNodeID = Global.NodeID,
@@ -739,7 +875,7 @@ namespace net.vieapps.Services.Portals
 			return mcpSession;
 		}
 
-		public static McpSession UpdateSessionInfo(this CommunicateMessage message)
+		static McpSession UpdateSessionInfo(this CommunicateMessage message)
 		{
 			var mcpSessionID = message.Data.Get<string>("McpSessionID");
 			if (McpHandler.Sessions.TryGetValue(mcpSessionID, out var mcpSession))
@@ -755,13 +891,13 @@ namespace net.vieapps.Services.Portals
 				mcpSession.Messages = messages.Select(msg => (msg.Get<string>("ID"), msg.Get<string>("Data"))).ToList();
 				mcpSession.MessagesLastCounter = message.Data.Get<int>("MessagesLastCounter", 0);
 			}
+			var resourceURIs = message.Data.Get<JArray>("ResourceURIs");
+			if (resourceURIs != null)
+				mcpSession.ResourceURIs = new ConcurrentHashSet<string>(resourceURIs.Select(uri => uri.ToString()).Where(uri => !string.IsNullOrWhiteSpace(uri)).ToList(), StringComparer.OrdinalIgnoreCase);
 			return mcpSession;
 		}
 
-		public static void SyncSessionInfo()
-			=> McpHandler.Sessions.ForEach(session => session.SendSessionInfo());
-
-		public static (int Code, string Message, string Type, string Stack) GetErrorDetails(this Exception exception)
+		static (int Code, string Message, string Type, string Stack) GetErrorDetails(this Exception exception)
 		{
 			var code = exception.GetHttpStatusCode();
 			var message = exception.Message ?? "Unknown error";
@@ -862,6 +998,9 @@ namespace net.vieapps.Services.Portals
 				["id"] = Int64.TryParse(id, out var idAsNumber) ? idAsNumber : id,
 				[name] = json
 			};
+			if (string.IsNullOrWhiteSpace(id))
+				response.Remove("id");
+
 			sessionID ??= context.GetParameter("MCP-Session-ID");
 			var headers = new Dictionary<string, string>
 			{
@@ -869,6 +1008,7 @@ namespace net.vieapps.Services.Portals
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = context.GetCorrelationID()
 			};
+
 			return Task.WhenAll
 			(
 				context.WriteAsync(response, headers, cancellationToken),
