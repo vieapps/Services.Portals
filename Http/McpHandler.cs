@@ -650,7 +650,7 @@ namespace net.vieapps.Services.Portals
 				var lastEventIndex = mcpSession.Messages.FindIndex(message => message.ID == lastEventID);
 				if (lastEventIndex > -1)
 					mcpSession.Messages.RemoveRange(0, lastEventIndex);
-				await mcpSession.Messages.ForEachAsync(message => context.PushEventMessageAsync(message.Data, "mcp", message.ID), true, false).ConfigureAwait(false);
+				await mcpSession.Messages.ForEachAsync(message => context.PushEventMessageAsync(message.Data, message.ID), true, false).ConfigureAwait(false);
 			}
 
 			var resourceURIs = mcpSession.ResourceURIs.ToList();
@@ -674,7 +674,7 @@ namespace net.vieapps.Services.Portals
 							["params"] = new JObject()
 						}.ToString(Formatting.None));
 						mcpSession.Messages.Add(msg);
-						return context.PushEventMessageAsync(msg.Data, "mcp", msg.ID);
+						return context.PushEventMessageAsync(msg.Data, msg.ID);
 					}
 
 					if (message.Type.IsEquals("tools/changed"))
@@ -687,7 +687,7 @@ namespace net.vieapps.Services.Portals
 							["params"] = new JObject()
 						}.ToString(Formatting.None));
 						mcpSession.Messages.Add(msg);
-						return context.PushEventMessageAsync(msg.Data, "mcp", msg.ID);
+						return context.PushEventMessageAsync(msg.Data, msg.ID);
 					}
 
 					var uri = message.Data.Get<string>("URI");
@@ -721,7 +721,7 @@ namespace net.vieapps.Services.Portals
 						}.ToString(Formatting.None));
 						mcpSession.Messages.Add(msg2);
 
-						return context.PushEventMessageAsync(msg1.Data, "mcp", msg1.ID).ContinueWith((_,_) => context.PushEventMessageAsync(msg2.Data, "mcp", msg2.ID), cts.Token, TaskContinuationOptions.OnlyOnRanToCompletion);
+						return context.PushEventMessageAsync(msg1.Data, msg1.ID).ContinueWith((_,_) => context.PushEventMessageAsync(msg2.Data, msg2.ID), cts.Token, TaskContinuationOptions.OnlyOnRanToCompletion);
 					}
 
 					return Task.CompletedTask;
@@ -735,7 +735,7 @@ namespace net.vieapps.Services.Portals
 					if (cts.IsCancellationRequested)
 						break;
 					else
-						await Task.Delay(UtilityService.GetRandomNumber(456, 789), cts.Token).ConfigureAwait(false);
+						await Task.Delay(UtilityService.GetRandomNumber(123, 456), cts.Token).ConfigureAwait(false);
 				}
 				catch
 				{

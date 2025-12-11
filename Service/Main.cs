@@ -2223,20 +2223,18 @@ namespace net.vieapps.Services.Portals
 				if (isWriteDesktopLogs)
 					await requestInfo.WriteLogAsync($"Start to prepare data of {desktop.Portlets?.Count} portlet(s) of {desktopInfo} => {desktop.Portlets?.Select(p => p.Title).Join(", ")}", "Process.Http.Request").ConfigureAwait(false);
 
-				var organizationJson = organization.ToJson(false, false, json =>
+				var organizationJson = organization.ToJson(false, false, json => json.Remove(OrganizationProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]), _ =>
 				{
-					OrganizationProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
 					json["Description"] = organization.Description?.NormalizeHTMLBreaks();
 					json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
-				});
+				}));
 
-				var siteJson = site.ToJson(json =>
+				var siteJson = site.ToJson(json => json.Remove(SiteProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]), _ =>
 				{
-					SiteProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
 					json["Description"] = site.Description?.NormalizeHTMLBreaks();
 					json["Domain"] = site.Host;
 					json["Host"] = host;
-				});
+				}));
 
 				var desktopsJson = new JObject
 				{
@@ -2659,68 +2657,45 @@ namespace net.vieapps.Services.Portals
 			// prepare the JSON that contains the requesting information for generating content
 			var requestJson = new JObject
 			{
-				{ "ID", portlet.ID },
-				{ "Title", portlet.Title },
-				{ "Zone", portlet.Zone },
-				{ "Action", isList ? "List" : "View" },
-				{ "ParentIdentity", parentIdentity },
-				{ "ContentIdentity", contentIdentity },
-				{ "Expression", new JObject
-					{
-						{ "ID", expression?.ID },
-						{ "FilterBy", expression?.Filter?.ToJson() },
-						{ "SortBy", expression?.Sort?.ToJson() },
-					}
+				["ID"] = portlet.ID,
+				["Title"] = portlet.Title,
+				["Zone"] = portlet.Zone,
+				["Action"] = isList ? "List" : "View",
+				["ParentIdentity"] = parentIdentity,
+				["ContentIdentity"] = contentIdentity,
+				["Expression"] = new JObject
+				{
+					["ID"] = expression?.ID,
+					["FilterBy"] = expression?.Filter?.ToJson(),
+					["SortBy"] = expression?.Sort?.ToJson()
 				},
-				{ "IsAutoPageNumber", isList && portlet.ListSettings != null && portlet.ListSettings.AutoPageNumber },
-				{ "Pagination", new JObject
-					{
-						{ "PageSize", isList && portlet.ListSettings != null ? portlet.ListSettings.PageSize : 0 },
-						{ "PageNumber", isList && portlet.ListSettings != null ? portlet.ListSettings.AutoPageNumber ? (pageNumber ?? "1").CastAs<int>() : 1 : (pageNumber ?? "1").CastAs<int>() },
-						{ "ShowPageLinks", portlet.PaginationSettings != null && portlet.PaginationSettings.ShowPageLinks },
-						{ "NumberOfPageLinks", portlet.PaginationSettings != null ? portlet.PaginationSettings.NumberOfPageLinks : 7 }
-					}
+				["IsAutoPageNumber"] = isList && portlet.ListSettings != null && portlet.ListSettings.AutoPageNumber,
+				["Pagination"] = new JObject
+				{
+					["PageSize"] = isList && portlet.ListSettings != null ? portlet.ListSettings.PageSize : 0,
+					["PageNumber"] = isList && portlet.ListSettings != null ? portlet.ListSettings.AutoPageNumber ? (pageNumber ?? "1").CastAs<int>() : 1 : (pageNumber ?? "1").CastAs<int>(),
+					["ShowPageLinks"] = portlet.PaginationSettings != null && portlet.PaginationSettings.ShowPageLinks,
+					["NumberOfPageLinks"] = portlet.PaginationSettings != null ? portlet.PaginationSettings.NumberOfPageLinks : 7
 				},
-				{ "Options", optionsJson },
-				{ "Language", language ?? "vi-VN" },
-				{ "Desktops", new JObject
-					{
-						{ "Specified", desktop?.Alias },
-						{ "ContentType", contentType.Desktop?.Alias },
-						{ "Module", contentType.Module?.Desktop?.Alias },
-						{ "Current", desktopsJson["Current"] },
-						{ "Default", desktopsJson["Default"] },
-						{ "Home", desktopsJson["Home"] },
-						{ "Search", desktopsJson["Search"] }
-					}
+				["Options"] = optionsJson,
+				["Language"] = language ?? "vi-VN",
+				["Desktops"] = new JObject
+				{
+					["Specified"] = desktop?.Alias,
+					["ContentType"] = contentType.Desktop?.Alias,
+					["Module"] = contentType.Module?.Desktop?.Alias,
+					["Current"] = desktopsJson["Current"],
+					["Default"] = desktopsJson["Default"],
+					["Home"] = desktopsJson["Home"],
+					["Search"] = desktopsJson["Search"]
 				},
-				{ "Site", siteJson },
-				{ "ContentTypeDefinition", contentType.ContentTypeDefinition?.ToJson() },
-				{ "ModuleDefinition", contentType.ContentTypeDefinition?.ModuleDefinition?.ToJson(json =>
-					{
-						(json as JObject).Remove("ContentTypeDefinitions");
-						(json as JObject).Remove("ObjectDefinitions");
-					})
-				},
-				{ "Organization", organizationJson },
-				{ "Module", contentType.Module?.ToJson(json =>
-					{
-						ModuleProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
-						json["Description"] = contentType.Module.Description?.NormalizeHTMLBreaks();
-					})
-				},
-				{ "ContentType", contentType.ToJson(json =>
-					{
-						ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]).ForEach(name => json.Remove(name));
-						json["Description"] = contentType.Description?.NormalizeHTMLBreaks();
-					})
-				},
-				{ "ParentContentType", parentContentType?.ToJson(json =>
-					{
-						ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]).ForEach(name => json.Remove(name));
-						json["Description"] = parentContentType.Description?.NormalizeHTMLBreaks();
-					})
-				}
+				["Site"] = siteJson,
+				["ContentTypeDefinition"] = contentType.ContentTypeDefinition?.ToJson(),
+				["ModuleDefinition"] = contentType.ContentTypeDefinition?.ModuleDefinition?.ToJson(json => json.Remove(["ContentTypeDefinitions", "ObjectDefinitions"])),
+				["Organization"] = organizationJson,
+				["Module"] = contentType.Module?.ToJson(json => json.Remove(ModuleProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]), _ => json["Description"] = contentType.Module.Description?.NormalizeHTMLBreaks())),
+				["ContentType"] = contentType.ToJson(json => json.Remove(ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]), _ => json["Description"] = contentType.Description?.NormalizeHTMLBreaks())),
+				["ParentContentType"] = parentContentType?.ToJson(json => json.Remove(ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]), _ => json["Description"] = parentContentType.Description?.NormalizeHTMLBreaks()))
 			};
 
 			// call the service for generating content of the portlet
@@ -2955,49 +2930,36 @@ namespace net.vieapps.Services.Portals
 
 							var metaXml = new JObject
 							{
-								{ "Language", language ?? "vi-VN" },
-								{ "Portlet", new JObject
-									{
-										{ "ID", portlet.ID },
-										{ "Title", portlet.Title },
-										{ "URL", portlet.CommonSettings?.TitleURL ?? "" },
-										{ "Zone", portlet.Zone },
-										{ "OrderIndex", portlet.OrderIndex }
-									}
+								["Language"] = language ?? "vi-VN",
+								["Portlet"] = new JObject
+								{
+									{ "ID", portlet.ID },
+									{ "Title", portlet.Title },
+									{ "URL", portlet.CommonSettings?.TitleURL ?? "" },
+									{ "Zone", portlet.Zone },
+									{ "OrderIndex", portlet.OrderIndex }
 								},
-								{ "Desktops", new JObject
-									{
-										{ "ContentType", contentType.Desktop?.Alias },
-										{ "Module", contentType.Module?.Desktop?.Alias },
-										{ "Current", desktopsJson["Current"] },
-										{ "Default", desktopsJson["Default"] },
-										{ "Home", desktopsJson["Home"] },
-										{ "Search", desktopsJson["Search"] }
-									}
+								["Desktops"] = new JObject
+								{
+									{ "ContentType", contentType.Desktop?.Alias },
+									{ "Module", contentType.Module?.Desktop?.Alias },
+									{ "Current", desktopsJson["Current"] },
+									{ "Default", desktopsJson["Default"] },
+									{ "Home", desktopsJson["Home"] },
+									{ "Search", desktopsJson["Search"] }
 								},
-								{ "Site", siteJson },
-								{ "ContentType", contentType.ToJson(json =>
+								["Site"] = siteJson,
+								["ContentType"] = contentType.ToJson(json => json.Remove(ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]), _ =>
+								{
+									json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
+									if (contentType.ExtendedPropertyDefinitions != null)
 									{
-										ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]).ForEach(name => json.Remove(name));
-										json["Description"] = contentType.Description?.Replace("\r", "").Replace("\n", "<br/>");
-										if (contentType.ExtendedPropertyDefinitions != null)
-										{
-											json["ExtendedPropertyDefinitions"] = new JObject
-											{
-												{ "ExtendedPropertyDefinition", contentType.ExtendedPropertyDefinitions.Select(definition => definition.ToJson()).ToJArray() }
-											};
-											json["ExtendedControlDefinitions"] = new JObject
-											{
-												{ "ExtendedControlDefinition", contentType.ExtendedControlDefinitions.Select(definition => definition.ToJson()).ToJArray() }
-											};
-										}
-										if (contentType.StandardControlDefinitions != null)
-											json["StandardControlDefinitions"] = new JObject
-											{
-												{ "StandardControlDefinition", contentType.StandardControlDefinitions.Select(definition => definition.ToJson()).ToJArray() }
-											};
-									})
-								}
+										json["ExtendedPropertyDefinitions"] = new JObject { ["ExtendedPropertyDefinition"] = contentType.ExtendedPropertyDefinitions.Select(definition => definition.ToJson()).ToJArray()	};
+										json["ExtendedControlDefinitions"] = new JObject { ["ExtendedControlDefinition"] = contentType.ExtendedControlDefinitions.Select(definition => definition.ToJson()).ToJArray() };
+									}
+									if (contentType.StandardControlDefinitions != null)
+										json["StandardControlDefinitions"] = new JObject { ["StandardControlDefinition"] = contentType.StandardControlDefinitions.Select(definition => definition.ToJson()).ToJArray() };
+								}))
 							}.ToXml("Meta").CleanInvalidCharacters();
 
 							var optionsJson = isList ? JObject.Parse(portlet.ListSettings.Options ?? "{}") : JObject.Parse(portlet.ViewSettings.Options ?? "{}");
@@ -3697,19 +3659,17 @@ namespace net.vieapps.Services.Portals
 			var doubleBracesTokens = body.GetDoubleBracesTokens().Where(info => !reservedTokens.Contains(info.Item2)).ToList();
 			if (doubleBracesTokens.Any())
 			{
-				var organizationJson = organization.ToJson(false, false, json =>
+				var organizationJson = organization.ToJson(false, false, json => json.Remove(OrganizationProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]), _ =>
 				{
-					OrganizationProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
 					json["Description"] = organization.Description?.NormalizeHTMLBreaks();
 					json["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
-				});
-				var siteJson = site.ToJson(json =>
+				}));
+				var siteJson = site.ToJson(json => json.Remove(SiteProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]), _ =>
 				{
-					SiteProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name));
 					json["Description"] = site.Description?.NormalizeHTMLBreaks();
 					json["Domain"] = site.Host;
 					json["Host"] = siteHost;
-				});
+				}));
 				parameters = doubleBracesTokens.PrepareDoubleBracesParameters(desktop, requestInfo, new JObject { ["Organization"] = organizationJson, ["Site"] = siteJson, ["MainPortlet"] = mainPortletData, ["Language"] = language }.ToExpandoObject()).ToDictionary();
 			}
 			parameters = new Dictionary<string, object>(parameters, StringComparer.OrdinalIgnoreCase)
@@ -3798,9 +3758,9 @@ namespace net.vieapps.Services.Portals
 		{
 			var json = new JObject
 			{
-				{ "Code", (int)HttpStatusCode.InternalServerError },
-				{ "Error", string.IsNullOrWhiteSpace(errorMessage) ? exception.Message : $"{errorMessage} => {exception.Message}" },
-				{ "Type", exception.GetTypeName(true) }
+				["Code"] = (int)HttpStatusCode.InternalServerError,
+				["Error"] = string.IsNullOrWhiteSpace(errorMessage) ? exception.Message : $"{errorMessage} => {exception.Message}",
+				["Type"] = exception.GetTypeName(true)
 			};
 			if (exception is WampException wampException)
 			{

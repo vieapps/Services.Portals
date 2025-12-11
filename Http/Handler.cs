@@ -321,9 +321,12 @@ namespace net.vieapps.Services.Portals
 				Handler.LegacyParameters.ForEach(key => queryString.Remove(key));
 			});
 
-			// check request (HTTP method & segment
-			if ((!requestMethod.IsEquals("GET") && !specialRequest.IsEquals("login")) || requestSegments.Count > 5)
-				throw context.MonitorHarmfulRequest(context.GetRemoteIPAddress().ToString(), Global.NodeID, Global.ServiceName, requestSegments.Count > 5 ? new InvalidRequestException("Bad request (segments)") : null);
+			// validate request
+			if ((!requestMethod.IsEquals("GET") && !specialRequest.IsEquals("login")) || requestSegments.Count > 5 || requestURI.AbsolutePath.IsEndsWith(".php"))
+			{
+				context.ShowError(context.MonitorHarmfulRequest(context.GetRemoteIPAddress().ToString(), Global.NodeID, Global.ServiceName, requestSegments.Count > 5 || requestURI.AbsolutePath.IsEndsWith(".php") ? new InvalidRequestException("Bad request") : null));
+				return;
+			}
 
 			// prepare headers
 			var headers = context.Request.Headers.ToDictionary(header =>
@@ -856,7 +859,7 @@ namespace net.vieapps.Services.Portals
 								context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
 							}
 							else
-								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, isDebugLogEnabled);
+								context.ShowError(ex, isDebugLogEnabled);
 							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing with CMS Portals => {ex.Message}", ex).ConfigureAwait(false);
 						}
 						break;
@@ -898,14 +901,13 @@ namespace net.vieapps.Services.Portals
 								context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
 							}
 							else
-								context.ShowError(ex.GetHttpStatusCode(), ex.Message, ex.GetTypeName(true), correlationID, ex, isDebugLogEnabled);
+								context.ShowError(ex, isDebugLogEnabled);
 							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing feeds => {ex.Message}", ex).ConfigureAwait(false);
 						}
 						break;
 
 					default:
-						var invalidException = new InvalidRequestException();
-						context.ShowError(invalidException.GetHttpStatusCode(), invalidException.Message, invalidException.GetType().GetTypeName(true), correlationID, invalidException, isDebugLogEnabled);
+						context.ShowError(new InvalidRequestException(), isDebugLogEnabled);
 						break;
 				}
 

@@ -1065,7 +1065,7 @@ namespace net.vieapps.Services.Portals
 							}
 							catch (Exception ex)
 							{
-								exception = requestInfo.GetRuntimeException(ex, null, async (msg, exc) => await requestInfo.WriteErrorAsync(exc, $"Error occurred while generating a content => {msg} : {@object.ToJson()}", "Errors").ConfigureAwait(false));
+								exception = requestInfo.GetRuntimeException(ex, null, (msg, exc) => requestInfo.WriteErrorAsync(exc, $"Error occurred while generating a content => {msg} : {@object.ToJson()}", "Errors").Execute());
 							}
 					});
 
