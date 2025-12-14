@@ -76,7 +76,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static int ExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("Authenticator:TokenExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 0;
 
-		internal static List<string> LegacyParameters { get; } = UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop,catName,contId,page").ToList();
+		internal static List<string> LegacyParameters { get; } = UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop;catName;contId;page").ToList(";");
+
+		internal static List<string> PreventingPaths { get; } = UtilityService.GetAppSetting("Portals:PreventingPaths", "").ToList(";");
 
 		static string PortalsHttpURI { get; } = UtilityService.GetAppSetting("HttpUri:Portals", "https://portals.vieapps.net");
 
@@ -322,9 +324,37 @@ namespace net.vieapps.Services.Portals
 			});
 
 			// validate request
+			var isHarmfulRequest = false;
+			Exception harmfulException = null;
 			if ((!requestMethod.IsEquals("GET") && !specialRequest.IsEquals("login")) || requestSegments.Count > 5 || requestURI.AbsolutePath.IsEndsWith(".php"))
 			{
-				context.ShowError(context.MonitorHarmfulRequest(context.GetRemoteIPAddress().ToString(), Global.NodeID, Global.ServiceName, requestSegments.Count > 5 || requestURI.AbsolutePath.IsEndsWith(".php") ? new InvalidRequestException("Bad request") : null));
+				isHarmfulRequest = true;
+				if (requestSegments.Count > 5 || requestURI.AbsolutePath.IsEndsWith(".php"))
+					harmfulException = new InvalidRequestException("Bad request");
+			}
+			else
+			{
+				var firstSegment = requestSegments.FirstOrDefault()?.ToLower();
+				if (!string.IsNullOrWhiteSpace(firstSegment) && Handler.PreventingPaths.Count > 0)
+					foreach (var path in Handler.PreventingPaths)
+					{
+						isHarmfulRequest = path.IsStartsWith("s:")
+							? firstSegment.IsStartsWith(path.Replace("s:", "", StringComparison.OrdinalIgnoreCase))
+							: path.IsStartsWith("e:")
+								? firstSegment.IsEndsWith(path.Replace("e:", "", StringComparison.OrdinalIgnoreCase))
+								: path.IsStartsWith("c:")
+									? firstSegment.IsContains(path.Replace("c:", "", StringComparison.OrdinalIgnoreCase))
+									: firstSegment.IsEquals(path);
+						if (isHarmfulRequest)
+						{
+							harmfulException = new InformationNotFoundException();
+							break;
+						}
+					}
+			}
+			if (isHarmfulRequest)
+			{
+				context.ShowError(context.MonitorHarmfulRequest(context.GetRemoteIPAddress().ToString(), Global.NodeID, Global.ServiceName, harmfulException));
 				return;
 			}
 
@@ -729,8 +759,10 @@ namespace net.vieapps.Services.Portals
 						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
 						if (isDebugLogEnabled)
 							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
+
 						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-						
+						var statusCode = response.Get("StatusCode", (int)HttpStatusCode.OK);
+
 						headers = response.Get("Headers", new Dictionary<string, string>());
 						if (headers.TryGetValue("X-Node", out var nodeID))
 							headers["X-Service-Node"] = nodeID;
@@ -739,8 +771,8 @@ namespace net.vieapps.Services.Portals
 							["X-Correlation-ID"] = correlationID,
 							["X-Node"]  = Global.NodeID
 						};
-						context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 
+						context.SetResponseHeaders(statusCode, headers);
 						var body = response.Get<string>("Body");
 						if (body != null)
 							await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
@@ -1878,7 +1910,7 @@ namespace net.vieapps.Services.Portals
 		public async Task Invoke(HttpContext context)
 		{
 			// black IPs
-			if (context.IsBlackIP(context.GetRemoteIPAddress()))
+			if (context.IsBlackIP())
 			{
 				context.SetResponseHeaders((int)HttpStatusCode.Forbidden);
 				return;
@@ -1919,12 +1951,18 @@ namespace net.vieapps.Services.Portals
 	{
 		static NetCrawlerDetect.CrawlerDetect CrawlerDetector { get; } = new NetCrawlerDetect.CrawlerDetect();
 
+		public static bool IsCrawler(this RequestInfo requestInfo)
+			=> CrawlerDetector.IsCrawler(requestInfo.Session.AppAgent) || "Generic OS".IsEquals(requestInfo.Session.AppAgent.GetOSInfo());
+
+		public static bool IsCrawler(this HttpContext context)
+			=> CrawlerDetector.IsCrawler(context.GetUserAgent()) || "Generic OS".IsEquals(context.GetUserAgent().GetOSInfo());
+
 		public static void SendSessionState(this RequestInfo requestInfo, JObject systemIdentityJson, string serviceName, string serviceURI, bool trackStatistics)
 		{
 			if (Handler.TrackSessions)
 				requestInfo.SendSessionState(systemIdentityJson, message =>
 				{
-					message.Data["Crawler"] = CrawlerDetector.IsCrawler(requestInfo.Session.AppAgent) || "Generic OS".IsEquals(requestInfo.Session.AppAgent.GetOSInfo());
+					message.Data["Crawler"] = requestInfo.IsCrawler();
 					var serviceInfo = message.Data.Get<JObject>("Service");
 					if (!string.IsNullOrWhiteSpace(serviceName))
 						serviceInfo["Name"] = serviceName.ToLower();

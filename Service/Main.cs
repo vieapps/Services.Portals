@@ -3866,8 +3866,8 @@ namespace net.vieapps.Services.Portals
 				var gotRights = await this.IsSystemAdministratorAsync(requestInfo, cancellationToken).ConfigureAwait(false) || await this.CanModerateAsync(requestInfo, "Organization", cancellationToken).ConfigureAwait(false) || requestInfo.Session.User.IsViewer(@object.WorkingPrivileges);
 				if (!gotRights)
 				{
-					var organization = @object is IPortalObject
-						? await ((@object as IPortalObject).OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false)
+					var organization = @object is IPortalObject portalObject
+						? await (portalObject.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false)
 						: module.Organization;
 					gotRights = requestInfo.Session.User.ID.IsEquals(organization?.OwnerID);
 				}

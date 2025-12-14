@@ -274,7 +274,7 @@ namespace net.vieapps.Services.Portals
 			var siteURL = showURLs ? organization.DefaultSite?.GetURL(requestInfo.GetHeaderParameter("x-srp-host"), requestInfo.GetParameter("x-url")) + "/" : null;
 			var objectName = objects.Count > 0 ? objects.First().GetObjectName().ToLower() : null;
 
-			var response = new JObject()
+			var response = new JObject
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
@@ -286,20 +286,18 @@ namespace net.vieapps.Services.Portals
 						["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL),
 						["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID)?.NormalizeURIs(organization.FakeFilesHttpURI),
 						["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI)
-					}.ToExpandoObject()).ToString().ToJson()
+					}.ToExpandoObject())?.ToString().ToJson()
 					: @object.ToJson(false, json =>
 					{
+						json["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}";
 						if (showURLs)
 						{
 							json["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL);
 							json["Summary"] = @object.Summary?.NormalizeHTMLBreaks();
 						}
-
 						json["Thumbnails"] = (thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
 						if (showAttachments)
 							json["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
-
-						json["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}";
 					})).ToJArray()
 				}
 			};
@@ -308,12 +306,12 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(query))
 			{
 				cacheKeys = cacheKeys.Concat([cacheKeyOfObjectsJson]).ToList();
-				Task.WhenAll
+				await Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
 					contentType != null ? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken) : Task.CompletedTask,
 					Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS items\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n{(contentType != null ? $"- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}\r\n" : "")}- Related cache keys: {cacheKeys.Join(", ")}", "Caches") : Task.CompletedTask
-				).Execute();
+				).ConfigureAwait(false);
 			}
 
 			return useCursor ? response.ToCursor() : response;
@@ -382,12 +380,12 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// clear related cache & send notification
-			Task.WhenAll
+			await Task.WhenAll
 			(
 				item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				item.SendNotificationAsync("Create", item.ContentType.Notifications, ApprovalStatus.Draft, item.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), Utility.CancellationToken)
-			).Execute();
+			).ConfigureAwait(false);
 			return response;
 		}
 
@@ -506,12 +504,12 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// clear related cache & send notification
-			Task.WhenAll
+			await Task.WhenAll
 			(
 				item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				item.SendNotificationAsync(@event ?? "Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(),	Utility.CancellationToken)
-			).Execute();
+			).ConfigureAwait(false);
 			return response;
 		}
 
@@ -579,11 +577,11 @@ namespace net.vieapps.Services.Portals
 			await Item.DeleteAsync<Item>(item.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
-				Task.WhenAll
+				await Task.WhenAll
 				(
 					Utility.Cache.RemoveSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), Utility.CancellationToken),
 					item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false)
-				).Execute();
+				).ConfigureAwait(false);
 
 			var json = sendUpdatingMessages ? item.ToJson() : null;
 			if (sendUpdatingMessages)
@@ -1208,16 +1206,18 @@ namespace net.vieapps.Services.Portals
 				};
 
 				var lastID = requestJson.Get<string>("LastID");
-				requestJson["LastID"] = result.Objects.Count > 0 ? result.Objects.Last().ID : null;
+				var lastIndex = string.IsNullOrWhiteSpace(lastID) ? -1 : result.Objects.FindIndex(@object => @object.ID == lastID);
+				if (result.Objects.Count > 0)
+					requestJson["LastID"] = result.Objects.Last().ID;
 
 				response = new JObject
 				{
-					["items"] = result.Objects.Where(@object => @object.ID != lastID).Select(@object => !string.IsNullOrWhiteSpace(mcpTool?.TransformScript)
+					["items"] = result.Objects.Skip(lastIndex + 1).Select(@object => !string.IsNullOrWhiteSpace(mcpTool?.TransformScript)
 						? mcpTool.TransformScript.JsEvaluate(@object, requestInfo, new JObject
 						{
 							["URL"] = @object.GetURL().Replace("~/", siteURL),
-						}.ToExpandoObject()).ToString().ToJson() as JObject
-						: @object.ToJSON()
+						}.ToExpandoObject())?.ToString().ToJson(json => json["URI"] = $"{Utility.ServiceName.ToLower()}://{mcpResource.Name}/{@object.ID}") as JObject
+						: @object.ToJSON(json => json["URI"] = $"{Utility.ServiceName.ToLower()}://{mcpResource.Name}/{@object.ID}")
 					).ToJArray(),
 					["nextCursor"] = pageNumber < totalPages ? requestJson.ToString(Formatting.None).ToBase64Url() : null
 				};
@@ -1241,21 +1241,20 @@ namespace net.vieapps.Services.Portals
 					? mcpTool.TransformScript.JsEvaluate(item, requestInfo, new JObject
 					{
 						["URL"] = item?.GetURL().Replace("~/", siteURL),
-					}.ToExpandoObject()).ToString().ToJson() as JObject
-					: item?.ToJSON();
+					}.ToExpandoObject())?.ToString().ToJson(json => json["URI"] = $"{Utility.ServiceName.ToLower()}://{mcpResource.Name}/{item.ID}") as JObject
+					: item?.ToJSON(json => json["URI"] = $"{Utility.ServiceName.ToLower()}://{mcpResource.Name}/{item.ID}");
 			}
 
 			return response;
 		}
 
 		internal static JObject ToJSON(this Item item, Action<JObject> onCompleted = null)
-			=> item?.ToJson(json =>
+			=> item?.ToJson(json => json.Remove(["Alias", "Tags", "AllowComments", "InlineScripts", "CreatedID", "LastModifiedID", "SystemID", "RepositoryID", "RepositoryEntityID", "Privileges"], _ =>
 			{
-				new[] { "Alias", "Tags", "AllowComments", "InlineScripts", "CreatedID", "LastModifiedID", "SystemID", "RepositoryID", "RepositoryEntityID", "Privileges" }.ForEach(name => json.Remove(name));
 				json["Created"] = item.Created.ToIsoString();
 				json["LastModified"] = item.LastModified.ToIsoString();
 				json["URL"] = item.GetURL().Replace("~/", $"{item.Organization?.DefaultSite?.GetURL()}/");
 				onCompleted?.Invoke(json);
-			});
+			}));
 	}
 }

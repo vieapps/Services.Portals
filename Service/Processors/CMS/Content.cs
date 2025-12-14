@@ -381,22 +381,20 @@ namespace net.vieapps.Services.Portals
 						["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID)?.NormalizeURIs(organization.FakeFilesHttpURI),
 						["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI),
 						["Category"] = @object.Category?.ToJson(json => json["URL"] = organization.NormalizeURLs(@object.Category.GetURL(), true, siteURL))
-					}.ToExpandoObject()).ToString().ToJson()
+					}.ToExpandoObject())?.ToString().ToJson()
 					: @object.ToJson(json =>
 					{
+						json["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}";
 						json["Summary"] = @object.Summary?.NormalizeHTMLBreaks();
 						if (showDetails)
 							json["Details"] = organization.NormalizeURLs(@object.Details);
 						else
 							json.Remove("Details");
-
 						if (showURLs)
 							json["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL);
-
 						json["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID)?.NormalizeURIs(organization.FakeFilesHttpURI);
 						if (showAttachments)
 							json["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI);
-
 						if (showCategories)
 							json["Category"] = new JObject
 							{
@@ -404,11 +402,8 @@ namespace net.vieapps.Services.Portals
 								["FullTitle"] = @object.Category.FullTitle,
 								["URL"] = organization.NormalizeURLs(@object.Category.GetURL(), true, siteURL)
 							};
-
 						if (showURLs || showCategories || !showDetails)
-							ExcludedProperties.ForEach(name => json.Remove(name));
-
-						json["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}";
+							json.Remove(ExcludedProperties);
 					})).ToJArray()
 				}
 			};
@@ -557,12 +552,12 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// clear related cache & send notification
-			Task.WhenAll
+			await Task.WhenAll
 			(
 				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken)
-			).Execute();
+			).ConfigureAwait(false);
 			return response;
 		}
 
@@ -715,14 +710,14 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// update cache & send notification
-			Task.WhenAll
+			await Task.WhenAll
 			(
 				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				content.SendNotificationAsync(@event ?? "Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
 				Utility.Cache.AddSetMembersAsync(content.ContentType.GetSetCacheKey(), [content.GetCacheKey(), content.GetCacheKeyOfAliasedContent()], Utility.CancellationToken)
-			).Execute();
+			).ConfigureAwait(false);
 			return response;
 		}
 
@@ -1906,11 +1901,13 @@ namespace net.vieapps.Services.Portals
 				};
 
 				var lastID = requestJson.Get<string>("LastID");
-				requestJson["LastID"] = result.Objects.Count > 0 ? result.Objects.Last().ID : null;
+				var lastIndex = string.IsNullOrWhiteSpace(lastID) ? -1 : result.Objects.FindIndex(@object => @object.ID == lastID);
+				if (result.Objects.Count > 0)
+					requestJson["LastID"] = result.Objects.Last().ID;
 
 				response = new JObject
 				{
-					["items"] = result.Objects.Where(@object => @object.ID != lastID).Select(@object => !string.IsNullOrWhiteSpace(mcpTool?.TransformScript)
+					["items"] = result.Objects.Skip(lastIndex + 1).Select(@object => !string.IsNullOrWhiteSpace(mcpTool?.TransformScript)
 						? mcpTool.TransformScript.JsEvaluate(@object, requestInfo, new JObject
 						{
 							["URL"] = @object.GetURL().Replace("~/", siteURL),
@@ -1922,8 +1919,8 @@ namespace net.vieapps.Services.Portals
 								["Breadcrumbs"] = @object.Category?.FullTitle,
 								["URL"] = @object.Category?.GetURL().Replace("~/", siteURL)
 							}
-						}.ToExpandoObject()).ToString().ToJson() as JObject
-						: @object.ToJSON()
+						}.ToExpandoObject())?.ToString().ToJson(json => json["URI"] = $"{Utility.ServiceName.ToLower()}://{mcpResource.Name}/{@object.ID}") as JObject
+						: @object.ToJSON(json => json["URI"] = $"{Utility.ServiceName.ToLower()}://{mcpResource.Name}/{@object.ID}")
 					).ToJArray(),
 					["nextCursor"] = result.PageNumber < totalPages ? requestJson.ToString(Formatting.None).ToBase64Url() : null
 				};
@@ -1956,18 +1953,17 @@ namespace net.vieapps.Services.Portals
 							["Breadcrumbs"] = content?.Category?.FullTitle,
 							["URL"] = content?.Category?.GetURL().Replace("~/", siteURL)
 						}
-					}.ToExpandoObject()).ToString().ToJson() as JObject
-					: content?.ToJSON();
+					}.ToExpandoObject())?.ToString().ToJson(json => json["URI"] = $"{Utility.ServiceName.ToLower()}://{mcpResource.Name}/{content.ID}") as JObject
+					: content?.ToJSON(json => json["URI"] = $"{Utility.ServiceName.ToLower()}://{mcpResource.Name}/{content.ID}");
 			}
 
 			return response;
 		}
 
 		internal static JObject ToJSON(this Content content, Action<JObject> onCompleted = null)
-			=> content?.ToJson(json =>
+			=> content?.ToJson(json => json.Remove(["CategoryID", "OtherCategories", "StartDate", "EndDate", "Relateds", "ExternalRelateds", "Alias", "Tags", "AllowComments", "InlineScripts", "CreatedID", "LastModifiedID", "SystemID", "RepositoryID", "RepositoryEntityID", "Privileges"], _ =>
 			{
 				var siteURL = $"{content.Organization?.DefaultSite?.GetURL()}/";
-				new[] { "CategoryID", "OtherCategories", "StartDate", "EndDate", "Relateds", "ExternalRelateds", "Alias", "Tags", "AllowComments", "InlineScripts", "CreatedID", "LastModifiedID", "SystemID", "RepositoryID", "RepositoryEntityID", "Privileges" }.ForEach(name => json.Remove(name));
 				json["Details"] = content.Details?.Replace("~~/", (content.Organization?.FakeFilesHttpURI ?? Utility.FilesHttpURI) + "/").Replace("~/", siteURL);
 				json["Created"] = content.Created.ToIsoString();
 				json["LastModified"] = content.LastModified.ToIsoString();
@@ -1981,6 +1977,6 @@ namespace net.vieapps.Services.Portals
 					["URL"] = content.Category?.GetURL().Replace("~/", siteURL)
 				};
 				onCompleted?.Invoke(json);
-			});
+			}));
 	}
 }
