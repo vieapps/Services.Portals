@@ -693,22 +693,24 @@ namespace net.vieapps.Services.Portals
 						var imageEnd = image.Substring(urlEnd);
 						var url = image.Substring(urlStart, urlEnd - urlStart);
 						if (url.IsStartsWith("data:image/"))
-						{
-							if (!Utility.AllowInlineImages)
-								url = "~~/thumbnails/no-image.png";
-							else if (Utility.UploadInlineImages)
+							try
 							{
-								var data = url.ToArray();
-								var contentType = data.First().ToArray(";").First().ToArray(":").Last();
-								var identifier = UtilityService.NewUUID;
-								var filename = $"img{inlineImages.Count + 1}-{DateTime.Now:HHmmssfff}-{identifier.Left(4)}.{contentType.ToArray("/").Last()}";
-								File.WriteAllBytes(Path.Combine(Utility.TempFilesDirectory, filename), data.Last().Base64ToBytes());
-								url = $"~~/files/[system-id]/{contentType.Replace("/", "=")}/{identifier}/{filename}";
-								inlineImages.Add(url, (identifier, filename));
+								if (!Utility.AllowInlineImages)
+									url = "~~/thumbnails/no-image.png";
+								else if (Utility.UploadInlineImages)
+								{
+									var data = url.ToArray();
+									var contentType = data.First().ToArray(";").First().ToArray(":").Last();
+									var identifier = UtilityService.NewUUID;
+									var filename = $"img{inlineImages.Count + 1}-{DateTime.Now:HHmmssfff}-{identifier.Left(4)}.{contentType.ToArray("/").Last()}";
+									File.WriteAllBytes(Path.Combine(Utility.TempFilesDirectory, filename), data.Last().Base64ToBytes());
+									url = $"~~/files/[system-id]/{contentType.Replace("/", "=")}/{identifier}/{filename}";
+									inlineImages.Add(url, (identifier, filename));
+								}
+								image = imageStart + url + imageEnd;
+								html = html.Substring(0, start) + image + html.Substring(end);
 							}
-							image = imageStart + url + imageEnd;
-							html = html.Substring(0, start) + image + html.Substring(end);
-						}
+							catch { }
 					}
 
 					offset = image.Length;

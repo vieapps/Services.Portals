@@ -1016,16 +1016,17 @@ namespace net.vieapps.Services.Portals
 				return new JObject();
 
 			// update cache & send notification
-			if (@event.IsEquals("Delete"))
-				await Utility.Cache.RemoveSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-			else
-				await Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+			await item.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
-			await Task.WhenAll
-			(
-				item.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
-				sendNotifications ? item.SendNotificationAsync(@event, item.ContentType.Notifications, oldStatus, item.Status, requestInfo, cancellationToken) : Task.CompletedTask
-			).ConfigureAwait(false);
+			if (item.ContentType != null)
+			{
+				if (@event.IsEquals("Delete"))
+					await Utility.Cache.RemoveSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+				else
+					await Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+				if (sendNotifications)
+					await item.SendNotificationAsync(@event, item.ContentType.Notifications, oldStatus, item.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update message
 			var response = item.ToJson();

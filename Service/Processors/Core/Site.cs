@@ -192,7 +192,11 @@ namespace net.vieapps.Services.Portals
 			{
 				site = Site.Find(domain.GetFilterBy(), null, 0, 1, null).GetSiteByDomain(domain);
 				if (site != null)
+				{
 					site = site.Prepare(name)?.Set();
+					if (site != null)
+						Utility.NotRecognizedAliases.TryRemove($"Site:{name}");
+				}
 				else if (Utility.DefaultSite == null)
 					Utility.NotRecognizedAliases.Add($"Site:{name}");
 			}
@@ -208,7 +212,11 @@ namespace net.vieapps.Services.Portals
 			{
 				site = (await Site.FindAsync(domain.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(name);
 				if (site != null)
+				{
 					site = site.Prepare(name)?.Set();
+					if (site != null)
+						Utility.NotRecognizedAliases.TryRemove($"Site:{name}");
+				}
 				else if (Utility.DefaultSite == null)
 					Utility.NotRecognizedAliases.Add($"Site:{name}");
 			}

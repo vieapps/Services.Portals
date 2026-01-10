@@ -281,7 +281,7 @@ namespace net.vieapps.Services.Portals
 			var pageNumber = pagination.PageNumber;
 
 			if (Utility.IsDebugLogEnabled)
-				await requestInfo.WriteLogAsync($"Search links (APIs)\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Pagination: {pagination.GetPagination()}", "Link").ConfigureAwait(false);
+				await requestInfo.WriteLogAsync($"Search links\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Pagination: {pagination.GetPagination()}", "Link").ConfigureAwait(false);
 
 			// process cache
 			var addChildren = "true".IsEquals(requestInfo.GetParameter("x-children"));
@@ -293,7 +293,7 @@ namespace net.vieapps.Services.Portals
 				{
 					var result = JObject.Parse(json);
 					if (Utility.IsDebugLogEnabled)
-						await requestInfo.WriteLogAsync($"Search links (APIs) => cached was found\r\n- Key: {cacheKeyOfObjectsJson} => JSON: {result}", "Link").ConfigureAwait(false);
+						await requestInfo.WriteLogAsync($"Search links => cached was found\r\n- Key: {cacheKeyOfObjectsJson} => JSON: {result}", "Link").ConfigureAwait(false);
 					return result;
 				}
 			}
@@ -887,19 +887,19 @@ namespace net.vieapps.Services.Portals
 				return new JObject();
 
 			// update cache & send notifications
-			if (@event.IsEquals("Delete"))
-				await Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-			else
-			{
-				await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+			await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			if (!@event.IsEquals("Delete"))
 				await link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken).ConfigureAwait(false);
-			}
 
-			await Task.WhenAll
-			(
-				link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID),
-				sendNotifications ? link.SendNotificationAsync(@event, link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken) : Task.CompletedTask
-			).ConfigureAwait(false);
+			if (link.ContentType != null)
+			{
+				if (@event.IsEquals("Delete"))
+					await Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+				else
+					await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+				if (sendNotifications)
+					await link.SendNotificationAsync(@event, link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update messages
 			var response = link.ToJson();

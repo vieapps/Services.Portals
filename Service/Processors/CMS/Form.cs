@@ -757,16 +757,18 @@ namespace net.vieapps.Services.Portals
 			if (form == null)
 				return new JObject();
 
-			// update cache
+			// update cache & notifications
 			await form.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			if (@event.IsEquals("Delete"))
-				await Utility.Cache.RemoveSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-			else
-				await Utility.Cache.AddSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
-			// send notifications
-			if (sendNotifications)
-				await form.SendNotificationAsync(@event, form.ContentType.Notifications, oldStatus, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			if (form.ContentType != null)
+			{
+				if (@event.IsEquals("Delete"))
+					await Utility.Cache.RemoveSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+				else
+					await Utility.Cache.AddSetMemberAsync(form.ContentType.ObjectCacheKeys, form.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+				if (sendNotifications)
+					await form.SendNotificationAsync(@event, form.ContentType.Notifications, oldStatus, form.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			}
 
 			// response
 			var response = form.ToJson();

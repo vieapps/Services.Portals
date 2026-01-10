@@ -69,16 +69,20 @@ namespace net.vieapps.Services.Portals
 				else if (thisChar == '/')
 				{
 					nextChar = reader.PeekChar();
-					if (nextChar == '*')
+					isEOF = nextChar.IsEOF();
+					if (!isEOF)
 					{
-						isInComment = isIgnore = true;
-						isDoubleSlashComment = false;
-					}
-					else if (nextChar == '/')
-					{
-						isInComment = lastChar != ':' && lastChar != '"' && lastChar != '\'' && lastChar != '\\';
-						isIgnore = isInComment;
-						isDoubleSlashComment = isInComment && nextChar == '/';
+						if (nextChar == '*')
+						{
+							isInComment = isIgnore = true;
+							isDoubleSlashComment = false;
+						}
+						else if (nextChar == '/')
+						{
+							isInComment = lastChar != ':' && lastChar != '"' && lastChar != '\'' && lastChar != '\\';
+							isIgnore = isInComment;
+							isDoubleSlashComment = isInComment && nextChar == '/';
+						}
 					}
 				}
 
@@ -88,24 +92,35 @@ namespace net.vieapps.Services.Portals
 					isInLiterialString = isInLiterialExpression = isInStringVariable = false;
 					isIgnore = true;
 					while (true)
-					{
-						thisChar = reader.ReadByte();
-						if (thisChar == '*')
+						try
 						{
-							nextChar = reader.PeekChar();
-							if (nextChar == '/')
+							thisChar = reader.ReadByte();
+							if (thisChar == '*')
 							{
-								thisChar = reader.ReadByte();
+								nextChar = reader.PeekChar();
+								if (nextChar == '/')
+								{
+									thisChar = nextChar == '/' ? reader.ReadByte() : ' ';
+									isInComment = false;
+									break;
+								}
+							}
+							if (isDoubleSlashComment && thisChar == '\n')
+							{
 								isInComment = false;
 								break;
 							}
 						}
-						if (isDoubleSlashComment && thisChar == '\n')
+						catch (Exception ex)
 						{
-							isInComment = false;
-							break;
+							if (ex is EndOfStreamException)
+							{
+								isInComment = false;
+								break;
+							}
+							else
+								throw;
 						}
-					}
 				}
 
 				// special characters (string)
@@ -231,16 +246,20 @@ namespace net.vieapps.Services.Portals
 				else if (thisChar == '/')
 				{
 					nextChar = reader.PeekChar();
-					if (nextChar == '*')
+					isEOF = nextChar.IsEOF();
+					if (!isEOF)
 					{
-						isInComment = isIgnore = true;
-						isDoubleSlashComment = false;
-					}
-					else if (nextChar == '/')
-					{
-						isInComment = lastChar != ':';
-						isIgnore = isInComment;
-						isDoubleSlashComment = isInComment && nextChar == '/';
+						if (nextChar == '*')
+						{
+							isInComment = isIgnore = true;
+							isDoubleSlashComment = false;
+						}
+						else if (nextChar == '/')
+						{
+							isInComment = lastChar != ':';
+							isIgnore = isInComment;
+							isDoubleSlashComment = isInComment && nextChar == '/';
+						}
 					}
 				}
 
@@ -249,24 +268,35 @@ namespace net.vieapps.Services.Portals
 				{
 					isIgnore = true;
 					while (true)
-					{
-						thisChar = reader.ReadByte();
-						if (thisChar == '*')
+						try
 						{
-							nextChar = reader.PeekChar();
-							if (nextChar == '/')
+							thisChar = reader.ReadByte();
+							if (thisChar == '*')
 							{
-								thisChar = reader.ReadByte();
+								nextChar = reader.PeekChar();
+								if (nextChar == '/')
+								{
+									thisChar = reader.ReadByte();
+									isInComment = false;
+									break;
+								}
+							}
+							if (isDoubleSlashComment && thisChar == '\n')
+							{
 								isInComment = false;
 								break;
 							}
 						}
-						if (isDoubleSlashComment && thisChar == '\n')
+						catch (Exception ex)
 						{
-							isInComment = false;
-							break;
+							if (ex is EndOfStreamException)
+							{
+								isInComment = false;
+								break;
+							}
+							else
+								throw;
 						}
-					}
 				}
 
 				// update the valid data

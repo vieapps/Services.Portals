@@ -18,6 +18,8 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using WampSharp.Core.Listener;
+using WampSharp.V2.Realm;
 using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
@@ -104,6 +106,34 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Register/Start
+		public override Task ConnectAsync(
+			string[] args,
+			Action<object, WampSessionCreatedEventArgs> onIncomingConnectionEstablished,
+			Action<object, WampSessionCloseEventArgs> onIncomingConnectionBroken,
+			Action<object, WampConnectionErrorEventArgs> onIncomingConnectionError,
+			Action<object, WampSessionCreatedEventArgs> onOutgoingConnectionEstablished,
+			Action<object, WampSessionCloseEventArgs> onOutgoingConnectionBroken,
+			Action<object, WampConnectionErrorEventArgs> onOutgoingConnectionError,
+			Action<object, WampSessionCreatedEventArgs> onBackupConnectionEstablished,
+			Action<object, WampSessionCloseEventArgs> onBackupConnectionBroken,
+			Action<object, WampConnectionErrorEventArgs> onBackupConnectionError
+		) => base.ConnectAsync(
+			args,
+			onIncomingConnectionEstablished,
+			onIncomingConnectionBroken,
+			onIncomingConnectionError,
+			onOutgoingConnectionEstablished,
+			(sender, arguments) =>
+			{
+				ServiceExtensions.Services.Clear();
+				onOutgoingConnectionBroken?.Invoke(sender, arguments);
+			},
+			onOutgoingConnectionError,
+			onBackupConnectionEstablished,
+			onBackupConnectionBroken,
+			onBackupConnectionError
+		);
+
 		void RegisterCacheCommunicator()
 		{
 			this.CacheCommunicator?.Dispose();
@@ -315,7 +345,10 @@ namespace net.vieapps.Services.Portals
 				this.UpdateDefinition(this.GetDefinition());
 
 			if (args?.FirstOrDefault(arg => arg.IsEquals("/refine-thumbnails")) != null)
-				this.RefineThumbnailImagesAsync().Execute(true);
+				this.RefineThumbnailImagesAsync(args).Execute(true);
+
+			if (args?.FirstOrDefault(arg => arg.IsEquals("/refine-management-ids")) != null)
+				this.RefineManagementIDsAsync(args).Execute(true);
 		}
 		#endregion
 
@@ -1321,30 +1354,38 @@ namespace net.vieapps.Services.Portals
 				site = site.Prepare(host, false);
 
 			organization = organization ?? site?.Organization;
+			if (organization == null)
+			{
+				if (!string.IsNullOrWhiteSpace(host))
+					Utility.NotRecognizedAliases.Add($"Site:{host}");
+				throw new SiteNotRecognizedException($"The requested site is not recognized ({(string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
+			}
 
-			if (organization != null && ((organization.Status != ApprovalStatus.Published && organization.Status != ApprovalStatus.Approved) || (DateTime.TryParse(organization.ExpiredDate, out var expiredDate) && expiredDate < DateTime.Now)))
+			var status = site != null
+				? site.Status == ApprovalStatus.Published || site.Status == ApprovalStatus.Approved ? organization.Status : site.Status
+				: organization.Status;
+
+			if (((status != ApprovalStatus.Published && status != ApprovalStatus.Approved) || (DateTime.TryParse(organization.ExpiredDate, out var expiredDate) && expiredDate < DateTime.Now)) && !Utility.PortalsHttpURI.IsContains($"://{host}"))
 				throw new SiteFrozenException();
 
-			if (organization != null && requestInfo.ContainsKey("x-force-refresh"))
+			if (requestInfo.ContainsKey("x-force-refresh"))
 				await organization.RefreshAsync(cancellationToken).ConfigureAwait(false);
 
-			var homeDesktopAlias = (site?.HomeDesktop ?? organization?.HomeDesktop ?? organization?.DefaultDesktop)?.Alias ?? "-default";
-			var homeDesktopAliases = (site?.HomeDesktop ?? organization?.HomeDesktop ?? organization?.DefaultDesktop)?.Aliases;
+			var homeDesktopAlias = (site?.HomeDesktop ?? organization.HomeDesktop ?? organization.DefaultDesktop)?.Alias ?? "-default";
+			var homeDesktopAliases = (site?.HomeDesktop ?? organization.HomeDesktop ?? organization.DefaultDesktop)?.Aliases;
 
-			var identityJson = organization != null
-				? new JObject
-				{
-					{ "ID", organization.ID },
-					{ "Alias", organization.Alias },
-					{ "Title", organization.Title },
-					{ "HomeDesktopAlias", homeDesktopAlias },
-					{ "HomeDesktopAliases", $"{homeDesktopAlias}{(string.IsNullOrWhiteSpace(homeDesktopAliases) ? "" : $";{homeDesktopAliases}")}" },
-					{ "SiteID", site?.ID },
-					{ "SiteDomain", site?.Host },
-					{ "SiteDomains", site != null ? $"{site.SubDomain}.{site.PrimaryDomain}{(string.IsNullOrWhiteSpace(site.OtherDomains) ? "" : $";{site.OtherDomains}")}" : null },
-					{ "SiteHost", site != null ? host : null }
-				}
-				: throw new SiteNotRecognizedException($"The requested site is not recognized ({(string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
+			var identityJson = new JObject
+			{
+				{ "ID", organization.ID },
+				{ "Alias", organization.Alias },
+				{ "Title", organization.Title },
+				{ "HomeDesktopAlias", homeDesktopAlias },
+				{ "HomeDesktopAliases", $"{homeDesktopAlias}{(string.IsNullOrWhiteSpace(homeDesktopAliases) ? "" : $";{homeDesktopAliases}")}" },
+				{ "SiteID", site?.ID },
+				{ "SiteDomain", site?.Host },
+				{ "SiteDomains", site != null ? $"{site.SubDomain}.{site.PrimaryDomain}{(string.IsNullOrWhiteSpace(site.OtherDomains) ? "" : $";{site.OtherDomains}")}" : null },
+				{ "SiteHost", site != null ? host : null }
+			};
 
 			if (!requestInfo.ContainsKey("x-brief") && (!string.IsNullOrWhiteSpace(requestInfo.Session.DeviceID) || (requestInfo.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx"))))
 			{
@@ -6656,23 +6697,26 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		#region Refine thumbnail images
-		async Task RefineThumbnailImagesAsync()
+		#region Refine (thumbnail images & management IDs)
+		async Task RefineThumbnailImagesAsync(string[] args = null)
 		{
 			var correlationID = UtilityService.NewUUID;
 			try
 			{
 				var stopwatch = Stopwatch.StartNew();
+				var filter = args?.FirstOrDefault(arg => arg.IsStartsWith("/ids:")) != null
+					? Filters<Content>.Or(args?.FirstOrDefault(arg => arg.IsStartsWith("/ids:")).Replace(StringComparison.OrdinalIgnoreCase, "/ids:", "").ToArray().Select(systemID => Filters<Content>.Equals("SystemID", systemID)))
+					: null;
 				var sort = Sorts<Content>.Descending("Created");
-				var totalRecords = await Content.CountAsync(null, "", this.CancellationToken).ConfigureAwait(false);
+				var totalRecords = await Content.CountAsync(filter, "", this.CancellationToken).ConfigureAwait(false);
 				var pageSize = 100;
 				var pageNumber = 1;
 				var totalPages = (totalRecords, pageSize).GetTotalPages();
 
-				await this.WriteLogsAsync(correlationID, $"Start to refine thumbnail image of {totalRecords:###,###,###,##0} CMS contents", null, this.ServiceName, "Thumbnails").ConfigureAwait(false);
+				await this.WriteLogsAsync(correlationID, $"Start to refine thumbnail image of {totalRecords:###,###,###,##0} CMS contents", null, this.ServiceName, "Refines").ConfigureAwait(false);
 				while (pageNumber <= totalPages)
 				{
-					var objects = await Content.FindAsync(null, sort, pageSize, pageNumber, null, this.CancellationToken).ConfigureAwait(false);
+					var objects = await Content.FindAsync(filter, sort, pageSize, pageNumber, null, this.CancellationToken).ConfigureAwait(false);
 					await objects.ForEachAsync(async @object =>
 					{
 						await Task.Delay(UtilityService.GetRandomNumber(3, 33), this.CancellationToken).ConfigureAwait(false);
@@ -6705,11 +6749,104 @@ namespace net.vieapps.Services.Portals
 					pageNumber++;
 				}
 				stopwatch.Stop();
-				await this.WriteLogsAsync(correlationID, $"Complete to refine thumbnail image of {totalRecords:###,###,###,##0} CMS contents - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Thumbnails").ConfigureAwait(false);
+				await this.WriteLogsAsync(correlationID, $"Complete to refine thumbnail image of {totalRecords:###,###,###,##0} CMS contents - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Refines").ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
-				await this.WriteLogsAsync(correlationID, $"Error occurred while refining thumbnail images => {ex.Message}", ex, this.ServiceName, "Thumbnails").ConfigureAwait(false);
+				await this.WriteLogsAsync(correlationID, $"Error occurred while refining thumbnail images => {ex.Message}", ex, this.ServiceName, "Refines").ConfigureAwait(false);
+			}
+		}
+
+		async Task RefineManagementIDsAsync(string[] args = null)
+		{
+			var systemIDs = args?.FirstOrDefault(arg => arg.IsStartsWith("/ids:")).Replace(StringComparison.OrdinalIgnoreCase, "/ids:", "").ToLower().ToArray();
+			if (systemIDs == null || systemIDs.Count() < 1)
+				return;
+
+			var correlationID = UtilityService.NewUUID;
+			var stopwatch = Stopwatch.StartNew();
+			await this.WriteLogsAsync(correlationID, "Start to refine management IDs", null, this.ServiceName, "Refines").ConfigureAwait(false);
+			await this.RefineManagementIDsAsync<Link>(systemIDs, correlationID).ConfigureAwait(false);
+			await this.RefineManagementIDsAsync<Item>(systemIDs, correlationID).ConfigureAwait(false);
+			await this.RefineManagementIDsAsync<Category>(systemIDs, correlationID).ConfigureAwait(false);
+			await this.RefineManagementIDsAsync<Content>(systemIDs, correlationID).ConfigureAwait(false);
+			stopwatch.Stop();
+			await this.WriteLogsAsync(correlationID, $"Complete to refine management IDs - Execution times: {stopwatch.GetElapsedTimes()}", null, this.ServiceName, "Refines").ConfigureAwait(false);
+		}
+
+		async Task RefineManagementIDsAsync<T>(IEnumerable<string> systemIDs, string correlationID) where T : class
+		{
+			var filter = systemIDs.Count() > 1
+				? Filters<T>.Or(systemIDs.Select(systemID => Filters<T>.Equals("SystemID", systemID)))
+				: Filters<T>.Equals("SystemID", systemIDs.First()) as IFilterBy<T>;
+			var sort = Sorts<T>.Descending("Created");
+			var totalRecords = await RepositoryMediator.CountAsync("", filter, "", false, null, 0, this.CancellationToken).ConfigureAwait(false);
+			var pageSize = 100;
+			var pageNumber = 1;
+			var totalPages = (totalRecords, pageSize).GetTotalPages();
+			var counter = 0;
+			await this.WriteLogsAsync(correlationID, $"Start to refine management IDs of {totalRecords:###,###,###,##0} {typeof(T).GetTypeName(true)} object(s)", null, this.ServiceName, "Refines").ConfigureAwait(false);
+			while (pageNumber <= totalPages)
+			{
+				var objects = (await RepositoryMediator.FindAsync("", filter, sort, pageSize, pageNumber, "", false, null, 0, this.CancellationToken).ConfigureAwait(false) ?? []).Select(@object => @object as IBusinessObject);
+				await objects.ForEachAsync(async @object =>
+				{
+					var contentType = @object?.ContentType as ContentType;
+					if (contentType != null && !contentType.RepositoryID.IsEquals(@object.RepositoryID))
+						try
+						{
+							var oldStatus = @object.Status;
+							@object.RepositoryID = contentType.RepositoryID;
+							if (@object is Category category)
+							{
+								if (!string.IsNullOrWhiteSpace(category.ParentID) && category.ParentCategory == null)
+									category.ParentID = null;
+								await Category.UpdateAsync(category, true, this.CancellationToken).ConfigureAwait(false);
+								await Task.WhenAll
+								(
+									category.ClearRelatedCacheAsync(this.CancellationToken, correlationID),
+									category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, null, this.CancellationToken)
+								).ConfigureAwait(false);
+							}
+							else if (@object is Content content)
+							{
+								await Content.UpdateAsync(content, true, this.CancellationToken).ConfigureAwait(false);
+								await Task.WhenAll
+								(
+									content.ClearRelatedCacheAsync(this.CancellationToken, correlationID),
+									content.SendNotificationAsync("Update", content.Category?.Notifications, oldStatus, content.Status, null, this.CancellationToken)
+								).ConfigureAwait(false);
+							}
+							else if (@object is Item item)
+							{
+								await Item.UpdateAsync(item, true, this.CancellationToken).ConfigureAwait(false);
+								await Task.WhenAll
+								(
+									item.ClearRelatedCacheAsync(this.CancellationToken, correlationID),
+									item.SendNotificationAsync("Update", item.ContentType.Notifications, oldStatus, item.Status, null, this.CancellationToken)
+								).ConfigureAwait(false);
+							}
+							else if (@object is Link link)
+							{
+								if (!string.IsNullOrWhiteSpace(link.ParentID) && link.ParentLink == null)
+									link.ParentID = null;
+								await Link.UpdateAsync(link, true, this.CancellationToken).ConfigureAwait(false);
+								await Task.WhenAll
+								(
+									link.ClearRelatedCacheAsync(this.CancellationToken, correlationID),
+									link.SendNotificationAsync("Update", link.ContentType.Notifications, oldStatus, link.Status, null, this.CancellationToken)
+								).ConfigureAwait(false);
+							}
+						}
+						catch (Exception ex)
+						{
+							await this.WriteLogsAsync(correlationID, $"Error occurred while refining managment IDs => {ex.Message}", ex, this.ServiceName, "Refines").ConfigureAwait(false);
+						}
+				}, true, false).ConfigureAwait(false);
+				pageNumber++;
+				counter += objects.Count();
+				if (counter % 100 == 0)
+					this.Logger.LogInformation($"{counter:###,###0} objects' management IDs were refined");
 			}
 		}
 		#endregion

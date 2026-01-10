@@ -1288,16 +1288,18 @@ namespace net.vieapps.Services.Portals
 			if (category == null)
 				return new JObject();
 
-			// update cache
+			// update cache & notifications
 			await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			if (@event.IsEquals("Delete"))
-				await Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-			else
-				await Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
 
-			// send notifications
-			if (sendNotifications)
-				await category.SendNotificationAsync(@event, category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			if (category.ContentType != null)
+			{
+				if (@event.IsEquals("Delete"))
+					await Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+				else
+					await Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
+				if (sendNotifications)
+					await category.SendNotificationAsync(@event, category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+			}
 
 			// send update messages
 			var json = @event.IsEquals("Delete")

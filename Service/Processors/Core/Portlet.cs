@@ -145,7 +145,7 @@ namespace net.vieapps.Services.Portals
 					var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
 					htmlCacheKeys = htmlCacheKeys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 				}
-				else
+				else if (portlet.Desktop != null)
 					htmlCacheKeys = htmlCacheKeys.Concat(await portlet.Desktop.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			}
 

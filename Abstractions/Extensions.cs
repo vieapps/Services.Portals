@@ -13,7 +13,10 @@ namespace net.vieapps.Services.Portals
 {
 	public static class ServiceExtensions
 	{
-		static ConcurrentDictionary<string, ICmsPortalsService> Services { get; } = new ConcurrentDictionary<string, ICmsPortalsService>(StringComparer.OrdinalIgnoreCase);
+		/// <summary>
+		/// Gets the collecion of CMS Portals services
+		/// </summary>
+		public static ConcurrentDictionary<string, ICmsPortalsService> Services { get; } = new ConcurrentDictionary<string, ICmsPortalsService>(StringComparer.OrdinalIgnoreCase);
 
 		/// <summary>
 		/// Gets a service of CMS Portals that specified by a name
@@ -129,7 +132,7 @@ namespace net.vieapps.Services.Portals
 				Type = "BlackIPs#Update",
 				ExcludedNodeID = excludedNodeID,
 				Data = BlackIPs.Select(kvp => kvp.Key).ToJArray()
-			}.Send();
+			}.Send(Router.GotBackupRouter());
 			return BlackIPs;
 		}
 
@@ -188,13 +191,13 @@ namespace net.vieapps.Services.Portals
 					Type = "BlackIPs#Update",
 					ExcludedNodeID = nodeID,
 					Data = new JArray(ip)
-				}.Send();
+				}.Send(Router.GotBackupRouter());
 				new CommunicateMessage(serviceName)
 				{
 					Type = "HarmfulIPs#Remove",
 					ExcludedNodeID = nodeID,
 					Data = new JArray(ip)
-				}.Send();
+				}.Send(Router.GotBackupRouter());
 				HarmfulIPs.Remove(ip);
 			}
 			else
@@ -210,7 +213,7 @@ namespace net.vieapps.Services.Portals
 						["Counter"] = counter,
 						["LastAccess"] = DateTime.Now
 					})
-				}.Send();
+				}.Send(Router.GotBackupRouter());
 			}
 
 			return exception ?? new MethodNotAllowedException(method);
