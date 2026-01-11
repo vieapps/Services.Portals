@@ -44,13 +44,13 @@ namespace net.vieapps.Services.Portals
 		public string DesktopID { get; set; }
 
 		[Ignore, BsonIgnore, XmlIgnore]
-		public Settings.Notifications Notifications { get; set; } = new Settings.Notifications();
+		public Settings.Notifications Notifications { get; set; } = new();
 
 		[Ignore, BsonIgnore, XmlIgnore]
-		public Dictionary<string, string> Trackings { get; set; } = new Dictionary<string, string>();
+		public Dictionary<string, string> Trackings { get; set; } = [];
 
 		[Ignore, BsonIgnore, XmlIgnore]
-		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
+		public Settings.Email EmailSettings { get; set; } = new();
 
 		[MessagePackIgnore]
 		JObject _json;

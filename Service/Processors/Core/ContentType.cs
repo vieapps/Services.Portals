@@ -29,7 +29,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public static ContentType Update(this ContentType contentType, ExpandoObject data, string excluded = null, Action<ContentType> onCompleted = null)
-			=> contentType?.Fill(data, excluded, "Description,SubTitleFormula,RepositoryEntityID,DesktopID", _ =>
+			=> contentType.Fill(data, excluded, "Description,SubTitleFormula,RepositoryEntityID,DesktopID", _ =>
 			{
 				contentType.NormalizeExtras();
 				onCompleted?.Invoke(contentType);

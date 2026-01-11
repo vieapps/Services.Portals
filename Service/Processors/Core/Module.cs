@@ -418,7 +418,7 @@ namespace net.vieapps.Services.Portals
 			// gathering information
 			var privileges = module.OriginalPrivileges?.Copy();
 			var request = requestInfo.GetBodyExpando();
-			module.Update(request, "ID,SystemID,DesktopID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
+			module.Update(request, "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
 				module.LastModified = DateTime.Now;
 				module.LastModifiedID = requestInfo.Session.User.ID;
