@@ -121,12 +121,12 @@ namespace net.vieapps.Services.Portals
 		public static async Task<List<ContentType>> FindContentTypesAsync(this string systemID, string repositoryID = null, string definitionID = null, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<ContentType>();
+				return [];
 
 			var filter = ContentTypeProcessor.GetContentTypesFilter(systemID, repositoryID, definitionID);
 			var sort = Sorts<ContentType>.Ascending("Title");
 			var contentTypes = await ContentType.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-			await contentTypes.ForEachAsync(async contentType =>
+			await contentTypes.Where(contentType => contentType != null).ForEachAsync(async contentType =>
 			{
 				if (contentType.ID.GetContentTypeByID(false, false) == null)
 					await contentType.SetAsync(updateCache, cancellationToken).ConfigureAwait(false);
@@ -248,8 +248,8 @@ namespace net.vieapps.Services.Portals
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<ContentType>() ?? Sorts<ContentType>.Ascending("Title") : null;
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var pageSize = pagination.PageSize;
+			var pageNumber = pagination.PageNumber;
 
 			// check permission
 			var gotRights = isSystemAdministrator;
@@ -275,7 +275,7 @@ namespace net.vieapps.Services.Portals
 				return JObject.Parse(json);
 
 			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
+			var totalRecords = pagination.TotalRecords > -1 ? pagination.TotalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
 					? await ContentType.CountAsync(filter, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
@@ -290,7 +290,7 @@ namespace net.vieapps.Services.Portals
 				? string.IsNullOrWhiteSpace(query)
 					? await ContentType.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await ContentType.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<ContentType>();
+				: [];
 
 			// build result
 			var response = new JObject
@@ -298,7 +298,7 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", (totalRecords, totalPages, pageSize, pageNumber).GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
+				{ "Objects", objects.Where(@object => @object != null).ToList().ToJsonArray() }
 			};
 
 			// update cache

@@ -86,7 +86,7 @@ namespace net.vieapps.Services.Portals
 						: RateLimitPartition.GetFixedWindowLimiter
 						(
 							partitionKey: context.GetRemoteIPAddress().ToString(),
-							factory: _ => context.IsCrawler()
+							factory: _ => context.IsCrawlerbot()
 								? new FixedWindowRateLimiterOptions
 								{
 									PermitLimit = UtilityService.GetAppSetting("Portals:RateLimit:Crawler:Permit", "1").As<int>(),
@@ -227,6 +227,7 @@ namespace net.vieapps.Services.Portals
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
 				Global.RSA.Dispose();
 				Handler.Disconnect();
+				Extensions.ShutdownLogsAsync().Execute(true);
 			});
 
 			// on stopped

@@ -672,8 +672,17 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
-			site.Remove();
 			await site.SendNotificationAsync("Delete", site.Organization?.Notifications, site.Status, site.Status, requestInfo, cancellationToken).ConfigureAwait(false);
+
+			var cacheKeys = new[] {
+				site.GetCacheKey(),
+				Extensions.GetCacheKeyOfTotalObjects(Filters<Site>.And(), Sorts<Site>.Ascending("Title"))
+			}.ToList();
+			for (var page = 1; page < 100; page++)
+				cacheKeys.AddRange(Extensions.GetCacheKey(Filters<Site>.And(), Sorts<Site>.Ascending("Title"), 20, page), Extensions.GetCacheKeyOfObjectsJson(Filters<Site>.And(), Sorts<Site>.Ascending("Title"), 20, page));
+			await Utility.Cache.RemoveAsync(cacheKeys, cancellationToken).ConfigureAwait(false);
+			site.Remove();
+
 			return json;
 		}
 

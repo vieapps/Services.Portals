@@ -108,7 +108,7 @@ namespace net.vieapps.Services.Portals
 		public static List<Module> FindModules(this string systemID, string definitionID = null, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Module>();
+				return [];
 
 			var filter = ModuleProcessor.GetModulesFilter(systemID, definitionID);
 			var sort = Sorts<Module>.Ascending("Title");
@@ -125,14 +125,14 @@ namespace net.vieapps.Services.Portals
 		public static async Task<List<Module>> FindModulesAsync(this string systemID, string definitionID = null, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Module>();
+				return [];
 
 			var filter = ModuleProcessor.GetModulesFilter(systemID, definitionID);
 			var sort = Sorts<Module>.Ascending("Title");
-			var modules = await Module.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-			await modules.ForEachAsync(async module =>
+			var modules = await Module.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false) ?? [];
+			await modules.Where(module => module != null).ForEachAsync(async module =>
 			{
-				if (module.ID.GetModuleByID(false, false) == null)
+				if (!string.IsNullOrWhiteSpace(module?.ID) && module.ID.GetModuleByID(false, false) == null)
 					await module.SetAsync(updateCache, cancellationToken).ConfigureAwait(false);
 			}).ConfigureAwait(false);
 
@@ -161,17 +161,17 @@ namespace net.vieapps.Services.Portals
 					.Concat(Extensions.GetRelatedCacheKeys(ModuleProcessor.GetModulesFilter(module.SystemID, module.ModuleDefinitionID), sort))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
-				: new List<string>();
+				: [];
 
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = new List<string>();
 			if (clearHtmlCache)
 			{
-				htmlCacheKeys = new[] { module.Desktop?.GetSetCacheKey() }.Concat(module.Organization?.GetDesktopCacheKeys() ?? new List<string>()).ToList();
+				htmlCacheKeys = new[] { module.Desktop?.GetSetCacheKey() }.Concat(module.Organization?.GetDesktopCacheKeys() ?? []).ToList();
 				var desktopSetCacheKeys = new List<string>();
-				await module.ContentTypes.ForEachAsync(async contentType =>
+				await module.ContentTypes.Where(contentType => contentType != null).ForEachAsync(async contentType =>
 				{
-					desktopSetCacheKeys = desktopSetCacheKeys.Concat(await contentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? new List<string>()).ToList();
+					desktopSetCacheKeys = desktopSetCacheKeys.Concat(await contentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? []).ToList();
 				}, true, false).ConfigureAwait(false);
 				await desktopSetCacheKeys.Where(id => !string.IsNullOrWhiteSpace(id))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
@@ -233,8 +233,8 @@ namespace net.vieapps.Services.Portals
 			var sort = string.IsNullOrWhiteSpace(query) ? request.Get<ExpandoObject>("SortBy")?.ToSortBy<Module>() ?? Sorts<Module>.Ascending("Title") : null;
 
 			var pagination = request.Get<ExpandoObject>("Pagination")?.GetPagination() ?? (-1, 0, 20, 1);
-			var pageSize = pagination.Item3;
-			var pageNumber = pagination.Item4;
+			var pageSize = pagination.PageSize;
+			var pageNumber = pagination.PageNumber;
 
 			// check permission
 			var gotRights = isSystemAdministrator;
@@ -259,13 +259,13 @@ namespace net.vieapps.Services.Portals
 				return JObject.Parse(json);
 
 			// prepare pagination
-			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
+			var totalRecords = pagination.TotalRecords > -1 ? pagination.TotalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
 					? await Module.CountAsync(filter, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Module.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
-			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
+			var totalPages = (totalRecords, pageSize).GetTotalPages();
 			if (totalPages > 0 && pageNumber > totalPages)
 				pageNumber = totalPages;
 
@@ -274,7 +274,7 @@ namespace net.vieapps.Services.Portals
 				? string.IsNullOrWhiteSpace(query)
 					? await Module.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Module.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Module>();
+				: [];
 
 			// build result
 			var response = new JObject
@@ -282,7 +282,7 @@ namespace net.vieapps.Services.Portals
 				{ "FilterBy", filter.ToClientJson(query) },
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", (totalRecords, totalPages, pageSize, pageNumber).GetPagination() },
-				{ "Objects", objects.ToJsonArray() }
+				{ "Objects", objects.Where(@object => @object != null).ToList().ToJsonArray() }
 			};
 
 			// update cache
@@ -327,7 +327,7 @@ namespace net.vieapps.Services.Portals
 				{ "SystemID", module.SystemID },
 				{ "RepositoryID", module.ID }
 			};
-			module._contentTypeIDs = new List<string>();
+			module._contentTypeIDs = [];
 			await Utility.ModuleDefinitions[module.ModuleDefinitionID].ContentTypeDefinitions.ForEachAsync(async contentTypeDefinition =>
 			{
 				contentTypeJson["ContentTypeDefinitionID"] = contentTypeDefinition.ID;
@@ -417,8 +417,7 @@ namespace net.vieapps.Services.Portals
 
 			// gathering information
 			var privileges = module.OriginalPrivileges?.Copy();
-			var request = requestInfo.GetBodyExpando();
-			module.Update(request, "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
+			module.Update(requestInfo.GetBodyExpando(), "ID,SystemID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
 				module.LastModified = DateTime.Now;
 				module.LastModifiedID = requestInfo.Session.User.ID;

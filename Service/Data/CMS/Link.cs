@@ -64,14 +64,24 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "Lookup", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public string LookupRepositoryObjectID { get; set; }
 
+		[Sortable(IndexName = "Management")]
+		[FormControl(Segment = "basic", ReadOnly = true, Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		public int OrderIndex { get; set; } = 0;
+
+		[Property(MaxLength = 10)]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Segment = "basic", ControlType = "DatePicker", DatePickerWithTimes = false, DataType = "date", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		public string StartDate { get; set; }
+
+		[Property(MaxLength = 10)]
+		[Sortable(IndexName = "Management")]
+		[FormControl(Segment = "basic", ControlType = "DatePicker", DatePickerWithTimes = false, Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
+		public string EndDate { get; set; }
+
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[Sortable(IndexName = "Management")]
 		[FormControl(Segment = "basic", Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
-
-		[Sortable(IndexName = "Management")]
-		[FormControl(Segment = "basic", ReadOnly = true, Label = "{{portals.cms.links.controls.[name].label}}", PlaceHolder = "{{portals.cms.links.controls.[name].placeholder}}", Description = "{{portals.cms.links.controls.[name].description}}")]
-		public int OrderIndex { get; set; } = 0;
 
 		[Sortable(IndexName = "Audits")]
 		[FormControl(Hidden = true)]
@@ -207,11 +217,18 @@ namespace net.vieapps.Services.Portals
 		public override JObject ToJson(bool addTypeOfExtendedProperties = false, Action<JObject> onCompleted = null)
 			=> this.ToJson(false, addTypeOfExtendedProperties, onCompleted);
 
-		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null, Action<JObject> onChildrenCompleted = null, int level = 1, int maxLevel = 0)
+		public JObject ToJson(bool addChildren, bool addTypeOfExtendedProperties, Action<JObject> onCompleted = null, Action<JObject> onChildrenCompleted = null, int level = 1, int maxLevel = 0, bool filterByDates = false)
 			=> base.ToJson(addTypeOfExtendedProperties, json =>
 			{
 				if (addChildren && (maxLevel < 1 || level < maxLevel))
-					json["Children"] = this.Children?.Where(link => link != null).OrderBy(link => link.OrderIndex).Select(link => link.ToJson(addChildren, addTypeOfExtendedProperties, onChildrenCompleted, onChildrenCompleted, level + 1, maxLevel)).ToJArray();
+				{
+					var children = this.Children?.Where(link => link != null).OrderBy(link => link.OrderIndex).ToList() ?? [];
+					if (filterByDates)
+						children = children.Where(link => link.StartDate == null || (DateTime.TryParse($"{link.StartDate} 00:00:01", out var date) && date <= DateTime.Now))
+							.Where(link => link.EndDate == null || (DateTime.TryParse($"{link.EndDate} 23:59:59", out var date) && date >= DateTime.Now))
+							.ToList();
+					json["Children"] = children.Select(link => link.ToJson(addChildren, addTypeOfExtendedProperties, onChildrenCompleted, onChildrenCompleted, level + 1, maxLevel, filterByDates)).ToJArray();
+				}
 				if (!string.IsNullOrWhiteSpace(this.ContentType?.SubTitleFormula) && json.Get<string>("SubTitle") == null)
 					json["SubTitle"] = this.ContentType.SubTitleFormula.Evaluate(json.ToExpandoObject())?.ToString();
 				onCompleted?.Invoke(json);

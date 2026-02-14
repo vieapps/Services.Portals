@@ -143,7 +143,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			if (Handler.TrackSessions)
-				requestInfo.SendSessionState(Handler.TrackAPISessions);
+				requestInfo.SendSessionState(null, message => message.Data["Crawler"] = context.IsCrawlerbot(), Handler.TrackAPISessions);
 			else
 				requestInfo.TrackStatistics();
 

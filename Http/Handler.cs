@@ -1027,7 +1027,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			if (Handler.TrackSessions)
-				context.GetSession().SendSessionState(Global.ServiceName.ToLower(), $"GET {requestURI}");
+				context.GetSession().SendSessionState($"{Global.ServiceName}.HTTP", $"GET {requestURI}", true, Handler.TrackPortalSessions, false, message => message.Data["Crawler"] = context.IsCrawlerbot());
 			else
 				context.GetSession().TrackStatistics(context.GetCorrelationID());
 
@@ -1949,20 +1949,12 @@ namespace net.vieapps.Services.Portals
 
 	internal static class HandlerExtentions
 	{
-		static NetCrawlerDetect.CrawlerDetect CrawlerDetector { get; } = new NetCrawlerDetect.CrawlerDetect();
-
-		public static bool IsCrawler(this RequestInfo requestInfo)
-			=> CrawlerDetector.IsCrawler(requestInfo.Session.AppAgent) || "Generic OS".IsEquals(requestInfo.Session.AppAgent.GetOSInfo());
-
-		public static bool IsCrawler(this HttpContext context)
-			=> CrawlerDetector.IsCrawler(context.GetUserAgent()) || "Generic OS".IsEquals(context.GetUserAgent().GetOSInfo());
-
 		public static void SendSessionState(this RequestInfo requestInfo, JObject systemIdentityJson, string serviceName, string serviceURI, bool trackStatistics)
 		{
 			if (Handler.TrackSessions)
 				requestInfo.SendSessionState(systemIdentityJson, message =>
 				{
-					message.Data["Crawler"] = requestInfo.IsCrawler();
+					message.Data["Crawler"] = requestInfo.IsCrawlerbot();
 					var serviceInfo = message.Data.Get<JObject>("Service");
 					if (!string.IsNullOrWhiteSpace(serviceName))
 						serviceInfo["Name"] = serviceName.ToLower();
@@ -2062,7 +2054,7 @@ namespace net.vieapps.Services.Portals
 
 				stopwatch.Stop();
 				if (stopwatch.Elapsed.TotalMilliseconds > 30)
-					await context.WriteLogsAsync("Http.Process.Requests", $"Complete the identify process - Call: {stepwatch.GetElapsedTimes()} - Overral: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Complete the identify process - Call: {stepwatch.GetElapsedTimes()} - Overrall: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
 
 			return identifyJson;

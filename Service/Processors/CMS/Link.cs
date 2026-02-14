@@ -356,7 +356,7 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			var link = request.CreateLink("Privileges,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", obj =>
+			var link = request.CreateLink("Privileges,OrderIndex,StartDate,EndDate,Created,CreatedID,LastModified,LastModifiedID", obj =>
 			{
 				obj.ID = string.IsNullOrWhiteSpace(obj.ID) || !obj.ID.IsValidUUID() ? UtilityService.NewUUID : obj.ID;
 				obj.SystemID = organization.ID;
@@ -379,7 +379,18 @@ namespace net.vieapps.Services.Portals
 			var parentLink = link.ParentLink;
 			if (parentLink != null)
 				await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false).ConfigureAwait(false);
+
 			link.OrderIndex = 1 + await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false);
+
+			var dateString = request.Get<string>("StartDate");
+			link.StartDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out var date)
+				? date.ToDTString(false, false)
+				: null;
+
+			dateString = request.Get<string>("EndDate");
+			link.EndDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date)
+				? date.ToDTString(false, false)
+				: null;
 
 			// create new
 			await Link.CreateAsync(link, cancellationToken).ConfigureAwait(false);
@@ -657,7 +668,7 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetBodyExpando();
 			var oldParentID = link.ParentID;
 			var oldStatus = link.Status;
-			link.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,ParentID,OrderIndex,Created,CreatedID,LastModified,LastModifiedID", _ =>
+			link.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,ParentID,OrderIndex,StartDate,EndDate,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
 				link.ParentID = request.Get<string>("ParentID");
 				link.LastModified = DateTime.Now;
@@ -677,6 +688,16 @@ namespace net.vieapps.Services.Portals
 				link.OrderIndex = 1 + await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false);
 				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 			}
+
+			var dateString = request.Get<string>("StartDate");
+			link.StartDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out var date)
+				? date.ToDTString(false, false)
+				: null;
+
+			dateString = request.Get<string>("EndDate");
+			link.EndDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date)
+				? date.ToDTString(false, false)
+				: null;
 
 			// update
 			return await link.UpdateAsync(requestInfo, oldStatus, oldParentID, cancellationToken).ConfigureAwait(false);
@@ -1035,6 +1056,20 @@ namespace net.vieapps.Services.Portals
 			if (filter.GetChild("Status") == null)
 				filter.Add(Filters<Link>.Equals("Status", ApprovalStatus.Published.ToString()));
 
+			if (filter.GetChild("StartDate") == null)
+				filter.Add(Filters<Link>.Or
+				(
+					Filters<Link>.IsNull("StartDate"),
+					Filters<Link>.LessThanOrEquals("StartDate", "@today")
+				));
+
+			if (filter.GetChild("EndDate") == null)
+				filter.Add(Filters<Link>.Or
+				(
+					Filters<Link>.IsNull("EndDate"),
+					Filters<Link>.GreaterOrEquals("EndDate", "@today")
+				));
+
 			var filterBy = new JObject
 			{
 				{ "API", filter.ToJson().ToString(Formatting.None) },
@@ -1355,7 +1390,8 @@ namespace net.vieapps.Services.Portals
 					json.Remove("Privileges");
 				},
 				level,
-				maxLevel
+				maxLevel,
+				true
 			);
 
 			if (addChildren && (maxLevel < 1 || level < maxLevel))
@@ -1442,6 +1478,9 @@ namespace net.vieapps.Services.Portals
 					var children = link.Children;
 					if (children.Any())
 					{
+						children = children.Where(link => link.StartDate == null || (DateTime.TryParse($"{link.StartDate} 00:00:01", out var date) && date <= DateTime.Now))
+							.Where(link => link.EndDate == null || (DateTime.TryParse($"{link.EndDate} 23:59:59", out var date) && date >= DateTime.Now))
+							.ToList();
 						var thumbnails = children.Count == 1
 							? await requestInfo.GetThumbnailsAsync(children[0].ID, children[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 							: await requestInfo.GetThumbnailsAsync(children.Select(child => child.ID).Join(","), children.ToJObject("ID", child => new JValue(child.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);

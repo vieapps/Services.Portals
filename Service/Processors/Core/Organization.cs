@@ -660,13 +660,13 @@ namespace net.vieapps.Services.Portals
 				{ "SortBy", sort?.ToClientJson() },
 				{ "Pagination", (totalRecords, totalPages, pageSize, pageNumber).GetPagination() },
 				{ "Objects", asFetch
-					? objects.Select(@object => new JObject
+					? objects.Where(@object => @object != null).Select(@object => new JObject
 					{
 						{ "ID", @object.ID },
 						{ "Alias", @object.Alias },
 						{ "Title", @object.Title }
 					}).ToJArray()
-					: objects.ToJsonArray()
+					: objects.Where(@object => @object != null).ToList().ToJsonArray()
 				}
 			};
 
@@ -1029,12 +1029,14 @@ namespace net.vieapps.Services.Portals
 			// delete organization
 			await Organization.DeleteAsync<Organization>(organization.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await organization.SendNotificationAsync("Delete", organization.Notifications, organization.Status, organization.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-			await Task.WhenAll
-			(
-				Utility.Cache.RemoveAsync(organization.GetCacheKey(), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetCacheKey(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"), 20, 1), cancellationToken),
-				Utility.Cache.RemoveAsync(Extensions.GetCacheKeyOfObjectsJson(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"), 20, 1), cancellationToken)
-			).ConfigureAwait(false);
+
+			var cacheKeys = new[] {
+				organization.GetCacheKey(),
+				Extensions.GetCacheKeyOfTotalObjects(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
+			}.ToList();
+			for (var page = 1; page < 100; page++)
+				cacheKeys.AddRange(Extensions.GetCacheKey(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"), 20, page), Extensions.GetCacheKeyOfObjectsJson(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"), 20, page));
+			await Utility.Cache.RemoveAsync(cacheKeys, cancellationToken).ConfigureAwait(false);
 			organization.Remove();
 
 			if (sendUpdatingMessages)

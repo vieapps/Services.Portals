@@ -461,13 +461,13 @@ namespace net.vieapps.Services.Portals
 			// get data
 			Dictionary<string, (string Identifier, string Filename)> inlineImages = null;
 			var content = source != null
-				? source.Copy("ID,CategoryID,OtherCategories,Alias,Relateds,Privileges,Created,CreatedID,LastModified,LastModifiedID".ToHashSet(), obj =>
+				? source.Copy("ID,CategoryID,OtherCategories,Alias,Relateds,Privileges,StartDate,EndDate,Created,CreatedID,LastModified,LastModifiedID".ToHashSet(), obj =>
 				{
 					obj.Alias = source.Title.NormalizeAlias();
 					obj.CategoryID = category.ID;
 					obj.OtherCategories = request.Get<List<string>>("OtherCategories");
 				})
-				: request.CreateContent("Privileges,Created,CreatedID,LastModified,LastModifiedID", out inlineImages);
+				: request.CreateContent("Privileges,StartDate,EndDate,Created,CreatedID,LastModified,LastModifiedID", out inlineImages);
 			content.SystemID = organization.ID;
 			content.RepositoryID = module.ID;
 			content.RepositoryEntityID = contentType.ID;
@@ -486,10 +486,10 @@ namespace net.vieapps.Services.Portals
 				? date.ToDTString(false, false)
 				: DateTime.Now.ToDTString(false, false);
 
-			content.EndDate = null;
 			dateString = request.Get<string>("EndDate");
-			if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
-				content.EndDate = date.ToDTString(false, false);
+			content.EndDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date)
+				? date.ToDTString(false, false)
+				: null;
 
 			content.PublishedTime = null;
 			dateString = request.Get<string>("PublishedTime");
@@ -762,10 +762,10 @@ namespace net.vieapps.Services.Portals
 				? date.ToDTString(false, false)
 				: DateTime.Now.ToDTString(false, false);
 
-			content.EndDate = null;
 			dateString = request.Get<string>("EndDate");
-			if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
-				content.EndDate = date.ToDTString(false, false);
+			content.EndDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date)
+				? date.ToDTString(false, false)
+				: null;
 
 			dateString = request.Get<string>("PublishedTime");
 			if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
