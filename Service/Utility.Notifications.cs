@@ -470,7 +470,7 @@ namespace net.vieapps.Services.Portals
 						{
 							body = string.IsNullOrWhiteSpace(webhookNotification.PrepareBodyScript)
 								? bodyJson.ToString(Newtonsoft.Json.Formatting.None)
-								: webhookNotification.PrepareBodyScript.JsEvaluate(bodyJson, requestInfoJson, paramsJson, Utility.JsFunctions, Utility.JsEmbedObjects)?.ToString() ?? bodyJson.ToString(Newtonsoft.Json.Formatting.None);
+								: webhookNotification.PrepareBodyScript.JsEvaluate(bodyJson, requestInfoJson, paramsJson, Utility.JsFunctions, Utility.JsEmbedObjects, null, webhookNotification.PrepareBodyScriptTimeout)?.ToString() ?? bodyJson.ToString(Newtonsoft.Json.Formatting.None);
 						}
 						catch (Exception ex)
 						{

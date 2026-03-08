@@ -1,13 +1,16 @@
 ﻿#region Related components
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.Diagnostics;
+using DocumentFormat.OpenXml.Wordprocessing;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -16,7 +19,13 @@ namespace net.vieapps.Services.Portals
 	{
 		public static Cache Cache { get; } = Cache.CreateInstance("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory(), "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:L1")));
 
-		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
+		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
+
+		internal static int RefreshMaxPage { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage", "10"), out var maxPage) && maxPage > 0 ? maxPage : 10;
+
+		internal static string CloudFlareZoneID { get; } = UtilityService.GetAppSetting("Portals:CloudFlare:ZoneID");
+
+		internal static string CloudFlareApiToken { get; } = UtilityService.GetAppSetting("Portals:CloudFlare:ApiToken");
 
 		internal static Dictionary<string, string> RefresherHeaders => new()
 		{
@@ -220,11 +229,11 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		internal static List<string> GetDesktopCacheKeys(this Organization organization)
 		{
-			var cacheKeys = new List<string>
+			var cacheKeys = new[]
 			{
 				organization.HomeDesktop?.GetDesktopCacheKey($"{organization.URL}/{organization.HomeDesktop?.Alias}"),
 				$"{organization.ID}:{organization.HomeDesktop?.Alias.GenerateUUID()}"
-			};
+			}.ToList();
 			if (organization.Sites != null && organization.Sites.Count > 1)
 				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey($"{organization.URL}/{site.HomeDesktop?.Alias}", site))).ToList();
 			cacheKeys = cacheKeys.Where(cacheKey => cacheKey != null).ToList();
@@ -246,6 +255,83 @@ namespace net.vieapps.Services.Portals
 			await Utility.Cache.SetAsync(cacheKey, pageSize, cancellationToken).ConfigureAwait(false);
 			return cacheKey;
 		}
+
+		internal static async Task PurgeCloudFlareCacheAsync(this IEnumerable<string> urls, string cloudflareZoneID, string cloudflareApiToken, string correlationID, CancellationToken cancellationToken)
+		{
+			var cloudflareURI = new Uri($"https://api.cloudflare.com/client/v4/zones/{cloudflareZoneID}/purge_cache");
+			var cloudflareHeaders = new Dictionary<string, string>
+			{
+				["Content-Type"] = "application/json",
+				["Authorization"] = $"Bearer {cloudflareApiToken}"
+			};
+			var cloudflareBody = new JObject
+			{
+				["purge_everything"] = true
+			};
+
+			async Task purgeAsync(JObject body)
+			{
+				try
+				{
+					using var _ = await cloudflareURI.SendHttpRequestAsync("POST", cloudflareHeaders, body.ToString(Newtonsoft.Json.Formatting.None), 30, cancellationToken).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await Utility.WriteLogAsync(correlationID, $"Error occurred while purging CloudFlare cache => {(ex is RemoteServerException rex ? $"{rex.Message} (Code: {rex.StatusCode}){(string.IsNullOrWhiteSpace(rex.Body) ? "" : $"\r\nBody: {rex.Body}")}" : $"{ex.Message}")} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+				}
+			}
+
+			if (urls.Count() > 0)
+			{
+				var cloudflareURLs = urls.Select(url => new[] { url, url.IsStartsWith("http://www.") || url.IsStartsWith("https://www.") ? url.Replace("//www.", "//") : url.Replace("//", "//www.") }).SelectMany(url => url).ToList();
+				var totalPages = Extensions.GetTotalPages(cloudflareURLs.Count, 30);
+				var pageNumber = 0;
+				while (pageNumber < totalPages)
+				{
+					cloudflareBody = new JObject
+					{
+						["files"] = cloudflareURLs.Skip(pageNumber * 30).Take(30).ToJArray()
+					};
+					await purgeAsync(cloudflareBody).ConfigureAwait(false);
+					pageNumber++;
+				}
+			}
+			else
+				await purgeAsync(cloudflareBody).ConfigureAwait(false);
+		}
+
+		internal static Task PurgeCloudFlareCacheAsync(this Organization organization, IEnumerable<string> urls, string correlationID, CancellationToken cancellationToken)
+		{
+			var systemURLs = (urls ?? []).Where(url => (url.IsContains("/_js/") || url.IsContains("/_css/") || url.IsContains("/_themes/")) && url.IsStartsWith(Utility.PortalsHttpURI)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var orgURLs = (urls ?? []).Except(systemURLs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			return Task.WhenAll
+			(
+				!string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken)
+					? orgURLs.PurgeCloudFlareCacheAsync(organization.CloudFlareZoneID, organization.CloudFlareApiToken, correlationID, cancellationToken)
+					: Task.CompletedTask,
+				systemURLs.Count > 0 && !string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken)
+					? systemURLs.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, cancellationToken)
+					: Task.CompletedTask
+			);
+		}
+
+		internal static Task RefreshWebPageAsync(this Organization organization, Site site, IEnumerable<string> urls, int delay, string correlationID, string log, bool force, CancellationToken cancellationToken)
+		{
+			var suffix = organization.AlwaysUseHtmlSuffix ? ".html" : "";
+			var rootURL = organization.URL;
+			var siteURL = (site ?? organization.DefaultSite)?.GetURL();
+			var portalURLs = (urls ?? []).Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => url.IsContains("/{{pageNumber}}")
+				? Enumerable.Range(1, Utility.RefreshMaxPage).Select(pageNumber => url.Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}{suffix}" : suffix, StringComparison.OrdinalIgnoreCase))
+				: new[] { url }
+			).SelectMany(url => url).Select(url => url.Replace("~/", rootURL)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var cloudflareURLs = portalURLs.Where(url => url.IsStartsWith(rootURL) || url.IsStartsWith(organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) || url.IsStartsWith(Utility.PortalsHttpURI)).Select(url => url.Replace(rootURL, siteURL)).Select(url => url.Replace("x-sliding-cache", "")).ToList();
+			if (portalURLs.Any(url => url == rootURL))
+				cloudflareURLs.AddRange([siteURL, $"{siteURL}/index{suffix}"]);
+			return Task.WhenAll(portalURLs.Select(url => $"{url}{(force ? url.IsContains("x-force-cache") ? "" : $"{(url.IsContains("?") ? "&" : "?")}x-force-cache" : "")}").Select(url => url.RefreshWebPageAsync(delay, correlationID, log, cancellationToken)).Concat([organization.PurgeCloudFlareCacheAsync(cloudflareURLs, correlationID, cancellationToken)]));
+		}
+
+		internal static Task RefreshWebPageAsync(this Organization organization, IEnumerable<string> urls, int delay, string correlationID = null, string log = null, bool force = false, CancellationToken cancellationToken = default)
+			=> organization.RefreshWebPageAsync(null, urls, delay, correlationID, log, force, cancellationToken);
 
 		internal static async Task RefreshWebPageAsync(this string url, int delay, string correlationID = null, string log = null, CancellationToken cancellationToken = default)
 		{

@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
@@ -229,7 +228,7 @@ namespace net.vieapps.Services.Portals
 			return await RepositoryMediator.GetAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false) as T;
 		}
 
-		static FileExtensionContentTypeProvider MimeTypeProvider => new FileExtensionContentTypeProvider();
+		static Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider MimeTypeProvider { get; } = new();
 
 		/// <summary>
 		/// Gets the MIME type of a file

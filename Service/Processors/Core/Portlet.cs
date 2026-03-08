@@ -149,13 +149,16 @@ namespace net.vieapps.Services.Portals
 					htmlCacheKeys = htmlCacheKeys.Concat(await portlet.Desktop.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			}
 
-			// clear related cache
-			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+			// remove related cache & refresh
 			await Task.WhenAll
 			(
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop?.Alias}?x-force-cache=x".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a portlet was clean [{portlet.Title} - ID: {portlet.ID}]") : Task.CompletedTask
+				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
+				Utility.IsCacheLogEnabled
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
+					: Task.CompletedTask
 			).ConfigureAwait(false);
+			if (doRefresh && portlet.Desktop != null && (portlet.Organization.ExamineURLs == null || portlet.Organization.ExamineURLs.Count < 1))
+				await portlet.Organization.RefreshWebPageAsync([$"{portlet.Organization.URL}/{portlet.Desktop.Alias}", portlet.Desktop.ID.Equals(portlet.Organization.HomeDesktop?.ID) ? portlet.Organization.URL : null], 1, correlationID, $"Refresh when clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)

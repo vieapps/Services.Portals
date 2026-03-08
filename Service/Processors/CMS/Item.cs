@@ -105,20 +105,17 @@ namespace net.vieapps.Services.Portals
 			}
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			// remove cache
+			// remove related cache & refresh
 			await Task.WhenAll
 			(
 				Task.WhenAll(setTasks),
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled && item != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS item [{item.Title} - ID: {item.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh && item != null
-					? Task.WhenAll
-					(
-						item.Status.Equals(ApprovalStatus.Published) ? $"{item.GetURL()}?x-force-cache".Replace("~/", $"{item.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask,
-						desktop != null ? $"{item.Organization?.URL}/{desktop.Alias ?? "-default"}/{item.ContentType?.Title.GetANSIUri() ?? "-"}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]") : Task.CompletedTask,
-						$"{item.Organization?.URL}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS item was clean [{item.Title} - ID: {item.ID}]")
-					) : Task.CompletedTask
-				).ConfigureAwait(false);
+				Utility.IsCacheLogEnabled && item != null
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS item [{item.Title} - ID: {item.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
+					: Task.CompletedTask
+			).ConfigureAwait(false);
+			if (doRefresh && item != null)
+				await item.Organization.RefreshWebPageAsync([item.Organization.URL, desktop != null ? $"{item.Organization.URL}/{desktop.Alias ?? "-default"}/{item.ContentType?.Title.GetANSIUri() ?? "-"}" : null, item.Status.Equals(ApprovalStatus.Published) ? item.GetURL() : null], 1, correlationID, $"Refresh when a CMS item was clean [{item.Title} - ID: {item.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<(long TotalRecords, List<Item> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)

@@ -310,18 +310,16 @@ namespace net.vieapps.Services.Portals
 			// html cache keys (desktop HTMLs and related resources)
 			var htmlCacheKeys = (clearHtmlCache	? site.Organization.GetDesktopCacheKeys() : []).Concat(await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList();
 
-			// clear related cache
+			// remove related cache & refresh
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh ? Task.WhenAll(
-					site.IsDefault ? Task.CompletedTask : $"{site.GetURL()}/?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]"),
-					$"{Utility.PortalsHttpURI}/~{site.Organization.Alias}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]"),
-					$"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/s_{site.ID}.css?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh site CSS when related cache of a site was clean [{site.Title} - ID: {site.ID}]"),
-					$"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/s_{site.ID}.js?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh site JS when related cache of a site was clean [{site.Title} - ID: {site.ID}]")
-				) : Task.CompletedTask
+				Utility.IsCacheLogEnabled
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches")
+					: Task.CompletedTask
 			).ConfigureAwait(false);
+			if (doRefresh && (site.Organization.ExamineURLs == null || site.Organization.ExamineURLs.Count < 1))
+				await site.Organization.RefreshWebPageAsync(site, [site.Organization.URL, site.GetURL(), $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/s_{site.ID}.js", $"{Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{Utility.PortalsHttpURI}/_js/s_{site.ID}.js"], 1, correlationID, $"Refresh when clear related cache of a site [{site.Title} - ID: {site.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task ClearCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)

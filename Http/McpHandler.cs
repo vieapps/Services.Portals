@@ -18,6 +18,9 @@ using net.vieapps.Components.Security;
 
 namespace net.vieapps.Services.Portals
 {
+	/// <summary>
+	/// Handles the requests of AI assistants (follow MCP - Model Context Protocol)
+	/// </summary>
 	public class McpHandler
 	{
 		public McpHandler(RequestDelegate _) { }
@@ -294,8 +297,12 @@ namespace net.vieapps.Services.Portals
 				},
 				["capabilities"] = new JObject
 				{
-					["tools"] = new JObject	{	["listChanged"] = true },
-					["resources"] = new JObject {
+					["tools"] = new JObject
+					{
+						["listChanged"] = true
+					},
+					["resources"] = new JObject
+					{
 						["listChanged"] = true,
 						["subscribe"] = true
 					}
@@ -729,13 +736,10 @@ namespace net.vieapps.Services.Portals
 				exception => Global.WriteLogsAsync(Global.Logger, "MCP", $"Communicating error => {exception.Message}", exception)
 			);
 
-			while (true)
+			while (!cts.IsCancellationRequested)
 				try
 				{
-					if (cts.IsCancellationRequested)
-						break;
-					else
-						await Task.Delay(UtilityService.GetRandomNumber(123, 456), cts.Token).ConfigureAwait(false);
+					await Task.Delay(UtilityService.GetRandomNumber(123, 456), cts.Token).ConfigureAwait(false);
 				}
 				catch
 				{

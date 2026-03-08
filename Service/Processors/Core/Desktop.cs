@@ -233,18 +233,16 @@ namespace net.vieapps.Services.Portals
 			// html cache keys (desktop HTMLs and related resources)
 			var htmlCacheKeys = (clearHtmlCache ? desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}") : []).Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false)).ToList();
 
-			// clear related cache
+			// remove related cache & refresh
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh && (desktop.Organization.ExamineURLs == null || desktop.Organization.ExamineURLs.Count < 1) ? Task.WhenAll
-				(
-					$"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]"),
-					$"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh desktop CSS when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]"),
-					$"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh desktop JS when related cache of a desktop was clean [{desktop.Title} - ID: {desktop.ID}]")
-				) : Task.CompletedTask
+				Utility.IsCacheLogEnabled
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches")
+					: Task.CompletedTask
 			).ConfigureAwait(false);
+			if (doRefresh && (desktop.Organization.ExamineURLs == null || desktop.Organization.ExamineURLs.Count < 1))
+				await desktop.Organization.RefreshWebPageAsync([$"{desktop.Organization.URL}/{desktop.Alias}", desktop.ID.Equals(desktop.Organization.HomeDesktop?.ID) ? desktop.Organization.URL : null, $"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css", $"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js", $"{Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css", $"{Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js"], 1, correlationID, $"Refresh when clear related cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task ClearCacheAsync(this Desktop desktop, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool clearChildrenCache = false, bool doRefresh = false)

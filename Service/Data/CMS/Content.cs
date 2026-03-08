@@ -198,6 +198,9 @@ namespace net.vieapps.Services.Portals
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
 			=> $"~/{this.Category?.Desktop?.Alias ?? this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{this.Category?.Alias ?? parentIdentity ?? "-"}/{this.Alias}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}".ToLower();
 
+		public string GetURL(bool addPageNumberHolder)
+			=> this.GetURL(null, addPageNumberHolder, null);
+
 		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
 			=> Content.GetContentByAlias(repositoryEntityID, alias, parentIdentity);
 

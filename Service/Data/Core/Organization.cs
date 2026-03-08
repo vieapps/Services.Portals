@@ -187,11 +187,17 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Settings.HttpIndicator> HttpIndicators { get; set; }
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string FakeFilesHttpURI { get; set; }
 
-		[Ignore, BsonIgnore, XmlIgnore]
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string FakePortalsHttpURI { get; set; }
+
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public string CloudFlareZoneID { get; set; }
+
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public string CloudFlareApiToken { get; set; }
 
 		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Settings.ExamineURLs> ExamineURLs { get; set; }
@@ -201,7 +207,7 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _siteIDs = null;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<string> SiteIDs
 		{
 			get => this._siteIDs;
@@ -237,7 +243,7 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _moduleIDs;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<string> ModuleIDs
 		{
 			get => this._moduleIDs;
@@ -339,6 +345,8 @@ namespace net.vieapps.Services.Portals
 			{
 				this.FakePortalsHttpURI = null;
 			}
+			if (string.IsNullOrWhiteSpace(this.CloudFlareZoneID) || string.IsNullOrWhiteSpace(this.CloudFlareApiToken))
+				this.CloudFlareZoneID = this.CloudFlareApiToken = null;
 			this.ExamineURLs = this.ExamineURLs?.Select(examineURL => examineURL.Normalize(_ =>
 			{
 				var defaultURL = $"{Utility.PortalsHttpURI}/~{this.Alias}";
@@ -389,6 +397,8 @@ namespace net.vieapps.Services.Portals
 				this.HttpIndicators = this._json["HttpIndicators"]?.As<List<Settings.HttpIndicator>>();
 				this.FakeFilesHttpURI = this._json["FakeFilesHttpURI"]?.As<string>();
 				this.FakePortalsHttpURI = this._json["FakePortalsHttpURI"]?.As<string>();
+				this.CloudFlareZoneID = this._json["CloudFlareZoneID"]?.As<string>();
+				this.CloudFlareApiToken = this._json["CloudFlareApiToken"]?.As<string>();
 				this.ExamineURLs = (this._json["ExamineURLs"] as JArray)?.Select(examineURLs => examineURLs as JObject).Select(examineURLs => examineURLs.As<Settings.ExamineURLs>()).Where(examineURLs => examineURLs != null).ToList();
 				this.McpSettings = this._json["McpSettings"]?.As<Settings.McpSettings>();
 				this.PrepareRedirectAddresses();

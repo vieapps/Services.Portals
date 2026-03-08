@@ -157,13 +157,16 @@ namespace net.vieapps.Services.Portals
 			// html cache keys (desktop HTMLs)
 			var htmlCacheKeys = clearHtmlCache ? await expression.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>();
 
-			// clear related cache
-			await Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken).ConfigureAwait(false);
+			// remove related cache & refresh
 			await Task.WhenAll
 			(
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of an expression [{expression.Title} - ID: {expression.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh ? $"{Utility.PortalsHttpURI}/~{expression.Organization.Alias}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]") : Task.CompletedTask
+				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
+				Utility.IsCacheLogEnabled
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of an expression [{expression.Title} - ID: {expression.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
+					: Task.CompletedTask
 			).ConfigureAwait(false);
+			if (doRefresh)
+				await expression.Organization.RefreshWebPageAsync([expression.Organization.URL], 1, correlationID, $"Refresh when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task ClearCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)

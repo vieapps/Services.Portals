@@ -136,20 +136,17 @@ namespace net.vieapps.Services.Portals
 			}
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-			// remove related cache
+			// remove related cache & refresh
 			await Task.WhenAll
 			(
 				Task.WhenAll(setTasks),
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled && link != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS link [{link.Title} - ID: {link.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh && link != null
-					? Task.WhenAll
-					(
-						link.Status.Equals(ApprovalStatus.Published) ? link.GetURL().Replace("~/", $"{link.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS link was clean [{link.Title} - ID: {link.ID}]") : Task.CompletedTask,
-						desktop != null ? $"{link.Organization?.URL}/{desktop.Alias ?? "-default"}/{link.ContentType?.Title.GetANSIUri() ?? "-"}".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS link was clean [{link.Title} - ID: {link.ID}]") : Task.CompletedTask,
-						$"{link.Organization?.URL}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS link was clean [{link.Title} - ID: {link.ID}]")
-					) : Task.CompletedTask
+				Utility.IsCacheLogEnabled && link != null
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS link [{link.Title} - ID: {link.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
+					: Task.CompletedTask
 			).ConfigureAwait(false);
+			if (doRefresh && link != null)
+				await link.Organization.RefreshWebPageAsync([link.Organization.URL, desktop != null ? $"{link.Organization.URL}/{desktop.Alias ?? "-default"}/{link.ContentType?.Title.GetANSIUri() ?? "-"}" : null, link.Status.Equals(ApprovalStatus.Published) ? link.GetURL() : null], 1, correlationID, $"Refresh when a CMS link was clean [{link.Title} - ID: {link.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		static async Task<(long TotalRecords, List<Link> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)

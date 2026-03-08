@@ -22,12 +22,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<FrameworkReference Include="Microsoft.AspNetCore.App" />
-	</ItemGroup>
-
-	<ItemGroup>
+		<PackageReference Include="Microsoft.AspNetCore.StaticFiles" Version="2.3.9" />
 		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
-		<PackageReference Include="VIEApps.Components.Utility.Excel" Version="10.10.2602.1" />
+		<PackageReference Include="VIEApps.Components.Utility.Excel" Version="10.10.2603.3" />
 	</ItemGroup>
 
 	<ItemGroup>

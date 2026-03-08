@@ -244,6 +244,9 @@ namespace net.vieapps.Services.Portals
 				: url;
 		}
 
+		public string GetURL(bool addPageNumberHolder)
+			=> this.GetURL(null, addPageNumberHolder, null);
+
 		internal Link ReUpdate(ExpandoObject data = null)
 		{
 			this._workingPrivileges = null;

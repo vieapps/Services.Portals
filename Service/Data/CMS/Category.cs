@@ -277,6 +277,9 @@ namespace net.vieapps.Services.Portals
 			return url.Equals("~.html") ? alwaysUseHtmlSuffix ? "~/index.html" : "~/" : url;
 		}
 
+		public string GetURL(bool addPageNumberHolder)
+			=> this.GetURL(null, addPageNumberHolder, null);
+
 		public IAliasEntity GetByAlias(string repositoryEntityID, string alias, string parentIdentity = null)
 			=> (repositoryEntityID ?? "").GetCategoryByAlias(alias);
 

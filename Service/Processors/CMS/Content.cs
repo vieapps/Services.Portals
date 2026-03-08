@@ -92,15 +92,7 @@ namespace net.vieapps.Services.Portals
 				content = await Content.GetAsync<Content>(content.ID, cancellationToken).ConfigureAwait(false);
 			}
 			if (reloadWebpages)
-			{
-				message = (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]";
-				await Task.WhenAll
-				(
-					content.Status.Equals(ApprovalStatus.Published) ? $"{content.GetURL()}?x-force-cache".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
-					content.Category != null ? $"{content.Category.GetURL()}?x-force-cache".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message) : Task.CompletedTask,
-					(content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Where(category => category != null).ForEachAsync(category => $"{category.GetURL()}?x-force-cache".Replace("~/", $"{content.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, message))
-				).ConfigureAwait(false);
-			}
+				await content.Organization.RefreshWebPageAsync((content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Select(category => category?.GetURL(true)).Concat([content.Organization.URL, content.Category?.GetURL(true), content.Status.Equals(ApprovalStatus.Published) ? content.GetURL() : null]), 1, correlationID, (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]", force, cancellationToken).ConfigureAwait(false);
 			return content;
 		}
 
@@ -151,14 +143,12 @@ namespace net.vieapps.Services.Portals
 			(
 				Task.WhenAll(setTasks),
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled && content != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh && content != null
-					? Task.WhenAll
-					(
-						content.RefreshAsync(false, cancellationToken, true, correlationID, "Refresh when related cache of a CMS content was clean"),
-						$"{content.Organization?.URL}?x-force-cache".RefreshWebPageAsync(1, correlationID, $"Refresh when related cache of a CMS content was clean [{content.Title} - ID: {content.ID}]")
-					) : Task.CompletedTask
-				).ConfigureAwait(false);
+				Utility.IsCacheLogEnabled && content != null
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
+					: Task.CompletedTask
+			).ConfigureAwait(false);
+			if (doRefresh && content != null)
+				await content.RefreshAsync(false, cancellationToken, true, correlationID, "Refresh when related cache of a CMS content was clean").ConfigureAwait(false);
 		}
 
 		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, bool randomPage = false, int minRandomPage = 0, int maxRandomPage = 0, int cacheTime = 0)

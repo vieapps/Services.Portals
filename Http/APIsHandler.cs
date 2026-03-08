@@ -61,6 +61,7 @@ namespace net.vieapps.Services.Portals
 	{
 		public static async Task ProcessAPIsRequestAsync(this HttpContext context, string[] requestSegments = null)
 		{
+			var stopwatch = Stopwatch.StartNew();
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
 			requestSegments ??= context.GetRequestPathSegments().Skip(1).ToArray();
@@ -147,6 +148,9 @@ namespace net.vieapps.Services.Portals
 			else
 				requestInfo.TrackStatistics();
 
+			context.UpdateServerTiming("ngxPrepare", stopwatch.ElapsedMilliseconds);
+			stopwatch.Restart();
+
 			try
 			{
 				var response = await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "APIs").ConfigureAwait(false);
@@ -158,6 +162,9 @@ namespace net.vieapps.Services.Portals
 					["X-Correlation-ID"] = context.GetCorrelationID(),
 					["X-Node"] = Global.NodeID
 				};
+				if (headers.TryGetValue("Server-Timing", out var serverTiming))
+					context.UpdateServerTiming(serverTiming, () => headers.Remove("Server-Timing"));
+				context.UpdateServerTiming("ngxServ", stopwatch.ElapsedMilliseconds);
 				await Task.WhenAll
 				(
 					context.WriteAsync(response, headers, cts.Token),

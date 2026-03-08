@@ -162,7 +162,7 @@ namespace net.vieapps.Services.Portals
 				var firstPathSegment = pathSegments.Length > 0 ? pathSegments[0].ToLower() : "";
 				requestSegments = pathSegments.Skip(0).ToList();
 
-				// special parameters (like spider indicator (robots.txt)/ads indicator (ads.txt) or system/organization identity)
+				// special parameters (like indicators (robots.txt/ads.txt/favicon.ico) or system/organization identity)
 				if (!string.IsNullOrWhiteSpace(firstPathSegment))
 				{
 					// system/oranization identity
@@ -416,6 +416,7 @@ namespace net.vieapps.Services.Portals
 						alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
 						alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
 						redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
+						context.UpdateServerTiming("ngxIdentify", stepwatch.ElapsedMilliseconds);
 						if (stepwatch.Elapsed.TotalMilliseconds > 50)
 							await context.WriteLogsAsync("Http.Process.Requests", $"The identify process was completed in {stepwatch.GetElapsedTimes()} [{systemIdentity}]").ConfigureAwait(false);
 					}
@@ -662,7 +663,7 @@ namespace net.vieapps.Services.Portals
 							{
 								["Content-Type"] = $"{contentType}; charset=utf-8",
 								["ETag"] = eTag,
-								["Cache-Control"] = "public",
+								["Cache-Control"] = context.IsAuthenticated() ? "private, no-store, no-cache" : "public",
 								["X-Cache"] = "HTTP-200",
 								["X-Node"] = Global.NodeID,
 								["X-Correlation-ID"] = correlationID
@@ -690,6 +691,7 @@ namespace net.vieapps.Services.Portals
 							{
 								headers["Last-Modified"] = lastModified;
 								headers["X-Cache"] = "HTTP-304";
+								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 								context.SetResponseHeaders((int)HttpStatusCode.NotModified, headers);
 
 								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
@@ -733,6 +735,7 @@ namespace net.vieapps.Services.Portals
 
 								headers["Last-Modified"] = lastModified;
 								headers["Expires"] = (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString();
+								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 								context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
 
 								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
@@ -768,11 +771,16 @@ namespace net.vieapps.Services.Portals
 							headers["X-Service-Node"] = nodeID;
 						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 						{
+							["Cache-Control"] = context.IsAuthenticated() ? "private, no-store, no-cache" : headers.TryGetValue("Cache-Control", out var cacheControl) ? cacheControl : "public",
 							["X-Correlation-ID"] = correlationID,
 							["X-Node"]  = Global.NodeID
 						};
 
+						if (headers.TryGetValue("Server-Timing", out var serverTiming))
+							context.UpdateServerTiming(serverTiming, () => headers.Remove("Server-Timing"));
+						context.UpdateServerTiming("ngxServ", stepwatch.ElapsedMilliseconds);
 						context.SetResponseHeaders(statusCode, headers);
+
 						var body = response.Get<string>("Body");
 						if (body != null)
 							await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
@@ -824,6 +832,7 @@ namespace net.vieapps.Services.Portals
 							throw;
 					}
 				}
+				catch (TaskCanceledException) { }
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
 				{
@@ -882,6 +891,7 @@ namespace net.vieapps.Services.Portals
 							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
 							await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID"), systemIdentityJson?.Get<string>("ObjectID"), systemIdentityJson?.Get<string>("RepositoryEntityID") ?? systemIdentityJson?.Get<string>("ObjectName"), systemIdentityJson?.Get<string>("Location"), systemIdentityJson?.Get<string>("TrackingContentType"), systemIdentityJson?.Get<string>("TrackingBody"), systemIdentityJson?.Get<string>("TrackingBodyEncoding"), systemIdentityJson?.Get<string>("TrackingCacheControl")).ConfigureAwait(false);
 						}
+						catch (TaskCanceledException) { }
 						catch (OperationCanceledException) { }
 						catch (Exception ex)
 						{
@@ -924,6 +934,7 @@ namespace net.vieapps.Services.Portals
 							if (body != null)
 								await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
 						}
+						catch (TaskCanceledException) { }
 						catch (OperationCanceledException) { }
 						catch (Exception ex)
 						{
@@ -1012,6 +1023,7 @@ namespace net.vieapps.Services.Portals
 				headers["Access-Control-Allow-Origin"] = allowOrigin ?? "*";
 			}
 
+			context.UpdateServerTiming("ngxCache", stopwatch.ElapsedMilliseconds);
 			context.SetResponseHeaders(statusCode, headers);
 			if (body != null)
 			{
@@ -1215,8 +1227,14 @@ namespace net.vieapps.Services.Portals
 
 		async Task ProcessLogInRequestAsync(HttpContext context, JObject systemIdentityJson)
 		{
-			var correlationID = context.GetCorrelationID();
 			var isUserInteract = context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php");
+			var correlationID = context.GetCorrelationID();
+			var headers = new Dictionary<string, string>
+			{
+				["Cache-Control"] = "private, no-store, no-cache",
+				["X-Node"] = Global.NodeID,
+				["X-Correlation-ID"] = correlationID
+			};
 
 			async Task registerAsync()
 			{
@@ -1248,7 +1266,7 @@ namespace net.vieapps.Services.Portals
 					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
 					await Task.WhenAll
 					(
-						context.WriteAsync(session.GetSessionJson(), Formatting.Indented, correlationID, cts.Token),
+						context.WriteAsync(session.GetSessionJson(), Formatting.Indented, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully register a new session {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1345,7 +1363,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-						context.WriteAsync(response, Formatting.Indented, correlationID, cts.Token),
+						context.WriteAsync(response, Formatting.Indented, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully log a session in {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1427,7 +1445,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
+						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully log a session in with OTP {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1482,7 +1500,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-						context.WriteAsync(response, Formatting.Indented, correlationID, cts.Token),
+						context.WriteAsync(response, Formatting.Indented, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully send a renew password request {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1560,8 +1578,14 @@ namespace net.vieapps.Services.Portals
 
 		async Task ProcessLogOutRequestAsync(HttpContext context, JObject systemIdentityJson)
 		{
-			var correlationID = context.GetCorrelationID();
 			var isUserInteract = context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php");
+			var correlationID = context.GetCorrelationID();
+			var headers = new Dictionary<string, string>
+			{
+				["Cache-Control"] = "private, no-store, no-cache",
+				["X-Node"] = Global.NodeID,
+				["X-Correlation-ID"] = correlationID
+			};
 			try
 			{
 				// get session
@@ -1623,7 +1647,7 @@ namespace net.vieapps.Services.Portals
 
 					await Task.WhenAll
 					(
-						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, correlationID, cts.Token),
+						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully log a session out {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}

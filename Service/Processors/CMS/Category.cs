@@ -1,16 +1,17 @@
 ﻿#region Related components
 using System;
 using System.Linq;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Dynamic;
+using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using net.vieapps.Components.Utility;
-using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Exceptions;
 #endregion
 
@@ -299,14 +300,12 @@ namespace net.vieapps.Services.Portals
 			(
 				Task.WhenAll(setTasks),
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled && category != null ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS category [{category.Title} - ID: {category.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
-				doRefresh && category != null
-					? Task.WhenAll
-					(
-						category.GetURL().Replace("~/", $"{category.Organization?.URL}/").RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS category was clean [{category.Title} - ID: {category.ID}]"),
-						$"{category.Organization?.URL}/".RefreshWebPageAsync(1, correlationID, $"Refresh desktop when related cache of a CMS category was clean [{category.Title} - ID: {category.ID}]")
-					) : Task.CompletedTask
-				).ConfigureAwait(false);
+				Utility.IsCacheLogEnabled && category != null
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS category [{category.Title} - ID: {category.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
+					: Task.CompletedTask
+			).ConfigureAwait(false);
+			if (doRefresh && category != null && category.Organization != null && (category.Organization.ExamineURLs == null || category.Organization.ExamineURLs.Count < 1))
+				await category.Organization.RefreshWebPageAsync([category.Organization.URL, category.GetURL(true)], 1, correlationID, $"Refresh when clear related cache of a category [{category.Title} - ID: {category.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		static async Task<(long TotalRecords, List<Category> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Category> filter, SortBy<Category> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false)
