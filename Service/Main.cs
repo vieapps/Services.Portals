@@ -80,6 +80,8 @@ namespace net.vieapps.Services.Portals
 
 		bool CacheDesktopHtmls { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Desktops:Htmls", "true"));
 
+		int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "12"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge :  12;
+
 		string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
 		bool AllowSrcResourceFiles { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:AllowSrcFiles", "true"));
@@ -1680,12 +1682,13 @@ namespace net.vieapps.Services.Portals
 					).ConfigureAwait(false);
 			}
 
+			var maxAge = 366 * 24 * 60 * 60;
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				{ "ETag", eTag },
 				{ "Last-Modified", lastModified },
-				{ "Cache-Control", "public" },
-				{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
+				{ "Cache-Control", $"public, max-age=0, s-maxage={maxAge}, stale-while-revalidate=60, stale-if-error=86400" },
+				{ "Expires", DateTime.Now.AddSeconds(maxAge).ToHttpString() },
 				{ "X-Node", this.NodeID },
 				{ "X-Cache", "None" },
 				{ "X-Correlation-ID", requestInfo.CorrelationID }
@@ -2177,6 +2180,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			string lastModified = null;
+			var maxAge = this.CacheMaxAge * 60 * 60;
 			var stepwatch = Stopwatch.StartNew();
 			if (modifiedSince != null && eTag.IsEquals(noneMatch))
 			{
@@ -2187,7 +2191,7 @@ namespace net.vieapps.Services.Portals
 					{
 						["ETag"] = eTag,
 						["Last-Modified"] = lastModified,
-						["Cache-Control"] = "public",
+						["Cache-Control"] = $"public, max-age=0, s-maxage={maxAge}, stale-while-revalidate=60, stale-if-error=86400",
 						["Server-Timing"] = $"ngxCache;dur=${stepwatch.ElapsedMilliseconds}",
 						["X-Cache"] = "SVC-304"
 					};
@@ -2247,12 +2251,13 @@ namespace net.vieapps.Services.Portals
 					await Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, cancellationToken).ConfigureAwait(false);
 				}
 				var expiresAt = await Utility.Cache.GetAsync<string>(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false);
-				expiresAt = !string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) ? expirationTime.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString();
+				expiresAt = !string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) ? expirationTime.ToHttpString() : DateTime.Now.AddHours(this.CacheMaxAge).ToHttpString();
+				maxAge = (expiresAt.FromHttpDateTime() - DateTime.Now).TotalSeconds.As<int>();
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
 					["ETag"] = eTag,
 					["Last-Modified"] = lastModified,
-					["Cache-Control"] = "public",
+					["Cache-Control"] = $"public, max-age=0, s-maxage={maxAge}, stale-while-revalidate=60, stale-if-error=86400",
 					["Expires"] = expiresAt,
 					["Server-Timing"] = $"ngxCache;dur=${stepwatch.ElapsedMilliseconds}",
 					["X-Cache"] = "SVC-200"
@@ -2596,12 +2601,14 @@ namespace net.vieapps.Services.Portals
 									: expiresAt;
 						});
 						lastModified = DateTime.Now.ToHttpString();
+						expiresAt ??= DateTime.Now.AddHours(this.CacheMaxAge);
+						maxAge = (expiresAt.Value - DateTime.Now).TotalSeconds.As<int>();
 						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 						{
 							["ETag"] = eTag,
 							["Last-Modified"] = lastModified,
-							["Expires"] = expiresAt != null ? expiresAt.Value.ToHttpString() : DateTime.Now.AddMinutes(13).ToHttpString(),
-							["Cache-Control"] = "public",
+							["Expires"] = expiresAt.Value.ToHttpString(),
+							["Cache-Control"] = $"public, max-age=0, s-maxage={maxAge}, stale-while-revalidate=60, stale-if-error=86400",
 							["X-Cache"] = "None"
 						};
 
@@ -6152,7 +6159,11 @@ namespace net.vieapps.Services.Portals
 		async Task ClearCacheAsync(IPortalObject @object, string correlationID, CancellationToken cancellationToken)
 		{
 			if (@object is Organization organization)
-				await organization.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
+				await Task.WhenAll
+				(
+					organization.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false),
+					organization.PurgeCloudFlareCacheAsync([], correlationID, cancellationToken)
+				).ConfigureAwait(false);
 
 			else if (@object is Module module)
 			{
@@ -6185,8 +6196,11 @@ namespace net.vieapps.Services.Portals
 					site.SetAsync(false, true, cancellationToken),
 					desktop != null ? desktop.SetAsync(false, true, cancellationToken) : Task.CompletedTask
 				).ConfigureAwait(false);
-				if (desktop != null)
-					await site.Organization.RefreshWebPageAsync([$"~/{desktop.Alias}{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"], 0, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await Task.WhenAll
+				(
+					site.Organization.RefreshWebPageAsync([site.Organization.URL, $"{site.Organization.URL}/index{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}", desktop == null ? "" : $"~/{desktop.Alias}{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"], 0, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]", true, cancellationToken),
+					site.Organization.PurgeCloudFlareCacheAsync([], correlationID, cancellationToken)
+				).ConfigureAwait(false);
 			}
 
 			else if (@object is Desktop desktop)

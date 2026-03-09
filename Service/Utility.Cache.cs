@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
 
-		internal static int RefreshMaxPage { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage", "10"), out var maxPage) && maxPage > 0 ? maxPage : 10;
+		internal static int RefreshMaxPage { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage", "100"), out var maxPage) && maxPage > 0 ? maxPage : 100;
 
 		internal static string CloudFlareZoneID { get; } = UtilityService.GetAppSetting("Portals:CloudFlare:ZoneID");
 

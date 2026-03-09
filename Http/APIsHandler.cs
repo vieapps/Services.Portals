@@ -159,12 +159,13 @@ namespace net.vieapps.Services.Portals
 					headers["X-Service-Node"] = nodeID;
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
+					["Cache-Control"] = headers.TryGetValue("Cache-Control", out var cacheControl) ? cacheControl : "private, no-store, no-cache",
 					["X-Correlation-ID"] = context.GetCorrelationID(),
 					["X-Node"] = Global.NodeID
 				};
 				if (headers.TryGetValue("Server-Timing", out var serverTiming))
 					context.UpdateServerTiming(serverTiming, () => headers.Remove("Server-Timing"));
-				context.UpdateServerTiming("ngxServ", stopwatch.ElapsedMilliseconds);
+				context.UpdateServerTiming("ngxServe", stopwatch.ElapsedMilliseconds);
 				await Task.WhenAll
 				(
 					context.WriteAsync(response, headers, cts.Token),

@@ -64,6 +64,8 @@ namespace net.vieapps.Services.Portals
 
 		static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
+		internal static int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "12"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge : 12;
+
 		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
 
 		internal static bool TrackPortalSessions { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
@@ -517,6 +519,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// process with cache
+					var maxAge = Handler.CacheMaxAge * 60 * 60;
 					var processCache = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache")
 						? false
 						: Handler.AllowCache;
@@ -525,7 +528,7 @@ namespace net.vieapps.Services.Portals
 						var cacheKey = "";
 						var eTag = "";
 						var contentType = "text/html";
-						var expires = DateTime.Now.AddMinutes(13);
+						var expires = DateTime.Now.AddSeconds(maxAge);
 						var baseURL = "";
 						var rootURL = "/";
 						var filesHttpURI = this.RemoveURITrail(systemIdentityJson?.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
@@ -533,7 +536,8 @@ namespace net.vieapps.Services.Portals
 
 						if ("~resources".IsEquals(systemIdentity))
 						{
-							expires = DateTime.Now.AddDays(366);
+							maxAge = 366 * 24 * 60 * 60;
+							expires = DateTime.Now.AddSeconds(maxAge);
 							string identity = null;
 							var isThemeResource = false;
 							var path = requestInfo.GetParameter("x-path");
@@ -663,7 +667,7 @@ namespace net.vieapps.Services.Portals
 							{
 								["Content-Type"] = $"{contentType}; charset=utf-8",
 								["ETag"] = eTag,
-								["Cache-Control"] = context.IsAuthenticated() ? "private, no-store, no-cache" : "public",
+								["Cache-Control"] = context.IsAuthenticated() ? "private, no-store, no-cache" : $"public, max-age=0, s-maxage={maxAge}, stale-while-revalidate=60, stale-if-error=86400",
 								["X-Cache"] = "HTTP-200",
 								["X-Node"] = Global.NodeID,
 								["X-Correlation-ID"] = correlationID
@@ -722,8 +726,8 @@ namespace net.vieapps.Services.Portals
 									};
 									if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
 									{
-										items[$"{cacheKey}:expiration"] = expiresAtTime.AddMinutes(13).ToDTString();
-										Handler.Cache.SetAsync(items, null, expiresAtTime.AddMinutes(13), Global.CancellationToken).Execute();
+										items[$"{cacheKey}:expiration"] = expiresAtTime.AddHours(Handler.CacheMaxAge).ToDTString();
+										Handler.Cache.SetAsync(items, null, expiresAtTime.AddHours(Handler.CacheMaxAge), Global.CancellationToken).Execute();
 									}
 									else
 										Handler.Cache.SetAsync(items, null, 0, Global.CancellationToken).Execute();
@@ -733,8 +737,13 @@ namespace net.vieapps.Services.Portals
 								if (isCacheLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey})\r\n\r\nRaw cache:\r\n{cached}").ConfigureAwait(false);
 
+								expiresAt = (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString();
+								maxAge = (expiresAt.FromHttpDateTime() - DateTime.Now).TotalSeconds.As<int>();
+
 								headers["Last-Modified"] = lastModified;
-								headers["Expires"] = (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString();
+								headers["Expires"] = expiresAt;
+								headers["Cache-Control"] = context.IsAuthenticated() ? "private, no-store, no-cache" : $"public, max-age=0, s-maxage={maxAge}, stale-while-revalidate=60, stale-if-error=86400";
+
 								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 								context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
 
@@ -769,16 +778,17 @@ namespace net.vieapps.Services.Portals
 						headers = response.Get("Headers", new Dictionary<string, string>());
 						if (headers.TryGetValue("X-Node", out var nodeID))
 							headers["X-Service-Node"] = nodeID;
+
 						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 						{
-							["Cache-Control"] = context.IsAuthenticated() ? "private, no-store, no-cache" : headers.TryGetValue("Cache-Control", out var cacheControl) ? cacheControl : "public",
+							["Cache-Control"] = context.IsAuthenticated() ? "private, no-store, no-cache" : headers.TryGetValue("Cache-Control", out var cacheControl) ? cacheControl : $"public, max-age=0, s-maxage={maxAge}, stale-while-revalidate=60, stale-if-error=86400",
 							["X-Correlation-ID"] = correlationID,
 							["X-Node"]  = Global.NodeID
 						};
 
 						if (headers.TryGetValue("Server-Timing", out var serverTiming))
 							context.UpdateServerTiming(serverTiming, () => headers.Remove("Server-Timing"));
-						context.UpdateServerTiming("ngxServ", stepwatch.ElapsedMilliseconds);
+						context.UpdateServerTiming("ngxServe", stepwatch.ElapsedMilliseconds);
 						context.SetResponseHeaders(statusCode, headers);
 
 						var body = response.Get<string>("Body");
