@@ -144,7 +144,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			if (Handler.TrackSessions)
-				requestInfo.SendSessionState(null, message => message.Data["Crawler"] = context.IsCrawlerbot(), Handler.TrackAPISessions);
+				requestInfo.SendSessionState(null, message => message.Data["Crawler"] = context.IsCrawlerbot(), Handler.TrackAPIStatistics);
 			else
 				requestInfo.TrackStatistics();
 
@@ -186,7 +186,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var context = Global.CurrentHttpContext;
 				websocket.Set("Session", session = context?.GetSession());
-				session?.SendSessionState("Users", "CONNECT /session", false, Handler.TrackAPISessions);
+				session?.SendSessionState("Users", "CONNECT /session", false, Handler.TrackAPIStatistics);
 				if (context != null && context.ContainsKey("x-logs"))
 					return Global.WriteLogsAsync(Global.Logger, "APIs", $"A websocket connection was established {websocket.RemoteEndPoint}\r\nSession:{session.ToJson()}");
 			}
@@ -196,7 +196,7 @@ namespace net.vieapps.Services.Portals
 		public static Task DisconnectAPIsAsync(this ManagedWebSocket websocket)
 		{
 			if (websocket.Remove("Session", out Session session) && session != null && Handler.TrackSessions)
-				session.SendSessionState("Users", "DISCONNECT /session", false, Handler.TrackAPISessions);
+				session.SendSessionState("Users", "DISCONNECT /session", false, Handler.TrackAPIStatistics);
 			return Task.CompletedTask;
 		}
 
@@ -321,7 +321,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					if (Handler.TrackSessions)
-						requestInfo.SendSessionState(Handler.TrackAPISessions);
+						requestInfo.SendSessionState(Handler.TrackAPIStatistics);
 					else
 						requestInfo.TrackStatistics();
 

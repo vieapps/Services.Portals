@@ -524,7 +524,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (organization.ExamineURLs == null || organization.ExamineURLs.Count < 1))
-				await organization.RefreshWebPageAsync([organization.URL, $"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/o_{organization.ID}.js", $"{Utility.PortalsHttpURI}/_js/o_{organization.ID}.js"], 1, correlationID, $"Refresh when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await organization.RefreshWebPageAsync([organization.URL, $"{organization.URL}/favicon.ico", $"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/o_{organization.ID}.js", $"{Utility.PortalsHttpURI}/_js/o_{organization.ID}.js"], 1, correlationID, $"Refresh when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task ClearCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null, bool clearObjectsCache = true, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)

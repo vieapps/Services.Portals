@@ -1,16 +1,15 @@
 ﻿#region Related components
-using DocumentFormat.OpenXml.Wordprocessing;
+using System;
+using System.Linq;
+using System.Diagnostics;
+using System.Collections.Generic;
+using System.Reactive.Concurrency;
+using System.Threading;
+using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Utility;
-using Newtonsoft.Json.Linq;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -284,17 +283,20 @@ namespace net.vieapps.Services.Portals
 			if (urls.Count() > 0)
 			{
 				var cloudflareURLs = urls.Select(url => new[] { url, url.IsStartsWith("http://www.") || url.IsStartsWith("https://www.") ? url.Replace("//www.", "//") : url.Replace("//", "//www.") }).SelectMany(url => url).ToList();
-				var totalPages = Extensions.GetTotalPages(cloudflareURLs.Count, 30);
 				var pageNumber = 0;
+				var pageSize = 25;
+				var totalPages = Extensions.GetTotalPages(cloudflareURLs.Count, pageSize);
 				while (pageNumber < totalPages)
 				{
 					cloudflareBody = new JObject
 					{
-						["files"] = cloudflareURLs.Skip(pageNumber * 30).Take(30).ToJArray()
+						["files"] = cloudflareURLs.Skip(pageNumber * pageSize).Take(pageSize).ToJArray()
 					};
 					await purgeAsync(cloudflareBody).ConfigureAwait(false);
 					pageNumber++;
 				}
+				if (Utility.IsPurgeCacheLogEnabled)
+					await Utility.WriteLogAsync(correlationID, $"Purge CloudFlare cache successful\r\nURLs:\r\n- {urls.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 			}
 			else
 				await purgeAsync(cloudflareBody).ConfigureAwait(false);

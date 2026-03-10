@@ -31,7 +31,6 @@ namespace net.vieapps.Services.Portals
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
 				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToArray(";", true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
-				site.NormalizeExtras();
 				onCompleted?.Invoke(site);
 			});
 
@@ -41,7 +40,6 @@ namespace net.vieapps.Services.Portals
 				site.PrimaryDomain = site.PrimaryDomain.Trim().ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".");
 				site.SubDomain = site.SubDomain.Trim().Equals("*") ? site.SubDomain.Trim() : site.SubDomain.NormalizeAlias(false);
 				site.OtherDomains = string.IsNullOrWhiteSpace(site.OtherDomains) ? null : site.OtherDomains.Replace(",", ";").ToArray(";", true).Select(domain => domain.ToArray(".").Select(name => name.NormalizeAlias(false)).Join(".")).Where(domain => !domain.IsEquals(site.PrimaryDomain)).Join(";");
-				site.NormalizeExtras();
 				onCompleted?.Invoke(site);
 			});
 
@@ -319,7 +317,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (site.Organization.ExamineURLs == null || site.Organization.ExamineURLs.Count < 1))
-				await site.Organization.RefreshWebPageAsync(site, [site.Organization.URL, site.GetURL(), $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/s_{site.ID}.js", $"{Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{Utility.PortalsHttpURI}/_js/s_{site.ID}.js"], 1, correlationID, $"Refresh when clear related cache of a site [{site.Title} - ID: {site.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await site.Organization.RefreshWebPageAsync(site, [site.Organization.URL, site.GetURL(), $"{site.GetURL()}/favicon.ico", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/s_{site.ID}.js", $"{Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{Utility.PortalsHttpURI}/_js/s_{site.ID}.js"], 1, correlationID, $"Refresh when clear related cache of a site [{site.Title} - ID: {site.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task ClearCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
@@ -453,6 +451,7 @@ namespace net.vieapps.Services.Portals
 				obj.Created = obj.LastModified = DateTime.Now;
 				obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 			});
+			site.NormalizeExtras();
 			await Site.CreateAsync(site, cancellationToken).ConfigureAwait(false);
 
 			// update cache
@@ -598,6 +597,7 @@ namespace net.vieapps.Services.Portals
 				SiteProcessor.MustUpdatedProperties.ForEach(name => site.SetProperty(name, request.Get(name)));
 				site.LastModified = DateTime.Now;
 				site.LastModifiedID = requestInfo.Session.User.ID;
+				site.NormalizeExtras();
 			});
 
 			// update

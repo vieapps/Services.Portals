@@ -1977,9 +1977,14 @@ namespace net.vieapps.Services.Portals
 				};
 			}
 
-			// purge caches of CloudFlare
-			if (this.CacheDesktopResources && isRequestToForceCache && resources != null && !string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken))
-				await organization.PurgeCloudFlareCacheAsync([$"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}"], requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+			// purge cache of CloudFlare
+			if (isRequestToForceCache && resources != null)
+			{
+				if (!string.IsNullOrWhiteSpace(organization?.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization?.CloudFlareApiToken))
+					await new[] { $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}" }.PurgeCloudFlareCacheAsync(organization.CloudFlareZoneID, organization.CloudFlareApiToken, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+				else if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
+					await new[] { $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}" }.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+			}
 
 			// response
 			return resources != null

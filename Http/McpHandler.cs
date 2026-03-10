@@ -218,12 +218,11 @@ namespace net.vieapps.Services.Portals
 				throw new InvalidMcpSessionException($"Invalid or expired session ({(string.IsNullOrWhiteSpace(mcpSessionID) ? "no identity" : "not found")})");
 
 			// process the request
-			await context.WriteLogsAsync("MCP", $"Start process request [{systemID}/{alias}]{(isDebugLogEnabled ? $"\r\nRequest JSON-RPC [{mcpSessionID}]: {mcpRequest}" : "")}").ConfigureAwait(false);
-
-			if (Handler.TrackSessions)
-				requestInfo.SendSessionState(Handler.TrackAPISessions);
-			else
-				requestInfo.TrackStatistics();
+			await Task.WhenAll
+			(
+				context.WriteLogsAsync("MCP", $"Start process request [{systemID}/{alias}]{(isDebugLogEnabled ? $"\r\nRequest JSON-RPC [{mcpSessionID}]: {mcpRequest}" : "")}"),
+				context.SendSessionStateAsync(true, Handler.TrackAPIStatistics)
+			).ConfigureAwait(false);
 
 			try
 			{
@@ -652,6 +651,8 @@ namespace net.vieapps.Services.Portals
 				return;
 			}
 
+			await context.SendSessionStateAsync(true, Handler.TrackAPIStatistics).ConfigureAwait(false);
+
 			if (headers.TryGetValue("Last-Event-ID", out var lastEventID))
 			{
 				var lastEventIndex = mcpSession.Messages.FindIndex(message => message.ID == lastEventID);
@@ -749,6 +750,7 @@ namespace net.vieapps.Services.Portals
 			mcpSession.SendSessionInfo(true, true);
 			communicator.Dispose();
 
+			await context.SendSessionStateAsync(false, Handler.TrackAPIStatistics).ConfigureAwait(false);
 			if (Global.IsVisitLogEnabled)
 				await context.WriteLogsAsync(Global.Logger, "MCP", $"The EventStream connection was disconnected").ConfigureAwait(false);
 		}

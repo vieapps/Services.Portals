@@ -66,11 +66,11 @@ namespace net.vieapps.Services.Portals
 
 		internal static int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "12"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge : 12;
 
-		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
+		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "false"));
 
-		internal static bool TrackPortalSessions { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
+		internal static bool TrackPortalStatistics { get; set; } = Handler.TrackSessions || "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
 
-		internal static bool TrackAPISessions { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
+		internal static bool TrackAPIStatistics { get; set; } = Handler.TrackSessions || "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "true"));
 
 		static string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
@@ -496,7 +496,7 @@ namespace net.vieapps.Services.Portals
 
 					// session state
 					if (!isRefresher && !"~resources".IsEquals(systemIdentity) && !"~indicators".IsEquals(systemIdentity))
-						requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalSessions);
+						requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
 
 					// examinations
 					var examinations = isRefresher || "~resources".IsEquals(systemIdentity) || "~indicators".IsEquals(systemIdentity) || (context.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx")) ? null : systemIdentityJson?.Get<JArray>("CacheExaminations")?.Select(exam => exam as JObject).Where(exam => exam != null).Select(exam => exam?.Copy<Settings.ExamineURLs>()).Where(exam => exam != null).ToList();
@@ -924,7 +924,7 @@ namespace net.vieapps.Services.Portals
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 
-							requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalSessions);
+							requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
 							if (isDebugLogEnabled)
 								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
@@ -1048,13 +1048,12 @@ namespace net.vieapps.Services.Portals
 				await context.WriteAsync(isBase64 ? body.Base64ToBytes() : body.ToBytes(), cts.Token).ConfigureAwait(false);
 			}
 
-			if (Handler.TrackSessions)
-				context.GetSession().SendSessionState($"{Global.ServiceName}.HTTP", $"GET {requestURI}", true, Handler.TrackPortalSessions, false, message => message.Data["Crawler"] = context.IsCrawlerbot());
-			else
-				context.GetSession().TrackStatistics(context.GetCorrelationID());
-
 			stopwatch.Stop();
-			await context.WriteLogsAsync("Http.Process.Requests", $"Process the L1-Cache of CMS Portals HTTP service was done - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+			Task.WhenAll
+			(
+				context.SendSessionStateAsync(true, Handler.TrackPortalStatistics),
+				context.WriteLogsAsync("Http.Process.Requests", $"Process the L1-Cache of CMS Portals HTTP service was done - Execution times: {stopwatch.GetElapsedTimes()}")
+			).Execute();
 			return true;
 		}
 
@@ -1259,9 +1258,7 @@ namespace net.vieapps.Services.Portals
 							: UtilityService.NewUUID;
 					context.Session.Add("Session", session);
 					context.SetSession(session);
-
-					if (Handler.TrackSessions)
-						session.SendSessionState("Users", "POST /session", null, true, Handler.TrackAPISessions, false);
+					context.SendSessionState("Users", "POST /session", true, Handler.TrackAPIStatistics);
 
 					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 					var body = session.GetSessionBody().ToString(Formatting.None);
@@ -1304,9 +1301,6 @@ namespace net.vieapps.Services.Portals
 					var session = context.Session.Get<Session>("Session");
 					if (session == null || !session.GetEncryptedID().IsEquals(context.Request.Query["x-session-id"]) || !session.DeviceID.Url64Encode().IsEquals(context.Request.Query["x-device-id"]))
 						throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
-
-					if (Handler.TrackSessions)
-						session.SendSessionState("Users", "PUT /session", null, true, Handler.TrackAPISessions, false);
 
 					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
 					var account = Global.RSA.Decrypt(request.Get("Account", "")).Trim().ToLower();
@@ -1365,6 +1359,7 @@ namespace net.vieapps.Services.Portals
 						var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
 						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
 						context.Session.Add("Session", session);
+						context.SendSessionState("Users", "PUT /session", true, Handler.TrackAPIStatistics);
 
 						response = session.GetSessionJson(payload => payload["did"] = session.DeviceID);
 					}
@@ -1392,9 +1387,6 @@ namespace net.vieapps.Services.Portals
 					var session = context.Session.Get<Session>("Session");
 					if (session == null || !session.GetEncryptedID().IsEquals(context.Request.Query["x-session-id"]) || !session.DeviceID.Url64Encode().IsEquals(context.Request.Query["x-device-id"]))
 						throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
-
-					if (Handler.TrackSessions)
-						session.SendSessionState("Users", "PUT /session/otp", null, true, Handler.TrackAPISessions, false);
 
 					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
 					var id = request.Get<string>("ID");
@@ -1450,6 +1442,7 @@ namespace net.vieapps.Services.Portals
 					var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
 					await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
 					context.Session.Add("Session", session);
+					context.SendSessionState("Users", "PUT /session/otp", true, Handler.TrackAPIStatistics);
 
 					// response
 					await Task.WhenAll
@@ -1478,9 +1471,6 @@ namespace net.vieapps.Services.Portals
 					if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
 						throw new InformationInvalidException();
 
-					if (Handler.TrackSessions)
-						session.SendSessionState("Users", "PATCH /account", null, true, Handler.TrackAPISessions, false);
-
 					var language = context.GetParameter("language") ?? "vi-VN";
 					var requestURI = context.GetRequestUri();
 					var pathSegment = requestURI.GetRequestPathSegments().First();
@@ -1507,6 +1497,7 @@ namespace net.vieapps.Services.Portals
 					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
 
 					// response
+					context.SendSessionState("Users", "PATCH /account", true, Handler.TrackAPIStatistics);
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
@@ -1600,8 +1591,6 @@ namespace net.vieapps.Services.Portals
 			{
 				// get session
 				var session = context.GetSession();
-				if (Handler.TrackSessions)
-					session.SendSessionState("Users", "DELETE /session", null, false, Handler.TrackAPISessions, false);
 
 				// call service to delete the session
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
@@ -1620,6 +1609,7 @@ namespace net.vieapps.Services.Portals
 
 				// perform log out
 				await context.SignOutAsync().ConfigureAwait(false);
+				context.SendSessionState("Users", "DELETE /session", false, Handler.TrackAPIStatistics);
 
 				// response
 				if (isUserInteract)
@@ -1652,8 +1642,7 @@ namespace net.vieapps.Services.Portals
 					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
 
 					context.Session.Add("Session", session);
-					if (Handler.TrackSessions)
-						session.SendSessionState("Users", "POST /session", null, true, Handler.TrackAPISessions, false);
+					context.SendSessionState("Users", "POST /session", true, Handler.TrackAPIStatistics);
 
 					await Task.WhenAll
 					(
@@ -1995,8 +1984,38 @@ namespace net.vieapps.Services.Portals
 					if (!string.IsNullOrWhiteSpace(serviceURI))
 						serviceInfo["URI"] = serviceURI;
 				}, trackStatistics);
-			else
+			else if (trackStatistics)
 				requestInfo.TrackStatistics();
+		}
+
+		public static void SendSessionState(this HttpContext context, string serviceName, string serviceURI, string serviceSystemID, bool online, bool trackStatistics)
+		{
+			if (Handler.TrackSessions)
+				context.GetSession().SendSessionState(serviceName, serviceURI, serviceSystemID, online, trackStatistics, false, message => message.Data["Crawler"] = context.IsCrawlerbot(), null, context.GetCorrelationID());
+			else if (trackStatistics)
+				context.GetSession().TrackStatistics(context.GetCorrelationID());
+		}
+
+		public static void SendSessionState(this HttpContext context, string serviceName, string serviceURI, bool online, bool trackStatistics)
+			=> context.SendSessionState(serviceName, serviceURI, null, online, trackStatistics);
+
+		public static async Task SendSessionStateAsync(this HttpContext context, bool online, bool trackStatistics)
+		{
+			var serviceSystemID = string.Empty;
+			var requestURI = context.GetRequestUri();
+			if (Handler.TrackSessions)
+			{
+				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					["x-host"] = context.GetParameter("Host") ?? requestURI.Host,
+					["x-url"] = requestURI.AbsoluteUri,
+					["x-requester"] = context.TryGetParameter("x-requester", out var requester) ? requester : "vieapps-ngx-portals"
+				};
+				var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", null, headers, null, null, context.GetCorrelationID());
+				var systemIdentityJson = await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
+				serviceSystemID = systemIdentityJson?.Get<string>("ID");
+			}
+			context.SendSessionState($"{Global.ServiceName}.HTTP", $"{context.Request.Method} {requestURI}", serviceSystemID, online, trackStatistics);
 		}
 
 		public static string NormalizeHtml(this HttpContext context, string html, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL)
