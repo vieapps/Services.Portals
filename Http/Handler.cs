@@ -805,7 +805,7 @@ namespace net.vieapps.Services.Portals
 							var organizationAlias = systemIdentityJson.Get<string>("Alias");
 							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
 							var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
-							var desktopAlias = query["x-desktop"].ToLower();
+							var desktopAlias = query.TryGetValue("x-desktop", out var xdesktopAlias) ? xdesktopAlias.ToLower() : null;
 							var path = homeDesktopAlias.IsEquals(desktopAlias) || homeDesktopAliases.IsContains(desktopAlias) || "-default".IsEquals(desktopAlias) ? "-default" : null;
 							if (path == null)
 							{
