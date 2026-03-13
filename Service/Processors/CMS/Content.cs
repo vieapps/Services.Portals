@@ -541,10 +541,12 @@ namespace net.vieapps.Services.Portals
 				Data = response
 			}.Send();
 
-			// clear related cache & send notification
+			// clear cache
+			content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
+
+			// update related cache & send notification
 			await Task.WhenAll
 			(
-				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken)
 			).ConfigureAwait(false);
@@ -699,10 +701,12 @@ namespace net.vieapps.Services.Portals
 				Data = response
 			}.Send();
 
-			// update cache & send notification
+			// clear cache
+			content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
+
+			// update related cache & send notification
 			await Task.WhenAll
 			(
-				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				content.SendNotificationAsync(@event ?? "Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),

@@ -376,10 +376,12 @@ namespace net.vieapps.Services.Portals
 				Data = response
 			}.Send();
 
-			// clear related cache & send notification
+			// clear cache
+			item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
+
+			// update related cache & send notification
 			await Task.WhenAll
 			(
-				item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				item.SendNotificationAsync("Create", item.ContentType.Notifications, ApprovalStatus.Draft, item.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), Utility.CancellationToken)
 			).ConfigureAwait(false);
@@ -500,10 +502,12 @@ namespace net.vieapps.Services.Portals
 				Data = response
 			}.Send();
 
-			// clear related cache & send notification
+			// clear cache
+			item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
+
+			// update related cache & send notification
 			await Task.WhenAll
 			(
-				item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				item.SendNotificationAsync(@event ?? "Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(),	Utility.CancellationToken)
 			).ConfigureAwait(false);
@@ -574,11 +578,11 @@ namespace net.vieapps.Services.Portals
 			await Item.DeleteAsync<Item>(item.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
-				await Task.WhenAll
+				Task.WhenAll
 				(
 					Utility.Cache.RemoveSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), Utility.CancellationToken),
 					item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false)
-				).ConfigureAwait(false);
+				).Execute();
 
 			var json = sendUpdatingMessages ? item.ToJson() : null;
 			if (sendUpdatingMessages)

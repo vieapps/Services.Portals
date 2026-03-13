@@ -372,11 +372,12 @@ namespace net.vieapps.Services.Portals
 				link.LookupRepositoryID = link.LookupRepositoryEntityID = link.LookupRepositoryObjectID = null;
 			}
 
-			// clear related cache and prepare order index
+			// clear cache (parent)
 			var parentLink = link.ParentLink;
 			if (parentLink != null)
-				await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false).ConfigureAwait(false);
+				parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false).Execute();
 
+			// prepare order index
 			link.OrderIndex = 1 + await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false);
 
 			var dateString = request.Get<string>("StartDate");
@@ -391,7 +392,9 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			await Link.CreateAsync(link, cancellationToken).ConfigureAwait(false);
-			await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+
+			// clear cache
+			link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).Execute();
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -400,7 +403,7 @@ namespace net.vieapps.Services.Portals
 			// update parent
 			while (parentLink != null)
 			{
-				await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).Execute();
 				parentLink._children = null;
 				parentLink._childrenIDs = null;
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -535,7 +538,7 @@ namespace net.vieapps.Services.Portals
 			var parentLink = link.ParentLink;
 			while (parentLink != null)
 			{
-				await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).Execute();
 				parentLink._children = null;
 				parentLink._childrenIDs = null;
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -562,7 +565,7 @@ namespace net.vieapps.Services.Portals
 				parentLink = await Link.GetAsync<Link>(oldParentID, cancellationToken).ConfigureAwait(false);
 				if (parentLink != null)
 				{
-					await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+					parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).Execute();
 					parentLink._children = null;
 					parentLink._childrenIDs = null;
 					await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
@@ -774,7 +777,7 @@ namespace net.vieapps.Services.Portals
 
 			if (link != null)
 			{
-				await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+				link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).Execute();
 				link._children = null;
 				link._childrenIDs = null;
 				await link.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
