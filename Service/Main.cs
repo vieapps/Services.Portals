@@ -1635,7 +1635,9 @@ namespace net.vieapps.Services.Portals
 				? $"{type}#{identity}"
 				: uri.AbsolutePath.ToLower().GenerateUUID();
 
+			var serverTiming = $"ngxPrepare;dur={stopwatch.ElapsedMilliseconds}";
 			stopwatch.Restart();
+
 			var eTag = $"vieapps#{cacheKey.GenerateUUID()}";
 			var lastModified = this.CacheDesktopResources && !isRequestToForceCache ? await Utility.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
 
@@ -1759,11 +1761,13 @@ namespace net.vieapps.Services.Portals
 				if (isCacheLogEnabled)
 					await requestInfo.WriteLogAsync($"Got cache of a HTTP resource => {uri} ({cacheKey})", "Process.Http.Request").ConfigureAwait(false);
 
+				var body = (contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") || contentType.IsStartsWith("video/") || contentType.IsStartsWith("audio/") || contentType.IsEndsWith("/octet-stream") ? resources.Base64ToBytes() : resources.ToBytes()).Compress(this.BodyEncoding).ToBase64();
+				serverTiming += $", ngxCache;dur={stopwatch.ElapsedMilliseconds}";
 				return new JObject
 				{
 					["StatusCode"] = (int)HttpStatusCode.OK,
-					["Headers"] = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase) { ["Content-Type"] = $"{contentType}; charset=utf-8", ["Server-Timing"] = $"ngxCache;dur={stopwatch.ElapsedMilliseconds}", ["X-Cache"] = "SVC-200" }.ToJson(),
-					["Body"] = (contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") || contentType.IsStartsWith("video/") || contentType.IsStartsWith("audio/") || contentType.IsEndsWith("/octet-stream") ? resources.Base64ToBytes() : resources.ToBytes()).Compress(this.BodyEncoding).ToBase64(),
+					["Headers"] = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase) { ["Content-Type"] = $"{contentType}; charset=utf-8", ["Server-Timing"] = serverTiming, ["X-Cache"] = "SVC-200" }.ToJson(),
+					["Body"] = body,
 					["BodyEncoding"] = this.BodyEncoding
 				};
 			}
@@ -1784,14 +1788,27 @@ namespace net.vieapps.Services.Portals
 				var contentType = isRequestOfWebpImage ? "image/webp" : fileInfo.GetMimeType();
 				contentType = contentType.IsStartsWith("application/font-") ? contentType.ToList("/").Last().Replace(StringComparison.OrdinalIgnoreCase, "font-", "font/") : contentType;
 
+				var stepwatch = Stopwatch.StartNew();
 				var data = filePath.IsEndsWith(".css")
 					? this.MinifyCss(await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false), filePath.IsContains($".original.") ? "original" : null).NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI()).ToBytes()
 					: filePath.IsEndsWith(".js")
 						? this.MinifyJs(await fileInfo.ReadAsTextAsync(cancellationToken).ConfigureAwait(false), filePath.IsContains($".original.") ? "original" : null).NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI()).ToBytes()
 						: await fileInfo.ReadAsBinaryAsync(cancellationToken).ConfigureAwait(false);
-				data = isRequestOfWebpImage ? await data.ToWebPAsync(cancellationToken).ConfigureAwait(false) : data;
+
+				stepwatch.Stop();
+				serverTiming += $", ngxRead;dur={stepwatch.ElapsedMilliseconds}";
+
+				if (isRequestOfWebpImage)
+				{
+					stepwatch.Restart();
+					data = await data.ToWebPAsync(cancellationToken).ConfigureAwait(false);
+					stepwatch.Stop();
+					serverTiming += $", ngxConvert;dur={stepwatch.ElapsedMilliseconds}";
+				}
 
 				if (this.CacheDesktopResources)
+				{
+					stepwatch.Restart();
 					await Task.WhenAll
 					(
 						Utility.Cache.SetAsFragmentsAsync(cacheKey, contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") || contentType.IsStartsWith("video/") || contentType.IsStartsWith("audio/") || contentType.IsEndsWith("/octet-stream") ? data.ToBase64() : data.GetString(), cancellationToken),
@@ -1801,13 +1818,15 @@ namespace net.vieapps.Services.Portals
 							? requestInfo.WriteLogAsync($"Update cache of a HTTP resource => {uri} ({cacheKey})", "Process.Http.Request")
 							: Task.CompletedTask
 					).ConfigureAwait(false);
+					stepwatch.Stop();
+					serverTiming += $", ngxCache;dur={stepwatch.ElapsedMilliseconds}";
+				}
 
 				resources = data.Compress(this.BodyEncoding).ToBase64();
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
 					["Content-Type"] = $"{contentType}; charset=utf-8",
-					["Last-Modified"] = lastModified,
-					["Server-Timing"] = $"ngxPrepare;dur={stopwatch.ElapsedMilliseconds}"
+					["Last-Modified"] = lastModified
 				};
 			}
 
@@ -1817,6 +1836,7 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
+				var stepwatch = Stopwatch.StartNew();
 				if (identity.Length == 34 && identity.Right(32).IsValidUUID())
 				{
 					if (identity.IsStartsWith("s_"))
@@ -1869,7 +1889,12 @@ namespace net.vieapps.Services.Portals
 				}
 
 				resources = resources.NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI());
+				stepwatch.Stop();
+				serverTiming += $", ngxRead;dur={stepwatch.ElapsedMilliseconds}";
+
 				if (this.CacheDesktopResources && ((identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity)))
+				{
+					stepwatch.Restart();
 					await Task.WhenAll
 					(
 						Utility.Cache.SetAsync(cacheKey, resources, cancellationToken),
@@ -1879,12 +1904,15 @@ namespace net.vieapps.Services.Portals
 							? requestInfo.WriteLogAsync($"Update cache of a HTTP resource (CSS) => {uri} ({cacheKey})", "Process.Http.Request")
 							: Task.CompletedTask
 					).ConfigureAwait(false);
+					stepwatch.Stop();
+					serverTiming += $", ngxCache;dur={stepwatch.ElapsedMilliseconds}";
+				}
+
 				resources = resources.Compress(this.BodyEncoding);
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
 					["Content-Type"] = "text/css; charset=utf-8",
-					["Last-Modified"] = lastModified,
-					["Server-Timing"] = $"ngxPrepare;dur={stopwatch.ElapsedMilliseconds}"
+					["Last-Modified"] = lastModified
 				};
 			}
 
@@ -1894,6 +1922,7 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(identity))
 					throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
 
+				var stepwatch = Stopwatch.StartNew();
 				if (identity.Length == 34 && identity.Right(32).IsValidUUID())
 				{
 					if (identity.IsStartsWith("o_"))
@@ -1958,7 +1987,12 @@ namespace net.vieapps.Services.Portals
 				}
 
 				resources = resources.NormalizeURLs(portalsHttpURI ?? this.GetPortalsHttpURI(), filesHttpURI ?? this.GetFilesHttpURI());
+				stepwatch.Stop();
+				serverTiming += $", ngxRead;dur={stepwatch.ElapsedMilliseconds}";
+
 				if (this.CacheDesktopResources && ((identity.Length == 34 && identity.Right(32).IsValidUUID()) || !this.DontCacheThemes.Contains(identity)))
+				{
+					stepwatch.Restart();
 					await Task.WhenAll
 					(
 						Utility.Cache.SetAsync(cacheKey, resources, cancellationToken),
@@ -1968,12 +2002,15 @@ namespace net.vieapps.Services.Portals
 							? requestInfo.WriteLogAsync($"Update cache of a HTTP resource (JS) => {uri} ({cacheKey})", "Process.Http.Request")
 							: Task.CompletedTask
 					).ConfigureAwait(false);
+					stepwatch.Stop();
+					serverTiming += $", ngxCache;dur={stepwatch.ElapsedMilliseconds}";
+				}
+
 				resources = resources.Compress(this.BodyEncoding);
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
 					["Content-Type"] = "application/javascript; charset=utf-8",
-					["Last-Modified"] = lastModified,
-					["Server-Timing"] = $"ngxPrepare;dur={stopwatch.ElapsedMilliseconds}"
+					["Last-Modified"] = lastModified
 				};
 			}
 
@@ -1987,6 +2024,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// response
+			headers["Server-Timing"] = serverTiming + $", ngxComplete;dur={stopwatch.ElapsedMilliseconds}";
 			return resources != null
 				? new JObject
 				{

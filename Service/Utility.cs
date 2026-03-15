@@ -2,15 +2,18 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Dynamic;
 using System.Xml.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
+using SixLabors.ImageSharp.Memory;
+using SixLabors.ImageSharp.Processing;
 using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
@@ -1267,14 +1270,41 @@ namespace net.vieapps.Services.Portals
 		public static WebHookMessage Normalize(this WebHookMessage message, WebHookSetting settings, RequestInfo requestInfo, string organizationID)
 			=> message.Normalize(settings.SecretToken, settings.SecretTokenName, settings, requestInfo, organizationID);
 
-		static SixLabors.ImageSharp.Formats.IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder();
-		
+		static Utility()
+		{
+			SixLabors.ImageSharp.Configuration.Default.MemoryAllocator = MemoryAllocator.Create(new MemoryAllocatorOptions
+			{
+				MaximumPoolSizeMegabytes = 128
+			});
+		}
+
+		static SixLabors.ImageSharp.Formats.IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder
+		{
+			FileFormat = SixLabors.ImageSharp.Formats.Webp.WebpFileFormatType.Lossy,
+			Method = Enum.TryParse<SixLabors.ImageSharp.Formats.Webp.WebpEncodingMethod>(UtilityService.GetAppSetting("Portals:WebP:Method", "Default"), out var method)
+				? method
+				: SixLabors.ImageSharp.Formats.Webp.WebpEncodingMethod.Default,
+			UseAlphaCompression = true,
+			Quality = 70
+		};
+
 		internal static async Task<byte[]> ToWebPAsync(this byte[] data, CancellationToken cancellationToken)
 		{
+			using var webpStream = UtilityService.CreateMemoryStream();
 			using var imageStream = data.ToMemoryStream();
 			using var imageObject = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
-			using var webpStream = UtilityService.CreateMemoryStream();
-			await imageObject.SaveAsync(webpStream, WebpEncoder, cancellationToken).ConfigureAwait(false);
+			imageObject.Metadata.ExifProfile = null;
+			imageObject.Metadata.IccProfile = null;
+			imageObject.Metadata.XmpProfile = null;
+			imageObject.Metadata.IptcProfile = null;
+			imageObject.Mutate(op => op.AutoOrient());
+			if (imageObject.PixelType.BitsPerPixel != 24)
+			{
+				using var rgbImage = imageObject.CloneAs<SixLabors.ImageSharp.PixelFormats.Rgb24>();
+				await rgbImage.SaveAsync(webpStream, WebpEncoder, cancellationToken).ConfigureAwait(false);
+			}
+			else
+				await imageObject.SaveAsync(webpStream, WebpEncoder, cancellationToken).ConfigureAwait(false);
 			return webpStream.ToBytes();
 		}
 
