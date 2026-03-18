@@ -82,7 +82,7 @@
 				"BirthDay": "Ngày sinh",
 				"Address": {
 					"label": "Địa chỉ",
-					"placeholder": "Quận/Huyện, Thành phố/Tỉnh"
+					"placeholder": "Phường/Xã, Thành phố/Tỉnh"
 				},
 				"Mobile": "Mobile",
 				"Language": {
@@ -138,6 +138,7 @@
 				"email": "Đổi email đăng nhập",
 				"otp": "Thiết đặt bảo mật",
 				"privileges": "Đặt quyền truy cập",
+				"tokens": "Khoá truy cập APIs",
 				"logout": "Đăng xuất"
 			},
 			"avatar": {
@@ -234,5 +235,58 @@
 			},
 			"searchbar": "cho từ khoá vào \"..\" để tìm kiếm chính xác"
 		}
+	},
+	"tokens": {
+		"list": {
+			"title": "Danh sách khoá truy cập APIs"
+		},
+		"create": {
+			"title": "Tạo mới khoá truy cập APIs",
+			"button": "Tạo khoá truy cập",
+			"controls": {
+				"Title": {
+					"label": "Tiêu đề",
+					"description" : "Tiêu đề của khoá truy cập APIs"
+				},
+				"UserID": {
+					"label": "Tài khoản",
+					"description" : "Chỉ định tài khoản của khoá truy cập APIs, các quyền sử dụng với các dịch vụ sẽ là của tài khoản này"
+				},
+				"Expires": {
+					"label": "Thời điểm hết hạn",
+					"description" : "Chỉ định thời điểm khoá truy cập APIs này sẽ hết hạn sử dụng"
+				}
+			}
+		},
+		"view": {
+			"title": "Thông tin khoá truy cập APIs",
+			"button": "Xoá khoá truy cập APIs",
+			"controls": {
+				"Title": {
+					"label": "Tiêu đề"
+				},
+				"UserID": {
+					"label": "Tài khoản",
+					"description" : "Các quyền sử dụng với các dịch vụ là của tài khoản này"
+				},
+				"Expires": {
+					"label": "Thời điểm hết hạn",
+					"description" : "Thời điểm khoá truy cập APIs này hết hạn sử dụng"
+				},
+				"LastAccess": {
+					"label": "Thời điểm sử dụng",
+					"description" : "Thời điểm sử dụng khoá truy cập APIs này gần nhất"
+				},
+				"Created": {
+					"label": "Thông tin hệ thống",
+					"description" : "Khoá truy cập APIs này được {{user}} khởi tạo lúc {{created}}"
+				},
+				"Token": {
+					"Bearer": "Khoá truy cập theo kiểu Bearer",
+					"Basic": "Khoá truy cập theo kiểu Basic"
+				}
+			}
+		},
+		"delete": "Chắc chắn muốn xoá vĩnh viễn khoá truy cập APIs này?"
 	}
 }

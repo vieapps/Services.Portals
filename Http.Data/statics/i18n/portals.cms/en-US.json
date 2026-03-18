@@ -1,2 +1,691 @@
 {
+  "portals": {
+    "cms": {
+      "common": {
+        "buttons": {
+          "list": "Content list",
+          "viewAsPublished": "View content (as published)",
+          "viewAsPublic": "View content (publicly published)",
+          "duplicate": "Duplicate content"
+        },
+        "links": {
+          "content": "Create link from existing content",
+          "file": "Create link from uploaded file",
+          "media": "Insert media from uploaded file"
+        },
+        "permanentLink": {
+          "label": "Permanent link",
+          "description": "The system will automatically open the correct public link from this permanent/unchanged link"
+        },
+        "tempLink": {
+          "label": "Temporary public link",
+          "description": "Use the link above to view how the content will appear when published publicly in the temporary environment"
+        },
+        "publicLink": {
+          "label": "Public link",
+          "description": "The system will use the link above to display the content when it is publicly published"
+        },
+        "featured": {
+          "updated": "Recently updated",
+          "published": "Recently published"
+        },
+        "shortcuts": {
+          "active": {
+            "organization": "Active organization: {{organization}}",
+            "module": "Active module: {{module}}"
+          },
+          "labels": {
+            "shortcuts": "Content administration shortcuts",
+            "contents": "Content administration",
+            "others": "Other information administration"
+          },
+          "select": {
+            "organization": "Select organization",
+            "module": "Select working module"
+          },
+          "messages": {
+            "removeOrganization": "Are you sure you want to leave '{{name}}'?"
+          }
+        },
+        "advanced": {
+          "delete": {
+            "action": "Delete selected content",
+            "confirm": {
+              "first": "Are you sure you want to delete the selected content?",
+              "last": "Selected content will be moved to the 'Trash' and permanently deleted after 30 days.",
+              "next": "Confirm deletion of these items?"
+            },
+            "message": "Selected content deleted!"
+          },
+          "resend": {
+            "action": "Resend notifications of selected content",
+            "confirm": "Are you sure you want to resend notifications of the selected content?",
+            "message": "Notifications resent!",
+            "label": "Notification type to send:",
+            "types": {
+              "app": "App notification",
+              "email": "Email notification",
+              "webhook": "Web-hook signal"
+            }
+          }
+        }
+      },
+      "categories": {
+        "title": {
+          "list": "Category list {{info}}",
+          "search": "Search categories",
+          "reorder": "Reorder categories",
+          "create": "Create new category",
+          "update": "Update category"
+        },
+        "controls": {
+          "Info": "Category of",
+          "ParentID": {
+            "label": "Parent category",
+            "placeholder": "",
+            "description": ""
+          },
+          "OrderIndex": {
+            "label": "Display order",
+            "placeholder": "",
+            "description": ""
+          },
+          "Title": {
+            "label": "Title",
+            "placeholder": "",
+            "description": ""
+          },
+          "Alias": {
+            "label": "Alias",
+            "placeholder": "",
+            "description": "Alias is used to generate administrative and preview links"
+          },
+          "Description": {
+            "label": "Description",
+            "placeholder": "",
+            "description": "Used for the <b>Description</b> meta tag for SEO"
+          },
+          "DesktopID": {
+            "label": "Display desktop",
+            "placeholder": "",
+            "description": "Default desktop used to display category content; if unspecified, the desktop of the associated business data type will be used"
+          },
+          "OpenBy": {
+            "label": "Category opening method",
+            "placeholder": "",
+            "description": "Specify how the category content will be opened (linking behavior)",
+            "DesktopWithAlias": "Open display desktop with alias",
+            "DesktopOnly": "Open display desktop only",
+            "SpecifiedURI": "Open via static URI specified below"
+          },
+          "SpecifiedURI": {
+            "label": "Static link",
+            "placeholder": "",
+            "description": "Specify the category's static/fixed link.<br/>Tips: You can use '<b>~/</b>' for root path, or '<b>javascript:</b>' to run a JavaScript function."
+          },
+          "PrimaryContentID": {
+            "label": "Primary content type",
+            "placeholder": "",
+            "description": "Specify the primary content type when browsing content list"
+          },
+          "Notes": {
+            "label": "Notes",
+            "placeholder": "",
+            "description": "Used for notes or special information"
+          }
+        },
+        "list": {
+          "searchbar": "Enter keyword into \"..\" for exact category search; prefix with + for required presence",
+          "children": "{{number}} subcategories: {{children}}",
+          "labels": {
+            "edit": "Update category",
+            "children": "View subcategories",
+            "view": "View content list",
+            "move": "Move all content to another category",
+            "moveFirstConfirm": "Are you sure you want to move to another category?",
+            "moveLastConfirm": "Confirm move?",
+            "moveExplanation": "Move all content from current category to a different category",
+            "moveNoCategory": "No target category/business type ID provided",
+            "moveInvalidCategory": "Please re-enter a valid category/business type ID",
+            "moveDone": "Moved to new category successfully"
+          },
+          "buttons": {
+            "edit": "Update",
+            "children": "View subcategories",
+            "view": "View content"
+          }
+        },
+        "update": {
+          "segments": {
+            "basic": "Basic information",
+            "privileges": "Access permissions",
+            "notifications": "Notifications"
+          },
+          "messages": {
+            "confirm": {
+              "new": "Are you sure you want to cancel category creation?",
+              "cancel": "Are you sure you want to cancel category changes?",
+              "delete": "Are you sure you want to delete the category and related information?",
+              "remove": "This category and all its content will be deleted (moved to trash and recoverable within 30 days)"
+            },
+            "success": {
+              "new": "Category created successfully",
+              "update": "Category updated successfully",
+              "delete": "Category added to trash queue"
+            }
+          },
+          "buttons": {
+            "delete": "Delete category",
+            "remove": "Confirm deletion"
+          }
+        }
+      },
+      "contents": {
+        "title": {
+          "list": "Content list ({{info}})",
+          "create": "Create new content",
+          "update": "Update content",
+          "search": "Search content",
+          "massEdit": "Mass edit content",
+          "trash": "Trash (pending deletion)"
+        },
+        "list": {
+          "searchbar": "Enter keywords into \"..\" for exact content search; prefix with + for required matches",
+          "labels": {
+            "edit": "Update content",
+            "view": "View details",
+            "duplicate": "Duplicate content",
+            "publish": "Publish content",
+            "archive": "Archive content",
+            "trash": "Move to trash",
+            "restore": "Restore content",
+            "unpublish": "Unpublish content",
+            "notification": "Send notifications for content"
+          },
+          "buttons": {
+            "viewing": "Viewing",
+            "title": "Title",
+            "lastModified": "Last modified",
+            "created": "Created"
+          },
+          "filters": {
+            "mine": "My created content",
+            "archived": "Archived content",
+            "draft": "Draft",
+            "pending": "Pending approval",
+            "approved": "Approved",
+            "published": "Published",
+            "deleted": "Deleted",
+            "rejected": "Rejected"
+          },
+          "notifications": {
+            "title": "Send notification",
+            "types": {
+              "app": "App notification",
+              "email": "Email",
+              "webhook": "Webhook signal"
+            },
+            "messages": {
+              "success": "Notification has been sent successfully",
+              "confirm": "Are you sure you want to send notifications for this content?"
+            }
+          },
+          "trash": {
+            "labels": {
+              "delete": "Delete permanently",
+              "restore": "Restore content"
+            },
+            "messages": {
+              "restore": "Selected content restored!",
+              "delete": "Selected content permanently deleted!"
+            }
+          }
+        },
+        "controls": {
+          "Status": {
+            "label": "Status",
+            "placeholder": "",
+            "description": "",
+            "SelectOptions": {
+              "Draft": "Draft",
+              "Pending": "Pending",
+              "Rejected": "Rejected",
+              "Approved": "Approved",
+              "Published": "Published",
+              "Archieved": "Archived"
+            }
+          },
+          "CategoryID": {
+            "label": "Primary category",
+            "placeholder": "",
+            "description": "Choose the primary category for content"
+          },
+          "OtherCategories": {
+            "label": "Additional categories",
+            "placeholder": "",
+            "description": "Select other categories that this content belongs to"
+          },
+          "Alias": {
+            "label": "Alias",
+            "placeholder": "",
+            "description": "Alias used to generate preview and administrative links"
+          },
+          "StartDate": {
+            "label": "Start date",
+            "placeholder": "",
+            "description": "Content visibility start date"
+          },
+          "EndDate": {
+            "label": "End date",
+            "placeholder": "",
+            "description": "Content visibility end date"
+          },
+          "PublishedTime": {
+            "label": "Publication time",
+            "placeholder": "",
+            "description": "Scheduled publication date/time"
+          },
+          "Tags": {
+            "label": "Tags",
+            "placeholder": "",
+            "description": "Comma-separated keywords"
+          },
+          "AllowComments": {
+            "label": "Allow comments",
+            "placeholder": "",
+            "description": "Whether this content allows user comments"
+          },
+          "InlineScripts": {
+            "label": "Inline scripts",
+            "placeholder": "",
+            "description": "Custom scripts to attach to the content (advanced)"
+          },
+          "Title": {
+            "label": "Title",
+            "placeholder": "",
+            "description": "Main title of the content"
+          },
+          "SubTitle": {
+            "label": "Subtitle",
+            "placeholder": "",
+            "description": "Additional/secondary title"
+          },
+          "Author": {
+            "label": "Author",
+            "placeholder": "",
+            "description": "Author's name"
+          },
+          "AuthorTitle": {
+            "label": "Author title",
+            "placeholder": "",
+            "description": "Author's role or designation"
+          },
+          "Source": {
+            "label": "Source",
+            "placeholder": "",
+            "description": "Original content source"
+          },
+          "SourceURL": {
+            "label": "Source URL",
+            "placeholder": "",
+            "description": "URL of the content source, if applicable"
+          },
+          "Summary": {
+            "label": "Summary",
+            "placeholder": "",
+            "description": "Short description or summary"
+          },
+          "Details": {
+            "label": "Content details",
+            "placeholder": "",
+            "description": "Full HTML content of the article"
+          },
+          "Relateds": {
+            "label": "Related internal content",
+            "placeholder": "",
+            "description": "Other content items that relate to this item"
+          },
+          "ExternalRelateds": {
+            "label": "External related links",
+            "placeholder": "",
+            "description": "External URLs related to this content",
+            "SubControls": {
+              "Title": {
+                "label": "Title",
+                "placeholder": "",
+                "description": ""
+              },
+              "Summary": {
+                "label": "Summary",
+                "placeholder": "",
+                "description": ""
+              },
+              "URL": {
+                "label": "URL",
+                "placeholder": "",
+                "description": ""
+              }
+            }
+          },
+          "Created": {
+            "label": "Created time",
+            "placeholder": "",
+            "description": "System timestamp of creation"
+          },
+          "CreatedID": {
+            "label": "Creator ID",
+            "placeholder": "",
+            "description": ""
+          },
+          "LastModified": {
+            "label": "Last modified",
+            "placeholder": "",
+            "description": ""
+          },
+          "LastModifiedID": {
+            "label": "Last modified by",
+            "placeholder": "",
+            "description": ""
+          },
+          "SystemID": {
+            "label": "System ID",
+            "placeholder": "",
+            "description": ""
+          },
+          "RepositoryID": {
+            "label": "Repository ID",
+            "placeholder": "",
+            "description": ""
+          },
+          "RepositoryEntityID": {
+            "label": "Repository entity ID",
+            "placeholder": "",
+            "description": ""
+          },
+          "ID": {
+            "label": "Content ID",
+            "placeholder": "",
+            "description": ""
+          }
+        },
+        "links": {
+          "title": {
+            "list": "Link list ({{info}})",
+            "create": "Create new link",
+            "update": "Update link",
+            "search": "Search links"
+          },
+          "controls": {
+            "Info": "Link information",
+            "OrganizationID": {
+              "label": "Organization",
+              "placeholder": "",
+              "description": ""
+            },
+            "ModuleID": {
+              "label": "Module",
+              "placeholder": "",
+              "description": ""
+            },
+            "ContentTypeID": {
+              "label": "Content type",
+              "placeholder": "",
+              "description": ""
+            },
+            "ObjectName": {
+              "label": "Object name",
+              "placeholder": "",
+              "description": ""
+            },
+            "ContentID": {
+              "label": "Content ID",
+              "placeholder": "",
+              "description": "Select existing content to create a link"
+            },
+            "Title": {
+              "label": "Title",
+              "placeholder": "",
+              "description": ""
+            },
+            "Summary": {
+              "label": "Summary",
+              "placeholder": "",
+              "description": "Short description of the link"
+            },
+            "URL": {
+              "label": "URL",
+              "placeholder": "",
+              "description": "The URL the link will navigate to"
+            },
+            "Notes": {
+              "label": "Notes",
+              "placeholder": "",
+              "description": "Used for additional notes"
+            },
+            "OrderIndex": {
+              "label": "Display order",
+              "placeholder": "",
+              "description": "Smaller number appears first"
+            },
+            "Image": {
+              "label": "Image",
+              "placeholder": "",
+              "description": "Thumbnail image"
+            }
+          },
+          "list": {
+            "searchbar": "Enter keyword into \"..\" for exact search; prefix with + for required match",
+            "labels": {
+              "edit": "Update link",
+              "view": "View link",
+              "delete": "Delete link"
+            },
+            "buttons": {
+              "edit": "Edit",
+              "view": "View"
+            }
+          },
+          "update": {
+            "segments": {
+              "basic": "Basic information"
+            },
+            "messages": {
+              "confirm": {
+                "new": "Are you sure you want to cancel link creation?",
+                "cancel": "Are you sure you want to cancel updating this link?",
+                "delete": "Are you sure you want to delete this link?"
+              },
+              "success": {
+                "new": "Link created successfully",
+                "update": "Link updated successfully",
+                "delete": "Link deleted successfully"
+              }
+            },
+            "buttons": {
+              "delete": "Delete link"
+            }
+          }
+        },
+        "forms": {
+          "title": {
+            "list": "Form list ({{info}})",
+            "create": "Create new form",
+            "update": "Update form",
+            "search": "Search forms"
+          },
+          "controls": {
+            "Info": "Form information",
+            "OrganizationID": {
+              "label": "Organization",
+              "placeholder": "",
+              "description": ""
+            },
+            "ModuleID": {
+              "label": "Module",
+              "placeholder": "",
+              "description": ""
+            },
+            "ContentTypeID": {
+              "label": "Content type",
+              "placeholder": "",
+              "description": ""
+            },
+            "ObjectName": {
+              "label": "Object name",
+              "placeholder": "",
+              "description": ""
+            },
+            "Title": {
+              "label": "Title",
+              "placeholder": "",
+              "description": "Title of the form"
+            },
+            "Summary": {
+              "label": "Summary",
+              "placeholder": "",
+              "description": ""
+            },
+            "Notes": {
+              "label": "Notes",
+              "placeholder": "",
+              "description": "Used for additional information"
+            },
+            "Fields": {
+              "label": "Form fields",
+              "placeholder": "",
+              "description": ""
+            },
+            "OrderIndex": {
+              "label": "Display order",
+              "placeholder": "",
+              "description": "Lower number appears first"
+            }
+          },
+          "list": {
+            "searchbar": "Enter keyword into \"..\" for exact form search; prefix with + for required match",
+            "labels": {
+              "edit": "Update form",
+              "view": "View form",
+              "delete": "Delete form"
+            },
+            "buttons": {
+              "edit": "Edit",
+              "view": "View"
+            }
+          },
+          "update": {
+            "segments": {
+              "basic": "Basic information"
+            },
+            "messages": {
+              "confirm": {
+                "new": "Are you sure you want to cancel form creation?",
+                "cancel": "Are you sure you want to cancel form update?",
+                "delete": "Are you sure you want to delete this form?"
+              },
+              "success": {
+                "new": "Form created successfully",
+                "update": "Form updated successfully",
+                "delete": "Form deleted successfully"
+              }
+            },
+            "buttons": {
+              "delete": "Delete form"
+            }
+          }
+        },
+        "crawlers": {
+          "title": {
+            "list": "Crawler configuration list",
+            "create": "Create new crawler configuration",
+            "update": "Update crawler configuration"
+          },
+          "controls": {
+            "Info": "Crawler configuration information",
+            "OrganizationID": {
+              "label": "Organization",
+              "placeholder": "",
+              "description": ""
+            },
+            "Title": {
+              "label": "Title",
+              "placeholder": "",
+              "description": ""
+            },
+            "Summary": {
+              "label": "Summary",
+              "placeholder": "",
+              "description": ""
+            },
+            "CronExpression": {
+              "label": "Cron expression",
+              "placeholder": "",
+              "description": "Schedule expression using cron format"
+            },
+            "SourceURL": {
+              "label": "Source URL",
+              "placeholder": "",
+              "description": "The website address to crawl data from"
+            },
+            "ProcessingType": {
+              "label": "Processing type",
+              "placeholder": "",
+              "description": "",
+              "types": {
+                "extract": "Extract data",
+                "classify": "Classify data",
+                "transform": "Transform/convert data"
+              }
+            },
+            "Script": {
+              "label": "Processing script",
+              "placeholder": "",
+              "description": "JavaScript code to process crawled data"
+            },
+            "ResultType": {
+              "label": "Result type",
+              "placeholder": "",
+              "description": "Where the crawler results will be stored",
+              "types": {
+                "content": "Create content automatically",
+                "log": "Save as log entries",
+                "file": "Save data to files"
+              }
+            },
+            "Notes": {
+              "label": "Notes",
+              "placeholder": "",
+              "description": "Additional notes"
+            }
+          },
+          "list": {
+            "labels": {
+              "edit": "Update crawler",
+              "delete": "Delete configuration"
+            }
+          },
+          "update": {
+            "segments": {
+              "basic": "Basic information"
+            },
+            "messages": {
+              "confirm": {
+                "new": "Are you sure you want to cancel crawler creation?",
+                "cancel": "Are you sure you want to cancel crawler update?",
+                "delete": "Are you sure you want to delete this crawler configuration?"
+              },
+              "success": {
+                "new": "Crawler created successfully",
+                "update": "Crawler updated successfully",
+                "delete": "Crawler deleted successfully"
+              }
+            },
+            "buttons": {
+              "delete": "Delete crawler"
+            }
+          }
+        }
+      }
+    }
+  }
 }

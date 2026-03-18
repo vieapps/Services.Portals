@@ -43,6 +43,7 @@
 			"submit": "Gửi"
 		},
 		"messages": {
+			"initializing": "Khởi tạo phiên làm việc...",
 			"loading": "Tải dữ liệu...",
 			"searching": "Tìm kiếm dữ liệu...",
 			"activating": "Kích hoạt...",
@@ -67,10 +68,19 @@
 			"info": "{{creator}} khởi tạo lúc {{created}} - {{modifier}} cập nhật lần cuối lúc {{modified}}"
 		},
 		"preferences": {
-			"label": "Tuỳ chỉnh",
+			"label": "Hệ thống",
+			"notifications": "Thông báo",
+			"profile": "Thông tin tài khoản",
+			"logs": "Xem logs hệ thống",
+			"flushCache": "Xoá toàn bộ cache",
 			"options": {
 				"language": "Ngôn ngữ",
-				"theme": "Sử dụng theme màu tối"
+				"thumbnails": "Dùng thumbnails khi soạn thảo",
+				"theme": "Dùng theme màu tối",
+				"preflight": "Dùng cơ chế tải trước",
+				"xhr": "Dùng XHR",
+				"xhrToken": "Dùng XHR Query Token",
+				"debug": "Ghi nhận logs chi tiết"
 			},
 			"apps": {
 				"desktop": "Apps cho máy tính",
@@ -155,7 +165,9 @@
 		"label": "Sự kiện",
 		"Create": "Tạo mới",
 		"Update": "Cập nhật",
-		"Delete": "Xoá"
+		"Delete": "Xoá",
+		"Approve": "Phê duyệt",
+		"Reject": "Từ chối"
 	},
 	"files": {
 		"thumbnails": {
@@ -178,5 +190,23 @@
 				"uri": "Liên kết xem/tải tệp tin"
 			}
 		}
+	},
+	"versions": {
+		"view": "Xem các phiên bản thay đổi",
+		"list": "{{total}} phiên bản thay đổi [{{title}}]",
+		"confirm": "Chắc chắn muốn khôi phục lại từ phiên bản #{{version}} này?",
+		"processing": "Khôi phục phiên bản...",
+		"done": "Đã khôi phục được từ phiên bản #{{version}}..."
+	},
+	"trash": {
+		"list": "Thùng rác",
+		"all": "Toàn bộ đơn vị",
+		"confirm": "Chắc chắn muốn khôi phục [{{title}}] từ thùng rác?",
+		"processing": "Khôi phục dữ liệu...",
+		"done": "Đã khôi phục [{{title}}] từ thùng rác..."
+	},
+	"notifications": {
+		"title": "Thông báo hoạt động",
+		"label": "{{user}} thực hiện {{action}} đối với '{{title}}' - Trạng thái: {{status}}"
 	}
 }

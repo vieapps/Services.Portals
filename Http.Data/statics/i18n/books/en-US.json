@@ -1,0 +1,177 @@
+{
+	"books": {
+		"name": "Online Books",
+		"home": {
+			"latest": "Latest",
+			"statistics": {
+				"label": "Statistics:",
+				"authors": "Number of authors",
+				"books": "Number of articles & books",
+				"categories": "Categories"
+			}
+		},
+		"objects": {
+			"book": "Books",
+			"category": "Categories",
+			"statistic": "Statistics"
+		},
+		"bookmarks": {
+			"header": "Readings",
+			"footer": "Sync time:",
+			"chapter": "Chapter: ",
+			"position": "Position: ",
+			"buttons": {
+				"read": "Read",
+				"delete": "Delete"
+			}
+		},
+		"crawl": {
+			"header": "Crawl data",
+			"label": "Crawl data from a specific source",
+			"placeholder": "Source url for crawling",
+			"mode": {
+				"full": "All chapters",
+				"missing": "Only missing"
+			},
+			"button": "Crawl",
+			"message": "Crawl request has been sent..."
+		},
+		"list": {
+			"title": {
+				"search": "Search",
+				"category": "Category: {{category}}",
+				"author": "Author: {{author}}"
+			},
+			"searchbar": {
+				"search": "Place search term by quotes (\"..\") as required",
+				"filter": "Quick filter"
+			},
+			"actions": {
+				"search": "Open search screen",
+				"filter": "Quick filter",
+				"sort": "Change sort-by",
+				"show": "Show all {{totalRecords}} results",
+				"crawl": "Crawl data"
+			},
+			"sort": {
+				"labels": {
+					"Title": "Title (A - Z)",
+					"LastUpdated": "Last updated",
+					"Chapters": "More chapters first"
+				},
+				"header": "Sort by",
+				"button": "Update",
+				"message": "Sort-by has been changed..."		
+			}
+		},
+		"read": {
+			"actions": {
+				"author": "By this author",
+				"info": "Information",
+				"toc": "Table of contents",
+				"options": "Reading options",
+				"crawl": "Recrawl"
+			},
+			"navigate": {
+				"previous": "Previous",
+				"next": "Next"
+			},
+			"delete": {
+				"confirm": "Are you sure you want to delete?",
+				"message": "{{title}} has been deleted..."
+			}
+		},
+		"info": {
+			"controls": {
+				"Title": "Title",
+				"Category": "Category",
+				"Original": "Original",
+				"Author": "Author",
+				"Translator": "Translator",
+				"Publisher": "Publisher",
+				"Producer": "Producer",
+				"Source": "Source",
+				"Cover": "Cover image",
+				"LastUpdated": "Last updated",
+				"Language": "Language",
+				"Tags": "Tags",
+				"TOCs": "Table of Contents"
+			},
+			"chapters": "Number of chapters",
+			"download": "Download",
+			"qrcode": {
+				"header": "QR Code",
+				"description": "Use {{scanner}} to scan QR Code to quick access"
+			},
+			"statistics": {
+				"views": "Views",
+				"downloads": "Downloads",
+				"total": "Total",
+				"month": "Total of this month",
+				"week": "Total of this week"
+			},
+			"updated": "Updated at",
+			"link": "Link",
+			"notAuthenticated": "Please login to download e-book files!"
+		},
+		"options": {
+			"title": "Reading Options",
+			"labels": {
+				"color": "Color",
+				"font": "Font",
+				"size": "Font size",
+				"paragraph": "Paragraphs",
+				"align": "Alighments",
+				"sample": "<p>The quick brown fox jumps over the lazy dog; The quick brown fox jumps over the lazy dog; The quick brown fox jumps over the lazy dog;</p><p>The quick brown fox jumps over the lazy dog; The quick brown fox jumps over the lazy dog; The quick brown fox jumps over the lazy dog;</p>"
+			},
+			"color": {
+				"white": "White",
+				"black": "Black",
+				"sepia": "Sepia"
+			},
+			"font": {
+				"default": "Default",
+				"like-default": "Like default",
+				"plump": "Plump",
+				"fat": "Fat",
+				"fancy": "Fancy"
+			},
+			"size": {
+				"smallest": "Smallest",
+				"smaller": "Smaller",
+				"small": "Small",
+				"normal": "Normal",
+				"big": "Big",
+				"bigger": "Bigger",
+				"huge": "Huge"
+			},
+			"paragraph": {
+				"one": "Normal",
+				"two": "Light",
+				"three": "Lighter"
+			},
+			"align": {
+				"align-left": "Left",
+				"align-justify": "Justify",
+				"align-right": "Right"
+			}
+		},
+		"update": {
+			"title": {
+				"update": "Update book",
+				"request": "Request to update book"
+			},
+			"button": "Send request",
+			"segments": {
+				"meta": "Book Info",
+				"others": "TOCs & Cover Image"
+			},
+			"messages": {
+				"confirm": "Are you sure you want to discard changes?",
+				"success": "The book has been updated...",
+				"sent": "Update request has been sent...",
+				"sync": "Readings sync successful..."
+			}
+		}
+	}
+}

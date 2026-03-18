@@ -43,6 +43,7 @@
 			"submit": "Submit"
 		},
 		"messages": {
+			"initializing": "Initializing session...",
 			"loading": "Loading...",
 			"activating": "Activating...",
 			"processing": "Processing...",
@@ -69,8 +70,13 @@
 			"label": "Preferences",			
 			"options": {
 				"language": "Language",
-				"theme": "Use dark-theme"
+				"theme": "Use dark-theme",
+				"preflight": "Preflight",
+				"xhr": "Prefer XHR",
+				"xhrToken": "Prefer XHR Query Token",
+				"debug": "Turn on debug logs"
 			},
+			"notifications": "Notifications",
 			"apps": {
 				"desktop:": "Desktop apps",
 				"mobile": "Mobile & Tablet apps"
@@ -154,7 +160,8 @@
 		"label": "Events",
 		"Create": "Create",
 		"Update": "Update",
-		"Delete": "Delete"
+		"Delete": "Delete",
+		"Approve": "Approve"
 	},
 	"files": {
 		"thumbnails": {
@@ -176,5 +183,15 @@
 				"filename": "Filename"
 			}
 		}
+	},
+	"versions": {
+		"view": "View changed versions",
+		"list": "{{total}} changed version(s) [{{title}}]",
+		"confirm": "Are you sure you want to rollback from this #{{version}} version?",
+		"processing": "Rolling back..."
+	},
+	"notifications": {
+		"title": "Notifications",
+		"label": "{{user}} do {{action}} with '{{title}}' - Status: {{status}}"
 	}
 }

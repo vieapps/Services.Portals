@@ -3,11 +3,10 @@
 		"name": "Cổng tích hợp nội dung",
 		"preferences": {
 			"cms": "Quản trị nội dung",
-			"portals": "Quản trị portals và thông tin hệ thống",
-			"notifications": "Thông báo"
+			"portals": "Quản trị portals và thông tin hệ thống"
 		},
 		"sidebar": {
-			"logs": "Logs hệ thống",
+			"tasks": "Nhiệm vụ được lập lịch",
 			"organizations": "Đơn vị - Tổ chức",
 			"sites": "Site - Điểm truy cập",
 			"roles": "Vai trò sử dụng",
@@ -15,6 +14,7 @@
 			"modules": "Module nghiệp vụ",
 			"content-types": "Kiểu dữ liệu nghiệp vụ",
 			"expressions": "Biểu thức truy vấn - sắp xếp",
+			"crawlers": "Nguồn dữ liệu tự động",
 			"titles": {
 				"system": "Quản trị",
 				"categories": "Phân loại nội dung",
@@ -23,17 +23,24 @@
 		},
 		"common": {
 			"unspecified": "Không xác định",
-			"advancedEdit": "Cập nhật cấp cao",
+			"advancedEdit": "Cập nhật (cao cấp)",
 			"excel": {
 				"action": {
 					"export": "Kết xuất dữ liệu ra Excel",
 					"import": "Nhập dữ liệu từ Excel"
 				},
 				"message": {
+					"all": "Chỉ kết xuất các dữ liệu phù hợp với điều kiện lọc hiện tại? (chọn 'Không' để kết xuất toàn bộ)",
+					"confirm": "Chắc chắn kết xuất dữ liệu ra Excel?",
 					"export": "Kết xuất dữ liệu thành công, chọn 'Tải xuống' để tải về file Excel",
 					"import": "Đã nhập dữ liệu từ file Excel thành công"
 				},
 				"button": "Tải lên & cập nhật"
+			},
+			"customizeFilterAndSort": {
+				"label": "Tuỳ chỉnh lọc & sắp xếp dữ liệu",
+				"filter": "Biểu thức lọc dữ liệu (JSON)",
+				"sort": "Biểu thức sắp xếp dữ liệ (JSON)"
 			},
 			"controls": {
 				"notifications": {
@@ -43,6 +50,7 @@
 					"emails": {
 						"inheritFromParent": "Sử dụng thiết đặt từ cấp trên để gửi thông báo qua emails",
 						"label": "Thiết đặt gửi thông báo qua emails",
+						"description": "Thiết đặt cách gửi email thông báo khi phát sinh một sự kiện dữ liệu",
 						"toAddresses": {
 							"label": "Gửi tới địa chỉ",
 							"placeholder": "Địa chỉ email có thể nhập dạng Tên <địa chỉ email>, vd: VIEApps.net <info@vieapps.net>",
@@ -73,29 +81,42 @@
 						"description": "Nếu được chỉ định (có ít nhất 01 địa chỉ email, có đề và nội dung), thông báo qua emails này sẽ được gửi theo cách thức bổ sung thêm (so với thông báo qua emails mặc định) khi trạng thái là 'Xuất bản - Published'"
 					},
 					"webhooks": {
-						"label": "Thiết đặt gửi thông báo qua Web Hooks",
+						"label": "Thiết đặt gửi thông báo qua tín hiệu web-hook",
 						"inheritFromParent": "Sử dụng thiết đặt từ cấp trên để gửi thông báo qua webhooks",
 						"endpointURLs": {
-							"label": "Địa chỉ nhận web-hooks",
-							"placeholder": "vd: https://apis.vieapps.net/webhooks",
-							"description": "Các địa chỉ web nhận thông báo webhooks, mỗi một địa chỉ trên một dòng, phải bắt đầu bằng http:// hoặc https://"
+							"label": "Địa chỉ nhận tín hiệu web-hook",
+							"placeholder": "vd: https://apis.vieapps.net/webhooks/portals/vieapps-ngx",
+							"description": "Các địa chỉ web nhận thông báo qua tín hiệu web-hook, mỗi một địa chỉ trên một dòng, phải bắt đầu bằng http:// hoặc https://"
 						},
 						"signKey": {
-							"description": "Chỉ định cụm từ tạo khoá để ký webhooks.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng giá trị mặc định theo thứ tự ưu tiên:<br/>- Mã định danh của app đang tương tác<br/>- Cụm khoá mặc định của hệ thống"
+							"description": "Chỉ định cụm từ để khởi tạo khoá cho chữ ký HMAC của tín hiệu web-hook.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng giá trị mặc định theo thứ tự ưu tiên:<br/>- Mã định danh của app đang tương tác<br/>- Mã định danh của đơn vị - tổ chức<br/>- Cụm khoá mặc định của hệ thống"
 						},
 						"signatureName": {
-							"description": "Chỉ định tên của tham số chữ ký trong webhooks.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng tên của phương pháp, vd: HmacSha256Signature"
+							"description": "Chỉ định tên của tham số chữ ký trong tín hiệu web-hook.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng tên của phương pháp, vd: HmacSha256Signature"
 						},
-						"generateIdentity": {
-							"label": "Tạo lại mã định danh của dữ liệu (nếu có)"
-						},
-						"additionalQuery": {
+						"query": {
 							"label": "Thông tin bổ sung cho query-string",
 							"description": "Nhập thông tin bổ sung cho query-string dạng JSON.<br/>Ví dụ:<br/>{<br/>&nbsp;&nbsp;\"webhook.query\":\"this is web hook query\"<br/>}"
 						},
-						"additionalHeader": {
+						"header": {
 							"label": "Thông tin bổ sung cho header",
 							"description": "Nhập thông tin bổ sung cho header dạng JSON.<br/>Ví dụ:<br/>{<br/>&nbsp;&nbsp;\"webhook.header\":\"this is web hook header\"<br/>}"
+						},
+						"encryptionKey": {
+							"label": "Chuỗi hexa chứa khoá mã hoá dữ liệu",
+							"description": "Chỉ định khoá mã hoá dữ liệu bằng phương pháp mã hoá AES, chuỗi hexa phải mô tả một khoá có độ dài <b>256 bits</b>"
+						},
+						"encryptionIV": {
+							"label": "Chuỗi hexa chứa khoá khởi tạo (initialize vector) mã hoá dữ liệu",
+							"description": "Chỉ định khoá khởi tạo mã hoá dữ liệu bằng phương pháp mã hoá AES, chuỗi hexa phải mô tả một khoá có độ dài <b>128 bits</b>"
+						},
+						"generateIdentity": {
+							"label": "Tạo lại mã định danh (ID) của dữ liệu"
+						},
+						"prepareBodyScript": {
+							"label": "Mã Javascript để tính toán lại BODY của tín hiệu web-hook",
+							"placeholder": "ex: this.Title += ' (copied)'; return JSON.stringify(this);",
+							"description": "Nếu được cung cấp, hệ thống sẽ thực thi đoạn mã Javascript trên để tính toán lại BOBY của tín hiệu web-hook, tham số <b>this</b> là đối tượng chứa BODY của tín hiệu web-hook sẽ được gửi đi và có 2 tham số có thể sử dụng được là '<b>__request</b>' chứa yêu cầu xử lý tín hiệu web-hook (__request.Body là đối tượng chứa BODY nguyên bản), '<b>__params</b>' chứa thông tin về đơn vị (__params.Organization), module nghiệp vụ (__params.Module) và kiểu dữ liệu nghiệp vụ (__params.ContentType)."
 						}
 					}
 				},
@@ -132,29 +153,48 @@
 					},
 					"test": {
 						"label": "Thử nghiệm gửi email với các thông số đã thiết đặt",
-						"button": "Gửi email",
-						"to": "Gửi tới địa chỉ email",
-						"subject": "Tiêu đề email thử nghiệm",
-						"body": "Nội dung email thử nghiệm"
+						"button": "Gửi test email",
+						"to": "Địa chỉ nhận (bắt buộc)",
+						"subject": {
+							"placeholder": "Tiêu đề (không bắt buộc)",
+							"default": "Thử nghiệm gửi email [{{info}}]"
+						},
+						"messages": {
+							"success": "Các thông số thiết đặt gửi email đã chuẩn xác, đã gửi email thành công tới địa chỉ {{email}}",
+							"error": "Các thông số thiết đặt gửi email chưa chuẩn xác",
+							"none": "Chưa có các thông số thiết đặt gửi email"
+						}
 					}
 				},
 				"webhooks": {
-					"label": "Thiết đặt nhận thông tin qua Web Hooks",
+					"label": "Thiết đặt nhận thông tin qua tín hiệu web-hook",
 					"url": {
-						"label": "URL để nhận thông tin qua Web Hooks",
-						"description": "URL ở trên được sử dụng đối với các hệ thống bên ngoài nhằm truyền thông tin vào hệ thống qua Web Hook (truyền qua HTTP bằng phương thức POST)"
+						"label": "URL để nhận thông tin qua tín hiệu web-hook",
+						"description": "URL ở trên được các hệ thống bên ngoài sử dụng nhằm truyền thông tin vào hệ thống qua tín hiệu web-hook (truyền tài liệu JSON qua HTTP bằng phương thức POST).<br/>Nguồn gửi tín hiệu web-hook buộc phải cung cấp các thông số sau (chứa trong header hoặc query-string):<ul><li>Đối với dữ liệu hệ thống phải cung cấp tên của đối tượng: <b>x-webhook-object</b></li><li>Đối với dữ liệu nghiệp vụ phải cung cấp mã định danh của kiểu dữ liệu nghiệp vụ: <b>x-webhook-entity</b></li></ul>",
+						"descriptionOfContentType": "URL ở trên được các hệ thống bên ngoài sử dụng nhằm truyền thông tin vào hệ thống qua tín hiệu web-hook (truyền tài liệu JSON qua HTTP bằng phương thức POST) đối với các dữ liệu thuộc kiểu dữ liệu nghiệp vụ này."
 					},
 					"signAlgorithm": {
 						"label": "Phương pháp ký HMAC",
-						"description": "Chỉ định phương pháp ký từ nội dung message bằng khoá được tạo từ cụm từ tạo khoá chữ ký"
+						"description": "Chỉ định phương pháp ký từ nội dung tín hiệu web-hook nhằm đảm bảo tính hợp lệ"
 					},
 					"signKey": {
-						"label": "Cụm từ tạo khoá để chữ ký",
-						"description": "Chỉ định cụm từ tạo khoá để tạo chữ ký kiểm tra tính hợp lệ của webhooks.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng giá trị mặc định theo thứ tự ưu tiên:<br/>- Mã định danh của app đang tương tác<br/>- Cụm khoá mặc định của hệ thống"
+						"label": "Cụm từ để khởi tạo khoá cho chữ ký HMAC",
+						"description": "Chỉ định cụm từ để khởi tạo khoá cho chữ ký HMAC nhằm đảm bảo tính hợp lệ của tín hiệu web-hook.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng giá trị mặc định theo thứ tự ưu tiên:<br/>- Mã định danh của app đang tương tác<br/>- Mã định danh của đơn vị - tổ chức<br/>- Cụm khoá mặc định của hệ thống"
+					},
+					"signKeyIsHex": {
+						"label": "Cụm từ khởi tạo khoá là chuỗi hexa (bật để sử dụng trực tiếp khoá trong chuỗi hexa, tắt để khởi tạo khoá từ cụm từ)"
 					},
 					"signatureName": {
 						"label": "Tên của tham số chữ ký",
-						"description": "Chỉ định tên của tham số chữ ký để kiểm tra tính hợp lệ của webhooks.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng tên của phương pháp, vd: HmacSha256Signature"
+						"description": "Chỉ định tên của tham số chữ ký để kiểm tra tính hợp lệ của tín hiệu web-hook.<br/>Nếu không có giá trị, hệ thống sẽ sử dụng tên của phương pháp, vd: HmacSha256Signature"
+					},
+					"signaturePrefix": {
+						"label": "Tiền tố (prefix) của chữ ký",
+						"description": "Chỉ định giá trị sẽ thêm vào phía trước chữ ký để kiểm tra tính hợp lệ của tín hiệu web-hook"
+					},
+					"signatureSuffix": {
+						"label": "Hậu tố (suffix) của chữ ký",
+						"description": "Chỉ định giá trị sẽ thêm vào phía sau chữ ký để kiểm tra tính hợp lệ của tín hiệu web-hook"
 					},
 					"signatureAsHex": {
 						"label": "Chữ ký dạng hex (tắt nếu muốn chữ ký dạng base64)"
@@ -162,13 +202,48 @@
 					"signatureInQuery": {
 						"label": "Đặt chữ ký trong query-string (tắt nếu muốn đặt chữ ký trong header)"
 					},
-					"additionalQuery": {
+					"secretToken": {
+						"label": "Khoá bí mật",
+						"description": "Chỉ định khoá bí mật để có thể xác thực và đảm bảo toàn vẹn dữ liệu theo cách thức khác (thay thế cho phương pháp kiểm tra qua chữ ký - tuy nhiên kém an toàn hơn).<br/>Các tín hiệu web-hook gửi đến phải chứa khoá bí mật này trong tham số có tên được chỉ định tên ở dưới (nếu không chỉ định tên, mặc định sẽ là <b>x-webhook-secret-token</b>), tham số này phải được đặt tại header hoặc query-string."
+					},
+					"secretTokenName": {
+						"label": "Tên của khoá bí mật",
+						"description": "Chỉ định tên của khoá bí mật để có thể xác thực và đảm bảo toàn vẹn dữ liệu theo cách thức khác (thay thế cho phương pháp kiểm tra qua chữ ký - tuy nhiên kém an toàn hơn).<br/>Các tín hiệu web-hook gửi đến phải chứa khoá bí mật này trong tham số có tên được chỉ định như ở trên, nếu không chỉ định tên thì tên của khoá bí mật sẽ là <b>x-webhook-secret-token</b>, khoá bí mật có tên này sẽ được được đặt tại header hoặc query-string."
+					},
+					"signWithTimestamp": {
+						"label": "Chỉ định sử dụng nhãn thời gian (timestamp) khi ký"
+					},
+					"signWithTimestampName": {
+						"label": "Tên tham số nhãn thời gian",
+						"description": "Chỉ định tên tham số nhãn thời gian, nếu không chỉ định tên tham số mặc định (x-webhook-timestamp) sẽ được sử dụng"
+					},
+					"signWithTimestampConnect": {
+						"label": "Thông số kết nối giữa tham số nhãn thời gian và body",
+						"description": "Chỉ định giá trị để kết nối giữa tham số nhãn thời gian và body khi ký, nếu không chỉ định thì sẽ sử dụng giá trị mặc định là 'dấu chấm' (.)"
+					},
+					"query": {
 						"label": "Tham số phải có trong query-string",
 						"description": "Chỉ định các tham số buộc phải có trong query-string đối với thông tin truyền vào (dạng JSON).<br/>Ví dụ:<br/>{<br/>&nbsp;&nbsp;\"webhook.query\":\"this is web hook query\"<br/>}"
 					},
-					"additionalHeader": {
+					"header": {
 						"label": "Tham số phải có trong header",
 						"description": "Chỉ định các tham số buộc phải có trong header đối với thông tin truyền vào (dạng JSON).<br/>Ví dụ:<br/>{<br/>&nbsp;&nbsp;\"webhook.header\":\"this is web hook header\"<br/>}"
+					},
+					"encryptionKey": {
+						"label": "Chuỗi hexa chứa khoá giải mã dữ liệu",
+						"description": "Chỉ định khoá giải mã dữ liệu bằng phương pháp mã hoá AES, chuỗi hexa phải mô tả một khoá có độ dài <b>256 bits</b>"
+					},
+					"encryptionIV": {
+						"label": "Chuỗi hexa chứa khoá khởi tạo (initialize vector) giải mã dữ liệu",
+						"description": "Chỉ định khoá khởi tạo giải mã dữ liệu bằng phương pháp mã hoá AES, chuỗi hexa phải mô tả một khoá có độ dài <b>128 bits</b>"
+					},
+					"generateIdentity": {
+						"label": "Tạo lại mã định danh (ID) của dữ liệu (nếu có)"
+					},
+					"prepareBodyScript": {
+						"label": "Mã Javascript để tính toán",
+						"placeholder": "ex: this.Title += ' (copied)'; this.Alias = null; return JSON.stringify(this);",
+						"description": "Nếu được cung cấp, hệ thống sẽ thực thi đoạn mã Javascript trên để tính toán lại BOBY từ tín hiệu web-hook trong ngữ cảnh bình thường hoặc tính toán toàn bộ dữ liệu của tín hiệu web-hook sẽ chuyển tiếp trong ngữ cảnh sử dụng đây là bộ chuyển tiếp (forwarder).<br/><br/>Trong ngữ cảnh bình thường, tham số <b>this</b> là đối tượng chứa BODY của tín hiệu web-hook sẽ gửi đi và có 2 tham số có thể sử dụng được là '<b>__request</b>' chứa yêu cầu gửi tín hiệu web-hook (__request.Body là đối tượng chứa BODY nguyên bản), '<b>__params</b>' chứa thông tin về đơn vị (__params.Organization), module nghiệp vụ (__params.Module) và kiểu dữ liệu nghiệp vụ (__params.ContentType).<br/><br/>Trong ngữ cảnh chuyển tiếp, tham số <b>this</b> là đối tượng JSON chứa toàn bộ thông tin cần thiết của tín hiệu web-hook sẽ chuyển tiếp, và có 2 tham số có thể sử dụng được là '<b>__request</b>' chứa yêu cầu gửi tín hiệu web-hook (bao gồm 3 thông số: __request.Header, __request.Query, __request.Body), '<b>__params</b>' chứa thông tin về đơn vị (__params.Organization), module nghiệp vụ (__params.Module) và kiểu dữ liệu nghiệp vụ (__params.ContentType).<br/><br/>Đối tượng JSON này cần chứa các thông số sau:<ul><li>Verb (string): HTTP Verb sẽ sử dụng khi chuyển tiếp (GET, POST, PUT, PATCH, DELETE)</li><li>EndpointURL (string): địa chỉ sẽ chuyển tiếp đến</li><li>EndpointURLs (string array): các địa chỉ sẽ chuyển tiếp đến</li><li>Header (json): tham số của header khi thực hiện chuyển tiếp</li><li>Query (json): các tham số của query-string khi thực hiện chuyển tiếp</li><li>Body (json): nội dung của tín hiệu chuyển tiếp</li></ul>Lưu ý: chữ ký sẽ tự động được thêm vào tín hiệu chuyển tiép theo các thông số đã thiết đặt ở trên."
 					}
 				},
 				"UISettings": {
@@ -412,15 +487,15 @@
 					"label": "Các nội dung chỉ thị cho bots/spiders/hệ thống quảng cáo",
 					"Name": {
 						"label": "Tên chỉ thị",
-						"description": "Tên file chứa nội dung chỉ thị, vd: robots.txt"
+						"description": "Tên file chứa nội dung chỉ thị (favicon.ico, .txt, .xml, .json) - vd: robots.txt"
 					},
 					"Content": {
 						"label": "Nội dung",
-						"description": "Nội dung chỉ thị cụ thể"
+						"description": "Nội dung chỉ thị cụ thể - base64 cho favicon.ico, text cho các định dạng khác"
 					}
 				},
 				"AlwaysUseHtmlSuffix": "Luôn dùng hậu tố .html đối với toàn bộ liên kết",
-				"RefreshUrls": {
+				"RefreshURLs": {
 					"label": "Các URLs sẽ làm tươi",
 					"Addresses": {
 						"label": "Các địa chỉ URLs sẽ làm tươi định kỳ",
@@ -431,7 +506,7 @@
 						"description": "Chỉ định thời gian (phút) để làm tươi định kỳ các URLs đã chỉ định."
 					}
 				},
-				"RedirectUrls": {
+				"RedirectURLs": {
 					"label": "Các URLs sẽ chuyển hướng",
 					"Addresses": {
 						"label": "Các địa chỉ URLs sẽ chuyển hướng",
@@ -439,16 +514,22 @@
 					},
 					"AllHttp404": "Chuyển hướng toàn bộ các liên kết không tìm thấy (HTTP 404) về liên kết toàn bộ (*) hoặc về trang chủ"
 				},
-				"FakeURIs": {
-					"label": "Các địa chỉ 'máy chủ rởm':"
-				},
+				"specials": "Các thiết đặt đặc biệt",
 				"FakeFilesHttpURI": {
-					"label": "Địa chỉ máy chủ dịch vụ files",
-					"description": "Chỉ định địa chỉ 'máy chủ chủ dịch vụ files rởm' để sử dụng trong mã HTML nhằm che dấu địa chỉ thật của máy chủ dịch vụ files (thông thường sử dụng qua proxy như CloudFlare)"
+					"label": "Địa chỉ 'máy chủ dịch vụ files rởm'",
+					"description": "Chỉ định địa chỉ máy chủ chủ dịch vụ files để sử dụng trong mã HTML nhằm che dấu địa chỉ thật của máy chủ dịch vụ files (thông thường sử dụng qua proxy như CloudFlare)"
 				},
 				"FakePortalsHttpURI": {
-					"label": "Địa chỉ máy chủ dịch vụ portals",
-					"description": "Chỉ định địa chỉ 'máy chủ chủ dịch vụ portals rởm' để sử dụng trong mã HTML nhằm che dấu địa chỉ thật của máy chủ dịch vụ portals (thông thường sử dụng qua proxy như CloudFlare)"
+					"label": "Địa chỉ 'máy chủ dịch vụ portals rởm'",
+					"description": "Chỉ định địa chỉ máy chủ chủ dịch vụ portals để sử dụng trong mã HTML nhằm che dấu địa chỉ thật của máy chủ dịch vụ portals (thông thường sử dụng qua proxy như CloudFlare)"
+				},
+				"ExamineURLs": {
+					"label": "Các URLs cần sát hạch",
+					"description": "Nội dung JSON của các URLs cần sát hạch.<br/><br/>Thiết đặt tiền tố (prefix) cho một URL:<ul><li><b>s:</b> chỉ định vị trí tìm kiếm ở điểm bắt đầu</li><li><b>c:</b> chỉ định vị trí tìm kiếm ở bất kỳ điểm nào</li><li><b>e:</b> chỉ định vị trí tìm kiếm ở điểm kết thúc (mặc định)</li></ul>"
+				},
+				"McpSettings": {
+					"label": "Thiết đặt MCP server",
+					"description": "Nội dung JSON để thiết đặt MCP server nhằm tích hợp với các hệ thống AI"
 				}
 			},
 			"list": {
@@ -463,21 +544,27 @@
 					"privileges": "Quyền truy cập",
 					"notifications": "Thông báo",
 					"instructions": "Thông điệp",
-					"socials": "Mạng XH & Bổ sung",
 					"urls": "URLs",
-					"emails": "Emails"
+					"emails": "Emails & Web-Hook",
+					"socials": "Mạng XH & Bổ sung"
 				},
 				"messages": {
 					"confirm": {
 						"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo đơn vị - tổ chức?",
 						"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của đơn vị - tổ chức?",
-						"delete": "Chắc chắn muốn xoá bỏ đơn vị - tổ chức và các thông tin liên quan?"
+						"delete": "Chắc chắn muốn xoá bỏ đơn vị - tổ chức và toàn bộ các thông tin liên quan?",
+						"remove": "Đơn vị - tổ chức và toàn bộ các thông tin liên quan sẽ bị xoá bỏ (chuyển vào thùng rác và có thể khôi phục lại trong 30 ngày)."
 					},
 					"success": {
 						"new": "Đã khởi tạo đơn vị - tổ chức thành công",
 						"update": "Đã cập nhật các thay đổi của đơn vị - tổ chức thành công",
-						"delete": "Đã đưa đơn vị - tổ chức và các thông tin liên quan vào hàng đợi để chuyển vào thùng rác"
+						"delete": "Đã đưa đơn vị - tổ chức và toàn bộ các thông tin liên quan vào hàng đợi để chuyển vào thùng rác"
 					}
+				},
+				"buttons": {
+					"delete": "Xoá đơn vị - tổ chức",
+					"remove": "Đồng ý xoá",
+					"phrase": "Cụm từ bí mật"
 				}
 			}
 		},
@@ -581,6 +668,16 @@
 					"placeholder": "",
 					"description": ""
 				},
+				"AlwaysReturnHTTPs": {
+					"label": "Luôn trả về các liên kết sử dụng các kết nối an toàn HTTPS (sử dụng khi SSL ở proxy/load balancers)",
+					"placeholder": "",
+					"description": ""
+				},
+				"IsDefault": {
+					"label": "Chỉ định là site mặc định",
+					"placeholder": "",
+					"description": ""
+				},
 				"Language": {
 					"label": "Ngôn ngữ hiển thị",
 					"placeholder": "",
@@ -646,6 +743,11 @@
 					"label": "Sử dụng các mã scripts trực tiếp thay cho liên kết ra bên ngoài",
 					"placeholder": "",
 					"description": ""
+				},
+				"CanonicalHost": {
+					"label": "Tên miền cho các liên kết Canonical",
+					"placeholder": "",
+					"description": "Chỉ định tên miền duy nhất sử dụng cho các liên kết canonical"
 				},
 				"SEOInfo": {
 					"label": "Thiết đặt thông số SEO",
@@ -850,11 +952,11 @@
 					"set-null-all": "Chuyển về gốc"
 				},
 				"seo": {
-					"PortletAndDesktopAndSite": "Porlet + Desktop + Site",
+					"PortletAndDesktopAndSite": "Portlet + Desktop + Site",
 					"SiteAndDesktopAndPortlet": "Site + Desktop + Portlet",
-					"PortletAndDesktop": "Porlet + Desktop",
+					"PortletAndDesktop": "Portlet + Desktop",
 					"DesktopAndPortlet": "Desktop + Portlet",
-					"PortletAndSite": "Porlet + Site",
+					"PortletAndSite": "Portlet + Site",
 					"SiteAndPortlet": "Site + Portlet",
 					"DesktopAndSite": "Desktop + Site",
 					"SiteAndDesktop": "Site + Desktop",
@@ -923,6 +1025,7 @@
 				},
 				"CommonSettings": {
 					"label": "Thiết đặt hiển thị của portlet",
+					"description": "Các thiết đặt chung để hiển thị portlet",
 					"Template": {
 						"label": "Mẫu hiển thị",
 						"placeholder": "",
@@ -995,6 +1098,7 @@
 				},
 				"PaginationSettings": {
 					"label": "Thiết đặt hiển thị thanh nhảy trang",
+					"description": "Các thiết đặt để hiển thị thanh nhảy trang của portlet",
 					"Template": {
 						"label": "Mẫu hiển thị",
 						"placeholder": "",
@@ -1026,6 +1130,7 @@
 				},
 				"BreadcrumbSettings": {
 					"label": "Thiết đặt hiển thị thanh chỉ thị",
+					"description": "Các thiết đặt để hiển thị thanh chỉ thị của portlet",
 					"Template": {
 						"label": "Mẫu hiển thị",
 						"placeholder": "",
@@ -1191,8 +1296,7 @@
 				"segments": {
 					"basic": "Thông tin cơ bản",
 					"privileges": "Quyền truy cập",
-					"notifications": "Thông báo",
-					"emails": "Mã theo dõi & Emails"
+					"notifications": "Thông báo & Mã theo dõi"
 				},
 				"messages": {
 					"confirm": {
@@ -1278,6 +1382,18 @@
 						"description": "Nhập các mã định danh của FB Pixel, phân cách bằng dấu chấm phẩy (;) để đếm dạng page-view (web) đối với các nội dung của kiểu dữ liệu nghiệp vụ"
 					}
 				},
+				"WebHookNotifications": {
+					"label": "Thiết đặt gửi tín hiệu web-hook",
+					"description": "Thiết đặt cách gửi tín hiệu web-hook trực tiếp với tất cả các sự kiện xảy ra đối với toàn bộ các đối tượng của kiểu dữ liệu nghiệp vụ.<br/>Các tín hiệu web-hook sẽ được gửi đi tự động và độc lập với thiết đặt tại phần thông báo."
+				},
+				"WebHookAdapters": {
+					"label": "Thiết đặt bộ ráp nối nhận tín nhiệu web-hook",
+					"description": "Thiết đặt các bộ ráp nối nhận tín hiệu web-hook được gửi từ bên ngoài vào từ nhiều nguồn khác nhau đối với kiểu dữ liệu nghiệp vụ này.",
+					"Name": {
+						"label": "Tên của bộ ráp nối nhận tín hiệu web-hook",
+						"description": "Tên phải là duy nhất, bộ ráp nối có tên là <b>default</b> sẽ được sử dụng trong tình huống một bộ ráp nối được chỉ định theo tên không được tìm thấy.<br/>Tips: xoá tên (không thiết đặt tên) để xoá bộ ráp nối này."
+					}
+				},
 				"ExtendedPropertyDefinitions": {
 					"label": "Thuộc tính mở rộng",
 					"description": "Mã JSON định nghĩa các thuộc tính mở rộng"
@@ -1289,6 +1405,10 @@
 				"StandardControlDefinitions": {
 					"label": "Form nhập dữ liệu thuộc tính tiêu chuẩn",
 					"description": "Mã JSON tái chỉ định các controls đặc biệt trong form nhập dữ liệu của một số thuộc tính tiêu chuẩn"
+				},
+				"SubTitleFormula": {
+					"label": "Biểu thức tính toán tiêu đề phụ",
+					"description": "Biểu thức tính toán có thể sử dụng bằng một trong 2 cách sau:<ul><li>Sử dụng biểu thức: bắt đầu với ký tự '@', có thể sử dụng @script/@javascript/@js hoặc @[...] cho biểu thức tính toán với mã Javascript đi kèm đối tượng 'this' với 2 tham số có thể sử dụng là '__request' và '__params', ví dụ: @[return \"abc xyz \" + this.Title;]</li><li>Sử dụng mẫu {{ }} với các hàm tính toán được định nghĩa trước như @current/@object, @request, @params, @toString, ..., ví dụ: Đây là tiêu đề phụ của {{@object(Title)}}"
 				}
 			},
 			"list": {
@@ -1305,11 +1425,12 @@
 			},
 			"update": {
 				"segments": {
-					"basic": "Thông tin cơ bản",
+					"basic": "Cơ bản",
 					"privileges": "Quyền truy cập",
-					"notifications": "Thông báo",
-					"emails": "Mã theo dõi & Emails",
-					"extend": "Tuỳ chỉnh dữ liệu mở rộng"
+					"notifications": "Thông báo & Mã theo dõi",
+					"webhookNotifications": "Gửi web-hook",
+					"webhookAdapters": "Nhận web-hook",
+					"extend": "Tuỳ chỉnh"
 				},
 				"messages": {
 					"confirm": {
@@ -1380,6 +1501,21 @@
 					"label": "Các biểu thức sắp xếp (JSON)",
 					"placeholder": "",
 					"description": ""
+				},
+				"UseCursor": {
+					"label": "Sử dụng con trỏ để phân trang (tham số 'x-cursor')",
+					"placeholder": "",
+					"description": ""
+				},
+				"SearchTransformScript": {
+					"label": "Mã Javascript để biến đổi JSON của một đối tượng khi sử dụng phương thức tìm kiếm (search)",
+					"placeholder": "ex: return JSON.stringify(this);",
+					"description": "Nếu được cung cấp, hệ thống sẽ sử dụng mã Javascript này để tạo tạo JSON của từng đối tượng trong danh sách"
+				},
+				"GetTransformScript": {
+					"label": "Mã Javascript để biến đổi JSON body của đối tượng khi sử dụng phương thức đọc dữ liệu (get)",
+					"placeholder": "ex: return JSON.stringify(this);",
+					"description": "Nếu được cung cấp, hệ thống sẽ sử dụng mã Javascript này để tạo tạo JSON boby của đối tượng"
 				}
 			},
 			"list": {
@@ -1390,7 +1526,8 @@
 				"segments": {
 					"basic": "Cơ bản",
 					"filter": "Chi tiết truy vấn",
-					"sorts": "Chi tiết sắp xếp"
+					"sorts": "Chi tiết sắp xếp",
+					"integrations": "Tích hợp & Kết nối"
 				},
 				"messages": {
 					"confirm": {
@@ -1410,6 +1547,129 @@
 					"delete": "Xoá biểu thức truy vấn",
 					"remove": "Đồng ý xoá",
 					"edit": "Cập nhật cấp cao"
+				}
+			}
+		},
+		"tasks": {
+			"status": {
+				"Awaiting": "Đang trong hàng đợi",
+				"Acquired": "Chuẩn bị thực thi",
+				"Running": "Đang thực thi",
+				"Completed": "Đã thực thi"
+			},
+			"schedulingType": {
+				"Update": "Cập nhật dữ liệu",
+				"SendNotification": "Gửi thông báo",
+				"Refresh": "Làm tươi trang web",
+				"RunCrawler": "Thực thi bộ thu thập dữ liệu"
+			},
+			"recurringType": {
+				"Years": "Năm",
+				"Months": "Tháng",
+				"Days": "Ngày",
+				"Hours": "Giờ",
+				"Minutes": "Phút",
+				"Seconds": "Giây"
+			},
+			"title": {
+				"search": "Tìm kiếm nhiệm vụ",
+				"list": "Danh sách nhiệm vụ {{info}}",
+				"create": "Tạo mới nhiệm vụ",
+				"update": "Cập nhật nhiệm vụ",
+				"run": "Thực thi nhiệm vụ"
+			},
+			"controls": {
+				"Organization": "Của đơn vị - tổ chức",
+				"Title": {
+					"label": "Tên nhiệm vụ",
+					"placeholder": "",
+					"description": ""
+				},
+				"Description": {
+					"label": "Diễn giải",
+					"placeholder": "",
+					"description": ""
+				},
+				"EntityInfo": {
+					"label": "Kiểu dữ liệu nghiệp vụ",
+					"placeholder": "",
+					"description": ""
+				},
+				"ObjectID": {
+					"label": "Mã định danh của đối tượng trong nhiệm vụ",
+					"placeholder": "",
+					"description": "Chỉ định mã định danh của đối tượng trong nhiệm vụ"
+				},
+				"Time": {
+					"label": "Thời gian thực thi",
+					"placeholder": "",
+					"description": ""
+				},
+				"UserID": {
+					"label": "Mã định danh của người dùng thực thi nhiệm vụ",
+					"placeholder": "",
+					"description": "Chỉ định mã định danh của người dùng thực thi nhiệm vụ"
+				},
+				"SchedulingType": {
+					"label": "Kiểu nhiệm vụ",
+					"placeholder": "",
+					"description": ""
+				},
+				"RecurringType": {
+					"label": "Lặp lại việc thực thi nhiệm vụ theo",
+					"placeholder": "",
+					"description": ""
+				},
+				"RecurringUnit": {
+					"label": "Khoảng thời gian chỉ định để thực thi lại nhiệm vụ",
+					"placeholder": "",
+					"description": ""
+				},
+				"Status": {
+					"label": "Trạng thái",
+					"placeholder": "",
+					"description": ""
+				},
+				"Data": {
+					"label": "Dữ liệu sử dụng để thực thi nhiệm vụ",
+					"placeholder": "",
+					"description": "Dữ liệu dạng JSON sử dụng để thực thi nhiệm vụ"
+				}
+			},
+			"update": {
+				"messages": {
+					"json": "Dữ liệu JSON chưa chuẩn xác",
+					"confirm": {
+						"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo nhiệm vụ?",
+						"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của nhiệm vụ?",
+						"delete": "Chắc chắn muốn xoá bỏ nhiệm vụ?"
+					},
+					"success": {
+						"new": "Đã khởi tạo nhiệm vụ thành công",
+						"update": "Đã cập nhật các thay đổi của nhiệm vụ thành công",
+						"delete": "Đã đưa nhiệm vụ vào thùng rác"
+					}
+				},
+				"buttons": {
+					"delete": "Xoá nhiệm vụ",
+					"remove": "Đồng ý xoá"
+				}
+			},
+			"scheduled": {
+				"publish": {
+					"title": {
+						"modal": "Đặt lịch xuất bản",
+						"object": "Xuất bản nội dung \"{{title}}\""
+					},
+					"message": "Đã thiết đặt lịch xuất bản thành công",
+					"time": "Thời gian thực thi & xuất bản nội dung",
+					"status": "Trạng thái",
+					"start": "Ngày bắt đầu",
+					"end": "Ngày kết thúc"
+				},
+				"update": {
+					"action": "Thiết đặt cập nhật theo lịch",
+					"title": "Cập nhật \"{{title}}\""
 				}
 			}
 		}

@@ -137,10 +137,10 @@
 		padding-bottom: 45px;
 	}
 	.default.desktop.cms-content.list .zone.sidebar,
-	.default.desktop.cms-content.view .zone.sidebar,
 	.default.desktop.cms-item.list .zone.sidebar,
+	.default.desktop.cms-content.view .zone.sidebar,
 	.default.desktop.cms-item.view .zone.sidebar {
-		padding-top: 100px;
+		padding-top: 120px;
 	}
 	.default.desktop.cms-content.list .zone.content,
 	.default.desktop.cms-content.view .zone.content,
@@ -159,10 +159,6 @@
 	.default.desktop.cms-content.list.category.full .zone.sidebar,
 	.default.desktop.cms-item.list.category.full .zone.sidebar {
 		padding-top: 370px;
-	}
-	.default.desktop.cms-content.view .zone.sidebar,
-	.default.desktop.cms-item.view .zone.sidebar {
-		padding-top: 150px;
 	}
 }
 @media (min-width: 1400px) {

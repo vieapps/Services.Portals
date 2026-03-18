@@ -1,0 +1,177 @@
+{
+	"books": {
+		"name": "Sách trực tuyến",
+		"home": {
+			"latest": "Mới cập nhật",
+			"statistics": {
+				"label": "Thống kê:",
+				"authors": "Tổng số tác giả",
+				"books": "Tổng số bài viết & sách",
+				"categories": "Thể loại"
+			}
+		},
+		"objects": {
+			"book": "Sách điện tử",
+			"category": "Thể loại",
+			"statistic": "Thông tin thống kê"
+		},
+		"bookmarks": {
+			"header": "Sách đang đọc",
+			"footer": "Đồng bộ lúc:",
+			"chapter": "Chương: ",
+			"position": "Vị trí: ",
+			"buttons": {
+				"read": "Đọc",
+				"delete": "Xoá"
+			}
+		},
+		"crawl": {
+			"header": "Lấy dữ liệu",
+			"label": "Crawl dữ liệu từ nguồn chỉ định",
+			"placeholder": "Url nguồn dữ liệu",
+			"mode": {
+				"full": "Toàn bộ",
+				"missing": "Các chương thiếu"
+			},
+			"button": "Lấy dữ liệu",
+			"message": "Đã gửi yêu cầu lấy dữ liệu..."
+		},
+		"list": {
+			"title": {
+				"search": "Tìm kiếm",
+				"category": "Thể loại: {{category}}",
+				"author": "Tác giả: {{author}}"
+			},
+			"searchbar": {
+				"search": "Đặt từ khoá trong \"..\" để tìm chính xác (không dấu cũng OK), ví dụ: \"nhóc nicolas\"",
+				"filter": "tìm nhanh, không dấu cũng OK"
+			},
+			"actions": {
+				"search": "Mở tìm kiếm",
+				"filter": "Lọc/Tìm nhanh",
+				"sort": "Thay đổi cách sắp xếp",
+				"show": "Hiển thị toàn bộ {{totalRecords}} kết quả",
+				"crawl": "Lấy dữ liệu"
+			},
+			"sort": {
+				"labels": {
+					"Title": "Tiêu đề (A - Z)",
+					"LastUpdated": "Mới cập nhật",
+					"Chapters": "Nhiều chương/phần"
+				},
+				"header": "Sắp xếp theo",
+				"button": "Đặt",
+				"message": "Đã thay đổi cách thức sắp xếp..."		
+			}
+		},
+		"read": {
+			"actions": {
+				"author": "Cùng tác giả",
+				"info": "Thông tin",
+				"toc": "Mục lục",
+				"options": "Tuỳ chọn đọc",
+				"crawl": "Lấy lại dữ liệu"
+			},
+			"navigate": {
+				"previous": "Trước",
+				"next": "Sau"
+			},
+			"delete": {
+				"confirm": "Chắc chắn muốn xoá?",
+				"message": "Tác phẩm {{title}} đã được xoá..."
+			}
+		},
+		"info": {
+			"controls": {
+				"Title": "Tiêu đề",
+				"Category": "Thể loại",
+				"Original": "Nguyên tác",
+				"Author": "Tác giả",
+				"Translator": "Dịch giả",
+				"Publisher": "Nhà xuất bản",
+				"Producer": "Đơn vị sản xuất",
+				"Source": "Nguồn",
+				"Cover": "Ảnh bìa",
+				"LastUpdated": "Cập nhật lúc",
+				"Language": "Ngôn ngữ",
+				"Tags": "Thẻ phân loại",
+				"TOCs": "Mục lục"
+			},
+			"chapters": "Số chương/phần",
+			"download": "Tải xuống",
+			"qrcode": {
+				"header": "QR Code",
+				"description": "Dùng {{scanner}} quét QR Code để mở nhanh"
+			},
+			"statistics": {
+				"views": "Số lượt đọc",
+				"downloads": "Số lượt tải về",
+				"total": "Tổng số",
+				"month": "Trong tháng",
+				"week": "Trong tuần"
+			},
+			"updated": "Thời điểm cập nhật",
+			"link": "Liên kết",
+			"notAuthenticated": "Cần đăng nhập để có thể tải được e-book!"
+		},
+		"options": {
+			"title": "Tuỳ chọn đọc",
+			"labels": {
+				"color": "Màu nền",
+				"font": "Font chữ",
+				"size": "Cỡ chữ",
+				"paragraph": "Cách dòng",
+				"align": "Căn lề",
+				"sample": "<p>Tôi tiếp tục tăng tốc, ngày và đêm hòa vào nhau; bầu trời chuyển sang màu xanh thẳm, sáng rực như hoàng hôn sớm;</p><p>Mặt trời như vệt lửa rung rinh chói sáng; mặt trăng biến thành dải sáng mờ ảo dao động và tôi không thấy bóng dáng ngôi sao nào.</p>"
+			},
+			"color": {
+				"white": "Trắng",
+				"black": "Đen",
+				"sepia": "Ngả vàng"
+			},
+			"font": {
+				"default": "Mặc định",
+				"like-default": "Gần mặc định",
+				"plump": "Tròn",
+				"fat": "Béo",
+				"fancy": "Khác lạ"
+			},
+			"size": {
+				"smallest": "Nhỏ nhất",
+				"smaller": "Nhỏ hơn",
+				"small": "Nhỏ",
+				"normal": "Trung bình",
+				"big": "To",
+				"bigger": "To hơn",
+				"huge": "Rất là bự"
+			},
+			"paragraph": {
+				"one": "Bình thường",
+				"two": "Thưa",
+				"three": "Rất thưa"
+			},
+			"align": {
+				"align-left": "Trái",
+				"align-justify": "Đều hai bên",
+				"align-right": "Phải"
+			}
+		},
+		"update": {
+			"title": {
+				"update": "Cập nhật thông tin sách",
+				"request": "Gửi yêu cầu cập nhật thông tin sách"
+			},
+			"button": "Gửi yêu cầu",
+			"segments": {
+				"meta": "Thông tin sách",
+				"others": "Mục lục & Ảnh bìa"
+			},
+			"messages": {
+				"confirm": "Chắc chắn muốn huỷ bỏ cập nhật?",
+				"success": "Sách đã được cập nhật...",
+				"sent": "Yêu cầu cập nhật sách đã được gửi tới quản trị...",
+				"sync": "Đã đồng bộ sách đang đọc..."
+			}
+		}
+	}
+}

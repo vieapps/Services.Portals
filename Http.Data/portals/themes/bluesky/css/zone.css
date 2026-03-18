@@ -1,0 +1,89 @@
+﻿.bluesky.desktop > .section.top > .container > .header {
+	margin: 15px -15px;
+}
+.bluesky.desktop > .section.top > section.row.empty {
+	padding-top: 77px;
+}
+.bluesky.desktop > .section.top > section.row > .zone.slides,
+.bluesky.desktop > .section.top > section.row > .zone.pictures {
+	padding-left: 0;
+	padding-right: 0;
+}
+.bluesky.desktop > .section.bottom,
+.bluesky.desktop > .container > .footer {
+	background-color: #01605c;
+}
+.bluesky.desktop .footer,
+.bluesky.desktop .footer a {
+	color: #fff;
+}
+.bluesky.desktop .footer nav.zone.menu::before,
+.bluesky.desktop .footer div.zone.support::before,
+.bluesky.desktop .footer div.zone.notices::before,
+.bluesky.desktop .footer div.zone.notices::after {
+	content: "";
+	display: block;
+	clear: both;
+	height: 15px;
+	width: 100%;
+}
+.bluesky.desktop .footer div.zone.notices {
+	font-size: .9rem;
+}
+.bluesky.desktop .footer div.zone.notices div.hotline {
+	font-size: 1.3rem;
+	text-transform: uppercase;
+}
+.bluesky.desktop .footer div.zone.notices div.social {
+	font-size: 1.2rem;
+}
+.bluesky.desktop .footer div.zone.notices div.social > a > i.fa,
+.bluesky.desktop .footer div.zone.notices div.social > a > i.fab {
+	margin-right: 15px;
+}
+.bluesky.desktop .footer div.zone.notices div.row > div:last-child {
+	padding-top: 15px;
+}
+@media (min-width: 768px) {
+	.bluesky.desktop .footer div.zone.notices {
+		font-size: 1rem;
+	}
+	.bluesky.desktop .footer div.zone.notices div.row > div:last-child {
+		padding-top: 0;
+	}
+}
+.bluesky.desktop .header .zone.logo h1 > a {
+	height: 50px;
+}
+.bluesky.desktop .header .zone.menu a.navigator.toggle {
+	margin-top: 6px;
+}
+.bluesky.desktop .header .zone.menu a.navigator.toggle > button {
+	background-color: #01605c;
+}
+.bluesky.desktop .header .zone.menu div.navigator.previous.links > span {
+	line-height: 50px;
+}
+.bluesky.desktop .header .zone.menu nav.navigator > ul > li > a {
+	color: #025054;
+	font-weight: bold;
+	text-transform: uppercase;
+}
+.bluesky.desktop .header .zone.menu nav.navigator > ul > li > ul {
+	background-color: rgba(2, 80, 84, 0.8);
+}
+.bluesky.desktop .footer .zone.menu nav.navigator > ul > li > a {
+	line-height: 26px;
+}
+@media (min-width: 1200px) {
+	.bluesky.desktop .header .zone.logo > div > div {
+		padding-top: 5px;
+	}
+	.bluesky.desktop .header .zone.menu div.navigator.previous.links > span,
+	.bluesky.desktop .header .zone.menu div.navigator.previous.links > span.search.box.start + span {
+		line-height: 22px;
+	}
+	.bluesky.desktop .header .zone.menu nav.navigator.previous.links > ul > li > a {
+		line-height: 28px;
+	}
+}

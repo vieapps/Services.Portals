@@ -143,11 +143,6 @@ video[poster], audio[poster] {
 	font-size: .75em;
 	outline-offset: -1px;
 }
-@media (max-width: 1024px) {
-	.desktop .zone.content figure.image.image_resized {
-		width: auto !important;
-	}
-}
 
 /*
 	theme: all - tables

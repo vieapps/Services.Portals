@@ -268,14 +268,3 @@
 		margin-bottom: 80px;
 	}
 }
-
-/* inline popups */
-a.inline.popup.image, a.inline.popup.iframe {
-	position: relative !important;
-	top: unset !important;
-	left: unset !important;
-	bottom: unset !important;
-	right: unset !important;
-	opacity: unset !important;
-	visibility: unset !important;
-}

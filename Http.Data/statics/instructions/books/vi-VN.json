@@ -1,0 +1,52 @@
+﻿{
+	"introduction": "
+		<h1>
+			Giới thiệu vieBooks.net
+		</h1>
+		<p>
+			<b>vieBooks.net</b> là:
+		</p>
+		<ul>
+			<li>
+				Địa điểm tập hợp các sách/truyện đã có trên Internet (online) từ nhiều nguồn khác nhau
+			</li>
+			<li>
+				Địa điểm để kết nối mượn và cho mượn sách giữa các thư viện tư nhân/cá nhân
+			</li>
+			<li>
+				Địa điểm để các cá nhân yêu thích đọc sách  giao lưu, trao đổi sách (cũ)
+			</li>
+		</ul>
+		<p>
+			Đây là hệ thống thử nghiệm thu thập và phân loại thông tin, tất cả các sách/truyện trực tuyến (online) trong thư viện này
+			đều được một hệ thống phần mềm tự động thu thập, bóc tách, phân loại, ... mà không có bất cứ sự can thiệp nào của con người.
+			<br/>
+			Do vậy, có thể các nội dung chưa được chính xác, khi gặp các nội dung chưa chính xác/sai lệch này,
+			kính đề nghị quý bạn đọc sử dụng chức năng hiệu chỉnh/yêu cầu cập nhật để chỉnh sửa các lỗi này.
+		</p>
+		<p>
+			Các tư liệu sách/truyện online này này chủ yếu được tự động thu thập từ mấy nguồn chính sau:
+		</p>
+		<ul>
+			<li>
+				Việt Nam Thư Quán (vnthuquan.net)
+			</li>
+			<li>
+				Mọt Sách (isach.info)
+			</li>
+			<li>
+				Sách Hay (taisachhay.com)
+			</li>
+			<li>
+				Sách Vui (sachvui.com)
+			</li>
+		</ul>
+		<p>
+			Các tư liệu sách/truyện này sau khi được thu thập về, hệ thống phần mềm sẽ tự động loại bỏ các format \"rối rắm\" để có thể đọc được dễ dàng nhất và nhanh nhất.
+			Ngoài ra, các tư liệu này cũng được tự động đóng gói thành 2 dạng file bổ biến của sách điện tử là EPUB
+			(phù hợp với tất cả các điện thoại thông minh phổ dụng như iOS, Android, Windows Phone, ...) và MOBI (cho Amazon Kindle).
+		</p>
+	",
+	"about": "
+	"
+}

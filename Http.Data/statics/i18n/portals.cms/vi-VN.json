@@ -3,7 +3,10 @@
 		"cms": {
 			"common": {
 				"buttons": {
-					"list": "Danh sách nội dung"
+					"list": "Danh sách nội dung",
+					"viewAsPublished": "Xem nội dung (như đã xuất bản)",
+					"viewAsPublic": "Xem nội dung (đã xuất bản công khai)",
+					"duplicate": "Tạo bản sao của nội dung"
 				},
 				"links": {
 					"content": "Tạo liên kết từ nội dung đã có",
@@ -13,6 +16,14 @@
 				"permanentLink": {
 					"label": "Liên kết cố định",
 					"description": "Hệ thống sẽ tự động mở đúng liên kết công khai từ liên kết cố định/không thay đổi này"
+				},
+				"tempLink": {
+					"label": "Liên kết xuất bản công khai (tạm  thời)",
+					"description": "Sử dụng liên kết trên để xemm nội dung hiển thị khi được xuất bản công khai tại môi trường tạm thời"
+				},
+				"publicLink": {
+					"label": "Liên kết xuất bản công khai",
+					"description": "Hệ thống sẽ sử dụng liên kết trên để hiển thị nội dung khi được xuất bản công khai"
 				},
 				"featured": {
 					"updated": "Mới cập nhật",
@@ -25,8 +36,8 @@
 					},
 					"labels": {
 						"shortcuts": "Lối tắt quản trị nội dung",
-						"contents": "Quản trị tin - bài",
-						"others": "Quản trị các nội dung khác"
+						"contents": "Quản trị nội dung",
+						"others": "Quản trị các thông tin khác"
 					},
 					"select": {
 						"organization": "Chọn đơn vị - tổ chức",
@@ -34,6 +45,28 @@
 					},
 					"messages": {
 						"removeOrganization": "Chắc chắn muốn rời khỏi '{{name}}'?"
+					}
+				},
+				"advanced": {
+					"delete": {
+						"action": "Xoá các nội dung đã chọn",
+						"confirm": {
+							"first": "Chắc chắn muốn xoá các nội dung đã chọn?",
+							"last": "Các nội dung đã chọn sẽ được đưa vào 'Thùng rác' và sẽ bị xoá vĩnh viễn sau 30 ngày.",
+							"next": "Chắc chắn xoá các nội dung này?"
+						},
+						"message": "Đã xoá các nội dung đã chọn!"
+					},
+					"resend": {
+						"action": "Gửi lại thông báo của các nội dung đã chọn",
+						"confirm": "Chắc chắn muốn gửi lại thông báo của các nội dung đã chọn?",
+						"message": "Đã gửi thông báo của các nội dung đã chọn!",
+						"label": "Kiểu thông báo sẽ gửi:",
+						"types": {
+							"app": "Thông báo của app",
+							"email": "Thông báo qua email",
+							"webhook": "Tín hiệu web-hook"
+						}
 					}
 				}
 			},
@@ -89,6 +122,11 @@
 						"label": "Liên kết tĩnh",
 						"placeholder": "",
 						"description": "Chỉ định liên kết tĩnh/cố định của phân loại.<br/>Tips: có thể sử dụng ký hiệu '<b>~/</b>' để chỉ định liên kết từ gốc (root), hoặc sử dụng '<b>javascript:</b>' để chỉ định chạy hàm Javascript."
+					},
+					"PrimaryContentID": {
+						"label": "Kiểu dữ liệu nội dung chính",
+						"placeholder": "",
+						"description": "Chỉ định kiểu dữ liệu của nội dung chính khi duyệt danh sách nội dung"
 					},
 					"Notes": {
 						"label": "Ghi chú",
@@ -197,6 +235,11 @@
 						"placeholder": "",
 						"description": ""
 					},
+					"InlineScripts": {
+						"label": "Mã scripts trực tiếp",
+						"placeholder": "$(() => {/* do something crazy */});",
+						"description": "Đoạn mã script nhúng trực tiếp được sử dụng cho những tình huống đặc biệt cần đến mã script riêng cho nội dung này"
+					},
 					"Title": {
 						"label": "Tiêu đề",
 						"placeholder": "",
@@ -265,7 +308,9 @@
 				},
 				"list": {
 					"search": "cho từ khoá vào \"..\" để tìm kiếm chính xác trong phân loại, đặt dấu + ở đầu nếu bắt buộc phải có",
-					"filter": "nhập từ khoá (không dấu cũng được) để lọc theo tiêu đề, đặt dấu + ở đầu nếu bắt buộc phải có"
+					"filter": "nhập từ khoá (không dấu cũng được) để lọc theo tiêu đề, đặt dấu + ở đầu nếu bắt buộc phải có",
+					"current": "Kiểu dữ liệu nghiệp vụ",
+					"change": "Đổi kiểu dữ liệu nghiệp vụ"
 				},
 				"update": {
 					"segments": {
@@ -296,6 +341,16 @@
 					"segments": {
 						"management": "Thông tin quản trị",
 						"basic": "Nội dung"
+					},
+					"duplicate": {
+						"organization": "Đơn vị - tổ chức sẽ chứa nội dung",
+						"module": "Module nghiệp vụ chứa nội dung",
+						"contentType": "Kiểu dữ liệu nghiệp vụ của nội dung",
+						"category": "Chọn chuyên mục chính",
+						"otherCategories": "Chọn các chuyên mục đồng thời xuất hiện",
+						"confirm": "Chắc chắn muốn tạo bản sao của nội dung này ở '{{organization}}'?",
+						"success": "Đã tạo bản sao của nội dung thành công. Bấm 'Xem' để mở xem nội dung bản sao.",
+						"error": "Đã xảy ra lỗi khi tạo bản sao => {{error}}"
 					}
 				}
 			},
@@ -311,11 +366,6 @@
 				"controls": {
 					"ParentID": {
 						"label": "Liên kết cấp trên",
-						"placeholder": "",
-						"description": ""
-					},
-					"OrderIndex": {
-						"label": "Thứ tự hiển thị",
 						"placeholder": "",
 						"description": ""
 					},
@@ -360,6 +410,21 @@
 						"label": "Dữ liệu nghiệp vụ",
 						"placeholder": "",
 						"description": "Hệ thống sẽ lấy các nội dung cấp dưới của dữ liệu đã chỉ định ở trên để tạo các liên kết cấp dưới của mục liên kết này"
+					},
+					"OrderIndex": {
+						"label": "Thứ tự hiển thị",
+						"placeholder": "",
+						"description": ""
+					},
+					"StartDate": {
+						"label": "Ngày bắt đầu",
+						"placeholder": "",
+						"description": "Chỉ định ngày mà liên kết sẽ bắt đầu xuất hiện"
+					},
+					"EndDate": {
+						"label": "Ngày kết thúc",
+						"placeholder": "",
+						"description": "Chỉ định ngày mà liên kết sẽ kết thúc (không xuất hiện công khai). Không thiết đặt giá trị để chỉ định không bao giờ kết thúc."
 					},
 					"Status": {
 						"label": "Trạng thái",
@@ -450,15 +515,207 @@
 						"placeholder": "",
 						"description": ""
 					},
+					"Tags": {
+						"label": "Thẻ phân loại",
+						"placeholder": "",
+						"description": "Thẻ phân loại, phân cách bởi dấu chấm phẩy (;)"
+					},
+					"ConfirmationIsOpened": {
+						"label": "Đã mở đọc email xác thực",
+						"placeholder": "",
+						"description": ""
+					},
+					"ConfirmationOpenedTime": {
+						"label": "Thời điểm mở đọc email xác thực",
+						"placeholder": "",
+						"description": ""
+					},
+					"Confirmed": {
+						"label": "Đã xác thực yêu cầu",
+						"placeholder": "",
+						"description": ""
+					},
+					"DeviceID": {
+						"label": "Mã thiết bị",
+						"placeholder": "",
+						"description": "Mã thiết bị lúc gửi yêu cầu - sử dụng trong các luồng follow-up"
+					},
+					"IPAddress": {
+						"label": "Địa chỉ IP",
+						"placeholder": "",
+						"description": "Địa chỉ IP lúc gửi yêu cầu - sử dụng trong các luồng follow-up"
+					},
+					"Extras": {
+						"label": "Thông tin hệ thống bổ sung",
+						"placeholder": "",
+						"description": "Các thông tin bổ sung ở mức độ hệ thống về hoạt động của người dùng - sử dụng trong các luồng follow-up"
+					},
 					"Profiles": {
 						"label": "Tài khoản",
 						"placeholder": "",
 						"description": ""
+					},
+					"Status": {
+						"label": "Trạng thái xử lý",
+						"placeholder": "",
+						"description": "",
+						"Draft": "Bản nháp",
+						"Pending": "Đợi xử lý",
+						"Rejected": "Bị từ chối",
+						"Approved": "Đang xử lý",
+						"Published": "Đã xử lý",
+						"Archieved": "Đã hoàn thành"
 					}
+				},
+				"buttons": {
+					"change": "Đổi trạng thái xử lý",
+					"approved": "Chỉ định đang xử lý",
+					"published": "Chỉ định đã xử lý",
+					"archieved": "Chỉ định đã hoàn thành"
+
 				},
 				"messages": {
 					"success": "Yêu cầu đã được gửi thành công!",
-					"error": "Đã xảy ra lỗi!"
+					"error": "Đã xảy ra lỗi!",
+					"status": "Đã thay đổi trạng thái xử lý ({{status}}) thành công"
+				}
+			},
+			"crawlers": {
+				"title": {
+					"search": "Tìm kiếm nguồn dữ liệu",
+					"filter": "Tìm nhanh theo từ khoá",
+					"list": "Danh sách nguồn dữ liệu {{info}}",
+					"create": "Tạo mới nguồn dữ liệu",
+					"update": "Cập nhật nguồn dữ liệu",
+					"view": "Xem chi tiết nguồn dữ liệu"
+				},
+				"controls": {
+					"Status": {
+						"label": "Trạng thái",
+						"placeholder": "",
+						"description": "Nguồn dữ liệu sẽ chỉ bắt đầu được sử dụng khi trạng thái là 'Xuất bản'"
+					},
+					"Title": {
+						"label": "Tiêu đề",
+						"placeholder": "",
+						"description": ""
+					},
+					"Description": {
+						"label": "Ghi chú",
+						"placeholder": "",
+						"description": ""
+					},
+					"Type": {
+						"label": "Kiểu  nguồn dữ liệu",
+						"placeholder": "",
+						"description": ""
+					},
+					"URL": {
+						"label": "Địa chỉ web",
+						"placeholder": "vd: https://domain.com",
+						"description": "Địa chỉ web gốc của nguồn dữ liệu"
+					},
+					"RepositoryID": {
+						"label": "Module nghiệp vụ",
+						"placeholder": "",
+						"description": "Chỉ định module nghiệp vụ sẽ nhận dữ liệu"
+					},
+					"RepositoryEntityID": {
+						"label": "Kiểu dữ liệu nghiệp vụ",
+						"placeholder": "",
+						"description": "Chỉ định kiểu dữ liệu nghiệp vụ sẽ nhận dữ liệu"
+					},
+					"SetAuthor": {
+						"label": "Lấy thông tin 'Tác giả'",
+						"placeholder": "",
+						"description": ""
+					},
+					"SetSource": {
+						"label": "Lấy thông tin 'Nguồn'",
+						"placeholder": "",
+						"description": ""
+					},
+					"NormalizingAdapter": {
+						"label": "Tên thành phần chuẩn hoá dữ liệu",
+						"placeholder": "",
+						"description": "Chỉ định tên của thành phần chuẩn hoá dữ liệu - vd: net.vieapps.Services.Portals.Crawlers.NormalizingAdapter,VIEApps.Services.Portals"
+					},
+					"DefaultStatus": {
+						"label": "Trạng thái mặc định",
+						"placeholder": "",
+						"description": "Chỉ định trạng thái xuất bản mặt định của nội dung được lấy từ nguồn dữ liệu"
+					},
+					"MaxPages": {
+						"label": "Số trang tối đa",
+						"placeholder": "",
+						"description": "Chỉ định số trang tối đa sẽ lấy từ nguồn dữ liệu, đặt là không (0) để chỉ định lấy toàn bộ các trang dữ liệu"
+					},
+					"Interval": {
+						"label": "Thời gian lấy dữ liệu định kỳ (phút)",
+						"placeholder": "",
+						"description": "Chỉ định thời gian lấy dữ liệu định kỳ - tính theo phút"
+					},
+					"LastActivity": {
+						"label": "Thời gian hoạt động cuối",
+						"placeholder": "",
+						"description": ""
+					},
+					"SelectedCategories": {
+						"label": "Lấy nội dung của",
+						"placeholder": "",
+						"description": "Chỉ định các phân loại mà sẽ lấy nội dung từ nguồn",
+						"fetch": "Lấy danh sách"
+					},
+					"DefaultCategoryID": {
+						"label": "Phân loại mặc định",
+						"placeholder": "",
+						"description": "Chỉ định phân loại mặc định mà nội dung sẽ sử dụng khi không xác định được phân loại cụ thể"
+					},
+					"CategoryMappings": {
+						"label": "Ánh xạ phân loại",
+						"placeholder": "",
+						"description": "Chỉ định ánh xạ phân loại nội dung giữa hệ thống và nguồn dữ liệu"
+					},
+					"Options": {
+						"label": "Tuỳ chỉnh",
+						"placeholder": "",
+						"description": "Thiết đặt tuỳ chỉnh lấy dữ liệu và điều chỉnh dữ liệu của nguồn"
+					}
+				},
+				"list": {
+					"search": "cho từ khoá vào \"..\" để tìm kiếm chính xác, đặt dấu + ở đầu nếu bắt buộc phải có",
+					"filter": "nhập từ khoá (không dấu cũng được) để lọc theo tiêu đề, đặt dấu + ở đầu nếu bắt buộc phải có"
+				},
+				"update": {
+					"segments": {
+						"basic": "Cơ bản",
+						"categories": "Phân loại",
+						"options": "Thiết đặt tuỳ chỉnh"
+					},
+					"messages": {
+						"confirm": {
+							"new": "Chắc chắn muốn huỷ bỏ quá trình khởi tạo nội dung?",
+							"cancel": "Chắc chắn muốn huỷ bỏ các thay đổi của nội dung?",
+							"delete": "Chắc chắn muốn xoá bỏ nội dung?",
+							"deleteThumbnail": "Chắc chắn muốn xoá ảnh đại diện?"
+						},
+						"success": {
+							"new": "Đã khởi tạo nội dung thành công",
+							"update": "Đã cập nhật các thay đổi của nội dung thành công",
+							"delete": "Đã xoá nội dung (chuyển vào thùng rác) thành công"
+						}
+					},
+					"buttons": {
+						"delete": "Xoá nội dung",
+						"remove": "Đồng ý xoá",
+						"deleteThumbnail": "Xoá ảnh đại diện"
+					}
+				},
+				"view": {
+					"segments": {
+						"management": "Thông tin quản trị",
+						"basic": "Nội dung"
+					}
 				}
 			}
 		}

@@ -1,0 +1,31 @@
+<div class="{{organization-alias}} {{desktop-alias}} {{theme}} desktop {{os-platform}} {{os-mode}} {{parent-identity}} {{main-portlet-type}} {{main-portlet-action}}">
+	<div class="section top container-fluid">
+		<div class="header fixed-top">
+			<div class="container">
+				<header class="row">
+					<div zone-id="Logo" class="zone logo col-8 col-sm-6 col-xl-3"></div>
+					<nav zone-id="Menu" class="zone menu right col-4 col-sm-6 col-xl-9"></nav>
+				</header>
+			</div>
+		</div>
+		<section class="row">
+			<div zone-id="Slides" class="zone slides w-100"></div>
+			<div zone-id="Pictures" class="zone pictures w-100"></div>
+		</section>
+	</div>
+	<div class="section middle container">
+		<section class="main row">
+			<div zone-id="Content" class="zone content col-12 col-lg-8"></div>
+			<section zone-id="Sidebar" class="zone sidebar col-12 col-lg-4"></section>
+		</section>
+	</div>
+	<div class="section bottom container-fluid">
+		<div class="container">
+			<footer class="footer row">
+				<nav zone-id="SubMenu" class="zone menu col-12 col-lg-8"></nav>
+				<div zone-id="Support" class="zone support col-12 col-lg-4"></div>
+				<div zone-id="Notices" class="zone notices col-12"></div>
+			</footer>
+		</div>
+	</div>
+</div>
