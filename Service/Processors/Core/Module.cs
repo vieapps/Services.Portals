@@ -42,7 +42,7 @@ namespace net.vieapps.Services.Portals
 				ModuleProcessor.Modules[module.ID] = module;
 				module.RepositoryDefinition?.Register(module);
 				if (updateCache)
-					Utility.Cache.Set(module);
+					Utility.Cache.SetAsync(module).Execute();
 			}
 			return module;
 		}
@@ -68,11 +68,11 @@ namespace net.vieapps.Services.Portals
 		}
 
 		public static Module GetModuleByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && ModuleProcessor.Modules.ContainsKey(id)
-				? ModuleProcessor.Modules[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Module.Get<Module>(id)?.Set()
-					: null;
+			=> string.IsNullOrWhiteSpace(id)
+				?  null
+				: !force  && ModuleProcessor.Modules.TryGetValue(id, out var module)
+					? module
+					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? Module.Get<Module>(id)?.Set() : null;
 
 		public static async Task<Module> GetModuleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetModuleByID(force, false) ?? (await Module.GetAsync<Module>(id, cancellationToken).ConfigureAwait(false))?.Set();

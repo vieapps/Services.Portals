@@ -1,24 +1,27 @@
 ﻿#region Related components
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Html;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using net.vieapps.Components.Caching;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
+using System.Buffers.Text;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.WebSockets;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
-using net.vieapps.Components.Caching;
-using net.vieapps.Components.Security;
-using net.vieapps.Components.Utility;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -134,7 +137,7 @@ namespace net.vieapps.Services.Portals
 			var requestMethod = (context.Request.Method ?? "GET").ToUpper();
 			var requestSegments = new List<string>();
 			if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-				await context.WriteLogsAsync("Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod}: {requestURI}]").ConfigureAwait(false);
+				await context.WriteLogsAsync("Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod} {requestURI}]").ConfigureAwait(false);
 
 			// process L1-Cache first
 			if (await this.ProcessPortalL1CacheAsync(context, stopwatch).ConfigureAwait(false))
@@ -396,11 +399,9 @@ namespace net.vieapps.Services.Portals
 				catch { }
 
 			// process the request
-			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", query, headers, null, extra, correlationID);
-			if ("".Equals(systemIdentity))
-				await context.WriteLogsAsync("Http.Process.Requests", $"Identify the request [Prev step: {stepwatch.GetElapsedTimes()}]{(isDebugLogEnabled ? $"\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}" : "")}").ConfigureAwait(false);
-
 			JObject systemIdentityJson = null;
+			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", query, headers, null, extra, correlationID);
+
 			var alwaysUseHTTPs = false;
 			var alwaysReturnHTTPs = false;
 			var redirectToNoneWWW = false;
@@ -419,8 +420,6 @@ namespace net.vieapps.Services.Portals
 						alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
 						redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
 						context.UpdateServerTiming("ngxIdentify", stepwatch.ElapsedMilliseconds);
-						if (stepwatch.Elapsed.TotalMilliseconds > 50)
-							await context.WriteLogsAsync("Http.Process.Requests", $"The identify process was completed in {stepwatch.GetElapsedTimes()} [{systemIdentity}]").ConfigureAwait(false);
 					}
 
 					// request of legacy system (files and medias)
@@ -486,7 +485,7 @@ namespace net.vieapps.Services.Portals
 								["X-Redirector"] = "VIEApps NGX HTTP CMS Portals"
 							});
 							if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-								await context.WriteLogsAsync("Http.Process.Requests", $"Redirect for matching with the settings\r\n{requestURI} => {redirectURL}").ConfigureAwait(false);
+								await context.WriteLogsAsync("Http.Process.Requests", $"Redirect for matching with the settings [{requestURI} => {redirectURL}]").ConfigureAwait(false);
 							return;
 						}
 					}
@@ -520,9 +519,8 @@ namespace net.vieapps.Services.Portals
 
 					// process with cache
 					var maxAge = Handler.CacheMaxAge * 60 * 60;
-					var processCache = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache")
-						? false
-						: Handler.AllowCache;
+					var isForceCacheRequested = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache");
+					var processCache = Handler.AllowCache && !isForceCacheRequested;
 					if (processCache && !isRefresher)
 					{
 						var cacheKey = "";
@@ -595,7 +593,6 @@ namespace net.vieapps.Services.Portals
 
 						else if (!"~indicators".IsEquals(systemIdentity))
 						{
-							var logstep = "".Equals(systemIdentity) && systemIdentityJson == null;
 							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
 
 							var siteURI = $"//{systemIdentityJson.Get<string>("SiteHost")}";
@@ -632,19 +629,14 @@ namespace net.vieapps.Services.Portals
 							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
 							alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
 							redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
-
-							if (logstep)
-								await context.WriteLogsAsync("Http.Process.Requests", $"The identify process was completed in {stepwatch.GetElapsedTimes()}").ConfigureAwait(false);
 						}
 
-						if ("".Equals(systemIdentity))
-							await context.WriteLogsAsync("Http.Process.Requests", $"The request was identified [Prev step: {stepwatch.GetElapsedTimes()}]").ConfigureAwait(false);
 						stepwatch.Restart();
-
 						if (!string.IsNullOrWhiteSpace(cacheKey))
 						{
 							// redirect (HTTPS or None-WWW)
-							if (contentType.IsEquals("text/html") && ((alwaysUseHTTPs && !requestURI.Scheme.IsEquals("https")) || (redirectToNoneWWW && requestURI.Host.IsStartsWith("www."))))
+							var isHtml = contentType.IsStartsWith("text/html");
+							if (isHtml && ((alwaysUseHTTPs && !requestURI.Scheme.IsEquals("https")) || (redirectToNoneWWW && requestURI.Host.IsStartsWith("www."))))
 							{
 								var redirectURL = $"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{(redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host)}{requestURI.PathAndQuery}{requestURI.Fragment}";
 								context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -655,7 +647,7 @@ namespace net.vieapps.Services.Portals
 									["X-Redirector"] = "VIEApps NGX HTTP CMS Portals"
 								});
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync("Http.Process.Requests", $"Redirect for matching with the settings\r\n{requestURI} => {redirectURL}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"Redirect for matching with the settings [{requestURI} => {redirectURL}]").ConfigureAwait(false);
 								return;
 							}
 
@@ -667,14 +659,14 @@ namespace net.vieapps.Services.Portals
 							{
 								["Content-Type"] = $"{contentType}; charset=utf-8",
 								["ETag"] = eTag,
-								["Cache-Control"] = context.IsAuthenticated() ? "private, no-store, no-cache" : $"public, max-age=0, s-maxage={maxAge}, stale-while-revalidate=60, stale-if-error=86400",
+								["Cache-Control"] = isHtml ? context.GetHttpCacheControl(maxAge) : context.GetHttpCacheControl(),
 								["X-Cache"] = "HTTP-200",
 								["X-Node"] = Global.NodeID,
 								["X-Correlation-ID"] = correlationID
 							};
 
 							var allowOrigin = "*";
-							if (!contentType.IsStartsWith("text/html") && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
+							if (!isHtml && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
 							{
 								headers["Referrer-Policy"] = "no-referrer-when-downgrade";
 								headers["Access-Control-Allow-Credentials"] = "true";
@@ -713,8 +705,7 @@ namespace net.vieapps.Services.Portals
 							if (!string.IsNullOrWhiteSpace(cached))
 							{
 								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
-								var isHtml = !isBase64 && contentType.IsEquals("text/html");
-								var expiresAt = isHtml ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
+								var expiresAt = !isBase64 && isHtml ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
 								lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
 
 								if (context.ContainsKey("x-sliding-cache"))
@@ -742,14 +733,15 @@ namespace net.vieapps.Services.Portals
 
 								headers["Last-Modified"] = lastModified;
 								headers["Expires"] = expiresAt;
-								headers["Cache-Control"] = context.IsAuthenticated() ? "private, no-store, no-cache" : $"public, max-age=0, s-maxage={maxAge}, stale-while-revalidate=60, stale-if-error=86400";
+								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(maxAge) : context.GetHttpCacheControl();
+
+								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
+								cached = !isBase64 && isHtml ? context.NormalizeHtml(cached, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL) : cached;
+								var body = isBase64 ? cached.Base64ToBytes() : cached.ToBytes();
 
 								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 								context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
-
-								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
-								cached = isHtml ? context.NormalizeHtml(cached, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL) : cached;
-								await context.WriteAsync(isBase64 ? cached.Base64ToBytes() : cached.ToBytes(), cts.Token).ConfigureAwait(false);
+								await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
 
 								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
 									this.SetPortalL1Cache(context, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, cacheKey);
@@ -773,15 +765,25 @@ namespace net.vieapps.Services.Portals
 							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
 						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+
 						var statusCode = response.Get("StatusCode", (int)HttpStatusCode.OK);
+
+						var responseBody = response.Get<string>("Body");
+						var body = responseBody != null ? responseBody.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")) : null;
 
 						headers = response.Get("Headers", new Dictionary<string, string>());
 						if (headers.TryGetValue("X-Node", out var nodeID))
 							headers["X-Service-Node"] = nodeID;
 
+						var isHtml = headers.TryGetValue("Content-Type", out var contentType) && contentType.IsStartsWith("text/html");
+						if (!headers.TryGetValue("Cache-Control", out var cacheControl))
+							cacheControl = isHtml ? context.GetHttpCacheControl(maxAge) : context.GetHttpCacheControl();
+						if (isForceCacheRequested || isRefresher || context.IsAuthenticated())
+							cacheControl = context.GetHttpCacheControl(true);
+						
 						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 						{
-							["Cache-Control"] = context.IsAuthenticated() ? "private, no-store, no-cache" : headers.TryGetValue("Cache-Control", out var cacheControl) ? cacheControl : $"public, max-age=0, s-maxage={maxAge}, stale-while-revalidate=60, stale-if-error=86400",
+							["Cache-Control"] = cacheControl,
 							["X-Correlation-ID"] = correlationID,
 							["X-Node"]  = Global.NodeID
 						};
@@ -789,13 +791,12 @@ namespace net.vieapps.Services.Portals
 						if (headers.TryGetValue("Server-Timing", out var serverTiming))
 							context.UpdateServerTiming(serverTiming, () => headers.Remove("Server-Timing"));
 						context.UpdateServerTiming("ngxServe", stepwatch.ElapsedMilliseconds);
+
 						context.SetResponseHeaders(statusCode, headers);
-
-						var body = response.Get<string>("Body");
 						if (body != null)
-							await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
+							await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
 
-						if (!context.IsAuthenticated() && (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now)))
+						if (Handler.Cache.UseL1Cache && !context.IsAuthenticated() && (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now)))
 						{
 							var baseURL = "";
 							var rootURL = "/";
@@ -919,30 +920,34 @@ namespace net.vieapps.Services.Portals
 					case "feed":
 						try
 						{
+							stepwatch.Restart();
 							using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
-
 							requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
 							if (isDebugLogEnabled)
 								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
 							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
 
+							var responseBody = response.Get<string>("Body");
+							var body = responseBody != null ? responseBody.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")) : null;
+							
 							headers = response.Get("Headers", new Dictionary<string, string>());
 							if (headers.TryGetValue("X-Node", out var nodeID))
 								headers["X-Service-Node"] = nodeID;
 							headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 							{
+								["Server-Timing"] = $"ngxPrepare;dur={stepwatch.ElapsedMilliseconds}",
 								["X-Correlation-ID"] = correlationID,
 								["X-Node"] = Global.NodeID
 							};
-							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 
-							var body = response.Get<string>("Body");							
+							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 							if (body != null)
-								await context.WriteAsync(body.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")), cts.Token).ConfigureAwait(false);
+								await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
 						}
 						catch (TaskCanceledException) { }
 						catch (OperationCanceledException) { }
@@ -1033,8 +1038,7 @@ namespace net.vieapps.Services.Portals
 				headers["Access-Control-Allow-Origin"] = allowOrigin ?? "*";
 			}
 
-			context.UpdateServerTiming("ngxCache", stopwatch.ElapsedMilliseconds);
-			context.SetResponseHeaders(statusCode, headers);
+			byte[] response = null;
 			if (body != null)
 			{
 				var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
@@ -1044,8 +1048,15 @@ namespace net.vieapps.Services.Portals
 					body = body.Replace("~#/", $"{meta.Get<string>("PortalsURL")}/").Replace("~~~/", $"{meta.Get<string>("PortalsURL")}/").Replace("~~/", $"{meta.Get<string>("FilesURL")}/").Replace("~/", meta.Get<string>("RootURL"));
 					body = context.NormalizeHtml(body, meta.Get<bool>("AlwaysUseHTTPs"), meta.Get<bool>("AlwaysReturnHTTPs"), isHtml ? meta.Get<string>("BaseURL") : null);
 				}
+				response = isBase64 ? body.Base64ToBytes() : body.ToBytes();
+			}
+
+			context.UpdateServerTiming("ngxCache", stopwatch.ElapsedMilliseconds);
+			context.SetResponseHeaders(statusCode, headers);
+			if (response != null)
+			{
 				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
-				await context.WriteAsync(isBase64 ? body.Base64ToBytes() : body.ToBytes(), cts.Token).ConfigureAwait(false);
+				await context.WriteAsync(response, cts.Token).ConfigureAwait(false);
 			}
 
 			stopwatch.Stop();

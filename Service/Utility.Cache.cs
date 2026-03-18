@@ -255,7 +255,7 @@ namespace net.vieapps.Services.Portals
 			return cacheKey;
 		}
 
-		internal static async Task PurgeCloudFlareCacheAsync(this IEnumerable<string> urls, string cloudflareZoneID, string cloudflareApiToken, string correlationID, CancellationToken cancellationToken)
+		internal static async Task PurgeCloudFlareCacheAsync(this IEnumerable<string> urls, string cloudflareZoneID, string cloudflareApiToken, string correlationID, CancellationToken cancellationToken, bool alwaysWriteLogs = false)
 		{
 			var cloudflareURI = new Uri($"https://api.cloudflare.com/client/v4/zones/{cloudflareZoneID}/purge_cache");
 			var cloudflareHeaders = new Dictionary<string, string>
@@ -295,24 +295,24 @@ namespace net.vieapps.Services.Portals
 					await purgeAsync(cloudflareBody).ConfigureAwait(false);
 					pageNumber++;
 				}
-				if (Utility.IsPurgeCacheLogEnabled)
+				if (Utility.IsPurgeCacheLogEnabled || alwaysWriteLogs)
 					await Utility.WriteLogAsync(correlationID, $"Purge CloudFlare cache successful\r\nURLs:\r\n- {urls.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 			}
 			else
 				await purgeAsync(cloudflareBody).ConfigureAwait(false);
 		}
 
-		internal static Task PurgeCloudFlareCacheAsync(this Organization organization, IEnumerable<string> urls, string correlationID, CancellationToken cancellationToken)
+		internal static Task PurgeCloudFlareCacheAsync(this Organization organization, IEnumerable<string> urls, string correlationID, CancellationToken cancellationToken, bool alwaysWriteLogs = false)
 		{
 			var systemURLs = (urls ?? []).Where(url => (url.IsContains("/_js/") || url.IsContains("/_css/") || url.IsContains("/_themes/")) && url.IsStartsWith(Utility.PortalsHttpURI)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var orgURLs = (urls ?? []).Except(systemURLs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			return Task.WhenAll
 			(
 				!string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken)
-					? orgURLs.PurgeCloudFlareCacheAsync(organization.CloudFlareZoneID, organization.CloudFlareApiToken, correlationID, cancellationToken)
+					? orgURLs.PurgeCloudFlareCacheAsync(organization.CloudFlareZoneID, organization.CloudFlareApiToken, correlationID, cancellationToken, alwaysWriteLogs)
 					: Task.CompletedTask,
 				systemURLs.Count > 0 && !string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken)
-					? systemURLs.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, cancellationToken)
+					? systemURLs.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, cancellationToken, alwaysWriteLogs)
 					: Task.CompletedTask
 			);
 		}

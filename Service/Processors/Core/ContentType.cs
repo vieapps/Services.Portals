@@ -68,11 +68,11 @@ namespace net.vieapps.Services.Portals
 		}
 
 		public static ContentType GetContentTypeByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && ContentTypeProcessor.ContentTypes.ContainsKey(id)
-				? ContentTypeProcessor.ContentTypes[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? ContentType.Get<ContentType>(id)?.Set()
-					: null;
+			=> string.IsNullOrWhiteSpace(id)
+				? null
+				: !force && ContentTypeProcessor.ContentTypes.TryGetValue(id, out var contentType)
+					? contentType
+					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? ContentType.Get<ContentType>(id)?.Set() : null;
 
 		public static async Task<ContentType> GetContentTypeByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetContentTypeByID(force, false) ?? (await ContentType.GetAsync<ContentType>(id, cancellationToken).ConfigureAwait(false))?.Set();

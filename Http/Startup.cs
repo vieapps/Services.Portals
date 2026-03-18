@@ -175,7 +175,7 @@ namespace net.vieapps.Services.Portals
 			appBuilder.Map("/~apis", pipeline => pipeline.UseWebSockets(new WebSocketOptions
 			{
 				KeepAliveInterval = APIsHandler.WebSocket.KeepAliveInterval
-			}).UseMiddleware<Starter>("HEAD,GET,POST,PUT,PATCH,DELETE").UseMiddleware<Authenticator>(true, true).UseMiddleware<APIsHandler>());
+			}).UseMiddleware<Starter>("GET,POST,PUT,PATCH,DELETE").UseMiddleware<Authenticator>(true, true).UseMiddleware<APIsHandler>());
 
 			// MCP pipeline
 			appBuilder.Map("/~mcp", pipeline => pipeline.UseMiddleware<Starter>().UseMiddleware<Authenticator>(false, true).UseMiddleware<McpHandler>());

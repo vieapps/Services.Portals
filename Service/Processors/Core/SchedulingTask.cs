@@ -55,11 +55,11 @@ namespace net.vieapps.Services.Portals
 				: null;
 
 		internal static async Task<SchedulingTask> GetSchedulingTaskByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && SchedulingTaskProcessor.SchedulingTasks.ContainsKey(id)
-				? SchedulingTaskProcessor.SchedulingTasks[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? (await SchedulingTask.GetAsync<SchedulingTask>(id, cancellationToken).ConfigureAwait(false))?.Set()
-					: null;
+			=> string.IsNullOrWhiteSpace(id)
+				? null
+				: !force && SchedulingTaskProcessor.SchedulingTasks.TryGetValue(id, out var task)
+					? task
+					: fetchRepository ? (await SchedulingTask.GetAsync<SchedulingTask>(id, cancellationToken).ConfigureAwait(false))?.Set() : null;
 
 		internal static SchedulingTask Normalize(this SchedulingTask schedulingTask, ExpandoObject data, Action<SchedulingTask> onCompleted = null)
 		{

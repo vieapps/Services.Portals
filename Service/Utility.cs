@@ -110,12 +110,12 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the collection of not recognized aliases
 		/// </summary>
-		public static ConcurrentHashSet<string> NotRecognizedAliases { get; } = new ConcurrentHashSet<string>(StringComparer.OrdinalIgnoreCase);
+		public static ConcurrentHashSet<AliasKey> NotRecognizedAliases { get; } = new ConcurrentHashSet<AliasKey>();
 
 		/// <summary>
 		/// Gets the collection of OEmbed providers
 		/// </summary>
-		public static List<Tuple<string, List<Regex>, Tuple<Regex, int, string>>> OEmbedProviders { get; } = new List<Tuple<string, List<Regex>, Tuple<Regex, int, string>>>();
+		public static List<(string Name, List<Regex> Schemes, (Regex Expression, int Position, string Html) Pattern)> OEmbedProviders { get; } = new();
 
 		/// <summary>
 		/// Gets the URI of the public APIS
@@ -474,14 +474,13 @@ namespace net.vieapps.Services.Portals
 					var urlStart = media.IndexOf("url=") + 5;
 					var urlEnd = media.IndexOf("\"", urlStart + 1);
 					var url = media.Substring(urlStart, urlEnd - urlStart);
-					var oembedProvider = Utility.OEmbedProviders.FirstOrDefault(provider => provider.Item2.Any(regex => regex.Match(url).Success));
-					if (oembedProvider != null)
+					var providerIndex = Utility.OEmbedProviders.FindIndex(provider => provider.Schemes.Any(regex => regex.Match(url).Success));
+					if (providerIndex	> -1)
 					{
-						var regex = oembedProvider.Item3.Item1;
-						var position = oembedProvider.Item3.Item2;
-						var xhtml = oembedProvider.Item3.Item3;
-						var match = regex.Match(url);
-						media = xhtml.Format(new Dictionary<string, object> { ["id"] = match.Success && match.Length > position ? match.Groups[position].Value : null });
+						var oembedProvider = Utility.OEmbedProviders[providerIndex];
+						var position = oembedProvider.Pattern.Position;
+						var match = oembedProvider.Pattern.Expression.Match(url);
+						media = oembedProvider.Pattern.Html.Format(new Dictionary<string, object> { ["id"] = match.Success && match.Length > position ? match.Groups[position].Value : null });
 					}
 					else
 					{
@@ -1342,6 +1341,72 @@ namespace net.vieapps.Services.Portals
 			onCompleted?.Invoke(cursor);
 			return cursor;
 		}
+
+		public static AliasKey GetOrganiztionAliasKey(this string alias)
+			=> new AliasKey(AliasTypes.Organization, null, alias);
+
+		public static AliasKey GetSiteAliasKey(this string domain)
+			=> new AliasKey(AliasTypes.Site, null, domain);
+
+		public static AliasKey GetDesktopAliasKey(this string systemID, string alias)
+			=> new AliasKey(AliasTypes.Desktop, systemID, alias);
+
+		public static AliasKey GetCategoryAliasKey(this string repositoryEntityID, string alias)
+			=> new AliasKey(AliasTypes.Category, repositoryEntityID, alias);
+	}
+
+	//  --------------------------------------------------------------------------------------------
+
+	/// <summary>
+	/// Presents the alias key
+	/// </summary>
+	public readonly struct AliasKey : IEquatable<AliasKey>
+	{
+		public readonly byte Type;
+		public readonly string Scope;
+		public readonly string Value;
+		readonly int _hash;
+
+		public AliasKey(byte type, string scope, string value)
+		{
+			this.Type = type;
+			this.Scope = scope;
+			this.Value = value;
+			unchecked
+			{
+				int hash = type;
+				if (scope != null)
+					hash = (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(scope);
+				if (value != null)
+					hash = (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(value);
+				this._hash = hash;
+			}
+		}
+
+		public bool Equals(AliasKey other)
+			=> this._hash != other._hash || this.Type != other.Type
+				? false
+				: string.Equals(this.Scope, other.Scope, StringComparison.OrdinalIgnoreCase) && string.Equals(this.Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+		public override bool Equals(object obj)
+			=> obj is AliasKey other && this.Equals(other);
+
+		public override int GetHashCode()
+			=> this._hash;
+
+		public override string ToString()
+			=> this.Scope == null ? $"{Type}:{Value}"  : $"{Type}:{Scope}:{Value}";
+	}
+
+	/// <summary>
+	/// Presents type of an alias
+	/// </summary>
+	public static class AliasTypes
+	{
+		public const byte Organization = 1;
+		public const byte Site = 2;
+		public const byte Desktop = 3;
+		public const byte Category = 4;
 	}
 
 	//  --------------------------------------------------------------------------------------------

@@ -20,7 +20,7 @@ namespace net.vieapps.Services.Portals
 	{
 		internal static ConcurrentDictionary<string, Desktop> Desktops { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
 
-		internal static ConcurrentDictionary<string, Desktop> DesktopsByAlias { get; } = new ConcurrentDictionary<string, Desktop>(StringComparer.OrdinalIgnoreCase);
+		internal static ConcurrentDictionary<AliasKey, Desktop> DesktopsByAlias { get; } = new ConcurrentDictionary<AliasKey, Desktop>();
 
 		internal static HashSet<string> ExtraProperties { get; } = "UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,MainPortletID,SEOSettings".ToHashSet();
 
@@ -64,52 +64,70 @@ namespace net.vieapps.Services.Portals
 
 		internal static Desktop Set(this Desktop desktop, bool clear = false, bool updateCache = false, IEnumerable<string> oldAliases = null)
 		{
-			if (desktop != null && !string.IsNullOrWhiteSpace(desktop.ID) && !string.IsNullOrWhiteSpace(desktop.Title))
+			if (desktop == null)
+				return null;
+
+			var id = desktop.ID;
+			var title = desktop.Title;
+
+			if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(title))
+				return desktop;
+
+			if (clear)
 			{
-				if (clear)
+				var current = desktop.Remove();
+				if (current != null && !current.ParentID.IsEquals(desktop.ParentID))
 				{
-					var current = desktop.Remove();
-					if (current != null && !current.ParentID.IsEquals(desktop.ParentID))
-					{
-						if (current.ParentDesktop != null)
-							current.ParentDesktop._childrenIDs = null;
-						if (desktop.ParentDesktop != null)
-							desktop.ParentDesktop._childrenIDs = null;
-					}
+					current.ParentDesktop?._childrenIDs = null;
+					desktop.ParentDesktop?._childrenIDs = null;
 				}
-
-				DesktopProcessor.Desktops[desktop.ID] = desktop;
-				DesktopProcessor.DesktopsByAlias[$"{desktop.SystemID}:{desktop.Alias}"] = desktop;
-				Utility.NotRecognizedAliases.TryRemove($"Desktop:{desktop.SystemID}:{desktop.Alias}");
-
-				var newAliases = (desktop.Aliases ?? "").ToArray(";")
-					.Where(alias => !string.IsNullOrWhiteSpace(alias))
-					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ToList();
-
-				newAliases.ForEach(alias =>
-				{
-					var success = DesktopProcessor.DesktopsByAlias.TryAdd($"{desktop.SystemID}:{alias}", desktop);
-					if (!success && DesktopProcessor.DesktopsByAlias.TryGetValue($"{desktop.SystemID}:{alias}", out var old))
-						success = DesktopProcessor.DesktopsByAlias.TryUpdate($"{desktop.SystemID}:{alias}", desktop, old);
-					if (success)
-						Utility.NotRecognizedAliases.TryRemove($"Desktop:{desktop.SystemID}:{alias}");
-				});
-
-				(oldAliases ?? new List<string>())
-					.Where(alias => !string.IsNullOrWhiteSpace(alias))
-					.Except(newAliases.Concat(new[] { desktop.Alias }))
-					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ToList()
-					.ForEach(alias =>
-					{
-						DesktopProcessor.DesktopsByAlias.Remove($"{desktop.SystemID}:{alias}");
-						Utility.NotRecognizedAliases.TryRemove($"Desktop:{desktop.SystemID}:{alias}");
-					});
-
-				if (updateCache)
-					Utility.Cache.SetAsync(desktop).Execute();
 			}
+
+			DesktopProcessor.Desktops[id] = desktop;
+
+			var systemID = desktop.SystemID;
+			var alias = desktop.Alias;
+
+			if (!string.IsNullOrWhiteSpace(alias))
+			{
+				var key = systemID.GetDesktopAliasKey(alias);
+				DesktopProcessor.DesktopsByAlias[key] = desktop;
+				Utility.NotRecognizedAliases.Remove(key);
+			}
+
+			var newAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			if (!string.IsNullOrWhiteSpace(alias))
+				newAliases.Add(alias);
+
+			if (!string.IsNullOrWhiteSpace(desktop.Aliases))
+				foreach (var a in desktop.Aliases.ToArray(";", true))
+					if (!string.IsNullOrWhiteSpace(a))
+						newAliases.Add(a);
+
+			foreach (var a in newAliases)
+			{
+				var key = systemID.GetDesktopAliasKey(a);
+				if (!DesktopProcessor.DesktopsByAlias.TryAdd(key, desktop) &&	DesktopProcessor.DesktopsByAlias.TryGetValue(key, out var old))
+					DesktopProcessor.DesktopsByAlias.TryUpdate(key, desktop, old);
+				Utility.NotRecognizedAliases.Remove(key);
+			}
+
+			if (oldAliases != null)
+			{
+				foreach (var a in oldAliases)
+				{
+					if (string.IsNullOrWhiteSpace(a) || newAliases.Contains(a))
+						continue;
+
+					var key = systemID.GetDesktopAliasKey(a);
+					DesktopProcessor.DesktopsByAlias.Remove(key);
+					Utility.NotRecognizedAliases.Remove(key);
+				}
+			}
+
+			if (updateCache)
+				Utility.Cache.SetAsync(desktop).Execute();
+
 			return desktop;
 		}
 
@@ -128,34 +146,41 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(id) && DesktopProcessor.Desktops.TryRemove(id, out var desktop) && desktop != null)
 			{
 				DesktopProcessor.Desktops.Remove(desktop.ID);
-				DesktopProcessor.DesktopsByAlias.Remove($"{desktop.SystemID}:{desktop.Alias}");
-				(desktop.Aliases ?? "").ToArray(";").ForEach(alias => DesktopProcessor.DesktopsByAlias.Remove($"{desktop.SystemID}:{alias}"));
+				DesktopProcessor.DesktopsByAlias.Remove(desktop.SystemID.GetDesktopAliasKey(desktop.Alias));
+				(desktop.Aliases ?? "").ToArray(";").ForEach(alias => DesktopProcessor.DesktopsByAlias.Remove(desktop.SystemID.GetDesktopAliasKey(alias)));
 				return desktop;
 			}
 			return null;
 		}
 
 		public static Desktop GetDesktopByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && DesktopProcessor.Desktops.ContainsKey(id)
-				? DesktopProcessor.Desktops[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Desktop.Get<Desktop>(id)?.Set()
-					: null;
+			=> string.IsNullOrWhiteSpace(id)
+				? null
+				: !force && DesktopProcessor.Desktops.TryGetValue(id, out var desktop)
+					? desktop
+					: fetchRepository ? Desktop.Get<Desktop>(id)?.Set() : null;
 
 		public static async Task<Desktop> GetDesktopByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetDesktopByID(force, false) ?? (await Desktop.GetAsync<Desktop>(id, cancellationToken).ConfigureAwait(false))?.Set();
 
 		public static Desktop GetDesktopByAlias(this string systemID, string alias, bool force = false, bool fetchRepository = true)
 		{
-			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Desktop:{systemID}:{alias}"))
+			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			var desktop = !force && DesktopProcessor.DesktopsByAlias.TryGetValue($"{systemID}:{alias}", out var dvalue) ? dvalue : null;
+			var key = systemID.GetDesktopAliasKey(alias);
+			if (Utility.NotRecognizedAliases.Contains(key))
+				return null;
+
+			Desktop desktop = null;
+			if (!force)
+				DesktopProcessor.DesktopsByAlias.TryGetValue(key, out desktop);
+
 			if (desktop == null && fetchRepository)
 			{
 				desktop = Desktop.Get<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null)?.Set();
 				if (desktop == null)
-					Utility.NotRecognizedAliases.Add($"Desktop:{systemID}:{alias}");
+					Utility.NotRecognizedAliases.Add(key);
 			}
 
 			return desktop;
@@ -163,12 +188,21 @@ namespace net.vieapps.Services.Portals
 
 		public static async Task<Desktop> GetDesktopByAliasAsync(this string systemID, string alias, CancellationToken cancellationToken = default, bool force = false)
 		{
-			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Desktop:{systemID}:{alias}"))
+			if (string.IsNullOrWhiteSpace(systemID) || string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			var desktop = systemID.GetDesktopByAlias(alias, force, false) ?? (await Desktop.GetAsync<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null, cancellationToken).ConfigureAwait(false))?.Set();
+			var key = systemID.GetDesktopAliasKey(alias);
+			if (Utility.NotRecognizedAliases.Contains(key))
+				return null;
+
+			var desktop = systemID.GetDesktopByAlias(alias, force, false);
 			if (desktop == null)
-				Utility.NotRecognizedAliases.Add($"Desktop:{systemID}:{alias}");
+			{
+				desktop = (await Desktop.GetAsync<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null, cancellationToken).ConfigureAwait(false))?.Set();
+				if (desktop == null)
+					Utility.NotRecognizedAliases.Add(key);
+			}
+
 			return desktop;
 		}
 

@@ -207,14 +207,14 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _siteIDs = null;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public List<string> SiteIDs
 		{
 			get => this._siteIDs;
 			set => this._siteIDs = value;
 		}
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string URL => $"{Utility.PortalsHttpURI}/~{this.Alias}";
 
 		internal List<Site> FindSites(List<Site> sites = null, bool notifyPropertyChanged = true)
@@ -243,7 +243,7 @@ namespace net.vieapps.Services.Portals
 
 		internal List<string> _moduleIDs;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
 		public List<string> ModuleIDs
 		{
 			get => this._moduleIDs;

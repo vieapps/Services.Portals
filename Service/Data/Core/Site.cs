@@ -174,10 +174,10 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override Privileges WorkingPrivileges => this.Organization?.WorkingPrivileges;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string WorkingTheme => this.Theme ?? this.Organization?.Theme ?? "default";
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string OrganizationID => this.SystemID;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]

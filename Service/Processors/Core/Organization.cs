@@ -22,7 +22,7 @@ namespace net.vieapps.Services.Portals
 	{
 		internal static ConcurrentDictionary<string, Organization> Organizations { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
 
-		internal static ConcurrentDictionary<string, Organization> OrganizationsByAlias { get; } = new ConcurrentDictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
+		internal static ConcurrentDictionary<AliasKey, Organization> OrganizationsByAlias { get; } = new ConcurrentDictionary<AliasKey, Organization>();
 
 		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",APIs,CMS,CRM,MCP,Portals,Dashboard,Dashboards,Temp,Feed,Feeds,Atom,Rss").ToLower().ToHashSet();
 
@@ -55,27 +55,51 @@ namespace net.vieapps.Services.Portals
 
 		internal static Organization Set(this Organization organization, bool clear = false, bool updateCache = false, string oldAlias = null)
 		{
-			if (organization != null && !string.IsNullOrWhiteSpace(organization.ID) && !string.IsNullOrWhiteSpace(organization.Title))
+			if (organization == null)
+				return null;
+
+			var id = organization.ID;
+			var title = organization.Title;
+
+			if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(title))
+				return organization;
+
+			if (clear)
+				organization.Remove();
+
+			if (updateCache)
+				Utility.Cache.SetAsync(organization).Execute();
+
+			var alias = organization.Alias;
+			OrganizationProcessor.Organizations[id] = organization;
+
+			if (!string.IsNullOrEmpty(alias))
 			{
-				if (clear)
-					organization.Remove();
-
-				if (updateCache)
-					Utility.Cache.SetAsync(organization).Execute();
-
-				OrganizationProcessor.Organizations[organization.ID] = organization;
-				OrganizationProcessor.OrganizationsByAlias[organization.Alias] = organization;
-				Utility.NotRecognizedAliases.TryRemove($"Organization:{organization.Alias}");
-				if (!string.IsNullOrWhiteSpace(oldAlias) && !oldAlias.IsEquals(organization.Alias) && OrganizationProcessor.OrganizationsByAlias.Remove(oldAlias))
-					Utility.NotRecognizedAliases.TryRemove($"Organization:{oldAlias}");
+				var key = alias.GetOrganiztionAliasKey();
+				OrganizationProcessor.OrganizationsByAlias[key] = organization;
+				Utility.NotRecognizedAliases.Remove(key);
 			}
+
+			if (!string.IsNullOrEmpty(oldAlias) && !oldAlias.IsEquals(alias))
+			{
+				var oldKey = oldAlias.GetOrganiztionAliasKey();
+				OrganizationProcessor.OrganizationsByAlias.Remove(oldKey);
+				Utility.NotRecognizedAliases.Remove(oldKey);
+			}
+
 			return organization;
 		}
 
 		internal static async Task<Organization> SetAsync(this Organization organization, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default, string oldAlias = null)
 		{
 			organization?.Set(clear, false, oldAlias);
-			await (updateCache && organization != null && !string.IsNullOrWhiteSpace(organization.ID) && !string.IsNullOrWhiteSpace(organization.Title) ? Utility.Cache.SetAsync(organization, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			if (updateCache && organization != null)
+			{
+				var id = organization.ID;
+				var title = organization.Title;
+				if (!string.IsNullOrWhiteSpace(id) && !string.IsNullOrWhiteSpace(title))
+					await Utility.Cache.SetAsync(organization, cancellationToken).ConfigureAwait(false);
+			}
 			return organization;
 		}
 
@@ -87,8 +111,9 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(id) || !OrganizationProcessor.Organizations.TryRemove(id, out var organization) || organization == null)
 				return null;
 
-			OrganizationProcessor.OrganizationsByAlias.Remove(organization.Alias);
-			Utility.NotRecognizedAliases.TryRemove($"Organization:{organization.Alias}");
+			var key = organization.Alias.GetOrganiztionAliasKey();
+			OrganizationProcessor.OrganizationsByAlias.Remove(key);
+			Utility.NotRecognizedAliases.Remove(key);
 
 			return organization;
 		}
@@ -431,64 +456,97 @@ namespace net.vieapps.Services.Portals
 
 		public static Organization GetOrganizationByID(this string id, bool force = false, bool fetchRepository = true)
 		{
-			var organization = !force && !string.IsNullOrWhiteSpace(id) && OrganizationProcessor.Organizations.ContainsKey(id)
-				? OrganizationProcessor.Organizations[id]
-				: null;
-			if (organization == null || organization.OriginalPrivileges == null || organization.OriginalPrivileges.AdministrativeRoles == null || organization.OriginalPrivileges.AdministrativeRoles.Count < 1)
-				organization = Organization.Get<Organization>(id)?.Set();
-			return organization;
+			if (string.IsNullOrWhiteSpace(id))
+				return null;
+
+			if (!force && OrganizationProcessor.Organizations.TryGetValue(id, out var organization) && organization != null)
+			{
+				var roles = organization.OriginalPrivileges?.AdministrativeRoles;
+				if (roles != null && roles.Count > 0)
+					return organization;
+			}
+
+			return fetchRepository ? Organization.Get<Organization>(id)?.Set() : null;
 		}
 
 		public static async Task<Organization> GetOrganizationByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 		{
 			var organization = (id ?? "").GetOrganizationByID(force, false);
-			if (organization == null || organization.OriginalPrivileges == null || organization.OriginalPrivileges.AdministrativeRoles == null || organization.OriginalPrivileges.AdministrativeRoles.Count < 1)
+			var roles = organization?.OriginalPrivileges?.AdministrativeRoles;
+			if (roles == null || roles.Count < 1)
 				organization = (await Organization.GetAsync<Organization>(id, cancellationToken).ConfigureAwait(false))?.Set();
 			return organization;
 		}
 
 		public static Organization GetOrganizationByAlias(this string alias, bool fetchRepository = true)
 		{
-			if (string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Organization:{alias}"))
+			if (string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			if ((!OrganizationProcessor.OrganizationsByAlias.TryGetValue(alias, out var organization) || organization == null) && fetchRepository)
+			var key = alias.GetOrganiztionAliasKey();
+			if (Utility.NotRecognizedAliases.Contains(key))
+				return null;
+
+			if (!OrganizationProcessor.OrganizationsByAlias.TryGetValue(key, out var organization) || organization == null)
 			{
+				if (!fetchRepository)
+					return null;
+
 				organization = Organization.Get<Organization>(Filters<Organization>.Equals("Alias", alias), null, null)?.Set();
+
 				if (organization == null)
-					Utility.NotRecognizedAliases.Add($"Organization:{alias}");
-				else
-					new CommunicateMessage(Utility.ServiceName)
-					{
-						Type = $"{organization.GetObjectName()}#Update",
-						Data = organization.ToJson(),
-						ExcludedNodeID = Utility.NodeID
-					}.Send();
+				{
+					Utility.NotRecognizedAliases.Add(key);
+					return null;
+				}
+
+				new CommunicateMessage(Utility.ServiceName)
+				{
+					Type = organization.GetObjectName() + "#Update",
+					Data = organization.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
 			}
 
-			if (organization != null && (organization.OriginalPrivileges == null || organization.OriginalPrivileges.AdministrativeRoles == null || organization.OriginalPrivileges.AdministrativeRoles.Count < 1))
+			var roles = organization.OriginalPrivileges?.AdministrativeRoles;
+			if (roles == null || roles.Count < 1)
 				organization = Organization.Get<Organization>(organization.ID)?.Set();
+
 			return organization;
 		}
 
 		public static async Task<Organization> GetOrganizationByAliasAsync(this string alias, CancellationToken cancellationToken = default)
 		{
-			if (string.IsNullOrWhiteSpace(alias) || Utility.NotRecognizedAliases.Contains($"Organization:{alias}"))
+			if (string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			var organization = alias.GetOrganizationByAlias(false) ?? (await Organization.GetAsync<Organization>(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false))?.Set();
+			var key = alias.GetOrganiztionAliasKey();
+			if (Utility.NotRecognizedAliases.Contains(key))
+				return null;
+
+			var organization = alias.GetOrganizationByAlias(false);
 			if (organization == null)
-				Utility.NotRecognizedAliases.Add($"Organization:{alias}");
-			else
+			{
+				organization = (await Organization.GetAsync<Organization>(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false))?.Set();
+
+				if (organization == null)
+				{
+					Utility.NotRecognizedAliases.Add(key);
+					return null;
+				}
+
 				new CommunicateMessage(Utility.ServiceName)
 				{
-					Type = $"{organization.GetObjectName()}#Update",
+					Type = organization.GetObjectName() + "#Update",
 					Data = organization.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
+			}
 
-			if (organization != null && (organization.OriginalPrivileges == null || organization.OriginalPrivileges.AdministrativeRoles == null || organization.OriginalPrivileges.AdministrativeRoles.Count < 1))
+			var roles = organization.OriginalPrivileges?.AdministrativeRoles;
+			if (roles == null || roles.Count < 1)
 				organization = (await Organization.GetAsync<Organization>(organization.ID, cancellationToken).ConfigureAwait(false))?.Set();
+
 			return organization;
 		}
 

@@ -163,7 +163,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public ContentTypeDefinition ContentTypeDefinition => Utility.ContentTypeDefinitions.TryGetValue(this.ContentTypeDefinitionID, out var contentTypeDefinition) ? contentTypeDefinition : null;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string EntityDefinitionTypeName => this.ContentTypeDefinition?.EntityDefinitionTypeName;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]

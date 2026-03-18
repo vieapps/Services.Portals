@@ -52,9 +52,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new();
 
-		[MessagePackIgnore]
 		JObject _json;
-
 		string _exras;
 
 		[JsonIgnore, XmlIgnore]
@@ -116,7 +114,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public ModuleDefinition ModuleDefinition => Utility.ModuleDefinitions.TryGetValue(this.ModuleDefinitionID, out var moduleDefinition) ? moduleDefinition : null;
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]
+		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string RepositoryDefinitionTypeName => this.ModuleDefinition?.RepositoryDefinitionTypeName;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]

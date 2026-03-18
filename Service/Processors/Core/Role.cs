@@ -50,11 +50,11 @@ namespace net.vieapps.Services.Portals
 			=> !string.IsNullOrWhiteSpace(id) && RoleProcessor.Roles.TryRemove(id, out var role) ? role : null;
 
 		public static Role GetRoleByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && RoleProcessor.Roles.ContainsKey(id)
-				? RoleProcessor.Roles[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Role.Get<Role>(id)?.Set()
-					: null;
+			=> string.IsNullOrWhiteSpace(id)
+				? null
+				: !force && RoleProcessor.Roles.TryGetValue(id, out var role)
+					? role
+					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? Role.Get<Role>(id)?.Set() : null;
 
 		public static async Task<Role> GetRoleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetRoleByID(force, false) ?? (await Role.GetAsync<Role>(id, cancellationToken).ConfigureAwait(false))?.Set();
@@ -69,7 +69,7 @@ namespace net.vieapps.Services.Portals
 		public static List<Role> FindRoles(this string systemID, string parentID, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Role>();
+				return [];
 			var filter = RoleProcessor.GetRolesFilter(systemID, parentID);
 			var sort = Sorts<Role>.Ascending("Title");
 			var roles = Role.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
@@ -80,7 +80,7 @@ namespace net.vieapps.Services.Portals
 		public static async Task<List<Role>> FindRolesAsync(this string systemID, string parentID, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Role>();
+				return [];
 			var filter = RoleProcessor.GetRolesFilter(systemID, parentID);
 			var sort = Sorts<Role>.Ascending("Title");
 			var roles = await Role.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);

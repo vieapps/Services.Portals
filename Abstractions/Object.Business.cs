@@ -103,14 +103,15 @@ namespace net.vieapps.Services.Portals
 			if (@object.ExtendedProperties != null && @object.ExtendedProperties.Count > 0)
 				contentType.ExtendedControlDefinitions?.ForEach(definition =>
 				{
+					var allowNull = definition.Required == null || !definition.Required.Value;
 					if (!@object.ExtendedProperties.TryGetValue(definition.Name, out var value) || value == null)
 					{
 						var propertyDefinition = contentType.ExtendedPropertyDefinitions?.FirstOrDefault(def => def.Name == definition.Name);
 						value = !string.IsNullOrWhiteSpace(definition.Formula) ? definition.Formula.Evaluate(objectExpando, requestExpando, @params) : null;
 						value ??= !string.IsNullOrWhiteSpace(propertyDefinition.DefaultValueFormula)
 							? propertyDefinition.DefaultValueFormula.Evaluate(objectExpando, requestExpando, @params)
-							: propertyDefinition.GetDefaultValue();
-						@object.ExtendedProperties[definition.Name] = value?.CastAs(propertyDefinition.Type);
+							: propertyDefinition.GetDefaultValue(allowNull);
+						@object.ExtendedProperties[definition.Name] = value?.CastAs(propertyDefinition.Type, allowNull);
 					}
 				});
 

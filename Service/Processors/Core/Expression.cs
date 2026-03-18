@@ -52,11 +52,11 @@ namespace net.vieapps.Services.Portals
 				: null;
 
 		public static Expression GetExpressionByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && ExpressionProcessor.Expressions.ContainsKey(id)
-				? ExpressionProcessor.Expressions[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Expression.Get<Expression>(id)?.Prepare()
-					: null;
+			=> string.IsNullOrWhiteSpace(id)
+				? null
+				: !force && ExpressionProcessor.Expressions.TryGetValue(id, out var expression)
+					? expression
+					: fetchRepository ? Expression.Get<Expression>(id)?.Prepare() : null;
 
 		public static async Task<Expression> GetExpressionByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetExpressionByID(force, false) ?? (await Expression.GetAsync<Expression>(id, cancellationToken).ConfigureAwait(false))?.Prepare();

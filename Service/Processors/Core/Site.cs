@@ -19,7 +19,7 @@ namespace net.vieapps.Services.Portals
 	{
 		internal static ConcurrentDictionary<string, Site> Sites { get; } = new ConcurrentDictionary<string, Site>(StringComparer.OrdinalIgnoreCase);
 
-		internal static ConcurrentDictionary<string, Site> SitesByDomain { get; } = new ConcurrentDictionary<string, Site>(StringComparer.OrdinalIgnoreCase);
+		internal static ConcurrentDictionary<AliasKey, Site> SitesByDomain { get; } = new ConcurrentDictionary<AliasKey, Site>();
 
 		internal static HashSet<string> ExtraProperties { get; } = "IsDefault,AlwaysUseHTTPs,AlwaysReturnHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,UseInlineStylesheets,UseInlineScripts,CanonicalHost,SEOInfo".ToHashSet();
 
@@ -47,12 +47,12 @@ namespace net.vieapps.Services.Portals
 		{
 			if (!string.IsNullOrWhiteSpace(site.Organization?.FakePortalsHttpURI) && new Uri(site.Organization.FakePortalsHttpURI).Host.IsEquals(domain))
 			{
-				Utility.NotRecognizedAliases.Add($"Site:{domain}");
+				Utility.NotRecognizedAliases.Add(domain.GetSiteAliasKey());
 				site = null;
 			}
 			else if (update)
 			{
-				Utility.NotRecognizedAliases.TryRemove($"Site:{domain}");
+				Utility.NotRecognizedAliases.Remove(domain.GetSiteAliasKey());
 				new CommunicateMessage(Utility.ServiceName)
 				{
 					Type = $"{site.GetObjectName()}#Update",
@@ -63,46 +63,62 @@ namespace net.vieapps.Services.Portals
 			return site;
 		}
 
+		static Site Add(this Site site, string domain, HashSet<string> domains = null)
+		{
+			if (!string.IsNullOrWhiteSpace(domain))
+			{
+				domain = domain.NormalizeDomain().Replace("*.", "").ToLowerInvariant();
+				domains ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+				if (domains.Add(domain))
+				{
+					var key = domain.GetSiteAliasKey();
+					if (!SiteProcessor.SitesByDomain.TryAdd(key, site) &&	SiteProcessor.SitesByDomain.TryGetValue(key, out var old))
+						SiteProcessor.SitesByDomain.TryUpdate(key, site, old);
+					Utility.NotRecognizedAliases.Remove(key);
+				}
+			}
+			return site;
+		}
+
 		internal static Site Set(this Site site, bool clear = false, bool updateCache = false, IEnumerable<string> oldDomains = null)
 		{
-			if (site != null && !string.IsNullOrWhiteSpace(site.ID) && !string.IsNullOrWhiteSpace(site.Title))
-			{
-				if (clear)
-					site.Remove();
+			if (site == null)
+				return null;
 
-				if (updateCache)
-					Utility.Cache.SetAsync(site).Execute();
+			var id = site.ID;
+			var title = site.Title;
 
-				SiteProcessor.Sites[site.ID] = site;
+			if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(title))
+				return site;
 
-				var newDomains = new[] { $"{site.SubDomain}.{site.PrimaryDomain}" }
-					.Concat((site.OtherDomains ?? "").ToArray(";", true))
-					.Where(domain => !string.IsNullOrWhiteSpace(domain))
-					.Select(domain => domain.NormalizeDomain().Replace("*.", "").ToLower())
-					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ToList();
+			if (clear)
+				site.Remove();
 
-				newDomains.ForEach(domain =>
+			if (updateCache)
+				Utility.Cache.SetAsync(site).Execute();
+
+			SiteProcessor.Sites[id] = site;
+			var newDomains = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			site.Add(site.SubDomain + "." + site.PrimaryDomain, newDomains);
+
+			if (!string.IsNullOrWhiteSpace(site.OtherDomains))
+				foreach (var domain in site.OtherDomains.ToArray(";", true))
+					site.Add(domain, newDomains);
+
+			if (oldDomains != null)
+				foreach (var domain in oldDomains)
 				{
-					var success = SiteProcessor.SitesByDomain.TryAdd($"*.{domain}", site);
-					if (!success && SiteProcessor.SitesByDomain.TryGetValue($"*.{domain}", out var old))
-						success = SiteProcessor.SitesByDomain.TryUpdate($"*.{domain}", site, old);
-					if (success)
-						Utility.NotRecognizedAliases.TryRemove($"Site:{domain}");
-				});
+					if (string.IsNullOrWhiteSpace(domain))
+						continue;
 
-				(oldDomains ?? new List<string>())
-					.Where(domain => !string.IsNullOrWhiteSpace(domain))
-					.Select(domain => domain.NormalizeDomain().Replace("*.", "").ToLower())
-					.Except(newDomains)
-					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ToList()
-					.ForEach(domain =>
-					{
-						SiteProcessor.SitesByDomain.Remove($"*.{domain}");
-						Utility.NotRecognizedAliases.TryRemove($"Site:{domain}");
-					});
-			}
+					var normalized = domain.NormalizeDomain().Replace("*.", "").ToLowerInvariant();
+					if (newDomains.Contains(normalized))
+						continue;
+
+					var key = normalized.GetSiteAliasKey();
+					SiteProcessor.SitesByDomain.Remove(key);
+					Utility.NotRecognizedAliases.Remove(key);
+				}
 
 			return site;
 		}
@@ -110,7 +126,13 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<Site> SetAsync(this Site site, bool clear = false, bool updateCache = false, CancellationToken cancellationToken = default, IEnumerable<string> oldDomains = null)
 		{
 			site?.Set(clear, false, oldDomains);
-			await (updateCache && site != null && !string.IsNullOrWhiteSpace(site.ID) && !string.IsNullOrWhiteSpace(site.Title) ? Utility.Cache.SetAsync(site, cancellationToken) : Task.CompletedTask).ConfigureAwait(false);
+			if (updateCache && site != null)
+			{
+				var id = site.ID;
+				var title = site.Title;
+				if (!string.IsNullOrWhiteSpace(id) && !string.IsNullOrWhiteSpace(title))
+					await Utility.Cache.SetAsync(site, cancellationToken).ConfigureAwait(false);
+			}
 			return site;
 		}
 
@@ -129,8 +151,8 @@ namespace net.vieapps.Services.Portals
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ForEach(domain =>
 					{
-						SiteProcessor.SitesByDomain.Remove($"*.{domain}");
-						Utility.NotRecognizedAliases.TryRemove($"Site:{domain}");
+						SiteProcessor.SitesByDomain.Remove("*.{domain}".GetSiteAliasKey());
+						Utility.NotRecognizedAliases.Remove(domain.GetSiteAliasKey());
 					});
 				return site;
 			}
@@ -138,11 +160,11 @@ namespace net.vieapps.Services.Portals
 		}
 
 		public static Site GetSiteByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && SiteProcessor.Sites.TryGetValue(id, out var site)
-				? site
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Site.Get<Site>(id)?.Set()
-					: null;
+			=> string.IsNullOrWhiteSpace(id)
+				? null
+				: !force && SiteProcessor.Sites.TryGetValue(id, out var site)
+					? site
+					: fetchRepository ? Site.Get<Site>(id)?.Set() : null;
 
 		public static async Task<Site> GetSiteByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetSiteByID(force, false) ?? (await Site.GetAsync<Site>(id, cancellationToken).ConfigureAwait(false))?.Set();
@@ -160,7 +182,7 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
-		static Site GetSiteByDomain(this List<Site> sites, string domain)
+		static Site GetSiteByDomain(this IEnumerable<Site> sites, string domain)
 		{
 			var host = domain.ToArray(".");
 			var subDomain = host.First();
@@ -171,32 +193,41 @@ namespace net.vieapps.Services.Portals
 		public static Site GetSiteByDomain(this string domain, bool fetchRepository = true)
 		{
 			var name = (domain ?? "").NormalizeDomain().Replace("*.", "");
-			if (string.IsNullOrWhiteSpace(name) || Utility.NotRecognizedAliases.Contains($"Site:{name}"))
+
+			if (string.IsNullOrWhiteSpace(name))
 				return null;
 
-			if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{name}", out var site) || site == null)
+			var key = name.GetSiteAliasKey();
+			if (Utility.NotRecognizedAliases.Contains(key))
+				return null;
+
+			if (!SiteProcessor.SitesByDomain.TryGetValue(key, out var site) || site == null)
 			{
 				var host = name;
 				var dotOffset = host.IndexOf(".");
+
 				while (site == null && dotOffset > 0)
-					if (!SiteProcessor.SitesByDomain.TryGetValue($"*.{host}", out site) || site == null)
+				{
+					var wildcard = host.GetSiteAliasKey();
+					if (!SiteProcessor.SitesByDomain.TryGetValue(wildcard, out site) || site == null)
 					{
 						host = host.Right(host.Length - dotOffset - 1);
 						dotOffset = host.IndexOf(".");
 					}
+				}
 			}
 
-			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains($"Site:{name}"))
+			if (site == null && fetchRepository && !Utility.NotRecognizedAliases.Contains(key))
 			{
 				site = Site.Find(domain.GetFilterBy(), null, 0, 1, null).GetSiteByDomain(domain);
 				if (site != null)
 				{
 					site = site.Prepare(name)?.Set();
 					if (site != null)
-						Utility.NotRecognizedAliases.TryRemove($"Site:{name}");
+						Utility.NotRecognizedAliases.Remove(key);
 				}
 				else if (Utility.DefaultSite == null)
-					Utility.NotRecognizedAliases.Add($"Site:{name}");
+					Utility.NotRecognizedAliases.Add(key);
 			}
 
 			return site;
@@ -206,18 +237,20 @@ namespace net.vieapps.Services.Portals
 		{
 			var name = (domain ?? "").NormalizeDomain().Replace("*.", "");
 			var site = name.GetSiteByDomain(false);
-			if (site == null && fetchRepository && !string.IsNullOrWhiteSpace(name) && !Utility.NotRecognizedAliases.Contains($"Site:{name}"))
+			var key = name.GetSiteAliasKey();
+			if (site == null && fetchRepository && !string.IsNullOrWhiteSpace(name) && !Utility.NotRecognizedAliases.Contains(key))
 			{
 				site = (await Site.FindAsync(domain.GetFilterBy(), null, 0, 1, null, cancellationToken).ConfigureAwait(false)).GetSiteByDomain(name);
 				if (site != null)
 				{
 					site = site.Prepare(name)?.Set();
 					if (site != null)
-						Utility.NotRecognizedAliases.TryRemove($"Site:{name}");
+						Utility.NotRecognizedAliases.Remove(key);
 				}
 				else if (Utility.DefaultSite == null)
-					Utility.NotRecognizedAliases.Add($"Site:{name}");
+					Utility.NotRecognizedAliases.Add(key);
 			}
+
 			return site;
 		}
 

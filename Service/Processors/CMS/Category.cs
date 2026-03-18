@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 	{
 		internal static ConcurrentDictionary<string, Category> Categories { get; } = new ConcurrentDictionary<string, Category>(StringComparer.OrdinalIgnoreCase);
 
-		internal static ConcurrentDictionary<string, Category> CategoriesByAlias { get; } = new ConcurrentDictionary<string, Category>(StringComparer.OrdinalIgnoreCase);
+		internal static ConcurrentDictionary<AliasKey, Category> CategoriesByAlias { get; } = new ConcurrentDictionary<AliasKey, Category>();
 
 		internal static HashSet<string> ExcludedAliases { get; } = (UtilityService.GetAppSetting("Portals:ExcludedAliases", "") + ",All,Feed,Feeds,Atom,Rss").ToLower().ToHashSet();
 
@@ -45,30 +45,38 @@ namespace net.vieapps.Services.Portals
 				onCompleted?.Invoke(category);
 			});
 
-		internal static string GetCacheKeyOfAliasedCategory(this string contentTypeID, string alias)
-			=> !string.IsNullOrWhiteSpace(contentTypeID) && !string.IsNullOrWhiteSpace(alias)
-				? $"{contentTypeID}:{alias.NormalizeAlias()}"
-				: null;
-
-		internal static string GetCacheKeyOfAliasedCategory(this Category category, string alias = null)
-			=> category?.ContentTypeID?.GetCacheKeyOfAliasedCategory(alias ?? category?.Alias);
-
 		internal static Category Set(this Category category, bool clear = false, bool updateCache = false, string oldAlias = null)
 		{
-			if (category != null && !string.IsNullOrWhiteSpace(category.ID) && !string.IsNullOrWhiteSpace(category.Title))
+			if (category == null)
+				return null;
+
+			var id = category.ID;
+			var title = category.Title;
+			if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(title))
+				return category;
+
+			if (clear)
+				category.Remove();
+
+			if (updateCache)
+				Utility.Cache.SetAsync(category).Execute();
+
+			CategoryProcessor.Categories[id] = category;
+
+			var repositoryEntityID = category.RepositoryEntityID;
+			var alias = category.Alias;
+			var key = repositoryEntityID.GetCategoryAliasKey(alias);
+
+			CategoryProcessor.CategoriesByAlias[key] = category;
+			Utility.NotRecognizedAliases.Remove(key);
+
+			if (!string.IsNullOrWhiteSpace(oldAlias) && !oldAlias.IsEquals(alias))
 			{
-				if (clear)
-					category.Remove();
-
-				if (updateCache)
-					Utility.Cache.SetAsync(category).Execute();
-
-				CategoryProcessor.Categories[category.ID] = category;
-				CategoryProcessor.CategoriesByAlias[category.GetCacheKeyOfAliasedCategory()] = category;
-
-				if (!string.IsNullOrWhiteSpace(oldAlias) && !oldAlias.IsEquals(category.Alias))
-					CategoryProcessor.CategoriesByAlias.Remove(category.GetCacheKeyOfAliasedCategory(oldAlias));
+				var oldKey = repositoryEntityID.GetCategoryAliasKey(oldAlias);
+				CategoryProcessor.CategoriesByAlias.Remove(oldKey);
+				Utility.NotRecognizedAliases.Remove(oldKey);
 			}
+
 			return category;
 		}
 
@@ -86,18 +94,18 @@ namespace net.vieapps.Services.Portals
 		{
 			if (!string.IsNullOrWhiteSpace(id) && CategoryProcessor.Categories.TryRemove(id, out var category) && category != null)
 			{
-				CategoryProcessor.CategoriesByAlias.Remove(category.GetCacheKeyOfAliasedCategory());
+				CategoryProcessor.CategoriesByAlias.Remove(category.RepositoryEntityID.GetCategoryAliasKey(category.Alias));
 				return category;
 			}
 			return null;
 		}
 
 		public static Category GetCategoryByID(this string id, bool force = false, bool fetchRepository = true)
-			=> !force && !string.IsNullOrWhiteSpace(id) && CategoryProcessor.Categories.ContainsKey(id)
-				? CategoryProcessor.Categories[id]
-				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Category.Get<Category>(id)?.Set()
-					: null;
+			=> string.IsNullOrWhiteSpace(id)
+				? null
+				: !force && CategoryProcessor.Categories.TryGetValue(id, out var category)
+					? category
+					: fetchRepository ? Category.Get<Category>(id)?.Set() : null;
 
 		public static async Task<Category> GetCategoryByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
 			=> (id ?? "").GetCategoryByID(force, false) ?? (await Category.GetAsync<Category>(id, cancellationToken).ConfigureAwait(false))?.Set();
@@ -107,16 +115,31 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			if ((!CategoryProcessor.CategoriesByAlias.TryGetValue(repositoryEntityID.GetCacheKeyOfAliasedCategory(alias), out var category) || category == null) && fetchRepository)
+			var key = repositoryEntityID.GetCategoryAliasKey(alias);
+			if (Utility.NotRecognizedAliases.Contains(key))
+				return null;
+
+			if ((!CategoryProcessor.CategoriesByAlias.TryGetValue(key, out var category) || category == null) && fetchRepository)
+			{
 				category = Category.Get(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID)?.Set();
+				if (category == null)
+					Utility.NotRecognizedAliases.Add(key);
+			}
 
 			return category;
 		}
 
 		public static async Task<Category> GetCategoryByAliasAsync(this string repositoryEntityID, string alias, CancellationToken cancellationToken = default)
-			=> string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias)
-				? null
-				: repositoryEntityID.GetCategoryByAlias(alias, false) ?? (await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID, cancellationToken).ConfigureAwait(false))?.Set();
+		{
+			if (string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias))
+				return null;
+
+			var category = repositoryEntityID.GetCategoryByAlias(alias, false) ?? (await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID, cancellationToken).ConfigureAwait(false))?.Set();
+			if (category == null)
+				Utility.NotRecognizedAliases.Add(repositoryEntityID.GetCategoryAliasKey(alias));
+
+			return category;
+		}
 
 		public static IFilterBy<Category> GetCategoriesFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, Action<FilterBys<Category>> onCompleted = null)
 		{
