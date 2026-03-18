@@ -1,27 +1,23 @@
 ﻿#region Related components
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Html;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-using net.vieapps.Components.Caching;
-using net.vieapps.Components.Security;
-using net.vieapps.Components.Utility;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using System;
-using System.Buffers.Text;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.WebSockets;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using WampSharp.V2.Core.Contracts;
-
+using net.vieapps.Components.Caching;
+using net.vieapps.Components.Security;
+using net.vieapps.Components.Utility;
 #endregion
 
 namespace net.vieapps.Services.Portals
