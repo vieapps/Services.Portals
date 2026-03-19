@@ -121,25 +121,25 @@ namespace net.vieapps.Services.Portals
 
 		async Task ProcessPortalRequestAsync(HttpContext context)
 		{
-			// prepare
+			// first-step: process L1-cache
 			var stopwatch = Stopwatch.StartNew();
-			var correlationID = context.GetCorrelationID();
-			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs") || context.ContainsKey("x-cache-logs");
-
-			var stepwatch = Stopwatch.StartNew();
-			var session = context.GetSession();
-
 			var requestURI = context.GetRequestUri();
 			var requestMethod = (context.Request.Method ?? "GET").ToUpper();
-			var requestSegments = new List<string>();
+
+			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs") || context.ContainsKey("x-cache-logs");
 			if (isDebugLogEnabled || Global.IsVisitLogEnabled)
 				await context.WriteLogsAsync("Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod} {requestURI}]").ConfigureAwait(false);
 
-			// process L1-Cache first
-			if (await this.ProcessPortalL1CacheAsync(context, stopwatch).ConfigureAwait(false))
+			var isForceCacheRequested = context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache");
+			if (await this.ProcessPortalL1CacheAsync(context, isForceCacheRequested, stopwatch).ConfigureAwait(false))
 				return;
 
 			// gathering the requesting information
+			var correlationID = context.GetCorrelationID();
+			var stepwatch = Stopwatch.StartNew();
+			var session = context.GetSession();
+			var requestSegments = new List<string>();
+
 			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
 			var osInfo = (session.AppAgent ?? "").GetOSInfo();
 
@@ -514,7 +514,6 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// process with cache
-					var isForceCacheRequested = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache");
 					var processCache = Handler.AllowCache && !isForceCacheRequested;
 					if (processCache && !isRefresher)
 					{
@@ -966,32 +965,48 @@ namespace net.vieapps.Services.Portals
 				await context.WriteLogsAsync("Http.Process.Requests", $"Done process a request of CMS Portals - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 		}
 
-		async Task<bool> ProcessPortalL1CacheAsync(HttpContext context, Stopwatch stopwatch)
+		public class L1CacheMeta
 		{
-			if (!Handler.Cache.UseL1Cache || context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache") || context.ContainsKey("x-sliding-cache"))
+			public L1CacheMeta(bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL, string rootURL, string portalsHttpURI, string filesHttpURI, Dictionary<string, string> headers, string bodyCacheKey)
+			{
+				this.AlwaysUseHTTPs = alwaysUseHTTPs;
+				this.AlwaysReturnHTTPs = alwaysReturnHTTPs;
+				this.BaseURL = baseURL;
+				this.RootURL = rootURL;
+				this.PortalsURL = portalsHttpURI;
+				this.FilesURL = filesHttpURI;
+				this.Headers = headers;
+				this.BodyCacheKey = bodyCacheKey;
+			}
+			public L1CacheMeta(JToken data) => this.CopyFrom(data);
+			public bool AlwaysUseHTTPs { get; set; }
+			public bool AlwaysReturnHTTPs { get; set; }
+			public string BaseURL { get; set; }
+			public string RootURL { get; set; }
+			public string PortalsURL { get; set; }
+			public string FilesURL { get; set; }
+			public Dictionary<string, string> Headers { get; set; }
+			public string BodyCacheKey { get; set; }
+		}
+
+		async Task<bool> ProcessPortalL1CacheAsync(HttpContext context, bool isForceCacheRequested, Stopwatch stopwatch)
+		{
+			if (!Handler.Cache.UseL1Cache || isForceCacheRequested || context.ContainsKey("x-sliding-cache"))
 				return false;
 
 			var requestURI = context.GetRequestUri();
 			var key = requestURI.GetUrl().GenerateUUID();
-			var meta = Handler.Cache.GetL1CacheItem<JObject>(key);
 
+			var meta = Handler.Cache.GetL1CacheItem<L1CacheMeta>(key);
 			if (meta == null)
 				return false;
 
-			var statusCode = (int)HttpStatusCode.OK;
-			var headers = new Dictionary<string, string>(meta.Get<JObject>("Headers").ToDictionary<string>(), StringComparer.OrdinalIgnoreCase)
+			var headers = new Dictionary<string, string>(meta.Headers, StringComparer.OrdinalIgnoreCase)
 			{
 				["X-Cache"] = "L1-HTTP-200",
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = context.GetCorrelationID()
 			};
-
-			headers.TryGetValue("Expires", out var expiresAt);
-			if (!string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) && expirationTime < DateTime.Now)
-			{
-				Handler.Cache.RemoveL1CacheItem(key);
-				return false;
-			}
 
 			headers.TryGetValue("ETag", out var eTag);
 			headers.TryGetValue("Content-Type", out var contentType);
@@ -1002,7 +1017,14 @@ namespace net.vieapps.Services.Portals
 				return false;
 			}
 
+			if (headers.TryGetValue("Expires", out var expiresAt) && !string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) && expirationTime < DateTime.UtcNow)
+			{
+				Handler.Cache.RemoveL1CacheItem(key);
+				return false;
+			}
+
 			var gotBody = true;
+			var statusCode = (int)HttpStatusCode.OK;
 			var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 			if (modifiedSince != null && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime() && eTag.IsEquals(context.GetHeaderParameter("If-None-Match")))
 			{
@@ -1011,14 +1033,15 @@ namespace net.vieapps.Services.Portals
 				gotBody = false;
 			}
 
-			var body = gotBody ? Handler.Cache.GetL1CacheItem<string>(meta.Get<string>("BodyCacheKey")) : null;
-			if (gotBody && body == null)
+			var cachedBody = gotBody ? Handler.Cache.GetL1CacheItem<string>(meta.BodyCacheKey) : null;
+			if (gotBody && cachedBody == null)
 			{
 				Handler.Cache.RemoveL1CacheItem(key);
 				return false;
 			}
 
-			if (!contentType.IsStartsWith("text/html") && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
+			var isHtml = contentType.IsStartsWith("text/html");
+			if (!isHtml && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
 			{
 				headers.TryGetValue("Access-Control-Allow-Origin", out var allowOrigin);
 				var origin = context.GetHeaderParameter("Origin") ?? context.GetHeaderParameter("Referer");
@@ -1030,26 +1053,31 @@ namespace net.vieapps.Services.Portals
 				headers["Access-Control-Allow-Origin"] = allowOrigin ?? "*";
 			}
 
-			byte[] response = null;
-			if (body != null)
+			byte[] body = null;
+			if (cachedBody != null)
 			{
 				var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
-				var isHtml = !isBase64 && contentType.IsStartsWith("text/html");
 				if (!isBase64)
 				{
-					body = body.Replace("~#/", $"{meta.Get<string>("PortalsURL")}/").Replace("~~~/", $"{meta.Get<string>("PortalsURL")}/").Replace("~~/", $"{meta.Get<string>("FilesURL")}/").Replace("~/", meta.Get<string>("RootURL"));
-					body = context.NormalizeHtml(body, meta.Get<bool>("AlwaysUseHTTPs"), meta.Get<bool>("AlwaysReturnHTTPs"), isHtml ? meta.Get<string>("BaseURL") : null);
+					cachedBody = cachedBody.Replace("~#/", meta.PortalsURL + "/").Replace("~~~/", meta.PortalsURL + "/").Replace("~~/", meta.FilesURL + "/").Replace("~/", meta.RootURL);
+					cachedBody = context.NormalizeHtml(cachedBody, meta.AlwaysUseHTTPs, meta.AlwaysReturnHTTPs, isHtml ? meta.BaseURL : null);
 				}
-				response = isBase64 ? body.Base64ToBytes() : body.ToBytes();
+				body = isBase64 ? cachedBody.Base64ToBytes() : cachedBody.ToBytes();
 			}
 
 			context.UpdateServerTiming("ngxCache", stopwatch.ElapsedMilliseconds);
 			context.SetResponseHeaders(statusCode, headers);
-			if (response != null)
-			{
-				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
-				await context.WriteAsync(response, cts.Token).ConfigureAwait(false);
-			}
+			if (body != null)
+				try
+				{
+					await context.WriteAsync(body, context.RequestAborted).ConfigureAwait(false);
+				}
+				catch (TaskCanceledException) { }
+				catch (OperationCanceledException) { }
+				catch (Exception ex)
+				{
+					await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while writting L1-cache item => {ex.Message}", ex).ConfigureAwait(false);
+				}
 
 			stopwatch.Stop();
 			Task.WhenAll
@@ -1060,31 +1088,20 @@ namespace net.vieapps.Services.Portals
 			return true;
 		}
 
-		void SetPortalL1Cache(HttpContext context, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL, string rootURL, string portalsHttpURI, string filesHttpURI, Dictionary<string, string> headers, string cacheKey)
+		void SetPortalL1Cache(HttpContext context, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL, string rootURL, string portalsHttpURI, string filesHttpURI, Dictionary<string, string> headers, string bodyCacheKey)
 		{
-			if (!Handler.Cache.UseL1Cache)
-				return;
-
-			var id = context.GetRequestUri().GetUrl().GenerateUUID();
-			var data = new JObject
+			if (Handler.Cache.UseL1Cache)
 			{
-				["AlwaysUseHTTPs"] = alwaysUseHTTPs,
-				["AlwaysReturnHTTPs"] = alwaysReturnHTTPs,
-				["BaseURL"] = baseURL,
-				["RootURL"] = rootURL,
-				["PortalsURL"] = portalsHttpURI,
-				["FilesURL"] = filesHttpURI,
-				["Headers"] = headers.ToJObject(),
-				["BodyCacheKey"] = cacheKey
-			};
-
-			Handler.Cache.SetL1CacheItem(id, data);
-			new CommunicateMessage($"{Global.ServiceName}.HTTP.L1Cache")
-			{
-				ExcludedNodeID = Global.NodeID,
-				Type = id,
-				Data = data
-			}.Send(Router.GotBackupRouter());
+				var id = context.GetRequestUri().GetUrl().GenerateUUID();
+				var data = new L1CacheMeta(alwaysUseHTTPs, alwaysReturnHTTPs, baseURL, rootURL, portalsHttpURI, filesHttpURI, headers, bodyCacheKey);
+				Handler.Cache.SetL1CacheItem(id, data);
+				new CommunicateMessage($"{Global.ServiceName}.HTTP.L1Cache")
+				{
+					ExcludedNodeID = Global.NodeID,
+					Type = id,
+					Data = data.ToJson()
+				}.Send(Router.GotBackupRouter());
+			}
 		}
 
 		async Task ProcessInitializerRequestAsync(HttpContext context, JObject systemIdentityJson)
@@ -1817,7 +1834,7 @@ namespace net.vieapps.Services.Portals
 												validFor = TimeSpan.FromMinutes(minutes);
 											key = key.Left(key.IndexOf('#'));
 										}
-										Handler.Cache.SetL1CacheItem(key, message.Data as JObject, validFor);
+										Handler.Cache.SetL1CacheItem(key, new L1CacheMeta(message.Data), validFor);
 									}
 								}
 							);
@@ -2116,5 +2133,4 @@ namespace net.vieapps.Services.Portals
 			return identifyJson;
 		}
 	}
-
 }
