@@ -63,7 +63,7 @@ namespace net.vieapps.Services.Portals
 
 		static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
-		internal static int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "12"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge : 12;
+		internal static int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "720"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge : 720;
 
 		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "false"));
 
@@ -514,7 +514,6 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// process with cache
-					var maxAge = Handler.CacheMaxAge * 60 * 60;
 					var isForceCacheRequested = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-bypass-cache");
 					var processCache = Handler.AllowCache && !isForceCacheRequested;
 					if (processCache && !isRefresher)
@@ -522,7 +521,7 @@ namespace net.vieapps.Services.Portals
 						var cacheKey = "";
 						var eTag = "";
 						var contentType = "text/html";
-						var expires = DateTime.Now.AddSeconds(maxAge);
+						var expires = DateTime.Now.AddMinutes(Handler.CacheMaxAge);
 						var baseURL = "";
 						var rootURL = "/";
 						var filesHttpURI = this.RemoveURITrail(systemIdentityJson?.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
@@ -530,8 +529,7 @@ namespace net.vieapps.Services.Portals
 
 						if ("~resources".IsEquals(systemIdentity))
 						{
-							maxAge = 366 * 24 * 60 * 60;
-							expires = DateTime.Now.AddSeconds(maxAge);
+							expires = DateTime.Now.AddDays(366);
 							string identity = null;
 							var isThemeResource = false;
 							var path = requestInfo.GetParameter("x-path");
@@ -655,7 +653,7 @@ namespace net.vieapps.Services.Portals
 							{
 								["Content-Type"] = $"{contentType}; charset=utf-8",
 								["ETag"] = eTag,
-								["Cache-Control"] = isHtml ? context.GetHttpCacheControl(maxAge) : context.GetHttpCacheControl(),
+								["Cache-Control"] = isHtml ? context.GetHttpCacheControl(Handler.CacheMaxAge * 60) : context.GetHttpCacheControl(),
 								["X-Cache"] = "HTTP-200",
 								["X-Node"] = Global.NodeID,
 								["X-Correlation-ID"] = correlationID
@@ -713,23 +711,21 @@ namespace net.vieapps.Services.Portals
 									};
 									if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
 									{
-										items[$"{cacheKey}:expiration"] = expiresAtTime.AddHours(Handler.CacheMaxAge).ToDTString();
-										Handler.Cache.SetAsync(items, null, expiresAtTime.AddHours(Handler.CacheMaxAge), Global.CancellationToken).Execute();
+										items[$"{cacheKey}:expiration"] = expiresAtTime.AddMinutes(Handler.CacheMaxAge).ToDTString();
+										Handler.Cache.SetAsync(items, null, expiresAtTime.AddMinutes(Handler.CacheMaxAge), Global.CancellationToken).Execute();
 									}
 									else
 										Handler.Cache.SetAsync(items, null, 0, Global.CancellationToken).Execute();
 								}
 
+								expiresAt = (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString();
+								headers["Last-Modified"] = lastModified;
+								headers["Expires"] = expiresAt;
+								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl((expiresAt.FromHttpDateTime() - DateTime.Now).TotalSeconds.As<int>()) : context.GetHttpCacheControl();
+								
 								var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
 								if (isCacheLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey})\r\n\r\nRaw cache:\r\n{cached}").ConfigureAwait(false);
-
-								expiresAt = (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString();
-								maxAge = (expiresAt.FromHttpDateTime() - DateTime.Now).TotalSeconds.As<int>();
-
-								headers["Last-Modified"] = lastModified;
-								headers["Expires"] = expiresAt;
-								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(maxAge) : context.GetHttpCacheControl();
 
 								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
 								cached = !isBase64 && isHtml ? context.NormalizeHtml(cached, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL) : cached;
@@ -773,7 +769,7 @@ namespace net.vieapps.Services.Portals
 
 						var isHtml = headers.TryGetValue("Content-Type", out var contentType) && contentType.IsStartsWith("text/html");
 						if (!headers.TryGetValue("Cache-Control", out var cacheControl))
-							cacheControl = isHtml ? context.GetHttpCacheControl(maxAge) : context.GetHttpCacheControl();
+							cacheControl = isHtml ? context.GetHttpCacheControl(Handler.CacheMaxAge * 60) : context.GetHttpCacheControl();
 						if (isForceCacheRequested || isRefresher || context.IsAuthenticated())
 							cacheControl = context.GetHttpCacheControl(true);
 						
