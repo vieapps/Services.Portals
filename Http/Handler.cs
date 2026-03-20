@@ -1006,8 +1006,9 @@ namespace net.vieapps.Services.Portals
 				return false;
 			}
 
+			var allowOrigin = "*";
 			var isHtml = contentType.IsStartsWith("text/html");
-			if (!isHtml && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials") && (!info.Headers.TryGetValue("Access-Control-Allow-Origin", out var allowOrigin) || allowOrigin == null))
+			if (!isHtml && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
 			{
 				var origin = context.GetHeaderParameter("Origin") ?? context.GetHeaderParameter("Referer");
 				if (!string.IsNullOrWhiteSpace(origin))
@@ -1015,10 +1016,11 @@ namespace net.vieapps.Services.Portals
 					var originURI = new Uri(origin);
 					allowOrigin = $"{originURI.Scheme}://{originURI.Host}";
 				}
-				info.Headers["Access-Control-Allow-Origin"] = allowOrigin ?? "*";
 			}
 
 			info.Headers["X-Cache"] = "L1-HTTP-200";
+			info.Headers["Access-Control-Allow-Origin"] = allowOrigin;
+			
 			var statusCode = (int)HttpStatusCode.OK;
 			byte[] body = null;
 			var gotBody = true;
