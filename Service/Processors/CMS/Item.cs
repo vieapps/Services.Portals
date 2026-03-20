@@ -524,7 +524,8 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/item-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsEditor(item.WorkingPrivileges, item.ContentType.WorkingPrivileges, item.Organization);
+			var isAdministrator = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(item.Organization.WorkingPrivileges);
+			var gotRights = isAdministrator || requestInfo.Session.User.IsEditor(item.WorkingPrivileges, item.ContentType.WorkingPrivileges, item.Organization);
 			if (!gotRights)
 				gotRights = item.Status.Equals(ApprovalStatus.Draft) || item.Status.Equals(ApprovalStatus.Pending) || item.Status.Equals(ApprovalStatus.Rejected)
 					? requestInfo.Session.User.ID.IsEquals(item.CreatedID)
@@ -535,11 +536,21 @@ namespace net.vieapps.Services.Portals
 			// prepare data
 			var oldAlias = item.Alias;
 			var oldStatus = item.Status;
-			item.Update(requestInfo.GetBodyExpando(), "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
+			var request = requestInfo.GetBodyExpando();
+			item.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
 				item.Alias = (string.IsNullOrWhiteSpace(item.Alias) ? oldAlias : item.Alias).NormalizeAlias();
 				item.LastModified = DateTime.Now;
 				item.LastModifiedID = requestInfo.Session.User.ID;
+				if (isAdministrator && requestInfo.ContainsKey("x-advanced-update"))
+					try
+					{
+						item.LastModified = request.Get("LastModified", DateTime.Now);
+					}
+					catch
+					{
+						item.LastModified = DateTime.Now;
+					}
 			});
 
 			var existing = await Item.GetItemByAliasAsync(item.ContentType, item.Alias, cancellationToken).ConfigureAwait(false);

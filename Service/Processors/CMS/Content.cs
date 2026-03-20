@@ -725,7 +725,8 @@ namespace net.vieapps.Services.Portals
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization);
+			var isAdministrator = isSystemAdministrator || requestInfo.Session.User.IsAdministrator(content.Organization.WorkingPrivileges);
+			var gotRights = isAdministrator || requestInfo.Session.User.IsEditor(content.WorkingPrivileges, content.ContentType.WorkingPrivileges, content.Organization);
 			if (!gotRights)
 				gotRights = content.Status.Equals(ApprovalStatus.Draft) || content.Status.Equals(ApprovalStatus.Pending) || content.Status.Equals(ApprovalStatus.Rejected)
 					? requestInfo.Session.User.ID.IsEquals(content.CreatedID)
@@ -745,6 +746,15 @@ namespace net.vieapps.Services.Portals
 			{
 				content.LastModified = DateTime.Now;
 				content.LastModifiedID = requestInfo.Session.User.ID;
+				if (isAdministrator && requestInfo.ContainsKey("x-advanced-update"))
+					try
+					{
+						content.LastModified = request.Get("LastModified", DateTime.Now);
+					}
+					catch
+					{
+						content.LastModified = DateTime.Now;
+					}
 			});
 
 			var existing = await Content.GetContentByAliasAsync(content.RepositoryEntityID, content.Alias, content.CategoryID, cancellationToken).ConfigureAwait(false);
