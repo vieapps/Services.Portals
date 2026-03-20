@@ -744,17 +744,17 @@ namespace net.vieapps.Services.Portals
 			Dictionary<string, (string Identifier, string Filename)> inlineImages = null;
 			content.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,StartDate,EndDate,PublishedTime,Privileges,Created,CreatedID,LastModified,LastModifiedID", out inlineImages, _ =>
 			{
-				content.LastModified = DateTime.Now;
-				content.LastModifiedID = requestInfo.Session.User.ID;
+				var lastModified = DateTime.Now;
+				var lastModifiedID = requestInfo.Session.User.ID;
 				if (isAdministrator && requestInfo.ContainsKey("x-advanced-update"))
 					try
 					{
-						content.LastModified = request.Get("LastModified", DateTime.Now);
+						lastModified = request.Get("LastModified", DateTime.Now);
+						lastModifiedID = request.Get("LastModifiedID", requestInfo.Session.User.ID);
 					}
-					catch
-					{
-						content.LastModified = DateTime.Now;
-					}
+					catch { }
+				content.LastModified = lastModified;
+				content.LastModifiedID = lastModifiedID;
 			});
 
 			var existing = await Content.GetContentByAliasAsync(content.RepositoryEntityID, content.Alias, content.CategoryID, cancellationToken).ConfigureAwait(false);

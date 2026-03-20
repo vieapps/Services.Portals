@@ -539,18 +539,17 @@ namespace net.vieapps.Services.Portals
 			var request = requestInfo.GetBodyExpando();
 			item.Update(request, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", _ =>
 			{
-				item.Alias = (string.IsNullOrWhiteSpace(item.Alias) ? oldAlias : item.Alias).NormalizeAlias();
-				item.LastModified = DateTime.Now;
-				item.LastModifiedID = requestInfo.Session.User.ID;
+				var lastModified = DateTime.Now;
+				var lastModifiedID = requestInfo.Session.User.ID;
 				if (isAdministrator && requestInfo.ContainsKey("x-advanced-update"))
 					try
 					{
-						item.LastModified = request.Get("LastModified", DateTime.Now);
+						lastModified = request.Get("LastModified", DateTime.Now);
+						lastModifiedID = request.Get("LastModifiedID", requestInfo.Session.User.ID);
 					}
-					catch
-					{
-						item.LastModified = DateTime.Now;
-					}
+					catch { }
+				item.LastModified = lastModified;
+				item.LastModifiedID = lastModifiedID;
 			});
 
 			var existing = await Item.GetItemByAliasAsync(item.ContentType, item.Alias, cancellationToken).ConfigureAwait(false);
