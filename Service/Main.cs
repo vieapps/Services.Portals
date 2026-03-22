@@ -80,7 +80,7 @@ namespace net.vieapps.Services.Portals
 
 		bool CacheDesktopHtmls { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Desktops:Htmls", "true"));
 
-		int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "12"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge :  12;
+		int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "720"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge : 720;
 
 		string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
@@ -2268,7 +2268,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			string lastModified = null;
-			var maxAge = this.CacheMaxAge * 60 * 60;
+			var maxAge = this.CacheMaxAge * 60;
 			var stepwatch = Stopwatch.StartNew();
 			if (modifiedSince != null && eTag.IsEquals(noneMatch))
 			{
@@ -2339,15 +2339,25 @@ namespace net.vieapps.Services.Portals
 					await Utility.Cache.SetAsync(cacheKeyOfLastModified, lastModified, cancellationToken).ConfigureAwait(false);
 				}
 				var expiresAt = await Utility.Cache.GetAsync<string>(cacheKeyOfExpiration, cancellationToken).ConfigureAwait(false);
-				expiresAt = !string.IsNullOrWhiteSpace(expiresAt) && DateTime.TryParse(expiresAt, out var expirationTime) ? expirationTime.ToHttpString() : DateTime.Now.AddHours(this.CacheMaxAge).ToHttpString();
-				maxAge = (expiresAt.FromHttpDateTime() - DateTime.Now).TotalSeconds.As<int>();
+				if (string.IsNullOrWhiteSpace(expiresAt))
+					expiresAt = DateTime.Now.AddSeconds(this.CacheMaxAge * 60).ToHttpString();
+				else
+				{
+					if (DateTime.TryParse(expiresAt, out var expirationTime))
+					{
+						expiresAt = expirationTime.ToHttpString();
+						maxAge = (expirationTime - DateTime.Now).TotalSeconds.As<int>();
+					}
+					else
+						expiresAt = DateTime.Now.AddSeconds(this.CacheMaxAge * 60).ToHttpString();
+				}
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
 					["ETag"] = eTag,
 					["Last-Modified"] = lastModified,
 					["Cache-Control"] = this.GetCacheControl(maxAge),
 					["Expires"] = expiresAt,
-					["Server-Timing"] = $"ngxCache;dur=${stepwatch.ElapsedMilliseconds}",
+					["Server-Timing"] = $"ngxCache;dur={stepwatch.ElapsedMilliseconds}",
 					["X-Cache"] = "SVC-200"
 				};
 				response = new JObject
@@ -2678,7 +2688,6 @@ namespace net.vieapps.Services.Portals
 					if (!gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.GotError))
 					{
 						var expirationTime = 0;
-						DateTime? expiresAt = null;
 						portletHtmls.Values.Where(data => data.CacheExpiration != null).ForEach(data =>
 						{
 							if (Int32.TryParse(data.CacheExpiration, out var minutes) && minutes > 0)
@@ -2686,19 +2695,16 @@ namespace net.vieapps.Services.Portals
 								if (expirationTime < minutes)
 									expirationTime = minutes;
 							}
-							else if (DateTime.TryParse(data.CacheExpiration, out var time))
-								expiresAt = expiresAt == null || expiresAt < time
-									? time
-									: expiresAt;
 						});
+
 						lastModified = DateTime.Now.ToHttpString();
-						expiresAt ??= DateTime.Now.AddHours(this.CacheMaxAge);
-						maxAge = (expiresAt.Value - DateTime.Now).TotalSeconds.As<int>();
+						if (expirationTime > 0)
+							maxAge = expirationTime * 60;
 						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 						{
 							["ETag"] = eTag,
 							["Last-Modified"] = lastModified,
-							["Expires"] = expiresAt.Value.ToHttpString(),
+							["Expires"] = DateTime.Now.AddSeconds(maxAge).ToHttpString(),
 							["Cache-Control"] = this.GetCacheControl(isForceCacheRequested, maxAge),
 							["X-Cache"] = "None"
 						};
@@ -2708,23 +2714,18 @@ namespace net.vieapps.Services.Portals
 							[cacheKey] = this.NormalizeDesktopHtml(html, organization, site, desktop),
 							[cacheKeyOfLastModified] = lastModified
 						};
+						if (expirationTime > 0)
+							items[cacheKeyOfExpiration] = DateTime.Now.AddMinutes(expirationTime).ToIsoString(true);
 
-						if (expiresAt != null)
-						{
-							items[cacheKeyOfExpiration] = expiresAt.Value.ToDTString();
-							Utility.Cache.SetAsync(items, null, expiresAt, this.CancellationToken).Execute();
-						}
-
-						else
-						{
-							if (expirationTime > 0)
-								items[cacheKeyOfExpiration] = DateTime.Now.AddMinutes(expirationTime).ToDTString();
-							Task.WhenAll
-							(
-								expirationTime > 0 ? Task.CompletedTask : Utility.Cache.RemoveAsync(cacheKeyOfExpiration, this.CancellationToken),
-								Utility.Cache.SetAsync(items, null, expirationTime, this.CancellationToken)
-							).Execute();
-						}
+						Task.WhenAll
+						(
+							expirationTime > 0
+								? Task.CompletedTask
+								: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, this.CancellationToken),
+							expirationTime > 0
+								? Utility.Cache.SetAsync(items, null, DateTime.Now.AddMinutes(expirationTime), this.CancellationToken)
+								: Utility.Cache.SetAsync(items, null, expirationTime, this.CancellationToken)
+						).Execute();
 
 						var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity) ? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false) : null;
 						Task.WhenAll
