@@ -63,7 +63,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
-		internal static int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "720"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge : 720;
+		internal static int CacheMaxAge { get; set; }
 
 		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "false"));
 
@@ -697,9 +697,15 @@ namespace net.vieapps.Services.Portals
 
 							if (!string.IsNullOrWhiteSpace(cached))
 							{
+								var maxAge = Handler.CacheMaxAge * 60;
 								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
 								var expiresAt = !isBase64 && isHtml ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
-								lastModified = lastModified ?? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
+								if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
+								{
+									expires = expiresAtTime;
+									maxAge = (expires - DateTime.UtcNow).TotalSeconds.As<int>();
+								}
+								lastModified ??= await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
 
 								if (context.ContainsKey("x-sliding-cache"))
 								{
@@ -708,19 +714,18 @@ namespace net.vieapps.Services.Portals
 										[cacheKey] = cached,
 										[$"{cacheKey}:time"] = lastModified
 									};
-									if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
+									if (expiresAt != null && DateTime.TryParse(expiresAt, out expiresAtTime))
 									{
-										items[$"{cacheKey}:expiration"] = expiresAtTime.AddMinutes(Handler.CacheMaxAge).ToDTString();
+										items[$"{cacheKey}:expiration"] = expiresAtTime.AddMinutes(Handler.CacheMaxAge).ToIsoString(true);
 										Handler.Cache.SetAsync(items, null, expiresAtTime.AddMinutes(Handler.CacheMaxAge), Global.CancellationToken).Execute();
 									}
 									else
 										Handler.Cache.SetAsync(items, null, 0, Global.CancellationToken).Execute();
 								}
 
-								expiresAt = (string.IsNullOrWhiteSpace(expiresAt) || !DateTime.TryParse(expiresAt, out var expirationTime) ? expires : expirationTime).ToHttpString();
 								headers["Last-Modified"] = lastModified;
-								headers["Expires"] = expiresAt;
-								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl((expiresAt.FromHttpDateTime() - DateTime.Now).TotalSeconds.As<int>()) : context.GetHttpCacheControl();
+								headers["Expires"] = expires.ToHttpString();
+								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(maxAge) : context.GetHttpCacheControl();
 								
 								var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
 								if (isCacheLogEnabled)

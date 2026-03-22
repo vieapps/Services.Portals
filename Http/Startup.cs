@@ -193,8 +193,12 @@ namespace net.vieapps.Services.Portals
 				.UseMiddleware<Authenticator>()
 				.UseMiddleware<Handler>();
 
-			// caching of centerlized services
+			// set-up cache
+			if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "720"), out var cacheMaxAge) || cacheMaxAge < 1)
+				cacheMaxAge = 720;
 			Handler.Cache = Cache.CreateInstance("VIEApps-Services-Portals", loggerFactory);
+			Handler.CacheMaxAge = Handler.Cache != null	? Handler.Cache.ExpirationTime : cacheMaxAge;
+			Global.Logger.LogInformation($"L2-Cache for storing HTMLs => {Handler.Cache.Name} ({Handler.CacheMaxAge} minutes)");
 
 			// connect to API Gateway
 			Handler.Connect();
