@@ -1851,11 +1851,29 @@ namespace net.vieapps.Services.Portals
 
 	internal static class HandlerExtentions
 	{
+		public static bool IsL1CacheAvailable(this HttpContext context, string portalsHttpURI = null)
+		{
+			var url = context.GetRequestUrl();
+			var start = url.IndexOf("/~");
+			if (start < 0)
+			{
+				if (!url.IsContains(Handler.PortalsHttpURI))
+					return true;
+
+				if (!string.IsNullOrWhiteSpace(portalsHttpURI) && !url.IsContains(portalsHttpURI))
+					return true;
+			}
+
+			var end = start > 0 ? url.IndexOf('/', start + 1) : -1;
+			var alias = end > start ? url.Substring(start + 2, end - start - 3) : url.Substring(start + 2);
+			return string.IsNullOrWhiteSpace(alias);
+		}
+
 		public static async Task<bool> ProcessL1CacheAsync(this HttpContext context, bool isForceCacheRequested, Stopwatch stopwatch)
 		{
 			var stepwatch = Stopwatch.StartNew();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs") || context.ContainsKey("x-cache-logs");
-			if (!Handler.Cache.UseL1Cache || isForceCacheRequested || context.ContainsKey("x-sliding-cache"))
+			if (!Handler.Cache.UseL1Cache || isForceCacheRequested)
 			{
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache [{!Handler.Cache.UseL1Cache}/{isForceCacheRequested}/{context.ContainsKey("x-sliding-cache")}]").ConfigureAwait(false);
@@ -1863,14 +1881,18 @@ namespace net.vieapps.Services.Portals
 			}
 
 			var url = context.GetRequestUrl();
-			var start = url.IndexOf("/~");
-			var end = start > 0 ? url.IndexOf('/', start + 1) : -1;
-			var alias = end > start ? url.Substring(start + 2, end - start - 3) : null;
-
-			if (!string.IsNullOrWhiteSpace(alias))
+			if (!context.IsL1CacheAvailable())
 			{
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (alias) [{url}]").ConfigureAwait(false);
+				return false;
+			}
+
+			if (context.ContainsKey("x-sliding-cache"))
+			{
+				context.RemoveL1Cache();
+				if (isDebugLogEnabled)
+					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (warmp-up) [{url}]").ConfigureAwait(false);
 				return false;
 			}
 
@@ -1958,7 +1980,7 @@ namespace net.vieapps.Services.Portals
 					else
 					{
 						cachedBody = cachedBody.Replace("~#/", info.PortalsURL + "/").Replace("~~~/", info.PortalsURL + "/").Replace("~~/", info.FilesURL + "/").Replace("~/", "/");
-						cachedBody = context.NormalizeHtml(cachedBody, info.AlwaysUseHTTPs, info.AlwaysReturnHTTPs, null);
+						cachedBody = context.NormalizeHtml(cachedBody, info.AlwaysUseHTTPs, info.AlwaysReturnHTTPs);
 						body = cachedBody.ToBytes();
 					}
 					Handler.Cache.SetL1CacheItem(info.BodyCacheKey + (originIsRequired && gotWWW ? ":WWW" : ""), body);
@@ -1998,7 +2020,7 @@ namespace net.vieapps.Services.Portals
 		public static void SetL1Cache(this HttpContext context, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string portalsHttpURI, string filesHttpURI, Dictionary<string, string> headers, string bodyCacheKey)
 		{
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs") || context.ContainsKey("x-cache-logs");
-			if (Handler.Cache.UseL1Cache)
+			if (Handler.Cache.UseL1Cache && context.IsL1CacheAvailable(portalsHttpURI))
 			{
 				var key = context.GetL1CacheKey();
 				var info = new L1CacheInfo(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, bodyCacheKey);
@@ -2029,7 +2051,10 @@ namespace net.vieapps.Services.Portals
 						validFor = TimeSpan.FromMinutes(minutes);
 					key = key.Left(pos);
 				}
-				Handler.Cache.SetL1CacheItem(key, new L1CacheInfo(message.Data), validFor);
+				if (key.IsValidUUID())
+					Handler.Cache.SetL1CacheItem(key, new L1CacheInfo(message.Data), validFor);
+				else
+					Handler.Cache.SetL1CacheItem(key, message.Data, validFor);
 			}
 		}
 
@@ -2101,10 +2126,10 @@ namespace net.vieapps.Services.Portals
 				var systemIdentityJson = await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
 				serviceSystemID = systemIdentityJson?.Get<string>("ID");
 			}
-			context.SendSessionState($"{Global.ServiceName}.HTTP", $"{context.Request.Method} {requestURI}", serviceSystemID, online, trackStatistics);
+			context.SendSessionState(Global.ServiceName + ".HTTP", $"{context.Request.Method} {requestURI}", serviceSystemID, online, trackStatistics);
 		}
 
-		public static string NormalizeHtml(this HttpContext context, string html, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL)
+		public static string NormalizeHtml(this HttpContext context, string html, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL = null)
 		{
 			var requestURI = context.GetRequestUri();
 			var session = context.GetSession();
@@ -2158,19 +2183,14 @@ namespace net.vieapps.Services.Portals
 		{
 			var requestURI = context.GetRequestUri();
 			var requestHost = requestURI.Host.Replace("www.", "");
-			var identifyJson = Handler.Cache.UseL1Cache
-				? Handler.Cache.GetL1CacheItem<JObject>(requestHost)
-				: null;
-
+			var useL1Cache = Handler.Cache.UseL1Cache && context.IsL1CacheAvailable();
+			var identifyJson = useL1Cache ? Handler.Cache.GetL1CacheItem<JObject>(requestHost) : null;
 			if (identifyJson == null)
 			{
-				var stopwatch = Stopwatch.StartNew();
-				var stepwatch = Stopwatch.StartNew();
 				identifyJson = await context.CallServiceAsync(requestInfo, cancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-				stepwatch.Stop();
-
-				if (identifyJson != null && Handler.Cache.UseL1Cache)
+				if (identifyJson != null && useL1Cache)
 				{
+					var updateL1Cache = true;
 					var examinations = identifyJson.Get<JArray>("CacheExaminations")?.Select(examination => examination as JObject)
 						.Select(examination => examination?.Copy<Settings.ExamineURLs>())
 						.Where(examination => examination != null)
@@ -2179,25 +2199,22 @@ namespace net.vieapps.Services.Portals
 					{
 						var path = requestURI.AbsolutePath.ToLower();
 						var pathWithoutExtention = path.Replace("/default.aspx", "").Replace(".aspx", "").Replace(".php", "").Replace(".html", "");
-						var examination = examinations.FirstOrDefault(exam => exam.Start <= DateTime.Now && exam.End >= DateTime.Now && ((exam.URLs.Any(url => url.IsStartsWith("s:/") ? path.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? path.IsContains(url.Right(url.Length - 2)) : path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/") ? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? pathWithoutExtention.IsContains(url.Right(url.Length - 2)) : pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*"))));
-						if (examination == null)
+						updateL1Cache = examinations.FirstOrDefault(exam => exam.Start <= DateTime.Now && exam.End >= DateTime.Now && ((exam.URLs.Any(url => url.IsStartsWith("s:/") ? path.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? path.IsContains(url.Right(url.Length - 2)) : path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/") ? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? pathWithoutExtention.IsContains(url.Right(url.Length - 2)) : pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*")))) == null;
+					}
+					if (updateL1Cache)
+					{
+						Handler.Cache.SetL1CacheItem(requestHost, identifyJson, TimeSpan.FromMinutes(3));
+						new CommunicateMessage(Global.ServiceName + ".HTTP.L1Cache")
 						{
-							Handler.Cache.SetL1CacheItem(requestHost, identifyJson, TimeSpan.FromMinutes(3));
-							new CommunicateMessage($"{Global.ServiceName}.HTTP.L1Cache")
-							{
-								ExcludedNodeID = Global.NodeID,
-								Type = $"{requestHost}#3",
-								Data = identifyJson
-							}.Send(Router.GotBackupRouter());
-						}
+							ExcludedNodeID = Global.NodeID,
+							Type = requestHost + "#3",
+							Data = identifyJson
+						}.Send(Router.GotBackupRouter());
+						if (Global.IsDebugLogEnabled || context.ContainsKey("x-logs"))
+							await context.WriteLogsAsync("Http.Process.Requests", $"Update identify info to L1-Cache successful\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identifyJson}").ConfigureAwait(false);
 					}
 				}
-
-				stopwatch.Stop();
-				if (stopwatch.Elapsed.TotalMilliseconds > 30)
-					await context.WriteLogsAsync("Http.Process.Requests", $"Complete the identify process - Call: {stepwatch.GetElapsedTimes()} - Overrall: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 			}
-
 			return identifyJson;
 		}
 	}

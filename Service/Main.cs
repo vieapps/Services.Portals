@@ -1,26 +1,5 @@
 ﻿#region Related components
-using System;
-using System.IO;
-using System.Linq;
-using System.Data;
-using System.Dynamic;
-using System.Net;
-using System.Net.Mime;
-using System.Xml.Linq;
-using System.Diagnostics;
-using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
-using System.Security.AccessControl;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using WampSharp.Core.Listener;
-using WampSharp.V2.Realm;
-using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
@@ -28,6 +7,29 @@ using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Crawlers;
 using net.vieapps.Services.Portals.Exceptions;
 using net.vieapps.Services.Portals.Settings;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Data;
+using System.Diagnostics;
+using System.Dynamic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Mime;
+using System.Reactive.Concurrency;
+using System.Reflection;
+using System.Security.AccessControl;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+using WampSharp.Core.Listener;
+using WampSharp.V2.Core.Contracts;
+using WampSharp.V2.Realm;
+
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -1403,7 +1405,6 @@ namespace net.vieapps.Services.Portals
 				identityJson["CacheKeyPrefix"] = organization.ID + (site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? "" : ":" + site.ID);
 				identityJson["CacheExaminations"] = organization.ExamineURLs?.ToJsonArray();
 			}
-			await requestInfo.WriteLogAsync($"The system was identified - Execution times: {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 
 			if (!requestInfo.TryGetQueryParameter("x-resource", out var resource) || string.IsNullOrWhiteSpace(resource))
 			{
@@ -1419,7 +1420,6 @@ namespace net.vieapps.Services.Portals
 
 				else
 				{
-					var stepwatch = Stopwatch.StartNew();
 					if (cmsPaths.Length == 1)
 					{
 						var desktop = await organization.ID.GetDesktopByAliasAsync(cmsPaths[0].NormalizeAlias(), cancellationToken).ConfigureAwait(false);
@@ -1448,13 +1448,11 @@ namespace net.vieapps.Services.Portals
 							identityJson["RepositoryEntityID"] = category.RepositoryEntityID;
 						}
 					}
-					stepwatch.Stop();
-					await requestInfo.WriteLogAsync($"The CMS system was identified - Execution times: {stepwatch.GetElapsedTimes()}").ConfigureAwait(false);
 				}
 			}
 
 			stopwatch.Stop();
-			await requestInfo.WriteLogAsync($"The system was completly identified - Execution times: {stopwatch.GetElapsedTimes()}{(requestInfo.IsWriteDesktopLogs() ? $"\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identityJson}" : "")}").ConfigureAwait(false);
+			await requestInfo.WriteLogAsync($"The system was identified - Execution times: {stopwatch.GetElapsedTimes()}{(requestInfo.IsWriteDesktopLogs() ? $"\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identityJson}" : "")}").ConfigureAwait(false);
 			return identityJson;
 		}
 
