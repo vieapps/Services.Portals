@@ -131,7 +131,7 @@ namespace net.vieapps.Services.Portals
 				await context.WriteLogsAsync("Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod} {requestURI}]").ConfigureAwait(false);
 
 			var isForceCacheRequested = context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache");
-			if (await context.ProcessL1CacheAsync(isForceCacheRequested, stopwatch).ConfigureAwait(false))
+			if (requestMethod == "GET" && await context.ProcessL1CacheAsync(isForceCacheRequested, stopwatch).ConfigureAwait(false))
 				return;
 
 			// gathering the requesting information
@@ -1857,15 +1857,13 @@ namespace net.vieapps.Services.Portals
 			var start = url.IndexOf("/~");
 			if (start < 0)
 			{
-				if (!url.IsContains(Handler.PortalsHttpURI))
-					return true;
-
-				if (!string.IsNullOrWhiteSpace(portalsHttpURI) && !url.IsContains(portalsHttpURI))
-					return true;
+				if (url.IsStartsWith(Handler.PortalsHttpURI))
+					return false;
+				if (url.IsStartsWith(portalsHttpURI))
+					return false;
 			}
-
 			var end = start > 0 ? url.IndexOf('/', start + 1) : -1;
-			var alias = end > start ? url.Substring(start + 2, end - start - 3) : url.Substring(start + 2);
+			var alias = start < 0 ? null : end > start ? url.Substring(start + 2, end - start - 3) : url.Substring(start + 2);
 			return string.IsNullOrWhiteSpace(alias);
 		}
 
