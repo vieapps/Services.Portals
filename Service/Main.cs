@@ -1558,7 +1558,7 @@ namespace net.vieapps.Services.Portals
 				: null;
 			var headers = new JObject
 			{
-				["Content-Type"] = $"{contentType}; charset=utf-8",
+				["Content-Type"] = contentType + (contentType.IsStartsWith("imagae/") ? "" : "; charset=utf-8"),
 				["Cache-Control"] = "public",
 				["Server-Timing"] = $"ngxPrepare;dur={stopwatch.ElapsedMilliseconds}",
 				["X-Node"] = this.NodeID,
@@ -1842,12 +1842,13 @@ namespace net.vieapps.Services.Portals
 					serverTiming += $", ngxConvert;dur={stepwatch.ElapsedMilliseconds}";
 				}
 
+				var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") || contentType.IsStartsWith("video/") || contentType.IsStartsWith("audio/") || contentType.IsEndsWith("/octet-stream");
 				if (this.CacheDesktopResources)
 				{
 					stepwatch.Restart();
 					await Task.WhenAll
 					(
-						Utility.Cache.SetAsFragmentsAsync(cacheKey, contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") || contentType.IsStartsWith("video/") || contentType.IsStartsWith("audio/") || contentType.IsEndsWith("/octet-stream") ? data.ToBase64() : data.GetString(), cancellationToken),
+						Utility.Cache.SetAsFragmentsAsync(cacheKey, isBase64 ? data.ToBase64() : data.GetString(), cancellationToken),
 						Utility.Cache.SetAsync($"{cacheKey}:time", lastModified, cancellationToken),
 						Utility.Cache.AddSetMembersAsync("statics" + (isThemeResource ? $":{identity}" : ""), [cacheKey, $"{cacheKey}:time"], cancellationToken),
 						isCacheLogEnabled
@@ -1861,7 +1862,7 @@ namespace net.vieapps.Services.Portals
 				resources = data.Compress(this.BodyEncoding).ToBase64();
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
-					["Content-Type"] = $"{contentType}; charset=utf-8",
+					["Content-Type"] = contentType + (isBase64 ? "" : "; charset=utf-8"),
 					["Last-Modified"] = lastModified
 				};
 			}

@@ -104,7 +104,7 @@ namespace net.vieapps.Services.Portals
 
 			// load balancer
 			if (context.Request.Path.Value.IsEquals(Handler.LoadBalancerHealthCheckURL))
-				return context.WriteAsync("OK", "text/plain", null, 0, null, TimeSpan.Zero, null, Global.CancellationToken);
+				return context.WriteAsync("OK", "text/plain", null, 0, "private, no-cache, no-store", TimeSpan.Zero, null, Global.CancellationToken);
 
 			// HTTP
 			var requestURI = context.GetRequestUri();
@@ -627,8 +627,10 @@ namespace net.vieapps.Services.Portals
 						stepwatch.Restart();
 						if (!string.IsNullOrWhiteSpace(cacheKey))
 						{
-							// redirect (HTTPS or None-WWW)
 							var isHtml = contentType.IsStartsWith("text/html");
+							var isBase64 = contentType.IsStartsWith("font/") || contentType.IsStartsWith("image/");
+
+							// redirect (HTTPS or None-WWW)
 							if (isHtml && ((alwaysUseHTTPs && !requestURI.Scheme.IsEquals("https")) || (redirectToNoneWWW && requestURI.Host.IsStartsWith("www."))))
 							{
 								var redirectURL = $"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{(redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host)}{requestURI.PathAndQuery}{requestURI.Fragment}";
@@ -650,7 +652,7 @@ namespace net.vieapps.Services.Portals
 
 							headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 							{
-								["Content-Type"] = $"{contentType}; charset=utf-8",
+								["Content-Type"] = contentType + (isBase64 ? "" : "; charset=utf-8"),
 								["ETag"] = eTag,
 								["Cache-Control"] = isHtml ? context.GetHttpCacheControl(Handler.CacheMaxAge * 60) : context.GetHttpCacheControl(),
 								["X-Cache"] = "HTTP-200",
@@ -659,7 +661,7 @@ namespace net.vieapps.Services.Portals
 							};
 
 							var allowOrigin = "*";
-							if (!isHtml && !contentType.IsStartsWith("font/") && !contentType.IsStartsWith("image/") && Handler.CrossOrigin.IsEquals("use-credentials"))
+							if (!isHtml && !isBase64 && Handler.CrossOrigin.IsEquals("use-credentials"))
 							{
 								headers["Referrer-Policy"] = "no-referrer-when-downgrade";
 								headers["Access-Control-Allow-Credentials"] = "true";
@@ -698,7 +700,6 @@ namespace net.vieapps.Services.Portals
 							if (!string.IsNullOrWhiteSpace(cached))
 							{
 								var maxAge = Handler.CacheMaxAge * 60;
-								var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/");
 								var expiresAt = !isBase64 && isHtml ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
 								if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
 								{
@@ -912,7 +913,6 @@ namespace net.vieapps.Services.Portals
 							
 							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
-							requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
 							if (isDebugLogEnabled)
 								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
@@ -934,6 +934,8 @@ namespace net.vieapps.Services.Portals
 							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 							if (body != null)
 								await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
+
+							requestInfo.SendSessionState(systemIdentityJson, Global.ServiceName + $".HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
 						}
 						catch (TaskCanceledException) { }
 						catch (OperationCanceledException) { }
