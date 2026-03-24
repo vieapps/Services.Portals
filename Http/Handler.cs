@@ -65,11 +65,11 @@ namespace net.vieapps.Services.Portals
 
 		internal static int CacheMaxAge { get; set; }
 
-		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "false"));
+		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
 
 		internal static bool TrackPortalStatistics { get; set; } = Handler.TrackSessions || "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
 
-		internal static bool TrackAPIStatistics { get; set; } = Handler.TrackSessions || "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "true"));
+		internal static bool TrackAPIStatistics { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
 
 		internal static string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
@@ -1855,13 +1855,8 @@ namespace net.vieapps.Services.Portals
 		{
 			var url = context.GetRequestUrl();
 			var start = url.IndexOf("/~");
-			if (start < 0)
-			{
-				if (url.IsStartsWith(Handler.PortalsHttpURI))
-					return false;
-				if (url.IsStartsWith(portalsHttpURI))
-					return false;
-			}
+			if (start < 0 && (url.IsStartsWith(Handler.PortalsHttpURI) || url.IsStartsWith(portalsHttpURI)))
+				return false;
 			var end = start > 0 ? url.IndexOf('/', start + 1) : -1;
 			var alias = start < 0 ? null : end > start ? url.Substring(start + 2, end - start - 3) : url.Substring(start + 2);
 			return string.IsNullOrWhiteSpace(alias);
@@ -1983,7 +1978,7 @@ namespace net.vieapps.Services.Portals
 					}
 					Handler.Cache.SetL1CacheItem(info.BodyCacheKey + (originIsRequired && gotWWW ? ":WWW" : ""), body);
 					if (isDebugLogEnabled)
-						await context.WriteLogsAsync("Http.Process.Requests", $"Update L1-Cache (byte-body) successful ({info.BodyCacheKey} -> {body.Length}) [{context.GetL1CacheKey()} => {context.GetRequestUrl()}]").ConfigureAwait(false);
+						await context.WriteLogsAsync("Http.Process.Requests", $"Update L1-Cache (bytes) successful ({info.BodyCacheKey} -> {body.Length}) [{context.GetL1CacheKey()} => {context.GetRequestUrl()}]").ConfigureAwait(false);
 				}
 				else
 					body = cached.As<byte[]>();
@@ -2003,7 +1998,7 @@ namespace net.vieapps.Services.Portals
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
 				{
-					await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred when process L1-Cache => {ex.Message}", ex).ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing L1-Cache => {ex.Message}", ex).ConfigureAwait(false);
 				}
 
 			stopwatch.Stop();
@@ -2112,19 +2107,23 @@ namespace net.vieapps.Services.Portals
 		{
 			var serviceSystemID = string.Empty;
 			var requestURI = context.GetRequestUri();
+			var requestURL = requestURI.AbsoluteUri;
 			if (Handler.TrackSessions)
 			{
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
+					["x-url"] = requestURL,
 					["x-host"] = context.GetParameter("Host") ?? requestURI.Host,
-					["x-url"] = requestURI.AbsoluteUri,
-					["x-requester"] = context.TryGetParameter("x-requester", out var requester) ? requester : "vieapps-ngx-portals"
+					["x-requester"] = context.GetParameter("x-requester") ?? "vieapps-ngx-portals"
 				};
-				var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", null, headers, null, null, context.GetCorrelationID());
-				var systemIdentityJson = await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
-				serviceSystemID = systemIdentityJson?.Get<string>("ID");
+				if (!requestURL.IsStartsWith(Handler.PortalsHttpURI) && string.IsNullOrWhiteSpace(context.GetParameter("x-resource")))
+				{
+					var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", null, headers, null, null, context.GetCorrelationID());
+					var systemIdentityJson = await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
+					serviceSystemID = systemIdentityJson?.Get<string>("ID");
+				}
 			}
-			context.SendSessionState(Global.ServiceName + ".HTTP", $"{context.Request.Method} {requestURI}", serviceSystemID, online, trackStatistics);
+			context.SendSessionState(Global.ServiceName + ".HTTP", $"{context.Request.Method} {requestURL}", serviceSystemID, online, trackStatistics);
 		}
 
 		public static string NormalizeHtml(this HttpContext context, string html, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL = null)
