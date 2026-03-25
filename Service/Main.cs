@@ -1,5 +1,26 @@
 ﻿#region Related components
+using System;
+using System.IO;
+using System.Linq;
+using System.Data;
+using System.Dynamic;
+using System.Net;
+using System.Net.Mime;
+using System.Xml.Linq;
+using System.Diagnostics;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Security.AccessControl;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using WampSharp.Core.Listener;
+using WampSharp.V2.Realm;
+using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
@@ -7,29 +28,6 @@ using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Crawlers;
 using net.vieapps.Services.Portals.Exceptions;
 using net.vieapps.Services.Portals.Settings;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Data;
-using System.Diagnostics;
-using System.Dynamic;
-using System.IO;
-using System.Linq;
-using System.Net;
-using System.Net.Mime;
-using System.Reactive.Concurrency;
-using System.Reflection;
-using System.Security.AccessControl;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Xml.Linq;
-using WampSharp.Core.Listener;
-using WampSharp.V2.Core.Contracts;
-using WampSharp.V2.Realm;
-
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -83,6 +81,10 @@ namespace net.vieapps.Services.Portals
 		bool CacheDesktopHtmls { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Desktops:Htmls", "true"));
 
 		int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "720"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge : 720;
+
+		bool MonitorCache { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Monitor", "false"));
+
+		string MonitorLogPath { get; set; }
 
 		string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
@@ -338,7 +340,12 @@ namespace net.vieapps.Services.Portals
 						}
 					}, 60 * 13);
 				}
-				
+
+				// monitor
+				var logPath = this.MonitorCache ? UtilityService.GetAppSetting("Path:Logs") : null;
+				if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
+					this.StartMonitor(logPath);
+
 				// last action
 				next?.Invoke(this);
 			});
@@ -5972,8 +5979,26 @@ namespace net.vieapps.Services.Portals
 					}
 				}.Send());
 			}
+
 			else if (message.Type.IsEquals("PurgeCache") && this.IsRequester)
 				await this.PurgeCloudFlareCacheAsync(message.Data.Get<string>("SystemID"), message.Data.Get<JArray>("URLs").Select(url => (url as JValue).Value.ToString()).ToList()).ConfigureAwait(false);
+
+			else if (message.Type.IsStartsWith("Cache#Enable#Monitor") || message.Type.IsStartsWith("Cache#Start#Monitor"))
+			{
+				var logPath = UtilityService.GetAppSetting("Path:Logs");
+				if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
+				{
+					this.MonitorCache = true;
+					this.StartMonitor(logPath);
+				}
+			}
+
+			else if (message.Type.IsStartsWith("Cache#Disable#Monitor") || message.Type.IsStartsWith("Cache#Stop#Monitor"))
+			{
+				this.StopMonitor();
+				if (message.Type.IsStartsWith("Cache#Disable#Monitor"))
+					this.MonitorCache = false;
+			}
 		}
 
 		async Task ProcessCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
@@ -7051,6 +7076,52 @@ namespace net.vieapps.Services.Portals
 			{
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process MCP request completed - Execution times: {stopwatch.GetElapsedTimes()}" + (isDebugResultsEnabled ? $"\r\n\r\n- Request: {requestInfo?.ToString(this.JsonFormat)}\r\n\r\n- Response: {response?.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "MCP").ConfigureAwait(false);
 			}
+		}
+		#endregion
+
+		#region Monitor threadpool/cache
+		void StartMonitor(string logPath)
+		{
+			ThreadPool.GetMaxThreads(out var maxWorker, out var maxIO);
+			ThreadPool.GetMinThreads(out var minWorker, out var minIO);
+			this.Logger.LogInformation($"ThreadPool:\r\n\t- Max: {maxWorker:###,##0} / {maxIO:###,##0}\r\n\t- Min: {minWorker:###,##0} / {minIO:###,##0}");
+
+			if (this.MonitorCache && !string.IsNullOrWhiteSpace(logPath))
+			{
+				this.MonitorLogPath = Path.Combine(logPath, this.ServiceName.ToLower());
+				this.Logger.LogInformation($"Start to monitor threadpool/cache - Log path => {this.MonitorLogPath}...txt");
+
+				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:Monitor:Interval"), out var interval) || interval < 0)
+					interval = 10000;
+				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:Monitor:Warn"), out var warnQS) || warnQS < 0)
+					warnQS = 1000;
+				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:Monitor:Critical"), out var criticalQS) || criticalQS < 0)
+					criticalQS = 5000;
+
+				Utility.Cache.StartMonitor(
+					(msg, details) => this.OnMonitor(msg, details),
+					(msg, _, ex) => this.OnMonitor(msg, ("", 0, 0, 0, 0, 0), ex),
+					(msg, _) => this.OnMonitor(msg, ("", 0, 0, 0, 0, 0)),
+					(msg, _, ex) => this.OnMonitor(msg, ("", 0, 0, 0, 0, 0), ex),
+					interval, warnQS, criticalQS, this.CancellationToken);
+			}
+		}
+
+		void StopMonitor()
+			=> Utility.Cache.StopMonitor();
+
+		void OnMonitor(string message, (string Level, long Total, int Interactive, int Subscription, int Other, long PingMiliseconds) details, Exception ex = null)
+		{
+			ThreadPool.GetAvailableThreads(out var workers, out var io);
+			var now = DateTime.Now;
+			var logs = now.ToString("HH:mm:ss") + " -----"
+				+ "\r\nAvailable thread-pool: " + workers.ToString("###,##0") + " / " + io.ToString("###,##0")
+				+ "\r\nCaching: " + message;
+			if (ex != null)
+				logs += "\r\nError stack: " + ex.StackTrace;
+			logs += "\r\n";
+			if (!this.CancellationTokenSource.IsCancellationRequested)
+				File.AppendAllTextAsync(this.MonitorLogPath + "-" + now.ToString("yyyyMMddHH") + "-monitor.txt", logs, this.CancellationToken).Execute();
 		}
 		#endregion
 

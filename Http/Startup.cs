@@ -41,6 +41,9 @@ namespace net.vieapps.Services.Portals
 
 		public void ConfigureServices(IServiceCollection services)
 		{
+			// set name of the service
+			Global.ServiceName = "Portals";
+
 			// mandatory services
 			services
 				.AddHttpContextAccessor()
@@ -114,7 +117,6 @@ namespace net.vieapps.Services.Portals
 			// settings
 			var stopwatch = Stopwatch.StartNew();
 			Console.OutputEncoding = Encoding.UTF8;
-			Global.ServiceName = "Portals";
 
 			var loggerFactory = appBuilder.ApplicationServices.GetService<ILoggerFactory>();
 			var logPath = UtilityService.GetAppSetting("Path:Logs");
@@ -223,6 +225,8 @@ namespace net.vieapps.Services.Portals
 				stopwatch.Stop();
 				Global.Logger.LogInformation($"The {Global.ServiceName} HTTP service was started - PID: {Environment.ProcessId} - Execution times: {stopwatch.GetElapsedTimes()}");
 				Global.Logger = loggerFactory.CreateLogger<Handler>();
+
+				Handler.StartMonitor(logPath);
 			});
 
 			// on stopping

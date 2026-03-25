@@ -26,6 +26,8 @@ namespace net.vieapps.Services.Portals
 
 		internal static string CloudFlareApiToken { get; } = UtilityService.GetAppSetting("Portals:CloudFlare:ApiToken");
 
+		internal static bool CloudFlareForAll { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:CloudFlare:All"));
+
 		internal static Dictionary<string, string> RefresherHeaders => new()
 		{
 			["AllowAutoRedirect"] = "true",
