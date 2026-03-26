@@ -92,7 +92,7 @@ namespace net.vieapps.Services.Portals
 				content = await Content.GetAsync(content.ID, cancellationToken).ConfigureAwait(false);
 			}
 			if (reloadWebpages)
-				await content.Organization.RefreshWebPageAsync((content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Select(category => category?.GetURL(true)).Concat([content.Organization.URL, content.Category?.GetURL(true), content.Status.Equals(ApprovalStatus.Published) ? content.GetURL() : null]), 1, correlationID, (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]", force, cancellationToken).ConfigureAwait(false);
+				await content.Organization.RefreshWebPagesAsync((content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Select(category => category?.GetURL(true)).Concat([content.Organization.URL, content.Category?.GetURL(true), content.Status.Equals(ApprovalStatus.Published) ? content.GetURL() : null]), 1, correlationID, (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]", force, cancellationToken).ConfigureAwait(false);
 			return content;
 		}
 

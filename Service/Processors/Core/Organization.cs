@@ -387,7 +387,7 @@ namespace net.vieapps.Services.Portals
 			{
 				refreshURLs = otherURLs ?? await organization.GetRefreshingURLsAsync().ConfigureAwait(false) ?? [];
 				if (refreshURLs.Count > 0)
-					schedulingTasks.Add(new SchedulingTask(organization.RefreshURLs != null && organization.RefreshURLs.Interval > 0 ? organization.RefreshURLs.Interval : 7)
+					schedulingTasks.Add(new SchedulingTask(organization.RefreshURLs != null && organization.RefreshURLs.Interval > 0 ? organization.RefreshURLs.Interval : 30)
 					{
 						ID = $"{organization.ID}:URLs:Other".GenerateUUID(),
 						SystemID = organization.ID,
@@ -397,13 +397,13 @@ namespace net.vieapps.Services.Portals
 						Persistance = false
 					});
 
-				schedulingTasks.Add(new SchedulingTask(12, RecurringType.Hours, DateTime.Parse($"{DateTime.Now.AddDays(DateTime.Now.Hour < 13 ? 0 : 1):yyyy/MM/dd} {(DateTime.Now.Hour < 13 ? 13 : 1):00}:{UtilityService.GetRandomNumber(0, 30):00}:00"))
+				schedulingTasks.Add(new SchedulingTask(1, RecurringType.Days, DateTime.Parse($"{DateTime.Now.AddDays(DateTime.Now.Hour < 5 ? 0 : 1):yyyy/MM/dd} {UtilityService.GetRandomNumber(0, 4):00}:{UtilityService.GetRandomNumber(0, 59):00}:00"))
 				{
 					ID = $"{organization.ID}:URLs:Force".GenerateUUID(),
 					SystemID = organization.ID,
 					Title = "Force refresh all pre-defined URLs",
 					SchedulingType = SchedulingType.Refresh,
-					Data = (schedulingTasks.First().DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).Concat(refreshURLs).Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache").ToJArray().ToString(Formatting.None),
+					Data = (schedulingTasks.First().DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).Concat(refreshURLs).Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache&x-no-purge").ToJArray().ToString(Formatting.None),
 					Persistance = false
 				});
 			}
@@ -582,7 +582,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (organization.ExamineURLs == null || organization.ExamineURLs.Count < 1))
-				await organization.RefreshWebPageAsync([organization.URL, $"{organization.URL}/favicon.ico", $"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/o_{organization.ID}.js", $"{Utility.PortalsHttpURI}/_js/o_{organization.ID}.js"], 1, correlationID, $"Refresh when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await organization.RefreshWebPagesAsync([organization.URL, $"{organization.URL}/favicon.ico", $"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/o_{organization.ID}.js", $"{Utility.PortalsHttpURI}/_js/o_{organization.ID}.js"], 1, correlationID, $"Refresh when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task ClearCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null, bool clearObjectsCache = true, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
@@ -664,7 +664,7 @@ namespace net.vieapps.Services.Portals
 			await homedesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
 			if (doRefresh && (organization.ExamineURLs == null || organization.ExamineURLs.Count < 1))
-				await organization.RefreshWebPageAsync([organization.URL], 0, correlationID, $"Refresh the home desktop when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await organization.RefreshWebPagesAsync([organization.URL], 0, correlationID, $"Refresh the home desktop when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> SearchOrganizationsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)

@@ -191,7 +191,7 @@ namespace net.vieapps.Services.Portals
 			(
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a module [{module.Title} - ID: {module.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh && (module.Organization.ExamineURLs == null || module.Organization.ExamineURLs.Count < 1)
-					? module.Organization.RefreshWebPageAsync([module.Organization.URL], 1, correlationID, $"Refresh when clear related cache of a module [{module.Title} - ID: {module.ID}]", true, cancellationToken)
+					? module.Organization.RefreshWebPagesAsync([module.Organization.URL], 1, correlationID, $"Refresh when clear related cache of a module [{module.Title} - ID: {module.ID}]", true, cancellationToken)
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 		}

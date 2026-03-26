@@ -115,7 +115,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && item != null)
-				await item.Organization.RefreshWebPageAsync([item.Organization.URL, desktop != null ? $"{item.Organization.URL}/{desktop.Alias ?? "-default"}/{item.ContentType?.Title.GetANSIUri() ?? "-"}" : null, item.Status.Equals(ApprovalStatus.Published) ? item.GetURL() : null], 1, correlationID, $"Refresh when a CMS item was clean [{item.Title} - ID: {item.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await item.Organization.RefreshWebPagesAsync([item.Organization.URL, desktop != null ? $"{item.Organization.URL}/{desktop.Alias ?? "-default"}/{item.ContentType?.Title.GetANSIUri() ?? "-"}" : null, item.Status.Equals(ApprovalStatus.Published) ? item.GetURL() : null], 1, correlationID, $"Refresh when a CMS item was clean [{item.Title} - ID: {item.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<(long TotalRecords, List<Item> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)

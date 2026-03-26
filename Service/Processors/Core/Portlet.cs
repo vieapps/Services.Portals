@@ -158,7 +158,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && portlet.Desktop != null && (portlet.Organization.ExamineURLs == null || portlet.Organization.ExamineURLs.Count < 1))
-				await portlet.Organization.RefreshWebPageAsync([$"{portlet.Organization.URL}/{portlet.Desktop.Alias}", portlet.Desktop.ID.Equals(portlet.Organization.HomeDesktop?.ID) ? portlet.Organization.URL : null], 1, correlationID, $"Refresh when clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await portlet.Organization.RefreshWebPagesAsync([$"{portlet.Organization.URL}/{portlet.Desktop.Alias}", portlet.Desktop.ID.Equals(portlet.Organization.HomeDesktop?.ID) ? portlet.Organization.URL : null], 1, correlationID, $"Refresh when clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)

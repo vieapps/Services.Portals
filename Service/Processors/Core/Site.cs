@@ -350,7 +350,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (site.Organization.ExamineURLs == null || site.Organization.ExamineURLs.Count < 1))
-				await site.Organization.RefreshWebPageAsync(site, [site.Organization.URL, site.GetURL(), $"{site.GetURL()}/favicon.ico", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/s_{site.ID}.js", $"{Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{Utility.PortalsHttpURI}/_js/s_{site.ID}.js"], 1, correlationID, $"Refresh when clear related cache of a site [{site.Title} - ID: {site.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await site.Organization.RefreshWebPagesAsync(site, [site.Organization.URL, site.GetURL(), $"{site.GetURL()}/favicon.ico", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/s_{site.ID}.js", $"{Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{Utility.PortalsHttpURI}/_js/s_{site.ID}.js"], 1, correlationID, $"Refresh when clear related cache of a site [{site.Title} - ID: {site.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task ClearCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
