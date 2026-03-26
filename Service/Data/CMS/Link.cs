@@ -142,7 +142,7 @@ namespace net.vieapps.Services.Portals
 		IPortalContentType IBusinessObject.ContentType => this.ContentType;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public Link ParentLink => string.IsNullOrWhiteSpace(this.ParentID) ? null : Link.Get<Link>(this.ParentID);
+		public Link ParentLink => string.IsNullOrWhiteSpace(this.ParentID) ? null : Link.Get(this.ParentID);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.ParentLink ?? this.ContentType as RepositoryBase;
@@ -189,7 +189,7 @@ namespace net.vieapps.Services.Portals
 					if (notifyPropertyChanged)
 						this.NotifyPropertyChanged("Childrens");
 				}
-				return this._children ?? (this._children = this._childrenIDs?.Select(id => Link.Get<Link>(id)).Where(link => link != null).ToList() ?? new List<Link>());
+				return this._children ?? (this._children = this._childrenIDs?.Select(id => Link.Get(id)).Where(link => link != null).ToList() ?? new List<Link>());
 			}
 			else
 				return this._children ?? new List<Link>();
@@ -199,7 +199,7 @@ namespace net.vieapps.Services.Portals
 			=> this.ChildrenMode.Equals(ChildrenMode.Normal)
 				? this._childrenIDs == null
 					? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindLinksAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false))
-					: this._children ?? (this._children = this._childrenIDs?.Select(id => Link.Get<Link>(id)).Where(link => link != null).ToList() ?? new List<Link>())
+					: this._children ?? (this._children = this._childrenIDs?.Select(id => Link.Get(id)).Where(link => link != null).ToList() ?? new List<Link>())
 				: this._children ?? new List<Link>();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]

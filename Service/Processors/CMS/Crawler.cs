@@ -59,11 +59,11 @@ namespace net.vieapps.Services.Portals
 			=> !force && !string.IsNullOrWhiteSpace(id) && CrawlerProcessor.Crawlers.ContainsKey(id)
 				? CrawlerProcessor.Crawlers[id]
 				: fetchRepository && !string.IsNullOrWhiteSpace(id)
-					? Crawler.Get<Crawler>(id)?.Set()
+					? Crawler.Get(id)?.Set()
 					: null;
 
 		public static async Task<Crawler> GetCrawlerByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetCrawlerByID(force, false) ?? (await Crawler.GetAsync<Crawler>(id, cancellationToken).ConfigureAwait(false))?.Set();
+			=> (id ?? "").GetCrawlerByID(force, false) ?? (await Crawler.GetAsync(id, cancellationToken).ConfigureAwait(false))?.Set();
 
 		public static IFilterBy<Crawler> GetCrawlersFilter(string systemID, string repositoryID = null, string repositoryEntityID = null, Action<FilterBys<Crawler>> onCompleted = null)
 		{
@@ -356,7 +356,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
-			var crawler = await Crawler.GetAsync<Crawler>(identity ?? "", cancellationToken).ConfigureAwait(false);
+			var crawler = await Crawler.GetAsync(identity ?? "", cancellationToken).ConfigureAwait(false);
 			if (crawler == null)
 				throw new InformationNotFoundException();
 			else if (crawler.Organization == null)
@@ -424,7 +424,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> UpdateCrawlerAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var crawler = await Crawler.GetAsync<Crawler>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			var crawler = await Crawler.GetAsync(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
 			if (crawler == null)
 				throw new InformationNotFoundException();
 			else if (crawler.Organization == null)
@@ -448,7 +448,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> DeleteCrawlerAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var crawler = await Crawler.GetAsync<Crawler>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			var crawler = await Crawler.GetAsync(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
 			if (crawler == null)
 				throw new InformationNotFoundException();
 			else if (crawler.Organization == null)
@@ -465,7 +465,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> DeleteAsync(this Crawler crawler, RequestInfo requestInfo, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
-			await Crawler.DeleteAsync<Crawler>(crawler.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Crawler.DeleteAsync(crawler.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			var json = sendUpdatingMessages ? crawler.ToJson() : null;
 			if (sendUpdatingMessages)
@@ -511,7 +511,7 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 			else if (crawler != null)
-				await Crawler.DeleteAsync<Crawler>(crawler.ID, crawler.LastModifiedID, cancellationToken).ConfigureAwait(false);
+				await Crawler.DeleteAsync(crawler.ID, crawler.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// send notifications
 			//if (sendNotifications)

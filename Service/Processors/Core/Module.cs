@@ -72,10 +72,10 @@ namespace net.vieapps.Services.Portals
 				?  null
 				: !force  && ModuleProcessor.Modules.TryGetValue(id, out var module)
 					? module
-					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? Module.Get<Module>(id)?.Set() : null;
+					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? Module.Get(id, !Utility.IsCacheDisabled)?.Set() : null;
 
 		public static async Task<Module> GetModuleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetModuleByID(force, false) ?? (await Module.GetAsync<Module>(id, cancellationToken).ConfigureAwait(false))?.Set();
+			=> (id ?? "").GetModuleByID(force, false) ?? (await Module.GetAsync(id, cancellationToken, !!Utility.IsCacheDisabled).ConfigureAwait(false))?.Set();
 
 		public static IFilterBy<Module> GetModulesFilter(string systemID, string definitionID = null)
 		{
@@ -254,7 +254,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query)
+			var json = string.IsNullOrWhiteSpace(query) && !Utility.IsCacheDisabled
 				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 				: null;
 			if (!string.IsNullOrWhiteSpace(json))
@@ -264,7 +264,7 @@ namespace net.vieapps.Services.Portals
 			var totalRecords = pagination.TotalRecords > -1 ? pagination.TotalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Module.CountAsync(filter, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await Module.CountAsync(filter, !Utility.IsCacheDisabled, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Module.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			var totalPages = (totalRecords, pageSize).GetTotalPages();
@@ -274,7 +274,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Module.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await Module.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Module.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: [];
 
@@ -344,7 +344,7 @@ namespace net.vieapps.Services.Portals
 			else
 			{
 				organization._moduleIDs.Add(module.ID);
-				await organization.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				organization.Set(false, true);
 			}
 
 			// send update messages
@@ -484,7 +484,7 @@ namespace net.vieapps.Services.Portals
 			var contentTypes = await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false) ?? [];
 			await contentTypes.ForEachAsync(contentType => contentType.DeleteAsync(requestInfo, true, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
 
-			await Module.DeleteAsync<Module>(module.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Module.DeleteAsync(module.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
 				await module.ClearCacheAsync(cancellationToken, requestInfo.CorrelationID, false, true, false, false).ConfigureAwait(false);
@@ -555,7 +555,7 @@ namespace net.vieapps.Services.Portals
 					await Module.UpdateAsync(module.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (module != null)
-				await Module.DeleteAsync<Module>(module.ID, module.LastModifiedID, cancellationToken).ConfigureAwait(false);
+				await Module.DeleteAsync(module.ID, module.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// stop if has no info
 			if (module == null)

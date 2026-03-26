@@ -72,10 +72,10 @@ namespace net.vieapps.Services.Portals
 				? null
 				: !force && ContentTypeProcessor.ContentTypes.TryGetValue(id, out var contentType)
 					? contentType
-					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? ContentType.Get<ContentType>(id)?.Set() : null;
+					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? ContentType.Get(id, !Utility.IsCacheDisabled)?.Set() : null;
 
 		public static async Task<ContentType> GetContentTypeByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetContentTypeByID(force, false) ?? (await ContentType.GetAsync<ContentType>(id, cancellationToken).ConfigureAwait(false))?.Set();
+			=> (id ?? "").GetContentTypeByID(force, false) ?? (await ContentType.GetAsync(id, cancellationToken, !Utility.IsCacheDisabled).ConfigureAwait(false))?.Set();
 
 		public static IFilterBy<ContentType> GetContentTypesFilter(string systemID, string repositoryID = null, string definitionID = null)
 		{
@@ -108,7 +108,7 @@ namespace net.vieapps.Services.Portals
 
 			var filter = ContentTypeProcessor.GetContentTypesFilter(systemID, repositoryID, definitionID);
 			var sort = Sorts<ContentType>.Ascending("Title");
-			var contentTypes = ContentType.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
+			var contentTypes = ContentType.Find(filter, sort, 0, 1, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, 0, 1));
 			contentTypes.ForEach(contentType =>
 			{
 				if (contentType.ID.GetContentTypeByID(false, false) == null)
@@ -125,7 +125,7 @@ namespace net.vieapps.Services.Portals
 
 			var filter = ContentTypeProcessor.GetContentTypesFilter(systemID, repositoryID, definitionID);
 			var sort = Sorts<ContentType>.Ascending("Title");
-			var contentTypes = await ContentType.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
+			var contentTypes = await ContentType.FindAsync(filter, sort, 0, 1, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
 			await contentTypes.Where(contentType => contentType != null).ForEachAsync(async contentType =>
 			{
 				if (contentType.ID.GetContentTypeByID(false, false) == null)
@@ -272,7 +272,9 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query) ? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false) : null;
+			var json = string.IsNullOrWhiteSpace(query) && !Utility.IsCacheDisabled
+				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+				: null;
 			if (!string.IsNullOrWhiteSpace(json))
 				return JObject.Parse(json);
 
@@ -280,7 +282,7 @@ namespace net.vieapps.Services.Portals
 			var totalRecords = pagination.TotalRecords > -1 ? pagination.TotalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await ContentType.CountAsync(filter, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await ContentType.CountAsync(filter, !Utility.IsCacheDisabled, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await ContentType.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
@@ -290,7 +292,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await ContentType.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await ContentType.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await ContentType.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: [];
 
@@ -601,7 +603,7 @@ namespace net.vieapps.Services.Portals
 										: Task.CompletedTask
 				).ConfigureAwait(false);
 
-			await ContentType.DeleteAsync<ContentType>(contentType.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await ContentType.DeleteAsync(contentType.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
 				await Task.WhenAll
@@ -719,7 +721,7 @@ namespace net.vieapps.Services.Portals
 					await ContentType.UpdateAsync(contentType.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (contentType != null)
-				await ContentType.DeleteAsync<ContentType>(contentType.ID, contentType.LastModifiedID, cancellationToken).ConfigureAwait(false);
+				await ContentType.DeleteAsync(contentType.ID, contentType.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// stop if has no info
 			if (contentType == null)

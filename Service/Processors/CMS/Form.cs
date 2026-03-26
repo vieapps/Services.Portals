@@ -507,7 +507,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
-			var form = await Form.GetAsync<Form>(identity, cancellationToken).ConfigureAwait(false);
+			var form = await Form.GetAsync(identity, cancellationToken).ConfigureAwait(false);
 			if (form == null)
 				throw new InformationNotFoundException();
 			else if (form.Organization == null || form.Module == null || form.ContentType == null)
@@ -582,7 +582,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> UpdateFormAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
-			var form = await Form.GetAsync<Form>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			var form = await Form.GetAsync(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
 			if (form == null)
 				throw new InformationNotFoundException();
 			else if (form.Organization == null || form.Module == null || form.ContentType == null)
@@ -608,7 +608,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> DeleteFormAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
-			var form = await Form.GetAsync<Form>(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
+			var form = await Form.GetAsync(requestInfo.GetObjectIdentity() ?? "", cancellationToken).ConfigureAwait(false);
 			if (form == null)
 				throw new InformationNotFoundException();
 			else if (form.Organization == null || form.Module == null || form.ContentType == null)
@@ -630,7 +630,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> DeleteAsync(this Form form, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
 			await requestInfo.DeleteFilesAsync(form.SystemID, form.RepositoryEntityID, form.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			await Form.DeleteAsync<Form>(form.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Form.DeleteAsync(form.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
 				Task.WhenAll
@@ -704,7 +704,7 @@ namespace net.vieapps.Services.Portals
 					? request.Get<string>("Phone")?.GenerateUUID()
 					: null;
 
-			var form = await Form.GetAsync<Form>(identity ?? request.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
+			var form = await Form.GetAsync(identity ?? request.Get<string>("ID"), cancellationToken).ConfigureAwait(false);
 			var oldStatus = form != null ? form.Status : ApprovalStatus.Pending;
 
 			if (!@event.IsEquals("Delete"))

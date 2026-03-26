@@ -164,10 +164,10 @@ namespace net.vieapps.Services.Portals
 				? null
 				: !force && SiteProcessor.Sites.TryGetValue(id, out var site)
 					? site
-					: fetchRepository ? Site.Get<Site>(id)?.Set() : null;
+					: fetchRepository ? Site.Get(id)?.Set() : null;
 
 		public static async Task<Site> GetSiteByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetSiteByID(force, false) ?? (await Site.GetAsync<Site>(id, cancellationToken).ConfigureAwait(false))?.Set();
+			=> (id ?? "").GetSiteByID(force, false) ?? (await Site.GetAsync(id, cancellationToken).ConfigureAwait(false))?.Set();
 
 		static FilterBys<Site> GetFilterBy(this string domain, bool searchOtherDomains = true)
 		{
@@ -658,7 +658,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> DeleteAsync(this Site site, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
 			await requestInfo.DeleteFilesAsync(site.SystemID, null, site.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			await Site.DeleteAsync<Site>(site.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Site.DeleteAsync(site.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
 				site.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false).Execute();
@@ -738,7 +738,7 @@ namespace net.vieapps.Services.Portals
 					await Site.UpdateAsync(site.Update(data, site.GetPublicAttributes().Select(attribute => attribute.Name).ToString(","), obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (site != null)
-				await Site.DeleteAsync<Site>(site.ID, site.LastModifiedID, cancellationToken).ConfigureAwait(false);
+				await Site.DeleteAsync(site.ID, site.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// stop if has no info
 			if (site == null)

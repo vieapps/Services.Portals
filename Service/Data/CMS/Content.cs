@@ -221,9 +221,9 @@ namespace net.vieapps.Services.Portals
 			var cacheKey = contentType.GetCacheKeyOfAliasedContent(category, alias);
 			var id = Utility.Cache.Get<string>(cacheKey);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
-				return Content.Get<Content>(id);
+				return Content.Get(id);
 
-			var content = Content.Get<Content>(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID);
+			var content = Content.Get(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID);
 			if (content != null)
 				Task.WhenAll
 				(
@@ -247,9 +247,9 @@ namespace net.vieapps.Services.Portals
 			var cacheKey = contentType.GetCacheKeyOfAliasedContent(category, alias);
 			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
-				return await Content.GetAsync<Content>(id, cancellationToken).ConfigureAwait(false);
+				return await Content.GetAsync(id, cancellationToken).ConfigureAwait(false);
 
-			var content = await Content.GetAsync<Content>(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID, cancellationToken).ConfigureAwait(false);
+			var content = await Content.GetAsync(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID, cancellationToken).ConfigureAwait(false);
 			if (content != null)
 				Task.WhenAll
 				(

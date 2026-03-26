@@ -342,7 +342,7 @@ namespace net.vieapps.Services.Portals
 					else if (address.IsStartsWith("@link:") || address.IsStartsWith("@link("))
 					{
 						var id = address.Replace(StringComparison.OrdinalIgnoreCase, "@link:", "").Replace(StringComparison.OrdinalIgnoreCase, "@link(", "").Replace(")", "").Trim();
-						links.Add(await Link.GetAsync<Link>(id, Utility.CancellationToken).ConfigureAwait(false));
+						links.Add(await Link.GetAsync(id, Utility.CancellationToken).ConfigureAwait(false));
 					}
 					else if (address.IsStartsWith("@category:") || address.IsStartsWith("@category("))
 					{
@@ -466,7 +466,7 @@ namespace net.vieapps.Services.Portals
 					return organization;
 			}
 
-			return fetchRepository ? Organization.Get<Organization>(id)?.Set() : null;
+			return fetchRepository ? Organization.Get(id, !Utility.IsCacheDisabled)?.Set() : null;
 		}
 
 		public static async Task<Organization> GetOrganizationByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
@@ -474,7 +474,7 @@ namespace net.vieapps.Services.Portals
 			var organization = (id ?? "").GetOrganizationByID(force, false);
 			var roles = organization?.OriginalPrivileges?.AdministrativeRoles;
 			if (roles == null || roles.Count < 1)
-				organization = (await Organization.GetAsync<Organization>(id, cancellationToken).ConfigureAwait(false))?.Set();
+				organization = (await Organization.GetAsync(id, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false))?.Set();
 			return organization;
 		}
 
@@ -492,7 +492,7 @@ namespace net.vieapps.Services.Portals
 				if (!fetchRepository)
 					return null;
 
-				organization = Organization.Get<Organization>(Filters<Organization>.Equals("Alias", alias), null, null)?.Set();
+				organization = Organization.Get(Filters<Organization>.Equals("Alias", alias), null, null)?.Set();
 
 				if (organization == null)
 				{
@@ -510,7 +510,7 @@ namespace net.vieapps.Services.Portals
 
 			var roles = organization.OriginalPrivileges?.AdministrativeRoles;
 			if (roles == null || roles.Count < 1)
-				organization = Organization.Get<Organization>(organization.ID)?.Set();
+				organization = Organization.Get(organization.ID, !Utility.IsCacheDisabled)?.Set();
 
 			return organization;
 		}
@@ -527,7 +527,7 @@ namespace net.vieapps.Services.Portals
 			var organization = alias.GetOrganizationByAlias(false);
 			if (organization == null)
 			{
-				organization = (await Organization.GetAsync<Organization>(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false))?.Set();
+				organization = (await Organization.GetAsync(Filters<Organization>.Equals("Alias", alias), null, null, cancellationToken).ConfigureAwait(false))?.Set();
 
 				if (organization == null)
 				{
@@ -545,7 +545,7 @@ namespace net.vieapps.Services.Portals
 
 			var roles = organization.OriginalPrivileges?.AdministrativeRoles;
 			if (roles == null || roles.Count < 1)
-				organization = (await Organization.GetAsync<Organization>(organization.ID, cancellationToken).ConfigureAwait(false))?.Set();
+				organization = (await Organization.GetAsync(organization.ID, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false))?.Set();
 
 			return organization;
 		}
@@ -655,7 +655,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			// re-load and refresh the home desktop
-			var homedesktop = await Desktop.GetAsync<Desktop>(organization.HomeDesktopID, cancellationToken).ConfigureAwait(false);
+			var homedesktop = await Desktop.GetAsync(organization.HomeDesktopID, cancellationToken).ConfigureAwait(false);
 			await Task.WhenAll
 			(
 				homedesktop.FindChildrenAsync(cancellationToken, false),
@@ -686,14 +686,14 @@ namespace net.vieapps.Services.Portals
 
 			// process cache
 			var cacheKey = Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber);
-			var json = string.IsNullOrWhiteSpace(query) && !asFetch ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
+			var json = string.IsNullOrWhiteSpace(query) && !asFetch && !Utility.IsCacheDisabled ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 			if (!string.IsNullOrWhiteSpace(json))
 				return JObject.Parse(json);
 
 			// prepare pagination
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Organization.CountAsync(filter, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await Organization.CountAsync(filter, !Utility.IsCacheDisabled, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Organization.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			totalPages = (totalRecords, pageSize).GetTotalPages();
@@ -703,7 +703,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await Organization.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Organization.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: [];
 
@@ -867,7 +867,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var filter = Filters<Role>.And(Filters<Role>.Equals("SystemID", organization.ID), Filters<Role>.IsNull("ParentID"));
 				var sort = Sorts<Role>.Ascending("Title");
-				(await Role.FindAsync(filter, sort, 20, 1, Extensions.GetCacheKey(filter, sort, 20, 1), cancellationToken).ConfigureAwait(false) ?? []).ForEach(role => new UpdateMessage
+				(await Role.FindAsync(filter, sort, 20, 1, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, 20, 1), cancellationToken).ConfigureAwait(false) ?? []).ForEach(role => new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{role.GetObjectName()}#Update",
 					Data = role.ToJson(true, false),
@@ -1081,7 +1081,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// delete organization
-			await Organization.DeleteAsync<Organization>(organization.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Organization.DeleteAsync(organization.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await organization.SendNotificationAsync("Delete", organization.Notifications, organization.Status, organization.Status, requestInfo, cancellationToken).ConfigureAwait(false);
 
 			var cacheKeys = new[] {
@@ -1148,7 +1148,7 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 			else if (organization != null)
-				await Organization.DeleteAsync<Organization>(organization.ID, organization.LastModifiedID, cancellationToken).ConfigureAwait(false);
+				await Organization.DeleteAsync(organization.ID, organization.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// stop if has no info
 			if (organization == null)

@@ -59,7 +59,7 @@ namespace net.vieapps.Services.Portals
 				? null
 				: !force && SchedulingTaskProcessor.SchedulingTasks.TryGetValue(id, out var task)
 					? task
-					: fetchRepository ? (await SchedulingTask.GetAsync<SchedulingTask>(id, cancellationToken).ConfigureAwait(false))?.Set() : null;
+					: fetchRepository ? (await SchedulingTask.GetAsync(id, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false))?.Set() : null;
 
 		internal static SchedulingTask Normalize(this SchedulingTask schedulingTask, ExpandoObject data, Action<SchedulingTask> onCompleted = null)
 		{
@@ -125,19 +125,19 @@ namespace net.vieapps.Services.Portals
 			totalRecords = totalRecords > -1
 				? totalRecords
 				: string.IsNullOrWhiteSpace(query)
-					? await SchedulingTask.CountAsync(filter, cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false)
+					? await SchedulingTask.CountAsync(filter, !Utility.IsCacheDisabled, cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false)
 					: await SchedulingTask.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			// search objects
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await SchedulingTask.FindAsync(filter, sort, pageSize, pageNumber, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
+					? await SchedulingTask.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
 					: await SchedulingTask.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<SchedulingTask>();
 
 			// page size to clear related cached
 			if (string.IsNullOrWhiteSpace(query) && pageSize > 0)
-				await Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).ConfigureAwait(false);
+				Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, Utility.CancellationToken).Execute();
 
 			// return the results
 			return (totalRecords, objects, cacheKeys);
@@ -173,7 +173,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query)
+			var json = string.IsNullOrWhiteSpace(query) && !Utility.IsCacheDisabled
 				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 				: null;
 			if (!string.IsNullOrWhiteSpace(json))
@@ -339,7 +339,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> DeleteAsync(this SchedulingTask schedulingTask, RequestInfo requestInfo, bool updateCache, bool sendUpdatingMessages, CancellationToken cancellationToken)
 		{
-			await SchedulingTask.DeleteAsync<SchedulingTask>(schedulingTask.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await SchedulingTask.DeleteAsync(schedulingTask.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
 				await schedulingTask.ClearRelatedCacheAsync(cancellationToken).ConfigureAwait(false);
@@ -376,7 +376,7 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 			else if (schedulingTask != null)
-				await SchedulingTask.DeleteAsync<SchedulingTask>(schedulingTask.ID, schedulingTask.LastModifiedID, cancellationToken).ConfigureAwait(false);
+				await SchedulingTask.DeleteAsync(schedulingTask.ID, schedulingTask.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// stop if has no info
 			if (schedulingTask == null)
@@ -517,7 +517,7 @@ namespace net.vieapps.Services.Portals
 					await Utility.WriteLogAsync(correlationID, $"Delete {schedulingTasks.Count} archived scheduling tasks", "Tasks").ConfigureAwait(false);
 				await schedulingTasks.ForEachAsync(async schedulingTask =>
 				{
-					await SchedulingTask.DeleteAsync<SchedulingTask>(schedulingTask.ID, null, Utility.CancellationToken).ConfigureAwait(false);
+					await SchedulingTask.DeleteAsync(schedulingTask.ID, null, Utility.CancellationToken).ConfigureAwait(false);
 					schedulingTask.Remove().SendMessages("Delete");
 				}, true, false).ConfigureAwait(false);
 			}

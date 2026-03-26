@@ -158,10 +158,10 @@ namespace net.vieapps.Services.Portals
 				? null
 				: !force && DesktopProcessor.Desktops.TryGetValue(id, out var desktop)
 					? desktop
-					: fetchRepository ? Desktop.Get<Desktop>(id)?.Set() : null;
+					: fetchRepository ? Desktop.Get(id, !Utility.IsCacheDisabled)?.Set() : null;
 
 		public static async Task<Desktop> GetDesktopByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetDesktopByID(force, false) ?? (await Desktop.GetAsync<Desktop>(id, cancellationToken).ConfigureAwait(false))?.Set();
+			=> (id ?? "").GetDesktopByID(force, false) ?? (await Desktop.GetAsync(id, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false))?.Set();
 
 		public static Desktop GetDesktopByAlias(this string systemID, string alias, bool force = false, bool fetchRepository = true)
 		{
@@ -178,7 +178,7 @@ namespace net.vieapps.Services.Portals
 
 			if (desktop == null && fetchRepository)
 			{
-				desktop = Desktop.Get<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null)?.Set();
+				desktop = Desktop.Get(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)))?.Set();
 				if (desktop == null)
 					Utility.NotRecognizedAliases.Add(key);
 			}
@@ -198,7 +198,7 @@ namespace net.vieapps.Services.Portals
 			var desktop = systemID.GetDesktopByAlias(alias, force, false);
 			if (desktop == null)
 			{
-				desktop = (await Desktop.GetAsync<Desktop>(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), null, null, cancellationToken).ConfigureAwait(false))?.Set();
+				desktop = (await Desktop.GetAsync(Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", systemID), Filters<Desktop>.Equals("Alias", alias)), cancellationToken).ConfigureAwait(false))?.Set();
 				if (desktop == null)
 					Utility.NotRecognizedAliases.Add(key);
 			}
@@ -215,7 +215,7 @@ namespace net.vieapps.Services.Portals
 				return new List<Desktop>();
 			var filter = systemID.GetDesktopsFilter(parentID);
 			var sort = Sorts<Desktop>.Ascending("Title");
-			var desktops = Desktop.Find(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1));
+			var desktops = Desktop.Find(filter, sort, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort));
 			desktops.ForEach(desktop => desktop.Set(false, updateCache));
 			return desktops;
 		}
@@ -226,7 +226,7 @@ namespace net.vieapps.Services.Portals
 				return new List<Desktop>();
 			var filter = systemID.GetDesktopsFilter(parentID);
 			var sort = Sorts<Desktop>.Ascending("Title");
-			var desktops = await Desktop.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
+			var desktops = await Desktop.FindAsync(filter, sort, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
 			await desktops.ForEachAsync(async desktop => await desktop.SetAsync(false, updateCache, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 			return desktops;
 		}
@@ -243,7 +243,7 @@ namespace net.vieapps.Services.Portals
 					desktop.FindPortletsAsync(cancellationToken, false),
 					desktop.FindChildrenAsync(cancellationToken, false)
 				).ConfigureAwait(false);
-				await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async portlet => portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+				await desktop.Portlets.Where(portlet => !string.IsNullOrWhiteSpace(portlet.OriginalPortletID)).ForEachAsync(async portlet => portlet._originalPortlet = await Portlet.GetAsync(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 				desktop.Set(true, false, oldAliases);
 			}
 			else if (message.Type.IsEndsWith("#Delete"))
@@ -329,7 +329,7 @@ namespace net.vieapps.Services.Portals
 
 			// process cache
 			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));
-			var cachedJson = string.IsNullOrWhiteSpace(query) && !addChildren
+			var cachedJson = string.IsNullOrWhiteSpace(query) && !addChildren && !Utility.IsCacheDisabled
 				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 				: null;
 
@@ -340,7 +340,7 @@ namespace net.vieapps.Services.Portals
 			totalRecords = totalRecords > -1 ? totalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Desktop.CountAsync(filter, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await Desktop.CountAsync(filter, !Utility.IsCacheDisabled, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Desktop.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			totalPages = (totalRecords, pageSize).GetTotalPages();
@@ -350,7 +350,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Desktop.FindAsync(filter, sort, pageSize, pageNumber, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await Desktop.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Desktop.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: [];
 
@@ -720,7 +720,7 @@ namespace net.vieapps.Services.Portals
 					portlet.LastModified = DateTime.Now;
 					portlet.LastModifiedID = requestInfo.Session.User.ID;
 					if (!string.IsNullOrWhiteSpace(portlet.OriginalPortletID) && portlet._originalPortlet == null)
-						portlet._originalPortlet = await Portlet.GetAsync<Portlet>(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false);
+						portlet._originalPortlet = await Portlet.GetAsync(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false);
 					await Portlet.UpdateAsync(portlet, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 				}
 			}, true, false).ConfigureAwait(false);
@@ -809,7 +809,7 @@ namespace net.vieapps.Services.Portals
 
 			await (desktop.Portlets ?? []).Select(portlet => portlet).ToList().ForEachAsync(portlet => portlet.DeleteAsync(requestInfo, updateCache, sendUpdatingMessages, cancellationToken), true, false).ConfigureAwait(false);
 			await requestInfo.DeleteFilesAsync(desktop.SystemID, null, desktop.ID, Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			await Desktop.DeleteAsync<Desktop>(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			await Desktop.DeleteAsync(desktop.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 
 			if (updateCache)
 				desktop.ClearCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
@@ -858,7 +858,7 @@ namespace net.vieapps.Services.Portals
 					await Desktop.UpdateAsync(desktop.Update(data, null, obj => obj.Extras = data.Get<string>("Extras") ?? obj.Extras), dontCreateNewVersion, cancellationToken).ConfigureAwait(false);
 			}
 			else if (desktop != null)
-				await Desktop.DeleteAsync<Desktop>(desktop.ID, desktop.LastModifiedID, cancellationToken).ConfigureAwait(false);
+				await Desktop.DeleteAsync(desktop.ID, desktop.LastModifiedID, cancellationToken).ConfigureAwait(false);
 
 			// stop if has no info
 			if (desktop == null)

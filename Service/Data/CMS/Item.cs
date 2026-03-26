@@ -152,7 +152,7 @@ namespace net.vieapps.Services.Portals
 			var cacheKey = contentType.ID.GetCacheKeyOfAliasedItem(alias);
 			var id = Utility.Cache.Get<string>(cacheKey);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
-				return Item.Get<Item>(id);
+				return Item.Get(id);
 
 			var item = Item.Get(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, contentType.ID);
 			if (item != null)
@@ -177,7 +177,7 @@ namespace net.vieapps.Services.Portals
 			var cacheKey = contentType.ID.GetCacheKeyOfAliasedItem(alias);
 			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
-				return await Item.GetAsync<Item>(id, cancellationToken).ConfigureAwait(false);
+				return await Item.GetAsync(id, cancellationToken).ConfigureAwait(false);
 
 			var item = await Item.GetAsync(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, contentType.ID, cancellationToken).ConfigureAwait(false);
 			if (item != null)
