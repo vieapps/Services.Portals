@@ -558,7 +558,7 @@ namespace net.vieapps.Services.Portals
 					requestInfo.Session.User.SessionID = requestInfo.Session.SessionID;
 					requestInfo.Session.User.ID = schedulingTask.UserID ?? "";
 					requestInfo.Query["object-identity"] = (@object as IPortalObject).ID;
-					requestInfo.CorrelationID = UtilityService.NewUUID;
+					requestInfo.CorrelationID = correlationID;
 
 					if (@object is Content content)
 						await content.Update(expando, "ID,SystemID,RepositoryID,RepositoryEntityID,Privileges,Created,CreatedID,LastModified,LastModifiedID", out var _, obj =>
@@ -626,7 +626,7 @@ namespace net.vieapps.Services.Portals
 								.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}"))
 								.Concat(await organization.GetRefreshingURLsAsync().ConfigureAwait(false))
 								.Concat(await organization.GetRefreshingURLsAsync(true).ConfigureAwait(false))
-								.Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache" : url)
+								.Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache&x-no-purge" : url)
 								.ToList();
 					}, true, false).ConfigureAwait(false);
 
@@ -634,7 +634,7 @@ namespace net.vieapps.Services.Portals
 						.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
 						.Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-correlation-id={correlationID}")
 						.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-					await refreshingURLs.ForEachAsync(url => url.RefreshWebPageAsync(correlationID), true, false).ConfigureAwait(false);
+					await schedulingTask.Organization.RefreshWebPagesAsync(refreshingURLs, 0, correlationID, null, false, cancellationToken).ConfigureAwait(false);
 
 					stepwatch.Stop();
 					if (Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs)
