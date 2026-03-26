@@ -18,6 +18,8 @@ namespace net.vieapps.Services.Portals
 	{
 		public static Cache Cache { get; } = Cache.CreateInstance("VIEApps-Services-Portals", Components.Utility.Logger.GetLoggerFactory(), "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:L1")));
 
+		public static bool IsCacheDisabled { get; internal set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Disabled"));
+
 		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
 
 		internal static int RefreshMaxPage { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage", "100"), out var maxPage) && maxPage > 0 ? maxPage : 100;
@@ -108,7 +110,7 @@ namespace net.vieapps.Services.Portals
 			var keys = new List<string>();
 			var filter = Filters<Portlet>.And(Filters<Portlet>.Equals("ExpressionID", expression.ID), Filters<Portlet>.IsNull("OriginalPortletID"));
 			var sort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
-			var portlets = await Portlet.FindAsync<Portlet>(filter, sort, 0, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var portlets = await Portlet.FindAsync(filter, sort, cancellationToken).ConfigureAwait(false);
 			await portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 			{
 				var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
@@ -128,7 +130,7 @@ namespace net.vieapps.Services.Portals
 			var keys = new List<string>();
 			var filter = Filters<Portlet>.And(Filters<Portlet>.Equals("RepositoryEntityID", contentType.ID), Filters<Portlet>.IsNull("OriginalPortletID"));
 			var sort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
-			var portlets = await Portlet.FindAsync<Portlet>(filter, sort, 0, 1, null, false, null, 0, cancellationToken).ConfigureAwait(false);
+			var portlets = await Portlet.FindAsync(filter, sort, cancellationToken).ConfigureAwait(false);
 			await portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
 			{
 				var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);

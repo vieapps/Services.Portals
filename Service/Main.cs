@@ -80,9 +80,11 @@ namespace net.vieapps.Services.Portals
 
 		bool CacheDesktopHtmls { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Desktops:Htmls", "true"));
 
+		bool IsCacheDisabled => Utility.IsCacheDisabled;
+
 		int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "720"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge : 720;
 
-		bool MonitorCache { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Monitor", "false"));
+		bool Monitor { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Monitor"));
 
 		string MonitorLogPath { get; set; }
 
@@ -342,7 +344,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// monitor
-				var logPath = this.MonitorCache ? UtilityService.GetAppSetting("Path:Logs") : null;
+				var logPath = this.Monitor ? UtilityService.GetAppSetting("Path:Logs") : null;
 				if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
 					this.StartMonitor(logPath);
 
@@ -5210,7 +5212,7 @@ namespace net.vieapps.Services.Portals
 
 				case "portlet":
 				case "core.portlet":
-					@object = await Portlet.GetAsync<Portlet>(identity, cancellationToken).ConfigureAwait(false);
+					@object = await Portlet.GetAsync(identity, cancellationToken).ConfigureAwait(false);
 					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(null, null, (@object as Portlet)?.Organization);
 					break;
 
@@ -5234,19 +5236,19 @@ namespace net.vieapps.Services.Portals
 
 				case "content":
 				case "cms.content":
-					@object = await Content.GetAsync<Content>(identity, cancellationToken).ConfigureAwait(false);
+					@object = await Content.GetAsync(identity, cancellationToken).ConfigureAwait(false);
 					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(@object?.WorkingPrivileges, null, (@object as Content)?.Organization);
 					break;
 
 				case "link":
 				case "cms.link":
-					@object = await Link.GetAsync<Link>(identity, cancellationToken).ConfigureAwait(false);
+					@object = await Link.GetAsync(identity, cancellationToken).ConfigureAwait(false);
 					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(@object?.WorkingPrivileges, null, (@object as Link)?.Organization);
 					break;
 
 				case "item":
 				case "cms.item":
-					@object = await Item.GetAsync<Item>(identity, cancellationToken).ConfigureAwait(false);
+					@object = await Item.GetAsync(identity, cancellationToken).ConfigureAwait(false);
 					gotRights = isSystemAdministrator || requestInfo.Session.User.IsViewer(@object?.WorkingPrivileges, null, (@object as Item)?.Organization);
 					break;
 
@@ -5694,7 +5696,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var info = requestPaths.FirstOrDefault().Url64Decode().ToList("/");
 				contentType = info.Count > 0 ? await info[0].GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) : null;
-				form = info.Count > 1 ? await Form.GetAsync<Form>(info[1].StartsWith('@') ? info[1].Evaluate(null, requestInfo.AsExpandoObject)?.ToString() : info[1], cancellationToken).ConfigureAwait(false) : null;
+				form = info.Count > 1 ? await Form.GetAsync(info[1].StartsWith('@') ? info[1].Evaluate(null, requestInfo.AsExpandoObject)?.ToString() : info[1], cancellationToken).ConfigureAwait(false) : null;
 				adapterName = form != null
 					? info.Count > 2 ? info[2] : "default"
 					: info.Count > 1 ? info[1] : "default";
@@ -5704,7 +5706,7 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					contentType = await (requestPaths.FirstOrDefault() ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-					form = requestPaths.Length > 1 ? await Form.GetAsync<Form>(requestPaths[1].StartsWith('@') ? requestPaths[1].Evaluate(null, requestInfo.AsExpandoObject)?.ToString() : requestPaths[1], cancellationToken).ConfigureAwait(false) : null;
+					form = requestPaths.Length > 1 ? await Form.GetAsync(requestPaths[1].StartsWith('@') ? requestPaths[1].Evaluate(null, requestInfo.AsExpandoObject)?.ToString() : requestPaths[1], cancellationToken).ConfigureAwait(false) : null;
 					adapterName = form != null
 						? requestPaths.Length > 2 ? requestPaths[2] : "default"
 						: requestPaths.Length > 1 ? requestPaths[1] : "default";
@@ -5826,7 +5828,7 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					var response = await this.ProcessWebHookMessageAsync(request, cancellationToken).ConfigureAwait(false);
-					form = string.IsNullOrWhiteSpace(triggerURL) ? form : await Form.GetAsync<Form>(form.ID, this.CancellationToken).ConfigureAwait(false);
+					form = string.IsNullOrWhiteSpace(triggerURL) ? form : await Form.GetAsync(form.ID, this.CancellationToken).ConfigureAwait(false);
 					if (writeLogs)
 						await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process a tracking web-hook successful => {adapterName} [{form.ContentTypeID}]\r\n\r\nRequest: {request.ToString(jsonFormat)}\r\n\r\nResponse: {response.ToString(jsonFormat)}", null, this.ServiceName, "WebHooks").ConfigureAwait(false);
 
@@ -5983,21 +5985,27 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEquals("PurgeCache") && this.IsRequester)
 				await this.PurgeCloudFlareCacheAsync(message.Data.Get<string>("SystemID"), message.Data.Get<JArray>("URLs").Select(url => (url as JValue).Value.ToString()).ToList()).ConfigureAwait(false);
 
-			else if (message.Type.IsStartsWith("Cache#Enable#Monitor") || message.Type.IsStartsWith("Cache#Start#Monitor"))
+			else if (message.Type.IsEquals("Cache#Enable") || message.Type.IsEquals($"{this.ServiceName}#Enable#DataCache"))
+				Utility.IsCacheDisabled = false;
+
+			else if (message.Type.IsEquals("Cache#Disable") || message.Type.IsEquals($"{this.ServiceName}#Disable#DataCache"))
+				Utility.IsCacheDisabled = true;
+
+			else if (message.Type.IsEquals("Monitor#Enable") || message.Type.IsEquals("Monitor#Start") || message.Type.IsEquals($"{this.ServiceName}#Monitor#Start"))
 			{
 				var logPath = UtilityService.GetAppSetting("Path:Logs");
 				if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
 				{
-					this.MonitorCache = true;
+					this.Monitor = true;
 					this.StartMonitor(logPath);
 				}
 			}
 
-			else if (message.Type.IsStartsWith("Cache#Disable#Monitor") || message.Type.IsStartsWith("Cache#Stop#Monitor"))
+			else if (message.Type.IsEquals("Monitor#Disable") || message.Type.IsEquals("Monitor#Stop") || message.Type.IsEquals($"{this.ServiceName}#Monitor#Stop"))
 			{
 				this.StopMonitor();
-				if (message.Type.IsStartsWith("Cache#Disable#Monitor"))
-					this.MonitorCache = false;
+				if (message.Type.IsEquals("Monitor#Disable"))
+					this.Monitor = false;
 			}
 		}
 
@@ -6294,7 +6302,7 @@ namespace net.vieapps.Services.Portals
 			else if (@object is Module module)
 			{
 				await module.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
-				module = await Module.GetAsync<Module>(module.ID, cancellationToken).ConfigureAwait(false);
+				module = await Module.GetAsync(module.ID, cancellationToken).ConfigureAwait(false);
 				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
@@ -6302,15 +6310,15 @@ namespace net.vieapps.Services.Portals
 			else if (@object is ContentType contentType)
 			{
 				await contentType.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
-				contentType = await ContentType.GetAsync<ContentType>(contentType.ID, cancellationToken).ConfigureAwait(false);
+				contentType = await ContentType.GetAsync(contentType.ID, cancellationToken).ConfigureAwait(false);
 				await contentType.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 
 			else if (@object is Site site)
 			{
 				await site.ClearCacheAsync(cancellationToken, correlationID, true, true, false).ConfigureAwait(false);
-				site = await Site.GetAsync<Site>(site.ID, cancellationToken).ConfigureAwait(false);
-				var desktop = await Desktop.GetAsync<Desktop>(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
+				site = await Site.GetAsync(site.ID, cancellationToken).ConfigureAwait(false);
+				var desktop = await Desktop.GetAsync(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
 				if (desktop != null)
 					await Task.WhenAll
 					(
@@ -6332,7 +6340,7 @@ namespace net.vieapps.Services.Portals
 			else if (@object is Desktop desktop)
 			{
 				await desktop.ClearCacheAsync(cancellationToken, correlationID, true, true, true).ConfigureAwait(false);
-				desktop = await Desktop.GetAsync<Desktop>(desktop.ID, cancellationToken).ConfigureAwait(false);
+				desktop = await Desktop.GetAsync(desktop.ID, cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll
 				(
 					desktop.FindChildrenAsync(cancellationToken, false),
@@ -7086,16 +7094,16 @@ namespace net.vieapps.Services.Portals
 			ThreadPool.GetMinThreads(out var minWorker, out var minIO);
 			this.Logger.LogInformation($"ThreadPool:\r\n\t- Max: {maxWorker:###,##0} / {maxIO:###,##0}\r\n\t- Min: {minWorker:###,##0} / {minIO:###,##0}");
 
-			if (this.MonitorCache && !string.IsNullOrWhiteSpace(logPath))
+			if (this.Monitor && !string.IsNullOrWhiteSpace(logPath))
 			{
 				this.MonitorLogPath = Path.Combine(logPath, this.ServiceName.ToLower());
 				this.Logger.LogInformation($"Start to monitor threadpool/cache - Log path => {this.MonitorLogPath}...txt");
 
-				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:Monitor:Interval"), out var interval) || interval < 0)
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:Interval"), out var interval) || interval < 0)
 					interval = 10000;
-				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:Monitor:Warn"), out var warnQS) || warnQS < 0)
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:Warn"), out var warnQS) || warnQS < 0)
 					warnQS = 1000;
-				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:Monitor:Critical"), out var criticalQS) || criticalQS < 0)
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:Critical"), out var criticalQS) || criticalQS < 0)
 					criticalQS = 5000;
 
 				Utility.Cache.StartMonitor(
