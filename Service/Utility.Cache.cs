@@ -20,15 +20,17 @@ namespace net.vieapps.Services.Portals
 
 		public static bool IsCacheDisabled { get; internal set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Disabled"));
 
-		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
-
-		internal static int RefreshMaxPage { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage", "100"), out var maxPage) && maxPage > 0 ? maxPage : 100;
-
 		internal static string CloudFlareZoneID { get; } = UtilityService.GetAppSetting("Portals:CloudFlare:ZoneID");
 
 		internal static string CloudFlareApiToken { get; } = UtilityService.GetAppSetting("Portals:CloudFlare:ApiToken");
 
 		internal static bool CloudFlareForAll { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:CloudFlare:All"));
+
+		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
+
+		internal static int RefreshTimeout { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:Timeout"), out var value) && value > 0 ? value : 30;
+
+		internal static int RefreshMaxPage { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage"), out var value) && value > 0 ? value : 30;
 
 		internal static Dictionary<string, string> RefresherHeaders => new()
 		{
@@ -276,7 +278,7 @@ namespace net.vieapps.Services.Portals
 			{
 				try
 				{
-					using var _ = await cloudflareURI.SendHttpRequestAsync("POST", cloudflareHeaders, body.ToString(Newtonsoft.Json.Formatting.None), 30, cancellationToken).ConfigureAwait(false);
+					using var _ = await cloudflareURI.SendHttpRequestAsync("POST", cloudflareHeaders, body.ToString(Newtonsoft.Json.Formatting.None), Utility.RefreshTimeout, cancellationToken).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
@@ -329,9 +331,9 @@ namespace net.vieapps.Services.Portals
 			var portalURLs = (urls ?? []).Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => url.IsContains("/{{pageNumber}}")
 				? Enumerable.Range(1, Utility.RefreshMaxPage).Select(pageNumber => url.Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}{suffix}" : suffix, StringComparison.OrdinalIgnoreCase))
 				: new[] { url }
-			).SelectMany(url => url).Select(url => url.Replace("~/", rootURL)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			).SelectMany(url => url).Select(url => url.Replace("~/", rootURL + "/")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var cloudflareURLs = portalURLs.Where(url => url.IsStartsWith(rootURL) || url.IsStartsWith(organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI) || url.IsStartsWith(Utility.PortalsHttpURI)).Select(url => url.Replace(rootURL, siteURL)).Select(url => url.Replace("x-sliding-cache", "")).ToList();
-			if (portalURLs.Any(url => url == rootURL))
+			if (portalURLs.Any(url => url == rootURL || url == rootURL + "/"))
 				cloudflareURLs.AddRange([siteURL, $"{siteURL}/index{suffix}"]);
 			return Task.WhenAll(portalURLs.Select(url => $"{url}{(force ? url.IsContains("x-force-cache") ? "" : $"{(url.IsContains("?") ? "&" : "?")}x-force-cache" : "")}").Select(url => url.RefreshWebPageAsync(delay, correlationID, log, cancellationToken)).Concat([organization.PurgeCloudFlareCacheAsync(cloudflareURLs, correlationID, cancellationToken)]));
 		}
@@ -341,16 +343,17 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task RefreshWebPageAsync(this string url, int delay, string correlationID = null, string log = null, CancellationToken cancellationToken = default)
 		{
-			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Utility.CancellationToken);
 			var stopwatch = Stopwatch.StartNew();
+			var writeLogs = Utility.IsCacheLogEnabled || url.IsContains("x-force-cache");
 			correlationID = correlationID ?? UtilityService.NewUUID;
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, Utility.CancellationToken);
 			try
 			{
 				if (delay > 0)
 					await Task.Delay(delay * 1000, cts.Token).ConfigureAwait(false);
-				await new Uri(url).FetchHttpAsync(Utility.RefresherHeaders, 30, cts.Token).ConfigureAwait(false);
+				await new Uri(url).FetchHttpAsync(Utility.RefresherHeaders, Utility.RefreshTimeout, cts.Token).ConfigureAwait(false);
 				stopwatch.Stop();
-				if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache"))
+				if (writeLogs)
 					await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {url}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 			}
 			catch (RemoteServerMovedException ex)
@@ -358,9 +361,9 @@ namespace net.vieapps.Services.Portals
 				if (ex.InnerException is not ServiceOperationException && ex.InnerException is not ServiceNotFoundException)
 					try
 					{
-						await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, 30, cts.Token).ConfigureAwait(false);
+						await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, Utility.RefreshTimeout, cts.Token).ConfigureAwait(false);
 						stopwatch.Stop();
-						if (Utility.IsCacheLogEnabled || url.IsContains("x-force-cache"))
+						if (writeLogs)
 							await Utility.WriteLogAsync(correlationID, $"{log ?? "Refresh an url successful"} => {ex.URI}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 					}
 					catch (ConnectionTimeoutException) { }
@@ -368,6 +371,8 @@ namespace net.vieapps.Services.Portals
 					{
 						await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({ex.URI}) => {exception.Message} [{exception.GetType()}]", "Caches").ConfigureAwait(false);
 					}
+				else
+					await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing an url ({url}) => {(ex.InnerException is RemoteServerException rex ? $"{rex.Message} (Code: {rex.StatusCode}){(string.IsNullOrWhiteSpace(rex.Body) ? "" : $"\r\nBody: {rex.Body}")}" : $"{ex.Message}")} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
 			}
 			catch (TaskCanceledException) { }
 			catch (OperationCanceledException) { }
