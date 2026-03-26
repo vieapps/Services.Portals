@@ -2071,7 +2071,7 @@ namespace net.vieapps.Services.Portals
 					.Select(url => url.Replace($"{requestURI.Scheme}://{requestURI.Host}", Utility.PortalsHttpURI)).Concat(urls).ToList();
 				organization ??= (await requestURI.Host.ToArray(".").Skip(1).Join(".").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false))?.Organization;
 				if (organization != null)
-					await organization.PurgeCloudFlareCacheAsync(urls, requestInfo.CorrelationID, cancellationToken, true).ConfigureAwait(false);
+					await organization.PurgeCloudFlareCacheAsync(urls, requestInfo.CorrelationID, true, null, cancellationToken).ConfigureAwait(false);
 				else if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
 					await urls.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, requestInfo.CorrelationID, cancellationToken, true).ConfigureAwait(false);
 			}
@@ -2769,9 +2769,9 @@ namespace net.vieapps.Services.Portals
 				if (isWriteDesktopLogs)
 					await requestInfo.WriteLogAsync($"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\nNormalized HTML:\r\n{html}", "Process.Http.Request").ConfigureAwait(false);
 
-				// refresh & purge cache of CDN
-				if (isForceCacheRequested)
-					await organization.RefreshWebPageAsync(site, [$"{Utility.PortalsHttpURI}/~{organization.Alias}{requestURI.AbsolutePath}", canonicalURL], 0, requestInfo.CorrelationID, "Refresh when force cache", false, cancellationToken).ConfigureAwait(false);
+				// purge cache of CDN
+				if (isForceCacheRequested && !requestInfo.ContainsKey("x-no-purge"))
+					organization.PurgeCloudFlareCacheAsync([canonicalURL], requestInfo.CorrelationID, Utility.CancellationToken).Execute();
 			}
 			catch (Exception ex)
 			{
@@ -6332,7 +6332,7 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 				await Task.WhenAll
 				(
-					site.Organization.RefreshWebPageAsync([site.Organization.URL, $"{site.Organization.URL}/index{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}", desktop == null ? "" : $"~/{desktop.Alias}{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"], 0, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]", true, cancellationToken),
+					site.Organization.RefreshWebPagesAsync([site.Organization.URL, $"{site.Organization.URL}/index{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}", desktop == null ? "" : $"~/{desktop.Alias}{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"], 0, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]", true, cancellationToken),
 					site.Organization.PurgeCloudFlareCacheAsync([], correlationID, cancellationToken)
 				).ConfigureAwait(false);
 			}
