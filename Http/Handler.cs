@@ -57,8 +57,6 @@ namespace net.vieapps.Services.Portals
 
 		internal static Cache Cache { get; set; }
 
-		internal static bool MonitorCache { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Monitor", "false"));
-
 		internal static string MonitorLogPath { get; set; }
 
 		internal static IDisposable CacheUpdater { get; set; }
@@ -1777,21 +1775,21 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsStartsWith("McpServer#"))
 				await message.ProcessGatewayMessageAsync().ConfigureAwait(false);
 
-			else if (message.Type.IsStartsWith("Cache#Enable#Monitor") || message.Type.IsStartsWith("Cache#Start#Monitor"))
+			else if (message.Type.IsEquals("Monitor#Enable") || message.Type.IsEquals("Monitor#Start"))
 			{
 				var logPath = UtilityService.GetAppSetting("Path:Logs");
 				if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
 				{
-					Handler.MonitorCache = true;
+					Global.Monitor = true;
 					Handler.StartMonitor(logPath);
 				}
 			}
 
-			else if (message.Type.IsStartsWith("Cache#Disable#Monitor") || message.Type.IsStartsWith("Cache#Stop#Monitor"))
+			else if (message.Type.IsEquals("Monitor#Disable") || message.Type.IsEquals("Monitor#Stop"))
 			{
 				Handler.StopMonitor();
-				if (message.Type.IsStartsWith("Cache#Disable#Monitor"))
-					Handler.MonitorCache = false;
+				if (message.Type.IsEquals("Monitor#Disable"))
+					Global.Monitor = false;
 			}
 		}
 
@@ -1801,16 +1799,16 @@ namespace net.vieapps.Services.Portals
 			ThreadPool.GetMinThreads(out var minWorker, out var minIO);
 			Global.Logger.LogInformation($"ThreadPool:\r\n\t- Max: {maxWorker:###,##0} / {maxIO:###,##0}\r\n\t- Min: {minWorker:###,##0} / {minIO:###,##0}");
 
-			if (Handler.MonitorCache && !string.IsNullOrWhiteSpace(logPath))
+			if (Global.Monitor && !string.IsNullOrWhiteSpace(logPath))
 			{
 				Handler.MonitorLogPath = Path.Combine(logPath, $"{Global.ServiceName.ToLower()}.http.{Environment.ProcessId}");
 				Global.Logger.LogInformation($"Start to monitor threadpool/cache - Log path => {Handler.MonitorLogPath}");
 
-				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:Monitor:Interval"), out var interval) || interval < 0)
+				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Monitor:Cache:Interval"), out var interval) || interval < 0)
 					interval = 10000;
-				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:Monitor:Warn"), out var warnQS) || warnQS < 0)
+				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Monitor:Cache:Warn"), out var warnQS) || warnQS < 0)
 					warnQS = 1000;
-				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:Monitor:Critical"), out var criticalQS) || criticalQS < 0)
+				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Monitor:Cache:Critical"), out var criticalQS) || criticalQS < 0)
 					criticalQS = 5000;
 
 				Global.Cache.StartMonitor(
