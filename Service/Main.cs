@@ -2118,8 +2118,8 @@ namespace net.vieapps.Services.Portals
 			{
 				var filter = Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", organization.ID), Filters<Desktop>.IsNull("ParentID"));
 				var sort = Sorts<Desktop>.Ascending("Title");
-				var desktops = await Desktop.FindAsync(filter, sort, 0, 1, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
-				await desktops.ForEachAsync(desktop => desktop.SetAsync(false, true, cancellationToken)).ConfigureAwait(false);
+				var desktops = await Desktop.FindAsync(filter, sort, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
+				desktops.ForEach(desktop => desktop.Set(false, true));
 				if (isWriteDesktopLogs)
 					await requestInfo.WriteLogAsync($"Fetch the root desktops - Organization: {organization.Title}", "Process.Http.Request").ConfigureAwait(false);
 			}
@@ -2769,9 +2769,9 @@ namespace net.vieapps.Services.Portals
 				if (isWriteDesktopLogs)
 					await requestInfo.WriteLogAsync($"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\nNormalized HTML:\r\n{html}", "Process.Http.Request").ConfigureAwait(false);
 
-				// purge cache of CDN
+				// refresh & purge cache of CDN
 				if (isForceCacheRequested)
-					await organization.PurgeCloudFlareCacheAsync([canonicalURL], requestInfo.CorrelationID, cancellationToken, true).ConfigureAwait(false);
+					await organization.RefreshWebPageAsync(site, [$"{Utility.PortalsHttpURI}/~{organization.Alias}{requestURI.AbsolutePath}", canonicalURL], 0, requestInfo.CorrelationID, "Refresh when force cache", false, cancellationToken).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
@@ -7122,8 +7122,9 @@ namespace net.vieapps.Services.Portals
 		{
 			ThreadPool.GetAvailableThreads(out var workers, out var io);
 			var now = DateTime.Now;
-			var logs = now.ToString("HH:mm:ss") + " -----"
-				+ "\r\nAvailable thread-pool: " + workers.ToString("###,##0") + " / " + io.ToString("###,##0")
+			var pid = Environment.ProcessId.ToString();
+			var logs = "PID: " + pid + " @ " + now.ToString("HH:mm:ss") + " -----"
+				+ "\r\nAvailable threads - Workers: " + workers.ToString("###,##0") + " / Async I/O: " + io.ToString("###,##0")
 				+ "\r\nCaching: " + message;
 			if (ex != null)
 				logs += "\r\nError stack: " + ex.StackTrace;

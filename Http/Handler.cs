@@ -1837,8 +1837,9 @@ namespace net.vieapps.Services.Portals
 		{
 			ThreadPool.GetAvailableThreads(out var workers, out var io);
 			var now = DateTime.Now;
-			var logs = now.ToString("HH:mm:ss") + " -----"
-				+ "\r\nAvailable thread-pool: " + workers.ToString("###,##0") + " / " + io.ToString("###,##0")
+			var pid = Environment.ProcessId.ToString();
+			var logs = "PID: " + pid + " @ " + now.ToString("HH:mm:ss") + " -----"
+				+ "\r\nAvailable threads - Workers: " + workers.ToString("###,##0") + " / Async I/O: " + io.ToString("###,##0")
 				+ "\r\n" + prefix + " Caching: " + message;
 			if (ex != null)
 				logs += "\r\n Error stack: " + ex.StackTrace;
@@ -2183,7 +2184,7 @@ namespace net.vieapps.Services.Portals
 			var serviceSystemID = string.Empty;
 			var requestURI = context.GetRequestUri();
 			var requestURL = requestURI.AbsoluteUri;
-			if (Handler.TrackSessions)
+			if (Handler.TrackSessions && !requestURL.IsContains("/_css/") && !requestURL.IsContains("/_js/") && !requestURL.IsContains("/_themes/") && !requestURL.IsContains("/_assets/"))
 			{
 				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 				{
@@ -2191,12 +2192,9 @@ namespace net.vieapps.Services.Portals
 					["x-host"] = context.GetParameter("Host") ?? requestURI.Host,
 					["x-requester"] = context.GetParameter("x-requester") ?? "vieapps-ngx-portals"
 				};
-				if (!requestURL.IsStartsWith(Handler.PortalsHttpURI) && string.IsNullOrWhiteSpace(context.GetParameter("x-resource")))
-				{
-					var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", null, headers, null, null, context.GetCorrelationID());
-					var systemIdentityJson = await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
-					serviceSystemID = systemIdentityJson?.Get<string>("ID");
-				}
+				var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", null, headers, null, null, context.GetCorrelationID());
+				var systemIdentityJson = await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
+				serviceSystemID = systemIdentityJson?.Get<string>("ID");
 			}
 			context.SendSessionState(Global.ServiceName + ".HTTP", $"{context.Request.Method} {requestURL}", serviceSystemID, online, trackStatistics);
 		}
