@@ -1029,6 +1029,8 @@ __vieapps.utils = {
 	},
 
 	time: {
+		as24h00: false,
+
 		diff: function (start, end, unit) {
 			unit = 1000 * 60 * (typeof unit !== "undefined" && +unit > 0 ? +unit : 1);	// 1: minutes, 60: hours, 60 * 24: days, 30 * 60 * 24: months, 12 * 30 * 60 * 24: years
 			var startTime = (start ? new Date(start) : new Date()).getTime();
@@ -1037,9 +1039,17 @@ __vieapps.utils = {
 		},
 
 		getFriendly: time => {
-			var hour = `0${time.getHours()}`;
-			var minute = `0${time.getMinutes()}`;
-			return `${hour.substring(hour.length - 2)}:${minute.substring(minute.length - 2)} - ${time.toLocaleDateString(__vieapps.language)}`;
+			var hours = time.getHours();
+			var minutes = time.getMinutes();
+			var hour = `0${hours}`;
+			var minute = `0${minutes}`;
+			var date = new Date(time);
+			if (!!__vieapps.utils.time.as24h00 && hours == 0 && minutes == 0) {
+				hour = "24";
+				minute = "00";
+				date.setDate(time.getDate() - 1);
+			}
+			return `${hour.substring(hour.length - 2)}:${minute.substring(minute.length - 2)} - ${date.toLocaleDateString(__vieapps.language)}`;
 		}
 	},
 
