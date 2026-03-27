@@ -536,9 +536,7 @@ namespace net.vieapps.Services.Portals
 			// prepare
 			var stopwatch = Stopwatch.StartNew();
 			schedulingTask.SetStatus(Status.Running).SendMessages();
-
-			var isForceRefreshPredefinedURLs = schedulingTask.SchedulingType.Equals(SchedulingType.Refresh) && schedulingTask.ID.IsEquals($"{schedulingTask.SystemID}:URLs:Force".GenerateUUID());
-			await Utility.WriteLogAsync(correlationID, $"Run a scheduling task [{schedulingTask.Title} @ {schedulingTask.Organization.Title} - ID: {schedulingTask.ID}]{(Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs ? $"\r\n{schedulingTask.ToJson(json => json.Remove("Privileges"))}" : "")}", "Tasks").ConfigureAwait(false);
+			await Utility.WriteLogAsync(correlationID, $"Run a scheduling task [{schedulingTask.Title} @ {schedulingTask.Organization.Title} - ID: {schedulingTask.ID}]{(Utility.IsDebugLogEnabled ? $"\r\n{schedulingTask.ToJson(json => json.Remove("Privileges"))}" : "")}", "Tasks").ConfigureAwait(false);
 
 			if (schedulingTask.Persistance)
 				SchedulingTask.UpdateAsync(schedulingTask, true, cancellationToken).Execute();
@@ -613,7 +611,7 @@ namespace net.vieapps.Services.Portals
 
 					var organizationURLs = await schedulingTask.Organization.GetRefreshingURLsAsync(true).ConfigureAwait(false);
 					var refreshingURLs = addresses.Where(url => !url.IsStartsWith("@organization:") && !url.IsStartsWith("@organization("))
-						.Concat(organizationURLs.Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache" : url))
+						.Concat(organizationURLs)
 						.ToList();
 
 					var organizationIDs = addresses.Where(url => url.IsStartsWith("@organization:") || url.IsStartsWith("@organization("))
@@ -622,22 +620,17 @@ namespace net.vieapps.Services.Portals
 					{
 						var organization = await organizationID.GetOrganizationByIDAsync(Utility.CancellationToken).ConfigureAwait(false);
 						if (organization != null)
-							refreshingURLs = refreshingURLs.Concat(["~/"])
-								.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}"))
+							refreshingURLs = refreshingURLs.Concat(organization.GetRefreshingURLs())
 								.Concat(await organization.GetRefreshingURLsAsync().ConfigureAwait(false))
 								.Concat(await organization.GetRefreshingURLsAsync(true).ConfigureAwait(false))
-								.Select(url => isForceRefreshPredefinedURLs ? $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache&x-no-purge" : url)
 								.ToList();
 					}, true, false).ConfigureAwait(false);
 
-					refreshingURLs = refreshingURLs.Select(url => string.IsNullOrWhiteSpace(url) ? rootURL : url.Replace("~/", rootURL))
-						.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
-						.Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-correlation-id={correlationID}")
-						.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+					refreshingURLs = refreshingURLs.Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-correlation-id={correlationID}").Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 					await schedulingTask.Organization.RefreshWebPagesAsync(refreshingURLs, correlationID, null, false, cancellationToken).ConfigureAwait(false);
 
 					stepwatch.Stop();
-					if (Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs)
+					if (Utility.IsDebugLogEnabled)
 						await Utility.WriteLogAsync(correlationID, $"Force refresh all pre-defined URLs of '{schedulingTask.Organization.Title}' successful - Execution times: {stepwatch.GetElapsedTimes()}\r\nURLs:\r\n\t- {refreshingURLs.Join("\r\n\t- ")}", "Tasks").ConfigureAwait(false);
 				}
 				catch (Exception ex)

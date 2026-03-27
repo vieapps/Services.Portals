@@ -369,10 +369,12 @@ namespace net.vieapps.Services.Portals
 		internal static Task<List<string>> GetRefreshingURLsAsync(this Organization organization, bool onlyDetailsOfCategories = false)
 			=> organization.GetRefreshingURLsAsync(null, onlyDetailsOfCategories);
 
+		internal static IEnumerable<string> GetRefreshingURLs(this Organization organization)
+			=> new[] { "~/" }.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID) && (site.Status == ApprovalStatus.Published || site.Status == ApprovalStatus.Approved)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}")).Distinct(StringComparer.OrdinalIgnoreCase);
+
 		internal static async Task<List<SchedulingTask>> GetRefreshingTasksAsync(this Organization organization, bool others = true, List<string> otherURLs = null)
 		{
-			var refreshURLs = new[] { "~/" }.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
+			var refreshURLs = organization.GetRefreshingURLs().ToList();
 			var schedulingTasks = new[] { new SchedulingTask(3)
 			{
 				ID = $"{organization.ID}:URLs:Home".GenerateUUID(),
@@ -382,7 +384,6 @@ namespace net.vieapps.Services.Portals
 				Data = refreshURLs.ToJArray().ToString(Formatting.None),
 				Persistance = false
 			}}.ToList();
-
 			if (others)
 			{
 				refreshURLs = otherURLs ?? await organization.GetRefreshingURLsAsync().ConfigureAwait(false) ?? [];
@@ -396,18 +397,7 @@ namespace net.vieapps.Services.Portals
 						Data = refreshURLs.ToJArray().ToString(Formatting.None),
 						Persistance = false
 					});
-
-				schedulingTasks.Add(new SchedulingTask(1, RecurringType.Days, DateTime.Parse($"{DateTime.Now.AddDays(DateTime.Now.Hour < 5 ? 0 : 1):yyyy/MM/dd} {UtilityService.GetRandomNumber(0, 4):00}:{UtilityService.GetRandomNumber(0, 59):00}:00"))
-				{
-					ID = $"{organization.ID}:URLs:Force".GenerateUUID(),
-					SystemID = organization.ID,
-					Title = "Force refresh all pre-defined URLs",
-					SchedulingType = SchedulingType.Refresh,
-					Data = (schedulingTasks.First().DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).Concat(refreshURLs).Distinct(StringComparer.OrdinalIgnoreCase).Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache&x-no-purge").ToJArray().ToString(Formatting.None),
-					Persistance = false
-				});
 			}
-
 			return schedulingTasks;
 		}
 
@@ -421,7 +411,7 @@ namespace net.vieapps.Services.Portals
 			}.SendMessages("Delete");
 
 			if (isDeleted)
-				new[] { "Home", "Other", "Force" }.ForEach(type => sendDeleteMessage(type));
+				new[] { "Home", "Other" }.ForEach(type => sendDeleteMessage(type));
 
 			else
 			{
@@ -1232,15 +1222,14 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo)
 		{
-			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, Utility.CancellationToken).ConfigureAwait(false) ?? [];
+			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), null, Utility.CancellationToken).ConfigureAwait(false) ?? [];
 			organizations = organizations.Where(organization => organization.Status == ApprovalStatus.Approved || organization.Status == ApprovalStatus.Published).ToList();
 			await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Start to rebuild cache of all organizations ({organizations.Count()})", "Caches").ConfigureAwait(false);
 			organizations.ForEach(organization => Router.GetService(Utility.ServiceName).ProcessRequestAsync(new RequestInfo(requestInfo)
 			{
 				Header = new Dictionary<string, string>(requestInfo.Header)
 				{
-					["x-rebuild"] = "true",
-					["x-organization-id"] = organization.ID,
+					["x-rebuild"] = organization.ID,
 					["x-max-page"] = Int32.TryParse(requestInfo.GetParameter("x-max-page"), out var maxPage) && maxPage > 0 ? maxPage.ToString() : null,
 					["x-min-time"] = DateTime.TryParse(requestInfo.GetParameter("x-min-time"), out var minTime) ? minTime.ToIsoString() : null
 				}
@@ -1271,8 +1260,7 @@ namespace net.vieapps.Services.Portals
 			await Task.Delay(UtilityService.GetRandomNumber(456, 789), cancellationToken).ConfigureAwait(false);
 			var stopwatch = Stopwatch.StartNew();
 
-			var organizationURL = organization.URL;
-			var refreshingURLs = new[] { organizationURL }.ToList();
+			var refreshingURLs = organization.GetRefreshingURLs().ToList();
 
 			void sendStatus(string state)
 				=> new CommunicateMessage($"{Utility.ServiceName}.cache.rebuild")
@@ -1300,15 +1288,18 @@ namespace net.vieapps.Services.Portals
 				correlationID
 			).ConfigureAwait(false);
 
+			var domains = new HashSet<string>((organization.Sites ?? []).Select(site => site.Host));
+			var rootURL = organization.URL + "/";
 			refreshingURLs = refreshingURLs.Concat(linkURLs).Concat(contentURLs).Concat(categoryURLs)
-				.Select(url => url.Replace("~/", $"{organizationURL}/"))
+				.Where(url => url.IsStartsWith("~/") || domains.Contains(new Uri(url).Host))
+				.Select(url => url.Replace("~/", rootURL))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-sliding-cache")
+				.Select(url => url + (url.IndexOf("?") > 0 ? "&" : "?") + "x-force-cache&x-no-purge")
 				.ToList();
-			await Utility.WriteLogAsync(correlationID, $"Caching URLs of '{organization.Title}' were built => {refreshingURLs.Count:###,###,##0}", "Caches").ConfigureAwait(false);
+			await Utility.WriteLogAsync(correlationID, $"Caching URLs of '{organization.Title}' were prepared to rebuild cache => {refreshingURLs.Count:###,###,##0}", "Caches").ConfigureAwait(false);
 			sendStatus("Prepared");
 
-			while (true)
+			while (!cancellationToken.IsCancellationRequested)
 			{
 				if (cancellationToken.IsCancellationRequested)
 				{
