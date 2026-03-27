@@ -276,7 +276,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (desktop.Organization.ExamineURLs == null || desktop.Organization.ExamineURLs.Count < 1))
-				await desktop.Organization.RefreshWebPagesAsync([$"{desktop.Organization.URL}/{desktop.Alias}", desktop.ID.Equals(desktop.Organization.HomeDesktop?.ID) ? desktop.Organization.URL : null, $"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css", $"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js", $"{Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css", $"{Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js"], 1, correlationID, $"Refresh when clear related cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await desktop.Organization.RefreshWebPagesAsync([$"{desktop.Organization.URL}/{desktop.Alias}", desktop.ID.Equals(desktop.Organization.HomeDesktop?.ID) ? desktop.Organization.URL : null, $"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css", $"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js", $"{Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css", $"{Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js"], correlationID, $"Refresh when clear related cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task ClearCacheAsync(this Desktop desktop, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool clearChildrenCache = false, bool doRefresh = false)

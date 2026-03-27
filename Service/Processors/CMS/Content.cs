@@ -80,7 +80,7 @@ namespace net.vieapps.Services.Portals
 				Filters<Content>.Equals("Alias", alias.NormalizeAlias())
 			);
 
-		static async Task<Content> RefreshAsync(this Content content, bool force, CancellationToken cancellationToken, bool reloadWebpages = false, string correlationID = null, string message = null)
+		static async Task<Content> RefreshAsync(this Content content, bool force, CancellationToken cancellationToken, bool reloadWebpages = false, bool writeLogs = false, string correlationID = null, string message = null)
 		{
 			if (force)
 			{
@@ -92,11 +92,11 @@ namespace net.vieapps.Services.Portals
 				content = await Content.GetAsync(content.ID, cancellationToken).ConfigureAwait(false);
 			}
 			if (reloadWebpages)
-				await content.Organization.RefreshWebPagesAsync((content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Select(category => category?.GetURL(true)).Concat([content.Organization.URL, content.Category?.GetURL(true), content.Status.Equals(ApprovalStatus.Published) ? content.GetURL() : null]), 1, correlationID, (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]", force, cancellationToken).ConfigureAwait(false);
+				await content.Organization.RefreshWebPagesAsync((content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Select(category => category?.GetURL(true)).Concat([content.Organization.URL, content.Category?.GetURL(true), content.Status.Equals(ApprovalStatus.Published) ? content.GetURL() : null]), correlationID, (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]", force, writeLogs, cancellationToken).ConfigureAwait(false);
 			return content;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Content content, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Content content, CancellationToken cancellationToken = default, string correlationID = null, bool isWriteLogs = false, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
 			// tasks for updating sets
 			var setTasks = new List<Task>();
@@ -139,16 +139,23 @@ namespace net.vieapps.Services.Portals
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// remove related cache & refresh
+			var writeLogs = isWriteLogs || Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(
 				Task.WhenAll(setTasks),
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled && content != null
+				writeLogs && content != null
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			if (doRefresh && content != null)
-				await content.RefreshAsync(false, cancellationToken, true, correlationID, "Refresh when related cache of a CMS content was clean").ConfigureAwait(false);
+			if (content != null)
+				await Task.WhenAll
+				(
+					content.PurgeCloudFlareCacheAsync(correlationID, writeLogs, cancellationToken),
+					doRefresh
+						? content.RefreshAsync(false, cancellationToken, true, writeLogs, correlationID, "Refresh when related cache of a CMS content was clean")
+						: Task.CompletedTask
+				).ConfigureAwait(false);
 		}
 
 		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, bool randomPage = false, int minRandomPage = 0, int maxRandomPage = 0, int cacheTime = 0)
@@ -703,7 +710,7 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				content.SendNotificationAsync(@event ?? "Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken),
-				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, requestInfo.IsWriteCacheLogs()),
 				Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
 				Utility.Cache.AddSetMembersAsync(content.ContentType.GetSetCacheKey(), [content.GetCacheKey(), content.GetCacheKeyOfAliasedContent()], Utility.CancellationToken)
@@ -714,10 +721,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> UpdateContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var content = await Content.GetAsync(requestInfo.GetObjectIdentity() ?? "", !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
-			if (content == null)
-				throw new InformationNotFoundException();
-			else if (content.Organization == null || content.Module == null || content.ContentType == null)
+			var content = await Content.GetAsync(requestInfo.GetObjectIdentity() ?? "", !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			if (content.Organization == null || content.Module == null || content.ContentType == null)
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 			// check permission
@@ -830,7 +835,7 @@ namespace net.vieapps.Services.Portals
 				Task.WhenAll
 				(
 					Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
-					content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false)
+					content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, requestInfo.IsWriteCacheLogs(), true, true, false)
 				).Execute();
 
 			var json = sendUpdatingMessages ? content.ToJson(json => json.Remove("Details")) : null;

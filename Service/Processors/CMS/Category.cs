@@ -328,7 +328,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && category != null && category.Organization != null && (category.Organization.ExamineURLs == null || category.Organization.ExamineURLs.Count < 1))
-				await category.Organization.RefreshWebPagesAsync([category.Organization.URL, category.GetURL(true)], 1, correlationID, $"Refresh when clear related cache of a category [{category.Title} - ID: {category.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await category.Organization.RefreshWebPagesAsync([category.Organization.URL, category.GetURL(true)], correlationID, $"Refresh when clear related cache of a category [{category.Title} - ID: {category.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		static async Task<(long TotalRecords, List<Category> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Category> filter, SortBy<Category> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false)

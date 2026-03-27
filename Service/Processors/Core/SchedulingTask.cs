@@ -634,7 +634,7 @@ namespace net.vieapps.Services.Portals
 						.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
 						.Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-correlation-id={correlationID}")
 						.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-					await schedulingTask.Organization.RefreshWebPagesAsync(refreshingURLs, 0, correlationID, null, false, cancellationToken).ConfigureAwait(false);
+					await schedulingTask.Organization.RefreshWebPagesAsync(refreshingURLs, correlationID, null, false, cancellationToken).ConfigureAwait(false);
 
 					stepwatch.Stop();
 					if (Utility.IsDebugLogEnabled || isForceRefreshPredefinedURLs)

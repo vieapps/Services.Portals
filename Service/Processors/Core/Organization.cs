@@ -582,7 +582,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (organization.ExamineURLs == null || organization.ExamineURLs.Count < 1))
-				await organization.RefreshWebPagesAsync([organization.URL, $"{organization.URL}/favicon.ico", $"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/o_{organization.ID}.js", $"{Utility.PortalsHttpURI}/_js/o_{organization.ID}.js"], 1, correlationID, $"Refresh when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await organization.RefreshWebPagesAsync([organization.URL, $"{organization.URL}/favicon.ico", $"{organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/o_{organization.ID}.js", $"{Utility.PortalsHttpURI}/_js/o_{organization.ID}.js"], correlationID, $"Refresh when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task ClearCacheAsync(this Organization organization, CancellationToken cancellationToken, string correlationID = null, bool clearObjectsCache = true, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
@@ -664,7 +664,7 @@ namespace net.vieapps.Services.Portals
 			await homedesktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 
 			if (doRefresh && (organization.ExamineURLs == null || organization.ExamineURLs.Count < 1))
-				await organization.RefreshWebPagesAsync([organization.URL], 0, correlationID, $"Refresh the home desktop when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await organization.RefreshWebPagesAsync([organization.URL], correlationID, $"Refresh the home desktop when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", true, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<JObject> SearchOrganizationsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -1321,7 +1321,7 @@ namespace net.vieapps.Services.Portals
 				if (urls.Count < 1)
 					break;
 
-				await urls.ForEachAsync((url, index) => url.RefreshWebPageAsync(index, correlationID, "Rebuild cache successful", cancellationToken)).ConfigureAwait(false);
+				await urls.ForEachAsync((url, index) => url.RefreshWebPageAsync(index, correlationID, cancellationToken)).ConfigureAwait(false);
 
 				if (!cancellationToken.IsCancellationRequested)
 				{

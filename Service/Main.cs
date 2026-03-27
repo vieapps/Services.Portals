@@ -2071,7 +2071,7 @@ namespace net.vieapps.Services.Portals
 					.Select(url => url.Replace($"{requestURI.Scheme}://{requestURI.Host}", Utility.PortalsHttpURI)).Concat(urls).ToList();
 				organization ??= (await requestURI.Host.ToArray(".").Skip(1).Join(".").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false))?.Organization;
 				if (organization != null)
-					await organization.PurgeCloudFlareCacheAsync(urls, requestInfo.CorrelationID, true, null, cancellationToken).ConfigureAwait(false);
+					await organization.PurgeCloudFlareCacheAsync(urls, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
 				else if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
 					await urls.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, requestInfo.CorrelationID, cancellationToken, true).ConfigureAwait(false);
 			}
@@ -2771,7 +2771,7 @@ namespace net.vieapps.Services.Portals
 
 				// purge cache of CDN
 				if (isForceCacheRequested && !requestInfo.ContainsKey("x-no-purge"))
-					organization.PurgeCloudFlareCacheAsync([canonicalURL], requestInfo.CorrelationID, Utility.CancellationToken).Execute();
+					organization.PurgeCloudFlareCacheAsync([canonicalURL], requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken).Execute();
 			}
 			catch (Exception ex)
 			{
@@ -6045,11 +6045,11 @@ namespace net.vieapps.Services.Portals
 			var correlationID = UtilityService.NewUUID;
 			var organization = await (systemID ?? "").GetOrganizationByIDAsync(this.CancellationToken).ConfigureAwait(false);
 			if (organization != null)
-				await organization.PurgeCloudFlareCacheAsync(urls, correlationID, this.CancellationToken).ConfigureAwait(false);
+				await organization.PurgeCloudFlareCacheAsync(urls, correlationID, this.IsDebugLogEnabled, this.CancellationToken).ConfigureAwait(false);
 			else
 			{
 				var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
-				await organizations.ForEachAsync(organization => organization.PurgeCloudFlareCacheAsync(null, correlationID, this.CancellationToken)).ConfigureAwait(false);
+				await organizations.ForEachAsync(organization => organization.PurgeCloudFlareCacheAsync(null, correlationID, this.IsDebugLogEnabled, this.CancellationToken)).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
 					await Array.Empty<string>().PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, this.CancellationToken).ConfigureAwait(false);
 			}
@@ -6282,7 +6282,7 @@ namespace net.vieapps.Services.Portals
 
 			await this.ClearCacheAsync(organization ?? module ?? contentType ?? site ?? desktop ?? expression as IPortalObject, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 			organization = organization ?? module?.Organization ?? contentType?.Organization ?? site?.Organization ?? desktop?.Organization ?? expression?.Organization;
-			await organization.PurgeCloudFlareCacheAsync(null, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
+			await organization.PurgeCloudFlareCacheAsync(null, requestInfo.CorrelationID, Utility.IsCacheLogEnabled, cancellationToken).ConfigureAwait(false);
 
 			stopwatch.Stop();
 			if (Utility.IsCacheLogEnabled)
@@ -6296,7 +6296,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					organization.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false),
-					organization.PurgeCloudFlareCacheAsync([], correlationID, cancellationToken)
+					organization.PurgeCloudFlareCacheAsync([], correlationID, Utility.IsCacheLogEnabled, cancellationToken)
 				).ConfigureAwait(false);
 
 			else if (@object is Module module)
@@ -6332,8 +6332,8 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 				await Task.WhenAll
 				(
-					site.Organization.RefreshWebPagesAsync([site.Organization.URL, $"{site.Organization.URL}/index{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}", desktop == null ? "" : $"~/{desktop.Alias}{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"], 0, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]", true, cancellationToken),
-					site.Organization.PurgeCloudFlareCacheAsync([], correlationID, cancellationToken)
+					site.Organization.RefreshWebPagesAsync([site.Organization.URL, $"{site.Organization.URL}/index{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}", desktop == null ? "" : $"~/{desktop.Alias}{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"], correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]", true, cancellationToken),
+					site.Organization.PurgeCloudFlareCacheAsync([], correlationID, Utility.IsCacheLogEnabled, cancellationToken)
 				).ConfigureAwait(false);
 			}
 
