@@ -493,7 +493,7 @@ namespace net.vieapps.Services.Portals
 
 					// session state
 					if (!isRefresher && !"~resources".IsEquals(systemIdentity) && !"~indicators".IsEquals(systemIdentity))
-						requestInfo.SendSessionState(systemIdentityJson, $"{Global.ServiceName}.HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
+						requestInfo.SendSessionState(systemIdentityJson, Global.ServiceName + ".HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
 
 					// examinations
 					var examinations = isRefresher || "~resources".IsEquals(systemIdentity) || "~indicators".IsEquals(systemIdentity) || (context.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx")) ? null : systemIdentityJson?.Get<JArray>("CacheExaminations")?.Select(exam => exam as JObject).Where(exam => exam != null).Select(exam => exam?.Copy<Settings.ExamineURLs>()).Where(exam => exam != null).ToList();
@@ -516,8 +516,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// process with cache
-					var processCache = Handler.AllowCache && !isForceCacheRequested;
-					if (processCache && !isRefresher)
+					if (Handler.AllowCache && !isForceCacheRequested && !context.IsAuthenticated())
 					{
 						var cacheKey = "";
 						var eTag = "";
@@ -755,8 +754,6 @@ namespace net.vieapps.Services.Portals
 
 					// call CMS Portals service to process the request
 					stepwatch.Restart();
-					context.RemoveL1Cache();
-
 					try
 					{
 						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
@@ -1114,13 +1111,31 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
+		async Task<JToken> ProcessSessionRequestAsync(HttpContext context, Session session)
+		{
+			var body = session.GetSessionBody().ToString(Formatting.None);
+			var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
+			{
+				Body = body,
+				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+				},
+				CorrelationID = context.GetCorrelationID()
+			}, context.RequestAborted, Global.Logger, "Authentications").ConfigureAwait(false);
+			context.SetSession(session);
+			context.StoreSession(session);
+			return response;
+		}
+
 		async Task ProcessLogInRequestAsync(HttpContext context, JObject systemIdentityJson)
 		{
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 			var isUserInteract = context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php");
 			var correlationID = context.GetCorrelationID();
 			var headers = new Dictionary<string, string>
 			{
-				["Cache-Control"] = "private, no-store, no-cache",
+				["Cache-Control"] = context.GetHttpCacheControl(true),
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = correlationID
 			};
@@ -1129,37 +1144,26 @@ namespace net.vieapps.Services.Portals
 			{
 				try
 				{
-					var session = context.Session.Get<Session>("Session") ?? context.GetSession();
+					var session = context.GetSession();
 					session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
 					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
 						? session.User.SessionID
 						: !string.IsNullOrWhiteSpace(session.SessionID)
 							? session.SessionID
 							: UtilityService.NewUUID;
-					context.Session.Add("Session", session);
-					context.SetSession(session);
+
+					var response = await this.ProcessSessionRequestAsync(context, session).ConfigureAwait(false);
 					context.SendSessionState("Users", "POST /session", true, Handler.TrackAPIStatistics);
 
-					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
-					var body = session.GetSessionBody().ToString(Formatting.None);
-					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
-					{
-						Body = body,
-						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-						{
-							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
-						},
-						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
 					await Task.WhenAll
 					(
 						context.WriteAsync(session.GetSessionJson(), Formatting.Indented, headers, cts.Token),
-						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully register a new session {response}") : Task.CompletedTask
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully register a new session {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
-					context.WriteError(Global.Logger, ex, null, $"Error occurred while registering a new session => {ex.Message}", true, "Http.Process.Requests");
+					context.WriteError(Global.Logger, ex, null, $"Error occurred while registering a new session => {ex.Message}", true, "Authentications");
 				}
 			}
 
@@ -1169,8 +1173,46 @@ namespace net.vieapps.Services.Portals
 				window.__prepare = window.__prepare || function(){};
 				__prepare();
 				</script>";
-				using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 				await context.WriteAsync(this.GetSpecialHtml(context, systemIdentityJson).Replace("[[placeholder]]", scripts.Replace("\t\t\t\t", "")), "text/html", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, cts.Token).ConfigureAwait(false);
+			}
+
+			void validate(Session session)
+			{
+				if (context.TryGetQueryParameter("x-session-id", out var sessionID))
+					try
+					{
+						sessionID = sessionID.Url64Decode();
+					}
+					catch { }
+
+				if (context.TryGetQueryParameter("x-device-id", out var deviceID))
+					try
+					{
+						deviceID = deviceID.Url64Decode();
+					}
+					catch { }
+
+				if (session == null || !session.GetEncryptedID().IsEquals(sessionID) || !session.DeviceID.IsEquals(deviceID))
+					throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
+			}
+
+			async Task<JToken> signInAsync(Session session, JToken json, string state = null)
+			{
+				// update session
+				session.User = json.Copy<User>();
+				session.SessionID = session.User.SessionID = UtilityService.NewUUID;
+				session.IP = context.Connection.RemoteIpAddress.ToString();
+
+				// perform sign-in
+				var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, session.User.Roles, session.User.Privileges, CookieAuthenticationDefaults.AuthenticationScheme));
+				await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
+
+				await this.ProcessSessionRequestAsync(context, session).ConfigureAwait(false);
+				context.SendSessionState("Users", $"PUT /session{state}", true, Handler.TrackAPIStatistics);
+				await context.WriteLogsAsync("Authentications", $"User sign-in successful\r\nIdentity: {context.User.Identity.Name}]\r\nSession Info: {session.ToJson()}").ConfigureAwait(false);
+
+				// return the json of the signed-in session
+				return session.GetSessionJson();
 			}
 
 			async Task loginAsync()
@@ -1178,18 +1220,16 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					// prepare
-					var session = context.Session.Get<Session>("Session");
-					if (session == null || !session.GetEncryptedID().IsEquals(context.Request.Query["x-session-id"]) || !session.DeviceID.Url64Encode().IsEquals(context.Request.Query["x-device-id"]))
-						throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
+					var session = context.GetSession();
+					validate(session);
 
-					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
+					var request = await context.ReadJsonAsync(cts.Token).ConfigureAwait(false);
 					var account = Global.RSA.Decrypt(request.Get("Account", "")).Trim().ToLower();
 					var password = Global.RSA.Decrypt(request.Get("Password", ""));
 					if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
 						throw new WrongAccountException();
 
 					// call service to login
-					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 					var body = new JObject
 					{
 						{ "Account", account.Encrypt(Global.EncryptionKey) },
@@ -1204,7 +1244,7 @@ namespace net.vieapps.Services.Portals
 							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
 						},
 						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
+					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 					// check to see the account is two-factor authenticaion required 
 					var require2FA = response.Get("Require2FA", false);
@@ -1218,38 +1258,14 @@ namespace net.vieapps.Services.Portals
 						};
 
 					else
-					{
-						// update session
-						session.User = response.Copy<User>();
-						session.SessionID = session.User.SessionID = UtilityService.NewUUID;
-						session.IP = $"{context.Connection.RemoteIpAddress}";
-
-						body = session.GetSessionBody().ToString(Formatting.None);
-						await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
-						{
-							Body = body,
-							Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-							{
-								{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
-							},
-							CorrelationID = correlationID
-						}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
-
-						// update authenticate ticket
-						var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
-						await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
-						context.Session.Add("Session", session);
-						context.SendSessionState("Users", "PUT /session", true, Handler.TrackAPIStatistics);
-
-						response = session.GetSessionJson(payload => payload["did"] = session.DeviceID);
-					}
+						response = await signInAsync(session, response).ConfigureAwait(false);
 
 					// response
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
 						context.WriteAsync(response, Formatting.Indented, headers, cts.Token),
-						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully log a session in {response}") : Task.CompletedTask
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
@@ -1264,11 +1280,10 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					// prepare
-					var session = context.Session.Get<Session>("Session");
-					if (session == null || !session.GetEncryptedID().IsEquals(context.Request.Query["x-session-id"]) || !session.DeviceID.Url64Encode().IsEquals(context.Request.Query["x-device-id"]))
-						throw new InvalidSessionException("Session is invalid (The session is not issued by the system)");
+					var session = context.GetSession();
+					validate(session);
 
-					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
+					var request = await context.ReadJsonAsync(cts.Token).ConfigureAwait(false);
 					var id = request.Get<string>("ID");
 					var otp = request.Get<string>("OTP");
 					var info = request.Get<string>("Info");
@@ -1288,48 +1303,25 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// call service to validate
-					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 					var body = new JObject
 					{
 						{ "ID", id.Encrypt(Global.EncryptionKey) },
 						{ "OTP", otp.Encrypt(Global.EncryptionKey) },
 						{ "Info", info.Encrypt(Global.EncryptionKey) }
 					}.ToString(Formatting.None);
-					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "OTP", "POST")
+
+					var response = await signInAsync(session, await context.CallServiceAsync(new RequestInfo(session, "Users", "OTP", "POST")
 					{
 						Body = body,
 						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
-
-					// update session
-					session.User = response.Copy<User>();
-					session.SessionID = session.User.SessionID = UtilityService.NewUUID;
-					session.IP = $"{context.Connection.RemoteIpAddress}";
-					session.Verified = true;
-
-					body = session.GetSessionBody().ToString(Formatting.None);
-					await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
-					{
-						Body = body,
-						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-						{
-							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
-						},
-						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
-
-					// update authenticate ticket
-					var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, CookieAuthenticationDefaults.AuthenticationScheme));
-					await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
-					context.Session.Add("Session", session);
-					context.SendSessionState("Users", "PUT /session/otp", true, Handler.TrackAPIStatistics);
+					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false), "/otp").ConfigureAwait(false);
 
 					// response
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, headers, cts.Token),
-						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully log a session in with OTP {response}") : Task.CompletedTask
+						context.WriteAsync(response, Formatting.Indented, headers, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in with OTP {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
@@ -1344,8 +1336,7 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					// prepare
-					var session = context.GetSession();
-					var request = (await context.ReadTextAsync(Global.CancellationToken).ConfigureAwait(false)).ToExpandoObject();
+					var request = await context.ReadJsonAsync(cts.Token).ConfigureAwait(false);
 					var account = Global.RSA.Decrypt(request.Get("Account", "")).Trim().ToLower();
 					var password = Global.RSA.Decrypt(request.Get("Password", ""));
 					if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(password))
@@ -1357,7 +1348,7 @@ namespace net.vieapps.Services.Portals
 					var renewURI = $"{requestURI.Scheme}://{context.GetParameter("X-SRP-Host") ?? requestURI.Host}/{(pathSegment.StartsWith("~") ? $"{pathSegment}/" : "")}initializer.aspx?" + "code={{code}}&mode={{mode}}" + $"&language={language}";
 
 					// call service to reset password
-					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+					var session = context.GetSession();
 					var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Account", "PUT")
 					{
 						Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -1374,7 +1365,7 @@ namespace net.vieapps.Services.Portals
 							{ "Uri", renewURI.Encrypt(Global.EncryptionKey) }
 						},
 						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
+					}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 					// response
 					context.SendSessionState("Users", "PATCH /account", true, Handler.TrackAPIStatistics);
@@ -1382,7 +1373,7 @@ namespace net.vieapps.Services.Portals
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
 						context.WriteAsync(response, Formatting.Indented, headers, cts.Token),
-						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully send a renew password request {response}") : Task.CompletedTask
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully send a renew password request {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				catch (Exception ex)
@@ -1463,7 +1454,7 @@ namespace net.vieapps.Services.Portals
 			var correlationID = context.GetCorrelationID();
 			var headers = new Dictionary<string, string>
 			{
-				["Cache-Control"] = "private, no-store, no-cache",
+				["Cache-Control"] = context.GetHttpCacheControl(true),
 				["X-Node"] = Global.NodeID,
 				["X-Correlation-ID"] = correlationID
 			};
@@ -1485,15 +1476,17 @@ namespace net.vieapps.Services.Portals
 						{ "Signature", $"x-session-temp-token-{correlationID}".GetHMACSHA256(Global.ValidationKey) }
 					},
 					CorrelationID = correlationID
-				}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
+				}, cts.Token, Global.Logger, "Authentications").ConfigureAwait(false);
 
 				// perform log out
 				await context.SignOutAsync().ConfigureAwait(false);
-				context.SendSessionState("Users", "DELETE /session", false, Handler.TrackAPIStatistics);
+				await context.WriteLogsAsync("Authentications", $"User sign-out successful\r\nIdentity: {context.User.Identity.Name}]\r\nSession Info: {session.ToJson()}").ConfigureAwait(false);
 
 				// response
 				if (isUserInteract)
 				{
+					context.StoreSession(session);
+					context.SendSessionState("Users", "DELETE /session", false, Handler.TrackAPIStatistics);
 					var scripts = @"<script>
 					window.__logout = window.__logout || function(){};
 					__logout(true);
@@ -1501,7 +1494,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						context.WriteAsync(this.GetSpecialHtml(context, systemIdentityJson, "Log out").Replace("[[placeholder]]", scripts.Replace("\t\t\t\t\t", "")), "text/html", null, 0, "private, no-store, no-cache", TimeSpan.Zero, correlationID, cts.Token),
-						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully log a session out (direct) {response}") : Task.CompletedTask
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session out (direct) {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 				else
@@ -1510,24 +1503,13 @@ namespace net.vieapps.Services.Portals
 					{
 						SessionID = session.SessionID = UtilityService.NewUUID
 					};
-					var body = session.GetSessionBody().ToString(Formatting.None);
-					response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
-					{
-						Body = body,
-						Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-						{
-							{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
-						},
-						CorrelationID = correlationID
-					}, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false);
-
-					context.Session.Add("Session", session);
+					response = await this.ProcessSessionRequestAsync(context, session).ConfigureAwait(false);
 					context.SendSessionState("Users", "POST /session", true, Handler.TrackAPIStatistics);
 
 					await Task.WhenAll
 					(
-						context.WriteAsync(session.GetSessionJson(payload => payload["did"] = session.DeviceID), Formatting.Indented, headers, cts.Token),
-						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Successfully log a session out {response}") : Task.CompletedTask
+						context.WriteAsync(session.GetSessionJson(), Formatting.Indented, headers, cts.Token),
+						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session out {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
 			}
@@ -1535,7 +1517,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (isUserInteract)
 				{
-					await context.WriteLogsAsync(Global.Logger, "Http.Process.Requests", $"Error occurred while logging out => {ex.Message}", ex).ConfigureAwait(false);
+					await context.WriteLogsAsync(Global.Logger, "Authentications", $"Error occurred while logging out => {ex.Message}", ex).ConfigureAwait(false);
 					var code = ex.GetHttpStatusCode();
 					var message = ex.Message;
 					var type = ex.GetTypeName(true);
@@ -1942,26 +1924,12 @@ namespace net.vieapps.Services.Portals
 		{
 			var stepwatch = Stopwatch.StartNew();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs") || context.ContainsKey("x-cache-logs");
-			if (!Handler.Cache.UseL1Cache || isForceCacheRequested)
-			{
-				if (isDebugLogEnabled)
-					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache [{!Handler.Cache.UseL1Cache}/{isForceCacheRequested}/{context.ContainsKey("x-sliding-cache")}]").ConfigureAwait(false);
-				return false;
-			}
-
 			var url = context.GetRequestUrl();
-			if (!context.IsL1CacheAvailable())
-			{
-				if (isDebugLogEnabled)
-					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (alias) [{url}]").ConfigureAwait(false);
-				return false;
-			}
 
-			if (context.ContainsKey("x-sliding-cache"))
+			if (!Handler.Cache.UseL1Cache || isForceCacheRequested || !context.IsL1CacheAvailable())
 			{
-				context.RemoveL1Cache();
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (warmp-up) [{url}]").ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache [{!Handler.Cache.UseL1Cache}/{isForceCacheRequested}] => {url}").ConfigureAwait(false);
 				return false;
 			}
 
@@ -2127,7 +2095,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		public static bool RemoveL1Cache(this HttpContext context, string bodyCacheKey = null)
+		public static bool RemoveL1Cache(this HttpContext context, string bodyCacheKey)
 		{
 			var originIsRequired = Handler.CrossOrigin.IsEquals("use-credentials");
 			Handler.Cache.RemoveL1CacheItem(context.GetL1CacheKey());

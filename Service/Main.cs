@@ -1531,18 +1531,11 @@ namespace net.vieapps.Services.Portals
 			if (isPrivate)
 				return "private, no-cache, no-store";
 
-			if (maxAge < 0)
-				maxAge = 366 * 24 * 60 * 60;
+			var max = 366 * 24 * 60 * 60;
+			maxAge = maxAge < 0 ? max : maxAge;
+			sMaxAge = sMaxAge > 0 ? sMaxAge : maxAge > 0 ? maxAge : max;
 
-			if (sMaxAge < 1)
-				sMaxAge = maxAge > 0 ? maxAge : 366 * 24 * 60 * 60;
-
-			var cacheControl = $"public, max-age={maxAge}, s-maxage={sMaxAge}";
-			if (isImmutable)
-				cacheControl += ", immutable";
-			cacheControl += ", stale-while-revalidate=60, stale-if-error=86400";
-
-			return cacheControl;
+			return $"public, max-age={maxAge}, s-maxage={sMaxAge}" + (isImmutable ? ", immutable" : "") + ", stale-while-revalidate=60, stale-if-error=86400";
 		}
 
 		string GetCacheControl(bool isPrivate, int sMaxAge)
@@ -1804,9 +1797,10 @@ namespace net.vieapps.Services.Portals
 				if (isCacheLogEnabled)
 					await requestInfo.WriteLogAsync($"Got cache of a HTTP resource => {requestURI} ({cacheKey})", "Process.Http.Request").ConfigureAwait(false);
 
-				var body = (contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") || contentType.IsStartsWith("video/") || contentType.IsStartsWith("audio/") || contentType.IsEndsWith("/octet-stream") ? resources.Base64ToBytes() : resources.ToBytes()).Compress(this.BodyEncoding).ToBase64();
+				var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") || contentType.IsStartsWith("video/") || contentType.IsStartsWith("audio/") || contentType.IsEndsWith("/octet-stream");
+				var body = (isBase64 ? resources.Base64ToBytes() : resources.ToBytes()).Compress(this.BodyEncoding).ToBase64();
 				headers["X-Cache"] = "SVC-200";
-				headers["Content-Type"] = $"{contentType}; charset=utf-8";
+				headers["Content-Type"] = contentType + (isBase64 ? "" : "; charset=utf-8");
 				headers["Server-Timing"] = serverTiming + $", ngxCache;dur={stopwatch.ElapsedMilliseconds}";
 				return new JObject
 				{
@@ -2309,7 +2303,7 @@ namespace net.vieapps.Services.Portals
 			var osInfo = requestInfo.GetHeaderParameter("x-environment-os-info") ?? "Generic OS";
 
 			// get cache of HTML
-			var html = processCache
+			var html = processCache && !requestInfo.IsAuthenticated()
 				? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false)
 				: null;
 
@@ -2680,8 +2674,8 @@ namespace net.vieapps.Services.Portals
 				if (isWriteDesktopLogs)
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Update canonical URL of {desktopInfo} ({requestURL} => {canonicalURL})", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
-				// prepare caching
-				if (this.CacheDesktopHtmls)
+				// prepare caching - for anonymous request only
+				if (this.CacheDesktopHtmls && !requestInfo.IsAuthenticated())
 				{
 					var watch = Stopwatch.StartNew();
 					if (isForceCacheRequested)
@@ -6089,7 +6083,7 @@ namespace net.vieapps.Services.Portals
 					}.Send();
 					return new JObject();
 				}
-				else if (requestInfo.TryGetParameter("x-organization-id", out var id))
+				else if (requestInfo.TryGetParameter("x-rebuild", out var id))
 				{
 					this.RebuildCacheCTS ??= CancellationTokenSource.CreateLinkedTokenSource(this.CancellationToken);
 					return await requestInfo.RebuildCacheAsync(await OrganizationProcessor.GetOrganizationByIDAsync(id, this.RebuildCacheCTS.Token).ConfigureAwait(false), this.RebuildCacheCTS.Token).ConfigureAwait(false);
