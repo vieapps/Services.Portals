@@ -322,7 +322,7 @@ namespace net.vieapps.Services.Portals
 					: new[] { url }
 				)
 				.SelectMany(url => url);
-			var systemURLs = purgeURLs.Where(url => (url.IsContains("/_js/") || url.IsContains("/_css/") || url.IsContains("/_themes/")) && url.IsStartsWith(Utility.PortalsHttpURI)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var systemURLs = purgeURLs.Where(url => (url.IsContains("/_js/") || url.IsContains("/_css/") || url.IsContains("/_themes/") || url.IsContains("/_assets/")) && url.IsStartsWith(Utility.PortalsHttpURI)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var orgURLs = purgeURLs.Except(systemURLs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			return Task.WhenAll
 			(
@@ -364,6 +364,7 @@ namespace net.vieapps.Services.Portals
 		{
 			var rootURL = organization.URL;
 			var suffix = organization.AlwaysUseHtmlSuffix ? ".html" : "";
+			var query = $"{(force ? "x-force-cache&" : "")}x-correlation-id={correlationID}";
 			var refreshURLs = (urls ?? [])
 				.Where(url => !string.IsNullOrWhiteSpace(url))
 				.Select(url => url.IsContains("/{{pageNumber}}")
@@ -373,7 +374,7 @@ namespace net.vieapps.Services.Portals
 				.SelectMany(url => url)
 				.Select(url => url.Replace("~/", rootURL + "/"))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.Select(url => $"{url}{(force ? url.IsContains("x-force-cache") ? "" : $"{(url.IsContains("?") ? "&" : "?")}x-force-cache" : "")}")
+				.Select(url => $"{url}{(url.IsContains("?") ? "&" : "?")}{query}")
 				.ToList();
 			await Task.WhenAll
 			(
