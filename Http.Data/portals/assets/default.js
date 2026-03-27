@@ -100,7 +100,7 @@ __vieapps.session = {
 			keys: keys
 		}));
 		if (typeof callback === "function") {
-			callback(this);
+			callback(this, verb);
 		}
 	},
 
@@ -117,12 +117,24 @@ __vieapps.session = {
 		if (!this.state.registered) {
 			__vieapps.utils.ajax(
 				__vieapps.URLs.getSite("_login", true),
-				data => __vieapps.session.update(data, callback, verb),
+				data => __vieapps.session.update(data, () => {
+					if (typeof callback === "function") {
+						callback(this, verb);
+					}
+					if (typeof __onSessionRegister === "function") {
+						__onSessionRegister(this, verb);
+					}
+				}, verb),
 				error => console.error("Error occurred while registering a session", error)
 			);
 		}
-		else if (typeof callback === "function") {
-			callback(this);
+		else {
+			if (typeof callback === "function") {
+				callback(this);
+			}
+			if (typeof __onSessionRegister === "function") {
+				__onSessionRegister(this, verb);
+			}
 		}
 	},
 
@@ -134,6 +146,9 @@ __vieapps.session = {
 		this.state.logged = false;
 		if (typeof callback === "function") {
 			callback(this);
+		}
+		if (typeof __onSessionUnregister === "function") {
+			__onSessionUnregister(this);
 		}
 	},
 
@@ -304,7 +319,10 @@ __vieapps.session = {
 					__vieapps.session.update(data);
 					__vieapps.session.close("login", __vieapps.session.events && typeof __vieapps.session.events.in === "function");
 					console.log("The session was logged in (" + __vieapps.session.token.uid + ")");
-					if (!!__vieapps.session.events && typeof __vieapps.session.events.in === "function") {
+					if (__onSessionLogIn === "function") {
+						__onSessionLogIn(__vieapps.session);
+					}
+					else if (!!__vieapps.session.events && typeof __vieapps.session.events.in === "function") {
 						__vieapps.session.events.in(__vieapps.session);
 					}
 				}
@@ -347,7 +365,10 @@ __vieapps.session = {
 				__vieapps.session.update(data);
 				__vieapps.session.close("otp", __vieapps.session.events && typeof __vieapps.session.events.in === "function");
 				console.log("The OTP session was logged in (" + __vieapps.session.token.uid + ")");
-				if (!!__vieapps.session.events && typeof __vieapps.session.events.in === "function") {
+				if (__onSessionLogIn === "function") {
+					__onSessionLogIn(__vieapps.session);
+				}
+				else if (!!__vieapps.session.events && typeof __vieapps.session.events.in === "function") {
 					__vieapps.session.events.in(__vieapps.session);
 				}
 			},
@@ -468,7 +489,10 @@ __vieapps.session = {
 			data => {
 				__vieapps.session.update(data);
 				console.log("The session was logged out");
-				if (!!__vieapps.session.events && typeof __vieapps.session.events.out === "function") {
+				if (__onSessionLogOut === "function") {
+					__onSessionLogOut(__vieapps.session);
+				}
+				else if (!!__vieapps.session.events && typeof __vieapps.session.events.out === "function") {
 					__vieapps.session.events.out(__vieapps.session);
 				}
 			},
@@ -511,9 +535,6 @@ __vieapps.session = {
 	},
 
 	init: function (callback) {
-		if (!!this.events && typeof this.events.init === "function") {
-			this.events.init();
-		}
 		var oAuths = sessionStorage.getItem("vieapps:OAuths");
 		if (!!oAuths) {
 			this.oAuths = JSON.parse(oAuths);
@@ -527,6 +548,9 @@ __vieapps.session = {
 			if (!!!this.id && !!!this.token) {
 				this.register(() => {
 					console.log("The session was " + (!!__vieapps.session.token.uid ? "authenticated" : "registered"));
+					if (!!this.events && typeof this.events.init === "function") {
+						this.events.init();
+					}
 					if (typeof __onSessionInit === "function") {
 						__onSessionInit(this);
 					}
@@ -544,6 +568,9 @@ __vieapps.session = {
 						__vieapps.session.prepareToken($(this));
 					});
 				}
+				if (!!this.events && typeof this.events.init === "function") {
+					this.events.init();
+				}
 				if (typeof __onSessionInit === "function") {
 					__onSessionInit(this);
 				}
@@ -555,6 +582,9 @@ __vieapps.session = {
 		else {
 			this.register(() => {
 				console.log("The session was " + (!!__vieapps.session.token.uid ? "authenticated" : "registered"));
+				if (!!this.events && typeof this.events.init === "function") {
+					this.events.init();
+				}
 				if (typeof __onSessionInit === "function") {
 					__onSessionInit(this);
 				}
@@ -568,7 +598,9 @@ __vieapps.session = {
 
 setTimeout(() => __vieapps.session.init(), 123);
 var __redirect = function (url) {
-	__vieapps.utils.redirect(typeof url === "string" && url !== "" ? url : __vieapps.URLs.root);
+	url = typeof url === "string" && url !== "" ? url : __vieapps.URLs.root;
+	url += (url.indexOf("?") > 0 ? "&" : "?") + "ngx-redirect-on-session";
+	__vieapps.utils.redirect(url);
 };
 var __prepare = function (dontOpen) {
 	__vieapps.session.events.in = __redirect;
