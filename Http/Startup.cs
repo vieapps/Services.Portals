@@ -234,6 +234,7 @@ namespace net.vieapps.Services.Portals
 			{
 				Global.Logger = loggerFactory.CreateLogger<Startup>();
 				Global.RSA.Dispose();
+				Handler.StopMonitor();
 				Handler.Disconnect();
 				Extensions.ShutdownLogsAsync().Execute(true);
 			});

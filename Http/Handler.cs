@@ -398,6 +398,7 @@ namespace net.vieapps.Services.Portals
 
 			// process the request
 			JObject systemIdentityJson = null;
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", query, headers, null, extra, correlationID);
 
 			var alwaysUseHTTPs = false;
@@ -409,7 +410,6 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					// call the Portals service to identify the system
-					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 					if (!"~resources".IsEquals(systemIdentity))
 					{
 						systemIdentityJson = await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
@@ -856,105 +856,115 @@ namespace net.vieapps.Services.Portals
 				{
 					context.StoreSession(session);
 				}
-
 			else
-				switch (specialRequest)
+			{
+				var isUserInteract = context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php");
+				try
 				{
-					case "initializer":
-						if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
-						await this.ProcessInitializerRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
-						break;
+					switch (specialRequest)
+					{
+						case "initializer":
+							if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
+								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							await this.ProcessInitializerRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
+							break;
 
-					case "validator":
-						await this.ProcessValidatorRequestAsync(context).ConfigureAwait(false);
-						break;
+						case "validator":
+							await this.ProcessValidatorRequestAsync(context).ConfigureAwait(false);
+							break;
 
-					case "login":
-						if (!context.Request.Method.IsEquals("GET") || context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
-						await this.ProcessLogInRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
-						break;
+						case "login":
+							if (!context.Request.Method.IsEquals("GET") || context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
+								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							await this.ProcessLogInRequestAsync(context, systemIdentityJson, isUserInteract).ConfigureAwait(false);
+							break;
 
-					case "logout":
-						if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
-						await this.ProcessLogOutRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
-						break;
+						case "logout":
+							if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
+								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
+							await this.ProcessLogOutRequestAsync(context, systemIdentityJson, isUserInteract).ConfigureAwait(false);
+							break;
 
-					case "cms":
-						try
-						{
-							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
-							await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID"), systemIdentityJson?.Get<string>("ObjectID"), systemIdentityJson?.Get<string>("RepositoryEntityID") ?? systemIdentityJson?.Get<string>("ObjectName"), systemIdentityJson?.Get<string>("Location"), systemIdentityJson?.Get<string>("TrackingContentType"), systemIdentityJson?.Get<string>("TrackingBody"), systemIdentityJson?.Get<string>("TrackingBodyEncoding"), systemIdentityJson?.Get<string>("TrackingCacheControl")).ConfigureAwait(false);
-						}
-						catch (TaskCanceledException) { }
-						catch (OperationCanceledException) { }
-						catch (Exception ex)
-						{
-							if (ex is WampException wampException)
+						case "cms":
+							try
 							{
-								var wampDetails = wampException.GetDetails(requestInfo);
-								context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
+								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
+								await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID"), systemIdentityJson?.Get<string>("ObjectID"), systemIdentityJson?.Get<string>("RepositoryEntityID") ?? systemIdentityJson?.Get<string>("ObjectName"), systemIdentityJson?.Get<string>("Location"), systemIdentityJson?.Get<string>("TrackingContentType"), systemIdentityJson?.Get<string>("TrackingBody"), systemIdentityJson?.Get<string>("TrackingBodyEncoding"), systemIdentityJson?.Get<string>("TrackingCacheControl")).ConfigureAwait(false);
 							}
-							else
-								context.ShowError(ex, isDebugLogEnabled);
-							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing with CMS Portals => {ex.Message}", ex).ConfigureAwait(false);
-						}
-						break;
-
-					case "feed":
-						try
-						{
-							stepwatch.Restart();
-							using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
-							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
-							
-							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
-							requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
-							if (isDebugLogEnabled)
-								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
-
-							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-
-							var responseBody = response.Get<string>("Body");
-							var body = responseBody != null ? responseBody.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")) : null;
-							
-							headers = response.Get("Headers", new Dictionary<string, string>());
-							if (headers.TryGetValue("X-Node", out var nodeID))
-								headers["X-Service-Node"] = nodeID;
-							headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+							catch (TaskCanceledException) { }
+							catch (OperationCanceledException) { }
+							catch (Exception ex)
 							{
-								["Server-Timing"] = $"ngxPrepare;dur={stepwatch.ElapsedMilliseconds}",
-								["X-Correlation-ID"] = correlationID,
-								["X-Node"] = Global.NodeID
-							};
-
-							context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
-							if (body != null)
-								await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
-
-							requestInfo.SendSessionState(systemIdentityJson, Global.ServiceName + $".HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
-						}
-						catch (TaskCanceledException) { }
-						catch (OperationCanceledException) { }
-						catch (Exception ex)
-						{
-							if (ex is WampException wampException)
-							{
-								var wampDetails = wampException.GetDetails(requestInfo);
-								context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
+								if (ex is WampException wampException)
+								{
+									var wampDetails = wampException.GetDetails(requestInfo);
+									context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
+								}
+								else
+									context.ShowError(ex, isDebugLogEnabled);
+								await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing with CMS Portals => {ex.Message}", ex).ConfigureAwait(false);
 							}
-							else
-								context.ShowError(ex, isDebugLogEnabled);
-							await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing feeds => {ex.Message}", ex).ConfigureAwait(false);
-						}
-						break;
+							break;
 
-					default:
-						context.ShowError(new InvalidRequestException(), isDebugLogEnabled);
-						break;
+						case "feed":
+							try
+							{
+								stepwatch.Restart();
+								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+
+								requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
+								requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
+								if (isDebugLogEnabled)
+									await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
+
+								var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+
+								var responseBody = response.Get<string>("Body");
+								var body = responseBody != null ? responseBody.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")) : null;
+
+								headers = response.Get("Headers", new Dictionary<string, string>());
+								if (headers.TryGetValue("X-Node", out var nodeID))
+									headers["X-Service-Node"] = nodeID;
+								headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+								{
+									["Server-Timing"] = $"ngxPrepare;dur={stepwatch.ElapsedMilliseconds}",
+									["X-Correlation-ID"] = correlationID,
+									["X-Node"] = Global.NodeID
+								};
+
+								context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
+								if (body != null)
+									await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
+
+								requestInfo.SendSessionState(systemIdentityJson, Global.ServiceName + $".HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
+							}
+							catch (TaskCanceledException) { }
+							catch (OperationCanceledException) { }
+							catch (Exception ex)
+							{
+								if (ex is WampException wampException)
+								{
+									var wampDetails = wampException.GetDetails(requestInfo);
+									context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
+								}
+								else
+									context.ShowError(ex, isDebugLogEnabled);
+								await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing feeds => {ex.Message}", ex).ConfigureAwait(false);
+							}
+							break;
+
+						default:
+							throw new InvalidRequestException();
+					}
 				}
+				catch (Exception ex)
+				{
+					if (isUserInteract)
+						context.ShowError(ex, true);
+					else
+						context.WriteError(Global.Logger, ex);
+				}
+			}
 
 			stopwatch.Stop();
 			if (isDebugLogEnabled || Global.IsVisitLogEnabled)
@@ -1123,15 +1133,13 @@ namespace net.vieapps.Services.Portals
 				},
 				CorrelationID = context.GetCorrelationID()
 			}, context.RequestAborted, Global.Logger, "Authentications").ConfigureAwait(false);
-			context.SetSession(session);
 			context.StoreSession(session);
 			return response;
 		}
 
-		async Task ProcessLogInRequestAsync(HttpContext context, JObject systemIdentityJson)
+		async Task ProcessLogInRequestAsync(HttpContext context, JObject systemIdentityJson, bool isUserInteract)
 		{
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
-			var isUserInteract = context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php");
 			var correlationID = context.GetCorrelationID();
 			var headers = new Dictionary<string, string>
 			{
@@ -1448,9 +1456,8 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		async Task ProcessLogOutRequestAsync(HttpContext context, JObject systemIdentityJson)
+		async Task ProcessLogOutRequestAsync(HttpContext context, JObject systemIdentityJson, bool isUserInteract)
 		{
-			var isUserInteract = context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php");
 			var correlationID = context.GetCorrelationID();
 			var headers = new Dictionary<string, string>
 			{
@@ -1811,8 +1818,12 @@ namespace net.vieapps.Services.Portals
 
 		internal static void StopMonitor()
 		{
-			Global.Cache.StopMonitor();
-			Handler.Cache.StopMonitor();
+			try
+			{
+				Global.Cache.StopMonitor();
+				Handler.Cache.StopMonitor();
+			}
+			catch { }
 		}
 
 		internal static void OnMonitor(string prefix, string message, (string Level, long Total, int Interactive, int Subscription, int Other, long PingMiliseconds) details, Exception ex = null)
