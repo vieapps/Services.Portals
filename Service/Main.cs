@@ -311,7 +311,7 @@ namespace net.vieapps.Services.Portals
 				// re-load all orangizations/sites (once per day)
 				this.StartTimer(() => DateTime.Now.Hour == 4 ? this.ReloadOrganizationsAsync(this.IsRequester) : Task.CompletedTask, 60 * 61);
 
-				// reload all to rebuild cache (5 AM at every Monday)
+				// reload all to waarm-up cache (5 AM)
 				if (this.IsRequester)
 				{
 					var time = new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 5, 13, 13);
@@ -331,7 +331,7 @@ namespace net.vieapps.Services.Portals
 									requestInfo.ServiceName = this.ServiceName;
 									requestInfo.ObjectName = "Cache";
 									requestInfo.Header["x-rebuild"] = "true";
-									if ("Mon".IsEquals(time.GetWeekDayName()))
+									if (time.DayOfWeek == DayOfWeek.Monday)
 									{
 										requestInfo.Header["x-max-page"] = "100";
 										requestInfo.Header["x-min-time"] = DateTime.Now.AddDays(-365 * 3).ToIsoString();
@@ -1840,7 +1840,7 @@ namespace net.vieapps.Services.Portals
 				if (isRequestOfWebpImage)
 				{
 					stepwatch.Restart();
-					data = await data.ToWebPAsync(cancellationToken).ConfigureAwait(false);
+					data = await data.ToWebPAsync(fileInfo.Extension.IsEquals(".png"), cancellationToken).ConfigureAwait(false);
 					stepwatch.Stop();
 					serverTiming += $", ngxConvert;dur={stepwatch.ElapsedMilliseconds}";
 				}
@@ -2067,7 +2067,7 @@ namespace net.vieapps.Services.Portals
 				if (organization != null)
 					await organization.PurgeCloudFlareCacheAsync(urls, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
 				else if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
-					await urls.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, requestInfo.CorrelationID, cancellationToken, true).ConfigureAwait(false);
+					await urls.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
 			}
 
 			// response
@@ -2765,7 +2765,7 @@ namespace net.vieapps.Services.Portals
 
 				// purge cache of CDN
 				if (isForceCacheRequested && !requestInfo.ContainsKey("x-no-purge"))
-					organization.PurgeCloudFlareCacheAsync([canonicalURL], requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken).Execute();
+					organization.PurgeCloudFlareCacheAsync([canonicalURL, canonicalURL.EndsWith("/index.html") ? canonicalURL.Replace("/index.html", "/") : null], requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken).Execute();
 			}
 			catch (Exception ex)
 			{
@@ -5741,7 +5741,7 @@ namespace net.vieapps.Services.Portals
 				{
 					using var image = await new Uri(url).SendHttpRequestAsync("GET", null, null, 120, cancellationToken).ConfigureAwait(false);
 					data = await image.ReadAsByteArrayAsync().ConfigureAwait(false);
-					data = await data.ToWebPAsync(cancellationToken).ConfigureAwait(false);
+					data = await data.ToWebPAsync(false, cancellationToken).ConfigureAwait(false);
 					data = data.Compress(this.BodyEncoding);
 					await Utility.Cache.SetAsync(cacheKey, data, cancellationToken).ConfigureAwait(false);
 				}
@@ -6043,9 +6043,9 @@ namespace net.vieapps.Services.Portals
 			else
 			{
 				var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
-				await organizations.ForEachAsync(organization => organization.PurgeCloudFlareCacheAsync(null, correlationID, this.IsDebugLogEnabled, this.CancellationToken)).ConfigureAwait(false);
+				await organizations.ForEachAsync(organization => organization.PurgeCloudFlareCacheAsync([], correlationID, this.IsDebugLogEnabled, this.CancellationToken)).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
-					await Array.Empty<string>().PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, this.CancellationToken).ConfigureAwait(false);
+					await Array.Empty<string>().PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
 			}
 		}
 
@@ -6121,7 +6121,7 @@ namespace net.vieapps.Services.Portals
 				if (kvp.Key != "Time" && kvp.Key != "Title")
 					logs.Add($"- {kvp.Key}: {kvp.Value}");
 			});
-			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache-{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).Execute();
+			logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals-{DateTime.Now:yyyyMMddHH}-rebuild.cache.txt"), Utility.CancellationToken).Execute();
 		}
 
 		async Task MonitorCacheRebuildAsync()
@@ -6199,7 +6199,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			if (logs.Count > 0)
-				await logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals.rebuild.cache-{DateTime.Now:yyyyMMdd}.txt"), Utility.CancellationToken).ConfigureAwait(false);
+				await logs.SaveToAsync(Path.Combine(UtilityService.GetAppSetting("Path:Logs"), $"portals-{DateTime.Now:yyyyMMddHH}-rebuild.cache.txt"), Utility.CancellationToken).ConfigureAwait(false);
 		}
 		#endregion
 

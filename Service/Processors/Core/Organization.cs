@@ -1234,7 +1234,7 @@ namespace net.vieapps.Services.Portals
 					["x-min-time"] = DateTime.TryParse(requestInfo.GetParameter("x-min-time"), out var minTime) ? minTime.ToIsoString() : null
 				}
 			}).Execute());
-			return new JObject();
+			return new JObject { ["CorrelationID"] = requestInfo.CorrelationID };
 		}
 
 		internal static Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo, Organization organization, CancellationToken cancellationToken)
@@ -1244,12 +1244,12 @@ namespace net.vieapps.Services.Portals
 				if (!Int32.TryParse(requestInfo.GetParameter("x-done"), out var done) || done < 0)
 					done = 0;
 				if (!Int32.TryParse(requestInfo.GetParameter("x-max-page"), out var maxPage) || maxPage < 0)
-					maxPage = 10;
+					maxPage = Utility.RefreshMaxPage;
 				if (!DateTime.TryParse(requestInfo.GetParameter("x-min-time"), out var minTime))
 					minTime = DateTime.Now.AddDays(-90);
 				organization.RebuildCacheAsync(done, maxPage, minTime, requestInfo.CorrelationID, requestInfo.ContainsKey("x-logs"), cancellationToken).Execute();
 			}
-			return Task.FromResult(new JObject());
+			return Task.FromResult(new JObject { ["CorrelationID"] = requestInfo.CorrelationID });
 		}
 
 		internal static async Task RebuildCacheAsync(this Organization organization, int done, int maxPage, DateTime minTime, string correlationID, bool writeLogs, CancellationToken cancellationToken)
@@ -1289,12 +1289,13 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 
 			var domains = new HashSet<string>((organization.Sites ?? []).Select(site => site.Host));
-			var rootURL = organization.URL + "/";
+			var rootURL = (string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) || string.IsNullOrWhiteSpace(organization.CloudFlareApiToken)
+				? organization.URL
+				: (organization.DefaultSite?.GetURL() ?? organization.URL)) + "/";
+			var query = "x-force-cache&x-no-purge&x-original-correlation-id=" + correlationID;
 			refreshingURLs = refreshingURLs.Concat(linkURLs).Concat(contentURLs).Concat(categoryURLs)
 				.Where(url => url.IsStartsWith("~/") || domains.Contains(new Uri(url).Host))
-				.Select(url => url.Replace("~/", rootURL))
-				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.Select(url => url + (url.IndexOf("?") > 0 ? "&" : "?") + "x-force-cache&x-no-purge")
+				.Select(url => url.Replace("~/", rootURL) + (url.IndexOf("?") > 0 ? "&" : "?") + query)
 				.ToList();
 			await Utility.WriteLogAsync(correlationID, $"Caching URLs of '{organization.Title}' were prepared to rebuild cache => {refreshingURLs.Count:###,###,##0}", "Caches").ConfigureAwait(false);
 			sendStatus("Prepared");
@@ -1312,7 +1313,7 @@ namespace net.vieapps.Services.Portals
 				if (urls.Count < 1)
 					break;
 
-				await urls.ForEachAsync((url, index) => url.RefreshWebPageAsync(index, correlationID, cancellationToken)).ConfigureAwait(false);
+				await urls.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(index, correlationID, cancellationtoken), cancellationToken).ConfigureAwait(false);
 
 				if (!cancellationToken.IsCancellationRequested)
 				{

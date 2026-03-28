@@ -464,7 +464,8 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task RunSchedulingTasksAsync(string correlationID)
 		{
-			var schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => schedulingTask.Status != Status.Awaiting && schedulingTask.Time > DateTime.Now).ToList();
+			var now = DateTime.Now;
+			var schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => schedulingTask.Status != Status.Awaiting && schedulingTask.Time > now).ToList();
 			schedulingTasks.ForEach(schedulingTask =>
 			{
 				schedulingTask.SetStatus(Status.Awaiting).Set(true).SendMessages();
@@ -473,7 +474,8 @@ namespace net.vieapps.Services.Portals
 			});
 
 			await Task.Delay(UtilityService.GetRandomNumber(123, 456), Utility.CancellationToken).ConfigureAwait(false);
-			schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => schedulingTask.Status == Status.Awaiting && schedulingTask.Time <= DateTime.Now).ToList();
+			now = DateTime.Now;
+			schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => schedulingTask.Status == Status.Awaiting && schedulingTask.Time <= now).ToList();
 			if (!schedulingTasks.Any())
 				return;
 
@@ -481,7 +483,8 @@ namespace net.vieapps.Services.Portals
 			schedulingTasks.ForEach(schedulingTask => schedulingTask.SetStatus(Status.Acquired).SendMessages());
 
 			await Task.Delay(UtilityService.GetRandomNumber(123, 456), Utility.CancellationToken).ConfigureAwait(false);
-			schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => ids.Contains(schedulingTask.ID) && schedulingTask.Status == Status.Acquired && schedulingTask.Time <= DateTime.Now).ToList();
+			now = DateTime.Now;
+			schedulingTasks = SchedulingTaskProcessor.SchedulingTasks.Select(kvp => kvp.Value).Where(schedulingTask => ids.Contains(schedulingTask.ID) && schedulingTask.Status == Status.Acquired && schedulingTask.Time <= now).ToList();
 			if (Utility.IsDebugLogEnabled)
 				await Utility.WriteLogAsync(correlationID, $"Run {schedulingTasks.Count} scheduling task(s)", "Tasks").ConfigureAwait(false);
 
@@ -586,14 +589,17 @@ namespace net.vieapps.Services.Portals
 
 					if (@object.Status.Equals(ApprovalStatus.Published))
 					{
-						var rootURL = $"{schedulingTask.Organization.URL}/";
-						var urls = await (@object.Organization as Organization).GetRefreshingURLsAsync(json?.Get<JArray>("URLs")?.Select(value => value as JValue).Select(value => value.ToString()) ?? []).ConfigureAwait(false);
+						var rootURL = (string.IsNullOrWhiteSpace(schedulingTask.Organization.CloudFlareZoneID) || string.IsNullOrWhiteSpace(schedulingTask.Organization.CloudFlareApiToken)
+							? schedulingTask.Organization.URL
+							: (schedulingTask.Organization.DefaultSite?.GetURL() ?? schedulingTask.Organization.URL)) + "/";
+						var query = "x-force-cache&x-no-purge&x-original-correlation-id=" + correlationID;
+						var urls = await schedulingTask.Organization.GetRefreshingURLsAsync(json?.Get<JArray>("URLs")?.Select(value => value as JValue).Select(value => value.ToString()) ?? []).ConfigureAwait(false);
 						await urls.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL))
 							.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
-							.Select(url => url.IsContains("?x-force-cache")  || url.IsContains("&x-force-cache") ? url : $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-force-cache")
+							.Select(url => url + (url.IndexOf("?") > 0 ? "&" : "?") + query)
 							.Distinct(StringComparer.OrdinalIgnoreCase)
 							.ToList()
-							.ForEachAsync(url => url.RefreshWebPageAsync(requestInfo.CorrelationID), true, false).ConfigureAwait(false);
+							.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(index, correlationID, cancellationtoken), cancellationToken, true, false).ConfigureAwait(false);
 					}
 				}
 				catch (Exception ex)
@@ -606,7 +612,6 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					var stepwatch = Stopwatch.StartNew();
-					var rootURL = $"{schedulingTask.Organization.URL}/";
 					var addresses = (schedulingTask.DataAsJson as JArray).Select(value => value as JValue).Select(value => value.ToString()).ToList();
 
 					var organizationURLs = await schedulingTask.Organization.GetRefreshingURLsAsync(true).ConfigureAwait(false);
@@ -626,9 +631,7 @@ namespace net.vieapps.Services.Portals
 								.ToList();
 					}, true, false).ConfigureAwait(false);
 
-					refreshingURLs = refreshingURLs.Select(url => $"{url}{(url.IndexOf("?") > 0 ? "&" : "?")}x-correlation-id={correlationID}").Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 					await schedulingTask.Organization.RefreshWebPagesAsync(refreshingURLs, correlationID, null, false, cancellationToken).ConfigureAwait(false);
-
 					stepwatch.Stop();
 					if (Utility.IsDebugLogEnabled)
 						await Utility.WriteLogAsync(correlationID, $"Force refresh all pre-defined URLs of '{schedulingTask.Organization.Title}' successful - Execution times: {stepwatch.GetElapsedTimes()}\r\nURLs:\r\n\t- {refreshingURLs.Join("\r\n\t- ")}", "Tasks").ConfigureAwait(false);
