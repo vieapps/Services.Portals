@@ -761,6 +761,8 @@ __vieapps.crypto = {
  * utility
 */
 __vieapps.utils = {
+	version: "2026-04-01",
+
 	existed: id => typeof id === "string" && id.trim() !== "" ? !!$("#" + id).length : false,
 
 	importCss: function (url, id, attributes) {
@@ -862,7 +864,7 @@ __vieapps.utils = {
 	},
 
 	fetchCountries: function (callback) {
-		this.ajax(__vieapps.URLs.getPortals(`/statics/geo/countries.json?v=${Math.random()}`), data => {
+		this.ajax(__vieapps.URLs.getPortals(`/statics/geo/countries.json?v=${this.version}`), data => {
 			__vieapps.utils.countries = data.countries || [];
 			__vieapps.countries = __vieapps.utils.countries;
 			localStorage.setItem("vieapps:Countries", __vieapps.crypto.stringify(__vieapps.utils.countries));
@@ -874,7 +876,7 @@ __vieapps.utils = {
 
 	fetchProvinces: function (code, callback) {
 		code = code || __vieapps.language.substr(3);
-		this.ajax(__vieapps.URLs.getPortals(`/statics/geo/provinces/${code}.json?v=${Math.random()}`), data => {
+		this.ajax(__vieapps.URLs.getPortals(`/statics/geo/provinces/${code}.json?v=${this.version}`), data => {
 			__vieapps.utils.provinces = __vieapps.utils.provinces || {};
 			__vieapps.utils.provinces[code] = data.provinces;
 			__vieapps.provinces = __vieapps.utils.provinces;
@@ -1064,7 +1066,8 @@ __vieapps.utils = {
 		as24h00: false,
 
 		diff: function (start, end, unit) {
-			unit = 1000 * 60 * (typeof unit !== "undefined" && +unit > 0 ? +unit : 1);	// 1: minutes, 60: hours, 60 * 24: days, 30 * 60 * 24: months, 12 * 30 * 60 * 24: years
+			// UNIT => 1: minutes, 60: hours, 60 * 24: days, 30 * 60 * 24: months, 12 * 30 * 60 * 24: years
+			unit = 1000 * 60 * (typeof unit !== "undefined" && +unit > 0 ? +unit : 1);
 			var startTime = (start ? new Date(start) : new Date()).getTime();
 			var endTime = (end ? new Date(end) : new Date()).getTime();
 			return parseInt((endTime - startTime) / unit);
@@ -2108,7 +2111,7 @@ $(window).on("load", () => {
 __vieapps.languages = {
 	fetch: language => {
 		["common", "users", "portals", "portals.cms"].forEach(service => {
-			__vieapps.utils.ajax(__vieapps.URLs.getPortals(`/statics/i18n/${service}/${language}.json?v=${Math.random()}`), data => {
+			__vieapps.utils.ajax(__vieapps.URLs.getPortals(`/statics/i18n/${service}/${language}.json?v=${__vieapps.utils.version}`), data => {
 				var languages = __vieapps.languages[language] || {};
 				Object.keys(data).forEach(key => {
 					var resource = data[key];
