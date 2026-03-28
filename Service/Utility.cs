@@ -1277,17 +1277,19 @@ namespace net.vieapps.Services.Portals
 			});
 		}
 
-		static SixLabors.ImageSharp.Formats.IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder
+		static SixLabors.ImageSharp.Formats.IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder();
+
+		static SixLabors.ImageSharp.Formats.IImageEncoder WebpAdvancedEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder
 		{
 			FileFormat = SixLabors.ImageSharp.Formats.Webp.WebpFileFormatType.Lossy,
 			Method = Enum.TryParse<SixLabors.ImageSharp.Formats.Webp.WebpEncodingMethod>(UtilityService.GetAppSetting("Portals:WebP:Method", "Default"), out var method)
 				? method
 				: SixLabors.ImageSharp.Formats.Webp.WebpEncodingMethod.Default,
-			UseAlphaCompression = true,
-			Quality = 70
+			Quality = 70,
+			NearLosslessQuality = 60
 		};
 
-		internal static async Task<byte[]> ToWebPAsync(this byte[] data, CancellationToken cancellationToken)
+		internal static async Task<byte[]> ToWebPAsync(this byte[] data, bool isPNG, CancellationToken cancellationToken)
 		{
 			using var webpStream = UtilityService.CreateMemoryStream();
 			using var imageStream = data.ToMemoryStream();
@@ -1296,14 +1298,17 @@ namespace net.vieapps.Services.Portals
 			imageObject.Metadata.IccProfile = null;
 			imageObject.Metadata.XmpProfile = null;
 			imageObject.Metadata.IptcProfile = null;
-			imageObject.Mutate(op => op.AutoOrient());
-			if (imageObject.PixelType.BitsPerPixel != 24)
-			{
-				using var rgbImage = imageObject.CloneAs<SixLabors.ImageSharp.PixelFormats.Rgb24>();
-				await rgbImage.SaveAsync(webpStream, WebpEncoder, cancellationToken).ConfigureAwait(false);
-			}
-			else
+			if (isPNG)
 				await imageObject.SaveAsync(webpStream, WebpEncoder, cancellationToken).ConfigureAwait(false);
+			else
+			{
+				imageObject.Mutate(op => op.AutoOrient());
+				if (imageObject.PixelType.BitsPerPixel != 24)
+				{
+					using var rgbImage = imageObject.CloneAs<SixLabors.ImageSharp.PixelFormats.Rgb24>();
+					await rgbImage.SaveAsync(webpStream, WebpAdvancedEncoder, cancellationToken).ConfigureAwait(false);
+				}
+			}
 			return webpStream.ToBytes();
 		}
 
