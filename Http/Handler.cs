@@ -1794,7 +1794,7 @@ namespace net.vieapps.Services.Portals
 				Global.Logger.LogInformation($"Start to monitor threadpool/cache - Log path => {Handler.MonitorLogPath}");
 
 				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Monitor:Cache:Interval"), out var interval) || interval < 0)
-					interval = 10000;
+					interval = 15000;
 				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Monitor:Cache:Warn"), out var warnQS) || warnQS < 0)
 					warnQS = 1000;
 				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Monitor:Cache:Critical"), out var criticalQS) || criticalQS < 0)
@@ -1802,16 +1802,16 @@ namespace net.vieapps.Services.Portals
 
 				Global.Cache.StartMonitor(
 					(msg, details) => Handler.OnMonitor("HTTP", msg, details),
-					(msg, _, ex) => Handler.OnMonitor("HTTP", msg, ("", 0, 0, 0, 0, 0), ex),
-					(msg, _) => Handler.OnMonitor("HTTP", msg, ("", 0, 0, 0, 0, 0)),
-					(msg, _, ex) => Handler.OnMonitor("HTTP", msg, ("", 0, 0, 0, 0, 0), ex),
+					(msg, _, ex) => Handler.OnMonitor("HTTP", msg, ("", 0, 0, 0), ex),
+					(msg, _) => Handler.OnMonitor("HTTP", msg, ("", 0, 0, 0)),
+					(msg, _, ex) => Handler.OnMonitor("HTTP", msg, ("", 0, 0, 0), ex),
 					interval, warnQS, criticalQS, Global.CancellationToken);
 
 				Handler.Cache.StartMonitor(
 					(msg, details) => Handler.OnMonitor("Service", msg, details),
-					(msg, _, ex) => Handler.OnMonitor("Service", msg, ("", 0, 0, 0, 0, 0), ex),
-					(msg, _) => Handler.OnMonitor("Service", msg, ("", 0, 0, 0, 0, 0)),
-					(msg, _, ex) => Handler.OnMonitor("Service", msg, ("", 0, 0, 0, 0, 0), ex),
+					(msg, _, ex) => Handler.OnMonitor("Service", msg, ("", 0, 0, 0), ex),
+					(msg, _) => Handler.OnMonitor("Service", msg, ("", 0, 0, 0)),
+					(msg, _, ex) => Handler.OnMonitor("Service", msg, ("", 0, 0, 0), ex),
 					interval, warnQS, criticalQS, Global.CancellationToken);
 			}
 		}
@@ -1826,17 +1826,19 @@ namespace net.vieapps.Services.Portals
 			catch { }
 		}
 
-		internal static void OnMonitor(string prefix, string message, (string Level, long Total, int Interactive, int Subscription, int Other, long PingMiliseconds) details, Exception ex = null)
+		internal static void OnMonitor(string prefix, string message, (string Level, long Total, long Interactive, long PingMiliseconds) details, Exception ex = null)
 		{
 			ThreadPool.GetAvailableThreads(out var workers, out var io);
 			var now = DateTime.Now;
 			var pid = Environment.ProcessId.ToString();
-			var logs = "PID: " + pid + " @ " + now.ToString("HH:mm:ss") + " -----"
-				+ "\r\nAvailable threads - Workers: " + workers.ToString("###,##0") + " / Async I/O: " + io.ToString("###,##0")
-				+ "\r\n" + prefix + " Caching: " + message;
+			var logs = "PID: " + pid + " @ " + now.ToString("HH:mm:ss") + " -----\r\n";
+			if (string.IsNullOrWhiteSpace(details.Level))
+				logs += message;
+			else
+				logs += "Available threads - Workers: " + workers.ToString("###,##0") + " / Async IO: " + io.ToString("###,##0")	+ "\r\n" + prefix + " Caching: " + message;
 			if (ex != null)
-				logs += "\r\n Error stack: " + ex.StackTrace;
-			logs += "\r\n";
+				logs += "\r\n" + ex.Message + " [" + ex.GetTypeName(true) + "]\r\nStack: " + ex.StackTrace;
+			logs += "\r\n\r\n";
 			if (!Global.CancellationTokenSource.IsCancellationRequested)
 				File.AppendAllTextAsync(Handler.MonitorLogPath + "-" + now.ToString("yyyyMMddHH") + "-monitor.txt", logs, Global.CancellationToken).Execute();
 		}
