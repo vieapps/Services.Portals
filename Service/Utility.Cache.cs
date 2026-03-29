@@ -20,17 +20,17 @@ namespace net.vieapps.Services.Portals
 
 		public static bool IsCacheDisabled { get; internal set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Disabled"));
 
-		internal static string CloudFlareZoneID { get; } = UtilityService.GetAppSetting("Portals:CloudFlare:ZoneID");
+		internal static string CloudFlareZoneID { get; set; } = UtilityService.GetAppSetting("Portals:CloudFlare:ZoneID");
 
-		internal static string CloudFlareApiToken { get; } = UtilityService.GetAppSetting("Portals:CloudFlare:ApiToken");
+		internal static string CloudFlareApiToken { get; set; } = UtilityService.GetAppSetting("Portals:CloudFlare:ApiToken");
 
-		internal static bool CloudFlareForAll { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:CloudFlare:All"));
+		internal static bool CloudFlareForAll { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:CloudFlare:All"));
 
-		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
+		internal static string RefresherURL { get; set; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
 
-		internal static int RefreshTimeout { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:Timeout"), out var value) && value > 0 ? value : 15;
+		internal static int RefreshTimeout { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:Timeout"), out var value) && value > 0 ? value : 15;
 
-		internal static int RefreshMaxPage { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage"), out var value) && value > 0 ? value : 20;
+		internal static int RefreshMaxPage { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage"), out var value) && value > 0 ? value : 20;
 
 		internal static Dictionary<string, string> RefresherHeaders => new()
 		{
@@ -273,22 +273,22 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static async Task PurgeCloudFlareCacheAsync(this IEnumerable<string> urls, string cloudflareZoneID, string cloudflareApiToken, string correlationID, bool writeLogs, CancellationToken cancellationToken)
 		{
-			var cloudflareURI = new Uri($"https://api.cloudflare.com/client/v4/zones/{cloudflareZoneID}/purge_cache");
-			var cloudflareHeaders = new Dictionary<string, string>
+			var uri = new Uri($"https://api.cloudflare.com/client/v4/zones/{cloudflareZoneID}/purge_cache");
+			var headers = new Dictionary<string, string>
 			{
 				["Content-Type"] = "application/json",
 				["Authorization"] = $"Bearer {cloudflareApiToken}"
 			};
-			var cloudflareBody = new JObject
+			var body = new JObject
 			{
 				["purge_everything"] = true
 			};
 
-			async Task purgeCloudFlareCacheAsync(JObject body)
+			async Task purgeCloudFlareCacheAsync(JObject request)
 			{
 				try
 				{
-					using var _ = await cloudflareURI.SendHttpRequestAsync("POST", cloudflareHeaders, body.ToString(Newtonsoft.Json.Formatting.None), Utility.RefreshTimeout, cancellationToken).ConfigureAwait(false);
+					using var _ = await uri.SendHttpRequestAsync("POST", headers, request.ToString(Newtonsoft.Json.Formatting.None), Utility.RefreshTimeout, cancellationToken).ConfigureAwait(false);
 				}
 				catch (Exception ex)
 				{
@@ -296,27 +296,27 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 
-			if (urls.Count() > 0)
+			var count = urls.Count();
+			if (count > 0)
 			{
-				var cloudflareURLs = urls.Select(url => new[] { url, url.IsStartsWith("http://www.") || url.IsStartsWith("https://www.") ? url.Replace("//www.", "//") : url.Replace("//", "//www.") }).SelectMany(url => url).ToList();
-				var pageNumber = 0;
 				var pageSize = 25;
-				var totalPages = Extensions.GetTotalPages(cloudflareURLs.Count, pageSize);
+				var pageNumber = 0;
+				var totalPages = Extensions.GetTotalPages(count, pageSize);
 				while (pageNumber < totalPages)
 				{
-					cloudflareBody = new JObject
+					body = new JObject
 					{
-						["files"] = cloudflareURLs.Skip(pageNumber * pageSize).Take(pageSize).ToJArray()
+						["files"] = urls.Skip(pageNumber * pageSize).Take(pageSize).ToJArray()
 					};
-					await purgeCloudFlareCacheAsync(cloudflareBody).ConfigureAwait(false);
+					await purgeCloudFlareCacheAsync(body).ConfigureAwait(false);
 					pageNumber++;
 				}
 				if (writeLogs || Utility.IsPurgeCacheLogEnabled)
-					await Utility.WriteLogAsync(correlationID, $"Purge CloudFlare cache successful\r\nURLs:\r\n- {urls.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"Purge CloudFlare cache successful [{count:###,##0}]\r\nURLs:\r\n- {urls.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 			}
 			else
 			{
-				await purgeCloudFlareCacheAsync(cloudflareBody).ConfigureAwait(false);
+				await purgeCloudFlareCacheAsync(body).ConfigureAwait(false);
 				if (writeLogs || Utility.IsPurgeCacheLogEnabled)
 					await Utility.WriteLogAsync(correlationID, "Purge CloudFlare cache successful [EVERYTHING]", "Caches").ConfigureAwait(false);
 			}
@@ -339,8 +339,12 @@ namespace net.vieapps.Services.Portals
 			var orgURLs = purgeURLs.Except(systemURLs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			systemURLs = systemURLs.Concat(resourceURLs.Where(url => url.IsStartsWith(Utility.PortalsHttpURI))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			if (!string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken))
-				orgURLs = orgURLs.Concat(resourceURLs.Where(url => !url.IsStartsWith(Utility.PortalsHttpURI))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			if (Utility.IsPurgeCacheLogEnabled || writeLogs)
+				orgURLs = orgURLs.Select(url => new[] { url, url.IsContains("//www.") ? url.Replace("//www.", "//") : url.Replace("//", "//www.") })
+					.SelectMany(url => url)
+					.Concat(resourceURLs.Where(url => !url.IsStartsWith(Utility.PortalsHttpURI)))
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToList();
+			if (writeLogs || Utility.IsPurgeCacheLogEnabled)
 				Utility.WriteLogAsync(correlationID, $"Prepare to purge CloudFlare cache of '{organization.Title}'\r\nOrganization URLs:\r\n- {(orgURLs.Count == 0 ? "None" : orgURLs.Join("\r\n- "))}\r\nSystem URLs:\r\n- {(systemURLs.Count == 0 ? "None" : systemURLs.Join("\r\n- "))}", "Caches").Execute();
 			return Task.WhenAll
 			(
