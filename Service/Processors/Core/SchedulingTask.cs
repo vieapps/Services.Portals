@@ -599,7 +599,7 @@ namespace net.vieapps.Services.Portals
 							.Select(url => url + (url.IndexOf("?") > 0 ? "&" : "?") + query)
 							.Distinct(StringComparer.OrdinalIgnoreCase)
 							.ToList()
-							.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(index, correlationID, cancellationtoken), cancellationToken, true, false).ConfigureAwait(false);
+							.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(index, correlationID, false, cancellationtoken), cancellationToken, true, false).ConfigureAwait(false);
 					}
 				}
 				catch (Exception ex)

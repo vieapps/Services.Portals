@@ -28,9 +28,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
 
-		internal static int RefreshTimeout { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:Timeout"), out var value) && value > 0 ? value : 30;
+		internal static int RefreshTimeout { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:Timeout"), out var value) && value > 0 ? value : 15;
 
-		internal static int RefreshMaxPage { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage"), out var value) && value > 0 ? value : 30;
+		internal static int RefreshMaxPage { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage"), out var value) && value > 0 ? value : 20;
 
 		internal static Dictionary<string, string> RefresherHeaders => new()
 		{
@@ -261,6 +261,16 @@ namespace net.vieapps.Services.Portals
 			return cacheKey;
 		}
 
+		/// <summary>
+		/// Purges cache at CloudFlare CDN by URLs
+		/// </summary>
+		/// <param name="urls"></param>
+		/// <param name="cloudflareZoneID"></param>
+		/// <param name="cloudflareApiToken"></param>
+		/// <param name="correlationID"></param>
+		/// <param name="writeLogs"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
 		public static async Task PurgeCloudFlareCacheAsync(this IEnumerable<string> urls, string cloudflareZoneID, string cloudflareApiToken, string correlationID, bool writeLogs, CancellationToken cancellationToken)
 		{
 			var cloudflareURI = new Uri($"https://api.cloudflare.com/client/v4/zones/{cloudflareZoneID}/purge_cache");
@@ -274,7 +284,7 @@ namespace net.vieapps.Services.Portals
 				["purge_everything"] = true
 			};
 
-			async Task purgeAsync(JObject body)
+			async Task purgeCloudFlareCacheAsync(JObject body)
 			{
 				try
 				{
@@ -282,7 +292,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					await Utility.WriteLogAsync(correlationID, $"Error occurred while purging CloudFlare cache => {(ex is RemoteServerException rex ? $"{rex.Message} (Code: {rex.StatusCode}){(string.IsNullOrWhiteSpace(rex.Body) ? "" : $"\r\nBody: {rex.Body}")}" : $"{ex.Message}")} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"Error occurred while purging CloudFlare cache => {(ex is RemoteServerException rse ? $"{rse.Message} (Code: {rse.StatusCode}){(string.IsNullOrWhiteSpace(rse.Body) ? "" : $"\r\nBody: {rse.Body}")}" : $"{ex.Message}")} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
 				}
 			}
 
@@ -298,33 +308,32 @@ namespace net.vieapps.Services.Portals
 					{
 						["files"] = cloudflareURLs.Skip(pageNumber * pageSize).Take(pageSize).ToJArray()
 					};
-					await purgeAsync(cloudflareBody).ConfigureAwait(false);
+					await purgeCloudFlareCacheAsync(cloudflareBody).ConfigureAwait(false);
 					pageNumber++;
 				}
-				if (Utility.IsPurgeCacheLogEnabled || writeLogs)
+				if (writeLogs || Utility.IsPurgeCacheLogEnabled)
 					await Utility.WriteLogAsync(correlationID, $"Purge CloudFlare cache successful\r\nURLs:\r\n- {urls.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 			}
 			else
 			{
-				await purgeAsync(cloudflareBody).ConfigureAwait(false);
-				if (Utility.IsPurgeCacheLogEnabled || writeLogs)
+				await purgeCloudFlareCacheAsync(cloudflareBody).ConfigureAwait(false);
+				if (writeLogs || Utility.IsPurgeCacheLogEnabled)
 					await Utility.WriteLogAsync(correlationID, "Purge CloudFlare cache successful [EVERYTHING]", "Caches").ConfigureAwait(false);
 			}
 		}
 
+		/// <summary>
+		/// Purges cache of this organization at CloudFlare CDN by URLs
+		/// </summary>
+		/// <param name="organization"></param>
+		/// <param name="urls"></param>
+		/// <param name="correlationID"></param>
+		/// <param name="writeLogs"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
 		public static Task PurgeCloudFlareCacheAsync(this Organization organization, IEnumerable<string> urls, string correlationID, bool writeLogs, CancellationToken cancellationToken)
 		{
-			var suffix = organization.AlwaysUseHtmlSuffix ? ".html" : "";
-			var purgeURLs = (urls ?? [])
-				.Where(url => !string.IsNullOrWhiteSpace(url))
-				.Select(url => url.IsContains("/{{pageNumber}}")
-					? Enumerable.Range(1, Utility.RefreshMaxPage).Select(pageNumber => url.Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}{suffix}" : suffix, StringComparison.OrdinalIgnoreCase))
-					: new[] { url }
-				)
-				.SelectMany(url => url);
-			if (Utility.IsPurgeCacheLogEnabled || writeLogs)
-				Utility.WriteLogAsync(correlationID, $"Prepare to purge CloudFlare cache of '{organization.Title}'\r\nURLs:\r\n- {purgeURLs.Join("\r\n-")}", "Caches").Execute();
-
+			var purgeURLs = (urls ?? []).Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => url.GetPaginatingURLs(Utility.RefreshMaxPage, organization.AlwaysUseHtmlSuffix ? ".html" : "")).SelectMany(url => url);
 			var resourceURLs = purgeURLs.Where(url => url.IsContains("/_js/") || url.IsContains("/_css/") || url.IsContains("/_themes/") || url.IsContains("/_assets/")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var systemURLs = purgeURLs.Where(url => url.IsStartsWith(Utility.PortalsHttpURI)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var orgURLs = purgeURLs.Except(systemURLs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -332,8 +341,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken))
 				orgURLs = orgURLs.Concat(resourceURLs.Where(url => !url.IsStartsWith(Utility.PortalsHttpURI))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			if (Utility.IsPurgeCacheLogEnabled || writeLogs)
-				Utility.WriteLogAsync(correlationID, $"Start to purge CloudFlare cache of '{organization.Title}'\r\nOrganization URLs:\r\n- {orgURLs.Join("\r\n-")}\r\nSystem URLs:\r\n- {systemURLs.Join("\r\n-")}", "Caches").Execute();
-
+				Utility.WriteLogAsync(correlationID, $"Prepare to purge CloudFlare cache of '{organization.Title}'\r\nOrganization URLs:\r\n- {(orgURLs.Count == 0 ? "None" : orgURLs.Join("\r\n- "))}\r\nSystem URLs:\r\n- {(systemURLs.Count == 0 ? "None" : systemURLs.Join("\r\n- "))}", "Caches").Execute();
 			return Task.WhenAll
 			(
 				!string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken)
@@ -345,25 +353,40 @@ namespace net.vieapps.Services.Portals
 			);
 		}
 
+		/// <summary>
+		/// Purges cache of this object at CloudFlare CDN by URLs
+		/// </summary>
+		/// <param name="object"></param>
+		/// <param name="correlationID"></param>
+		/// <param name="writeLogs"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
 		public static async Task PurgeCloudFlareCacheAsync(this IBusinessObject @object, string correlationID = null, bool writeLogs = false, CancellationToken cancellationToken = default)
 		{
 			if (@object.Organization is Organization organization)
 				await organization.PurgeCloudFlareCacheAsync([], correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
 		}
 
-		public static async Task RefreshWebPagesAsync(this Organization organization, IEnumerable<string> urls, string correlationID, string log, bool force, bool writeLogs, CancellationToken cancellationToken)
+		/// <summary>
+		/// Refreshs URLs of this organization
+		/// </summary>
+		/// <param name="organization"></param>
+		/// <param name="urls"></param>
+		/// <param name="correlationID"></param>
+		/// <param name="log"></param>
+		/// <param name="force"></param>
+		/// <param name="writeLogs"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static async Task RefreshWebPagesAsync(this Organization organization, IEnumerable<string> urls, string correlationID, string message, bool force, bool writeLogs, CancellationToken cancellationToken)
 		{
-			var suffix = organization.AlwaysUseHtmlSuffix ? ".html" : "";
 			var query = (force ? "x-force-cache&" : "") + "x-original-correlation-id=" + correlationID;
 			var rootURL = (string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) || string.IsNullOrWhiteSpace(organization.CloudFlareApiToken)
 				? organization.URL
 				: (organization.DefaultSite?.GetURL() ?? organization.URL)) + "/";
 			var refreshURLs = (urls ?? [])
 				.Where(url => !string.IsNullOrWhiteSpace(url))
-				.Select(url => url.IsContains("/{{pageNumber}}")
-					? Enumerable.Range(1, Utility.RefreshMaxPage).Select(pageNumber => url.Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}{suffix}" : suffix, StringComparison.OrdinalIgnoreCase))
-					: new[] { url }
-				)
+				.Select(url => url.GetPaginatingURLs(Utility.RefreshMaxPage, organization.AlwaysUseHtmlSuffix ? ".html" : ""))
 				.SelectMany(url => url)
 				.Select(url => url.Replace("~/", rootURL) + (url.IsContains("?") ? "&" : "?") + query)
 				.Distinct(StringComparer.OrdinalIgnoreCase)
@@ -371,55 +394,91 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				writeLogs
-				 ? Utility.WriteLogAsync(correlationID, $"{log ?? $"Refresh URLs of '{organization.Title}' [ID: {organization.ID}]"}\r\nURLs:\r\n- {refreshURLs.Join("\r\n- ")}", "Caches")
+				 ? Utility.WriteLogAsync(correlationID, $"{message ?? $"Refresh URLs of '{organization.Title}' [ID: {organization.ID}]"}\r\nURLs:\r\n- {refreshURLs.Join("\r\n- ")}", "Caches")
 				 : Task.CompletedTask,
-				refreshURLs.ForEachAsync((url, cancellationtoken) => url.RefreshWebPageAsync(0, correlationID, cancellationtoken), cancellationToken, true, !force)
+				refreshURLs.ForEachAsync((url, cancellationtoken) => url.RefreshWebPageAsync(0, correlationID, force, cancellationtoken), cancellationToken, true, !force && Utility.RunProcessorInParallelsMode)
 			).ConfigureAwait(false);
 		}
 
-		public static Task RefreshWebPagesAsync(this Organization organization, IEnumerable<string> urls, string correlationID = null, string log = null, bool force = false, CancellationToken cancellationToken = default)
-			=> organization.RefreshWebPagesAsync(urls, correlationID, log, force, false, cancellationToken);
+		/// <summary>
+		/// Refreshs URLs of this organization
+		/// </summary>
+		/// <param name="organization"></param>
+		/// <param name="urls"></param>
+		/// <param name="correlationID"></param>
+		/// <param name="message"></param>
+		/// <param name="force"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static Task RefreshWebPagesAsync(this Organization organization, IEnumerable<string> urls, string correlationID, string message, bool force, CancellationToken cancellationToken)
+			=> organization.RefreshWebPagesAsync(urls, correlationID, message, force, false, cancellationToken);
 
-		public static async Task RefreshWebPageAsync(this string url, int delay = 0, string correlationID = null, CancellationToken cancellationToken = default)
+		/// <summary>
+		/// Refreshs a web-page by specified URL
+		/// </summary>
+		/// <param name="url"></param>
+		/// <param name="delay"></param>
+		/// <param name="correlationID"></param>
+		/// <param name="writeLogs"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static async Task RefreshWebPageAsync(this string url, int delay, string correlationID, bool writeLogs, CancellationToken cancellationToken)
 		{
-			var stopwatch = Stopwatch.StartNew();
-			var writeLogs = Utility.IsCacheLogEnabled;
+			writeLogs = writeLogs || Utility.IsCacheLogEnabled;
 			correlationID = correlationID ?? UtilityService.NewUUID;
+
+			async Task refreshWebPageAsync(Uri uri, bool handleException)
+			{
+				try
+				{
+					var stopwatch = Stopwatch.StartNew();
+					await uri.FetchHttpAsync(Utility.RefresherHeaders, Utility.RefreshTimeout, cancellationToken).ConfigureAwait(false);
+					if (writeLogs)
+						await Utility.WriteLogAsync(correlationID, $"Refresh successful => {uri.AbsoluteUri}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
+				}
+				catch (TaskCanceledException) { }
+				catch (OperationCanceledException) { }
+				catch (ConnectionTimeoutException) { }
+				catch (ServiceOperationException) { }
+				catch (ServiceNotFoundException) { }
+				catch (RemoteServerMovedException ex)
+				{
+					if (handleException)
+						await Utility.WriteLogAsync(correlationID, $"Server was moved while refreshing => {ex.URI}", "Caches").ConfigureAwait(false);
+					else
+						throw;
+				}
+				catch (RemoteServerException ex)
+				{
+					if (handleException)
+					{
+						if (ex.Code != 522)
+							await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [Code: {ex.StatusCode}]{(string.IsNullOrWhiteSpace(ex.Body) ? "" : $"\r\nBody: {ex.Body}")}", "Caches").ConfigureAwait(false);
+					}
+					else
+						throw;
+				}
+				catch (Exception ex)
+				{
+					if (handleException)
+						await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+					else
+						throw;
+				}
+			}
+
 			try
 			{
 				if (delay > 0)
 					await Task.Delay(delay * 1000, cancellationToken).ConfigureAwait(false);
-				await new Uri(url).FetchHttpAsync(Utility.RefresherHeaders, Utility.RefreshTimeout, cancellationToken).ConfigureAwait(false);
-				stopwatch.Stop();
-				if (writeLogs)
-					await Utility.WriteLogAsync(correlationID, $"Refresh successful => {url}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
+				await refreshWebPageAsync(new Uri(url), false).ConfigureAwait(false);
 			}
-			catch (RemoteServerMovedException ex)
-			{
-				if (ex.InnerException is not ServiceOperationException && ex.InnerException is not ServiceNotFoundException)
-					try
-					{
-						await ex.URI.FetchHttpAsync(Utility.RefresherHeaders, Utility.RefreshTimeout, cancellationToken).ConfigureAwait(false);
-						stopwatch.Stop();
-						if (writeLogs)
-							await Utility.WriteLogAsync(correlationID, $"Refresh successful => {ex.URI}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
-					}
-					catch (ConnectionTimeoutException) { }
-					catch (Exception exception)
-					{
-						await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({ex.URI}) => {exception.Message} [{exception.GetType()}]", "Caches").ConfigureAwait(false);
-					}
-				else
-					await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {(ex.InnerException is RemoteServerException rex ? $"{rex.Message} (Code: {rex.StatusCode}){(string.IsNullOrWhiteSpace(rex.Body) ? "" : $"\r\nBody: {rex.Body}")}" : $"{ex.Message}")} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
-			}
-			catch (TaskCanceledException) { }
-			catch (OperationCanceledException) { }
-			catch (ConnectionTimeoutException) { }
-			catch (ServiceOperationException) { }
-			catch (ServiceNotFoundException) { }
 			catch (Exception ex)
 			{
-				await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {(ex is RemoteServerException rex ? $"{rex.Message} (Code: {rex.StatusCode}){(string.IsNullOrWhiteSpace(rex.Body) ? "" : $"\r\nBody: {rex.Body}")}" : $"{ex.Message}")} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+				if (ex is RemoteServerMovedException rsme && rsme.InnerException is not ServiceOperationException && rsme.InnerException is not ServiceNotFoundException)
+					await refreshWebPageAsync(rsme.URI, true).ConfigureAwait(false);
+				else
+					await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
 			}
 		}
 	}

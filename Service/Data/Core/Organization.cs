@@ -571,5 +571,12 @@ namespace net.vieapps.Services.Portals
 			return this;
 		}
 
+		internal static async Task<List<Organization>> FindAllAsync(bool findSites, CancellationToken cancellationToken)
+		{
+			if (findSites)
+				await SiteProcessor.FindSitesAsync(null, null, false, cancellationToken).ConfigureAwait(false);
+			return await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, cancellationToken).ConfigureAwait(false) ?? [];
+		}
+
 	}
 }

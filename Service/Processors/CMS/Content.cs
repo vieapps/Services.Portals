@@ -1478,7 +1478,7 @@ namespace net.vieapps.Services.Portals
 			if (@object.Relateds != null && @object.Relateds.Count > 0)
 			{
 				var stopwatch = Stopwatch.StartNew();
-				await @object.Relateds.ForEachAsync(async id => relateds.Add(await Content.GetAsync(id, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false)), true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
+				await @object.Relateds.ForEachAsync(async (id, cancellationtoken) => relateds.Add(await Content.GetAsync(id, !Utility.IsCacheDisabled, cancellationtoken).ConfigureAwait(false)), cancellationToken, true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
 
 				var cacheKeys = relateds.Select(related => related?.GetCacheKey()).Where(key => !string.IsNullOrWhiteSpace(key)).ToList();
 				await Utility.Cache.AddSetMembersAsync(@object.ContentType.ObjectCacheKeys, cacheKeys, cancellationToken).ConfigureAwait(false);
@@ -1509,7 +1509,7 @@ namespace net.vieapps.Services.Portals
 			var others = new List<Content>();
 			var otherIDs = Utility.IsCacheDisabled ? null : await Utility.Cache.GetAsync<List<string>>($"{objectCacheKey}:others", cancellationToken).ConfigureAwait(false);
 			if (otherIDs != null && otherIDs.Count > 0)
-				await otherIDs.ForEachAsync(async id => others.Add(await Content.GetAsync(id, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false)), true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
+				await otherIDs.ForEachAsync(async (id, cancellationtoken) => others.Add(await Content.GetAsync(id, !Utility.IsCacheDisabled, cancellationtoken).ConfigureAwait(false)), cancellationToken, true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
 
 			else
 			{

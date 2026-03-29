@@ -1312,6 +1312,11 @@ namespace net.vieapps.Services.Portals
 			return webpStream.ToBytes();
 		}
 
+		internal static IEnumerable<string> GetPaginatingURLs(this string url, int totalPages, string suffix = "")
+			=> url.IsContains("/{{pageNumber}}")
+				? Enumerable.Range(1, totalPages > 0 ? totalPages : Utility.RefreshMaxPage).Select(pageNumber => url.Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}{suffix}" : suffix, StringComparison.OrdinalIgnoreCase))
+				: new[] { url };
+
 		internal static string GetURLPath(this Uri uri)
 			=> $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}";
 

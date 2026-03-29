@@ -210,8 +210,7 @@ namespace net.vieapps.Services.Portals
 					if (categoryURL.IsContains("/{{pageNumber}}"))
 					{
 						if (getCategories)
-							categoryURLs = categoryURLs.Concat(Enumerable.Range(2, maxCategoryPageNumber > 0 ? maxCategoryPageNumber : Utility.RefreshMaxPage)
-								.Select(pageNumber => categoryURL.Replace("/{{pageNumber}}", $"/{pageNumber}", StringComparison.OrdinalIgnoreCase))).ToList();
+							categoryURLs = categoryURLs.Concat(categoryURL.GetPaginatingURLs(maxCategoryPageNumber).Skip(1)).ToList();
 
 						if (getContents)
 							await contentTypes.ForEachAsync(async contentType =>
@@ -352,7 +351,7 @@ namespace net.vieapps.Services.Portals
 					else
 					{
 						if (address.IsContains("/{{pageNumber}}"))
-							refreshingURLs.AddRange(Enumerable.Range(1, Utility.RefreshMaxPage).Select(pageNumber => address.Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}{suffix}" : suffix, StringComparison.OrdinalIgnoreCase)));
+							refreshingURLs.AddRange(address.GetPaginatingURLs(Utility.RefreshMaxPage));
 						else
 							refreshingURLs.Add(address);
 					}
@@ -362,15 +361,21 @@ namespace net.vieapps.Services.Portals
 			categories = categories.Where(category => category != null && category.ID.IsValidUUID()).ToList();
 			var (linkURLs, categoryURLs, contentURLs) = await organization.GetRefreshingURLsAsync(true, links, true, true, categories, Utility.RefreshMaxPage, 2).ConfigureAwait(false);
 			return refreshingURLs.Concat(linkURLs).Concat(contentURLs).Concat(categoryURLs)
-				.Select(url => url.IsEquals("~/default.aspx") || url.IsEquals("~/index.html") ? "~/" : url)
-				.Where(url => !url.IsEquals("~/")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+				.Where(url => url != null).Select(url => url.IsEquals("~/default.aspx") || url.IsEquals("~/index.html") ? "~/" : url)
+				.Where(url => url != "~/").Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
 
 		internal static Task<List<string>> GetRefreshingURLsAsync(this Organization organization, bool onlyDetailsOfCategories = false)
 			=> organization.GetRefreshingURLsAsync(null, onlyDetailsOfCategories);
 
 		internal static IEnumerable<string> GetRefreshingURLs(this Organization organization)
-			=> new[] { "~/" }.Concat((organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID) && (site.Status == ApprovalStatus.Published || site.Status == ApprovalStatus.Approved)).Select(site => $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}")).Distinct(StringComparer.OrdinalIgnoreCase);
+		{
+			var orgURLs = new[] { "~/", organization.HomeDesktop?.GetURL(), organization.SearchDesktop?.GetURL() };
+			var siteURLs = (organization.Sites ?? []).Where(site => !site.ID.IsEquals(organization.DefaultSite?.ID) && (site.Status == ApprovalStatus.Published || site.Status == ApprovalStatus.Approved))
+				.Select(site => new[] { $"{site.GetURL()}/{(organization.AlwaysUseHtmlSuffix ? "index.html" : "")}", site.HomeDesktop?.GetURL(), site.SearchDesktop?.GetURL() })
+				.SelectMany(url => url);
+			return orgURLs.Concat(siteURLs).Where(url => url != null).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		}
 
 		internal static async Task<List<SchedulingTask>> GetRefreshingTasksAsync(this Organization organization, bool others = true, List<string> otherURLs = null)
 		{
@@ -1222,17 +1227,17 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo)
 		{
-			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), null, Utility.CancellationToken).ConfigureAwait(false) ?? [];
-			organizations = organizations.Where(organization => organization.Status == ApprovalStatus.Approved || organization.Status == ApprovalStatus.Published).ToList();
+			var organizations = (await Organization.FindAllAsync(false, Utility.CancellationToken).ConfigureAwait(false)).Where(organization => organization.Status == ApprovalStatus.Approved || organization.Status == ApprovalStatus.Published).ToList();
 			await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Start to rebuild cache of all organizations ({organizations.Count()})", "Caches").ConfigureAwait(false);
-			organizations.ForEach(organization => Router.GetService(Utility.ServiceName).ProcessRequestAsync(new RequestInfo(requestInfo)
+			organizations.ForEach(organization => Router.GetService(Utility.ServiceName).ProcessRequestAsync(new RequestInfo(requestInfo.Session, Utility.ServiceName, "Cache")
 			{
 				Header = new Dictionary<string, string>(requestInfo.Header)
 				{
 					["x-rebuild"] = organization.ID,
 					["x-max-page"] = Int32.TryParse(requestInfo.GetParameter("x-max-page"), out var maxPage) && maxPage > 0 ? maxPage.ToString() : null,
 					["x-min-time"] = DateTime.TryParse(requestInfo.GetParameter("x-min-time"), out var minTime) ? minTime.ToIsoString() : null
-				}
+				},
+				CorrelationID = requestInfo.CorrelationID
 			}).Execute());
 			return new JObject { ["CorrelationID"] = requestInfo.CorrelationID };
 		}
@@ -1313,7 +1318,7 @@ namespace net.vieapps.Services.Portals
 				if (urls.Count < 1)
 					break;
 
-				await urls.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(index, correlationID, cancellationtoken), cancellationToken).ConfigureAwait(false);
+				await urls.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(index, correlationID, false, cancellationtoken), cancellationToken, true, Utility.RunProcessorInParallelsMode).ConfigureAwait(false);
 
 				if (!cancellationToken.IsCancellationRequested)
 				{
