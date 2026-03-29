@@ -1165,7 +1165,7 @@ namespace net.vieapps.Services.Portals
 
 					await Task.WhenAll
 					(
-						context.WriteAsync(session.GetSessionJson(), Formatting.Indented, headers, cts.Token),
+						context.WriteAsync(session.GetSessionJson(), headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully register a new session {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1272,7 +1272,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-						context.WriteAsync(response, Formatting.Indented, headers, cts.Token),
+						context.WriteAsync(response, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1328,7 +1328,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-						context.WriteAsync(response, Formatting.Indented, headers, cts.Token),
+						context.WriteAsync(response, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in with OTP {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1380,7 +1380,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-						context.WriteAsync(response, Formatting.Indented, headers, cts.Token),
+						context.WriteAsync(response, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully send a renew password request {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1515,7 +1515,7 @@ namespace net.vieapps.Services.Portals
 
 					await Task.WhenAll
 					(
-						context.WriteAsync(session.GetSessionJson(), Formatting.Indented, headers, cts.Token),
+						context.WriteAsync(session.GetSessionJson(), headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session out {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -2268,5 +2268,11 @@ namespace net.vieapps.Services.Portals
 			}
 			return identifyJson;
 		}
+
+		public static Task WriteAsync(this HttpContext context, JToken json, Dictionary<string, string> headers, CancellationToken cancellationToken)
+			=> context.WriteAsync(json.ToString(Newtonsoft.Json.Formatting.None), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
+
+		public static Task WriteAsync(this HttpContext context, JToken json, CancellationToken cancellationToken)
+			=> context.WriteAsync(json, null, cancellationToken);
 	}
 }
