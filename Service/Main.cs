@@ -6042,18 +6042,16 @@ namespace net.vieapps.Services.Portals
 				await organization.PurgeCloudFlareCacheAsync(urls, correlationID, this.IsDebugLogEnabled, this.CancellationToken).ConfigureAwait(false);
 			else
 			{
-				var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
+				var organizations = await Organization.FindAllAsync(false, this.CancellationToken).ConfigureAwait(false);
 				await organizations.ForEachAsync(organization => organization.PurgeCloudFlareCacheAsync([], correlationID, this.IsDebugLogEnabled, this.CancellationToken)).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
 					await Array.Empty<string>().PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
 			}
 		}
 
-		async Task<JToken> ReloadOrganizationsAsync(bool getSchedulingTasks = false)
+		async Task ReloadOrganizationsAsync(bool getSchedulingTasks = false)
 		{
-			await SiteProcessor.FindSitesAsync(null, null, false, this.CancellationToken).ConfigureAwait(false);
-			var organizations = await Organization.FindAsync(null, Sorts<Organization>.Ascending("Title"), 0, 1, null, this.CancellationToken).ConfigureAwait(false) ?? [];
-
+			var organizations = await Organization.FindAllAsync(true, this.CancellationToken).ConfigureAwait(false);
 			await organizations.ForEachAsync(async organization =>
 			{
 				await Task.WhenAll
@@ -6064,9 +6062,7 @@ namespace net.vieapps.Services.Portals
 				if (getSchedulingTasks)
 					await organization.GetSchedulingTasksAsync(this.CancellationToken).ConfigureAwait(false);
 			}, true, false).ConfigureAwait(false);
-
 			await this.WriteLogsAsync(UtilityService.NewUUID, $"All organizations have been re-loaded - Total: {organizations.Count}", null, this.ServiceName, "Caches").ConfigureAwait(false);
-			return new JObject();
 		}
 
 		CancellationTokenSource RebuildCacheCTS { get; set; }
@@ -6081,9 +6077,9 @@ namespace net.vieapps.Services.Portals
 					{
 						Type = "RebuildCache#Cancel"
 					}.Send();
-					return new JObject();
+					return new JObject { ["CorrelationID"] = requestInfo.CorrelationID };
 				}
-				else if (requestInfo.TryGetParameter("x-rebuild", out var id))
+				else if (requestInfo.TryGetParameter("x-rebuild", out var id) && id.IsValidUUID())
 				{
 					this.RebuildCacheCTS ??= CancellationTokenSource.CreateLinkedTokenSource(this.CancellationToken);
 					return await requestInfo.RebuildCacheAsync(await OrganizationProcessor.GetOrganizationByIDAsync(id, this.RebuildCacheCTS.Token).ConfigureAwait(false), this.RebuildCacheCTS.Token).ConfigureAwait(false);
@@ -6152,8 +6148,7 @@ namespace net.vieapps.Services.Portals
 				{
 					requestInfo.ServiceName = this.ServiceName;
 					requestInfo.ObjectName = "Cache";
-					requestInfo.Header["x-rebuild"] = "true";
-					requestInfo.Header["x-organization-id"] = key;
+					requestInfo.Header["x-rebuild"] = key;
 					requestInfo.Header["x-done"] = info.Get("Done", 0).ToString();
 				})).ConfigureAwait(false);
 				logs.AddRange(new[] {
@@ -6281,7 +6276,7 @@ namespace net.vieapps.Services.Portals
 			stopwatch.Stop();
 			if (Utility.IsCacheLogEnabled)
 				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear related cache successful - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
-			return new JObject();
+			return new JObject { ["CorrelationID"] = requestInfo.CorrelationID };
 		}
 
 		async Task ClearCacheAsync(IPortalObject @object, string correlationID, CancellationToken cancellationToken)
@@ -7102,9 +7097,9 @@ namespace net.vieapps.Services.Portals
 
 				Utility.Cache.StartMonitor(
 					(msg, details) => this.OnMonitor(msg, details),
-					(msg, _, ex) => this.OnMonitor(msg, ("", 0, 0, 0, 0, 0), ex),
-					(msg, _) => this.OnMonitor(msg, ("", 0, 0, 0, 0, 0)),
-					(msg, _, ex) => this.OnMonitor(msg, ("", 0, 0, 0, 0, 0), ex),
+					(msg, _, ex) => this.OnMonitor(msg, ("", 0, 0, 0), ex),
+					(msg, _) => this.OnMonitor(msg, ("", 0, 0, 0)),
+					(msg, _, ex) => this.OnMonitor(msg, ("", 0, 0, 0), ex),
 					interval, warnQS, criticalQS, this.CancellationToken);
 			}
 		}
@@ -7112,17 +7107,19 @@ namespace net.vieapps.Services.Portals
 		void StopMonitor()
 			=> Utility.Cache.StopMonitor();
 
-		void OnMonitor(string message, (string Level, long Total, int Interactive, int Subscription, int Other, long PingMiliseconds) details, Exception ex = null)
+		void OnMonitor(string message, (string Level, long Total, long Interactive, long PingMiliseconds) details, Exception ex = null)
 		{
 			ThreadPool.GetAvailableThreads(out var workers, out var io);
 			var now = DateTime.Now;
 			var pid = Environment.ProcessId.ToString();
-			var logs = "PID: " + pid + " @ " + now.ToString("HH:mm:ss") + " -----"
-				+ "\r\nAvailable threads - Workers: " + workers.ToString("###,##0") + " / Async I/O: " + io.ToString("###,##0")
-				+ "\r\nCaching: " + message;
+			var logs = "PID: " + pid + " @ " + now.ToString("HH:mm:ss") + " -----\r\n";
+			if (string.IsNullOrWhiteSpace(details.Level))
+				logs += message;
+			else
+				logs += "Available threads - Workers: " + workers.ToString("###,##0") + " / Async IO: " + io.ToString("###,##0") + "\r\nCaching: " + message;
 			if (ex != null)
-				logs += "\r\nError stack: " + ex.StackTrace;
-			logs += "\r\n";
+				logs += "\r\n" + ex.Message + " [" + ex.GetTypeName(true) + "]\r\nStack: " + ex.StackTrace;
+			logs += "\r\n\r\n";
 			if (!this.CancellationTokenSource.IsCancellationRequested)
 				File.AppendAllTextAsync(this.MonitorLogPath + "-" + now.ToString("yyyyMMddHH") + "-monitor.txt", logs, this.CancellationToken).Execute();
 		}
