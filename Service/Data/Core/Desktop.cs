@@ -301,5 +301,16 @@ namespace net.vieapps.Services.Portals
 			=> !string.IsNullOrWhiteSpace(this.Template)
 				? this.Template
 				: await Utility.GetTemplateAsync("desktop.xml", this.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false) ?? await Utility.GetTemplateAsync("desktop.xml", null, null, null, cancellationToken).ConfigureAwait(false);
+
+		public string GetURL(bool useRelativeURL = true, bool addSuffix = true, string host = null, string requestedURL = null)
+		{
+			var url = "~/" + this.Alias + (addSuffix && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "");
+			if (!useRelativeURL)
+			{
+				var site = this.Organization.DefaultSite;
+				url = site != null ? url.Replace("~/", $"http{(site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs || (requestedURL ?? "").IsStartsWith("https://") ? "s" : "")}://{host ?? site.Host}/") : url;
+			}
+			return url;
+		}
 	}
 }
