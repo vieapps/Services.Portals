@@ -168,7 +168,7 @@ namespace net.vieapps.Services.Portals
 				context.UpdateServerTiming("ngxServe", stopwatch.ElapsedMilliseconds);
 				await Task.WhenAll
 				(
-					context.WriteAsync(response, headers, cts.Token),
+					context.WriteAsync(response, Formatting.None, headers, cts.Token),
 					isDebugLogEnabled ? context.WriteLogsAsync("APIs", $"Successfully process request of a service {response}") : Task.CompletedTask
 				).ConfigureAwait(false);
 			}

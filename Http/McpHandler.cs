@@ -1017,7 +1017,7 @@ namespace net.vieapps.Services.Portals
 
 			return Task.WhenAll
 			(
-				context.WriteAsync(response, headers, cancellationToken),
+				context.WriteAsync(response, Formatting.None, headers, cancellationToken),
 				Global.IsDebugLogEnabled || context.ContainsKey("x-logs") ? context.WriteLogsAsync("MCP", $"Response JSON-RPC [{sessionID}]: {response}") : Task.CompletedTask
 			);
 		}
