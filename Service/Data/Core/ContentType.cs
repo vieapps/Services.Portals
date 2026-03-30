@@ -229,5 +229,8 @@ namespace net.vieapps.Services.Portals
 			return this;
 		}
 
+		public string GetURL(Desktop desktop = null, bool addPageNumberHolder = false)
+			=> (desktop ??= this.Desktop)?.GetURL(true, this.Title.GetANSIUri() + (addPageNumberHolder ? "/{{pageNumber}}" : this.Organization.AlwaysUseHtmlSuffix ? ".html" : ""));
+
 	}
 }

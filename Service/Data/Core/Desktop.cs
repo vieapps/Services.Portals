@@ -302,9 +302,9 @@ namespace net.vieapps.Services.Portals
 				? this.Template
 				: await Utility.GetTemplateAsync("desktop.xml", this.WorkingTheme, null, null, cancellationToken).ConfigureAwait(false) ?? await Utility.GetTemplateAsync("desktop.xml", null, null, null, cancellationToken).ConfigureAwait(false);
 
-		public string GetURL(bool useRelativeURL = true, bool addSuffix = true, string host = null, string requestedURL = null)
+		public string GetURL(bool useRelativeURL, string suffix, string host = null, string requestedURL = null)
 		{
-			var url = "~/" + this.Alias + (addSuffix && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "");
+			var url = "~/" + this.Alias + suffix;
 			if (!useRelativeURL)
 			{
 				var site = this.Organization.DefaultSite;
@@ -312,5 +312,9 @@ namespace net.vieapps.Services.Portals
 			}
 			return url;
 		}
+
+		public string GetURL(bool useRelativeURL = true, bool addSuffix = true, string host = null, string requestedURL = null)
+			=> this.GetURL(useRelativeURL, addSuffix && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "", host, requestedURL);
+
 	}
 }
