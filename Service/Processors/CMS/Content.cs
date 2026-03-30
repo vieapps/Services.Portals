@@ -92,7 +92,23 @@ namespace net.vieapps.Services.Portals
 				content = await Content.GetAsync(content.ID, cancellationToken).ConfigureAwait(false);
 			}
 			if (reloadWebpages)
-				await content.Organization.RefreshWebPagesAsync((content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Select(category => category?.GetURL(true)).Concat([content.Organization.URL, content.Category?.GetURL(true), content.Status.Equals(ApprovalStatus.Published) ? content.GetURL() : null]), correlationID, (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]", force, writeLogs, cancellationToken).ConfigureAwait(false);
+			{
+				var urls = new[] { content.Status.Equals(ApprovalStatus.Published) ? content.GetURL() : null }.Concat([content.Organization.URL, content.Category?.GetURL(false)]).ToList();
+				var categories = new[] { content.Category }.ToList();
+				var parentCategory = content.Category?.ParentCategory;
+				while (parentCategory != null)
+				{
+					urls = urls.Concat([parentCategory.GetURL()]).ToList();
+					categories.Add(parentCategory);
+					parentCategory = parentCategory.ParentCategory;
+				}
+				urls = urls.Concat(categories.Where(category => category != null).Select(category => category?.GetURL(true)))
+					.Concat((content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Select(category => category?.GetURL(true)))
+					.Where(url => url != null)
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToList();
+				await content.Organization.RefreshWebPagesAsync(urls, correlationID, (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]", force, writeLogs, cancellationToken).ConfigureAwait(false);
+			}
 			return content;
 		}
 
@@ -148,10 +164,11 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
+
 			if (content != null)
 				await Task.WhenAll
 				(
-					content.PurgeCloudFlareCacheAsync(correlationID, writeLogs, cancellationToken),
+					content.PurgeCloudFlareCacheAsync(correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => content.GetURL().RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()),
 					doRefresh
 						? content.RefreshAsync(false, cancellationToken, true, writeLogs, correlationID, "Refresh when related cache of a CMS content was clean")
 						: Task.CompletedTask

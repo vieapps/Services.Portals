@@ -106,16 +106,30 @@ namespace net.vieapps.Services.Portals
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// remove related cache & refresh
+			var writeLogs = Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(
 				Task.WhenAll(setTasks),
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				Utility.IsCacheLogEnabled && item != null
+				writeLogs && item != null
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS item [{item.Title} - ID: {item.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			if (doRefresh && item != null)
-				await item.Organization.RefreshWebPagesAsync([item.Organization.URL, desktop != null ? $"{item.Organization.URL}/{desktop.Alias ?? "-default"}/{item.ContentType?.Title.GetANSIUri() ?? "-"}" : null, item.Status.Equals(ApprovalStatus.Published) ? item.GetURL() : null], correlationID, $"Refresh when a CMS item was clean [{item.Title} - ID: {item.ID}]", true, cancellationToken).ConfigureAwait(false);
+
+			if (item != null)
+			{
+				var url = item.GetURL();
+				await item.PurgeCloudFlareCacheAsync(correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => url.RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()).ConfigureAwait(false);
+				if (doRefresh)
+				{
+					var urls = new[] { item.Status.Equals(ApprovalStatus.Published) ? url : null }
+						.Concat([item.Organization.URL, item.ContentType.GetURL(null, true)])
+						.Where(url => url != null)
+						.Distinct(StringComparer.OrdinalIgnoreCase)
+						.ToList();
+					await item.Organization.RefreshWebPagesAsync(urls, correlationID, $"Refresh when a CMS item was clean [{item.Title} - ID: {item.ID}]", true, cancellationToken).ConfigureAwait(false);
+				}
+			}
 		}
 
 		internal static async Task<(long TotalRecords, List<Item> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
