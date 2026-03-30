@@ -24,7 +24,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static string CloudFlareApiToken { get; set; } = UtilityService.GetAppSetting("Portals:CloudFlare:ApiToken");
 
-		internal static bool CloudFlareForAll { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:CloudFlare:All"));
+		internal static bool CloudFlareForAll { get; set; } = !string.IsNullOrWhiteSpace(CloudFlareZoneID) && !string.IsNullOrWhiteSpace(CloudFlareApiToken) && "true".IsEquals(UtilityService.GetAppSetting("Portals:CloudFlare:All"));
 
 		internal static string RefresherURL { get; set; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
 
@@ -331,30 +331,32 @@ namespace net.vieapps.Services.Portals
 		/// <param name="writeLogs"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		public static Task PurgeCloudFlareCacheAsync(this Organization organization, IEnumerable<string> urls, string correlationID, bool writeLogs, CancellationToken cancellationToken)
+		public static async Task PurgeCloudFlareCacheAsync(this Organization organization, IEnumerable<string> urls, string correlationID, bool writeLogs, CancellationToken cancellationToken, Action<IEnumerable<string>> onCompleted = null)
 		{
-			var purgeURLs = (urls ?? []).Where(url => !string.IsNullOrWhiteSpace(url)).Select(url => url.GetPaginatingURLs(Utility.RefreshMaxPage, organization.AlwaysUseHtmlSuffix ? ".html" : "")).SelectMany(url => url);
-			var resourceURLs = purgeURLs.Where(url => url.IsContains("/_js/") || url.IsContains("/_css/") || url.IsContains("/_themes/") || url.IsContains("/_assets/")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			var systemURLs = purgeURLs.Where(url => url.IsStartsWith(Utility.PortalsHttpURI)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			var orgURLs = purgeURLs.Except(systemURLs).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			systemURLs = systemURLs.Concat(resourceURLs.Where(url => url.IsStartsWith(Utility.PortalsHttpURI))).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			if (!string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken))
-				orgURLs = orgURLs.Select(url => new[] { url, url.IsContains("//www.") ? url.Replace("//www.", "//") : url.Replace("//", "//www.") })
-					.SelectMany(url => url)
-					.Concat(resourceURLs.Where(url => !url.IsStartsWith(Utility.PortalsHttpURI)))
-					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ToList();
+			var orgGotCloudFlare = !string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken);
+			var gotCloudFlare = orgGotCloudFlare || Utility.CloudFlareForAll;
+			var purgeURLs = (urls ?? []).Where(url => !string.IsNullOrWhiteSpace(url))
+				.Select(url => url.GetPaginatingURLs(Utility.RefreshMaxPage, organization.AlwaysUseHtmlSuffix ? ".html" : ""))
+				.SelectMany(url => url)
+				.Distinct(StringComparer.OrdinalIgnoreCase);
+			var systemURLs = purgeURLs.Where(url => url.IsStartsWith(Utility.PortalsHttpURI)).ToList();
+			var orgURLs = purgeURLs.Except(systemURLs)
+				.Select(url => new[] { url, gotCloudFlare && url.IsContains("//www.") ? url.Replace("//www.", "//") : null })
+				.SelectMany(url => url)
+				.Where(url => !string.IsNullOrWhiteSpace(url))
+				.ToList();
 			if (writeLogs || Utility.IsPurgeCacheLogEnabled)
 				Utility.WriteLogAsync(correlationID, $"Prepare to purge CloudFlare cache of '{organization.Title}'\r\nOrganization URLs:\r\n- {(orgURLs.Count == 0 ? "None" : orgURLs.Join("\r\n- "))}\r\nSystem URLs:\r\n- {(systemURLs.Count == 0 ? "None" : systemURLs.Join("\r\n- "))}", "Caches").Execute();
-			return Task.WhenAll
+			await Task.WhenAll
 			(
-				!string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken)
-					? orgURLs.PurgeCloudFlareCacheAsync(organization.CloudFlareZoneID, organization.CloudFlareApiToken, correlationID, writeLogs, cancellationToken)
+				gotCloudFlare
+					? orgURLs.PurgeCloudFlareCacheAsync(orgGotCloudFlare ? organization.CloudFlareZoneID : Utility.CloudFlareZoneID, orgGotCloudFlare ? organization.CloudFlareApiToken : Utility.CloudFlareApiToken, correlationID, writeLogs, cancellationToken)
 					: Task.CompletedTask,
 				systemURLs.Count > 0 && !string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken)
 					? systemURLs.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, writeLogs, cancellationToken)
 					: Task.CompletedTask
-			);
+			).ConfigureAwait(false);
+			onCompleted?.Invoke(urls);
 		}
 
 		/// <summary>
@@ -365,10 +367,11 @@ namespace net.vieapps.Services.Portals
 		/// <param name="writeLogs"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		public static async Task PurgeCloudFlareCacheAsync(this IBusinessObject @object, string correlationID = null, bool writeLogs = false, CancellationToken cancellationToken = default)
+		public static async Task PurgeCloudFlareCacheAsync(this IBusinessObject @object, string correlationID = null, bool writeLogs = false, CancellationToken cancellationToken = default, Action<IBusinessObject> onCompleted = null)
 		{
 			if (@object.Organization is Organization organization)
 				await organization.PurgeCloudFlareCacheAsync([], correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
+			onCompleted?.Invoke(@object);
 		}
 
 		/// <summary>
@@ -385,14 +388,19 @@ namespace net.vieapps.Services.Portals
 		public static async Task RefreshWebPagesAsync(this Organization organization, IEnumerable<string> urls, string correlationID, string message, bool force, bool writeLogs, CancellationToken cancellationToken)
 		{
 			var query = (force ? "x-force-cache&" : "") + "x-original-correlation-id=" + correlationID;
-			var rootURL = (string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) || string.IsNullOrWhiteSpace(organization.CloudFlareApiToken)
-				? organization.URL
-				: (organization.DefaultSite?.GetURL() ?? organization.URL)) + "/";
+			var gotCloudFlare = !string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken);
+			var rootURL = (gotCloudFlare ? (organization.DefaultSite?.GetURL() ?? organization.URL) : organization.URL) + "/";
 			var refreshURLs = (urls ?? [])
 				.Where(url => !string.IsNullOrWhiteSpace(url))
 				.Select(url => url.GetPaginatingURLs(Utility.RefreshMaxPage, organization.AlwaysUseHtmlSuffix ? ".html" : ""))
 				.SelectMany(url => url)
-				.Select(url => url.Replace("~/", rootURL) + (url.IsContains("?") ? "&" : "?") + query)
+				.Select(url =>
+				{
+					var fullURL = url.Replace("~/", rootURL) + (url.IsContains("?") ? "&" : "?") + query;
+					return new[] { fullURL, gotCloudFlare && fullURL.IsContains("//www.") ? fullURL.Replace("//www.", "//") : null };
+				})
+				.SelectMany(url => url)
+				.Where(url => !string.IsNullOrWhiteSpace(url))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 			await Task.WhenAll

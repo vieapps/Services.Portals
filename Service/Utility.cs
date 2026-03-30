@@ -241,7 +241,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="filename"></param>
 		/// <returns></returns>
 		public static string GetMimeType(this string filename)
-			=> Utility.MimeTypeProvider.TryGetContentType(filename, out var mimeType) && !string.IsNullOrWhiteSpace(mimeType) ? mimeType : "application/octet-stream; charset=utf-8";
+			=> Utility.MimeTypeProvider.TryGetContentType(filename, out var mimeType) && !string.IsNullOrWhiteSpace(mimeType) ? mimeType : "application/octet-stream";
 
 		/// <summary>
 		/// Gets the MIME type of a file
@@ -249,7 +249,7 @@ namespace net.vieapps.Services.Portals
 		/// <param name="fileInfo"></param>
 		/// <returns></returns>
 		public static string GetMimeType(this FileInfo fileInfo)
-			=> fileInfo?.Name?.GetMimeType();
+			=> fileInfo?.Name?.GetMimeType() ?? "application/octet-stream";
 
 		/// <summary>
 		/// Gets a pagination URL
@@ -1313,9 +1313,12 @@ namespace net.vieapps.Services.Portals
 		}
 
 		internal static IEnumerable<string> GetPaginatingURLs(this string url, int totalPages, string suffix = "")
-			=> url.IsContains("/{{pageNumber}}")
+		{
+			var urls = url.IsContains("/{{pageNumber}}")
 				? Enumerable.Range(1, totalPages > 0 ? totalPages : Utility.RefreshMaxPage).Select(pageNumber => url.Replace("/{{pageNumber}}", pageNumber > 1 ? $"/{pageNumber}{suffix}" : suffix, StringComparison.OrdinalIgnoreCase))
 				: new[] { url };
+			return urls.Select(url => url.Replace(".html.html", ".html")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		}
 
 		internal static string GetURLPath(this Uri uri)
 			=> $"{uri.Scheme}://{uri.Host}{uri.AbsolutePath}";
