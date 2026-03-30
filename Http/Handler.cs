@@ -65,6 +65,8 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
+		internal static bool AllowL2CacheInBytes { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow:BytesL2Cache"));
+
 		internal static int CacheMaxAge { get; set; }
 
 		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
@@ -694,59 +696,70 @@ namespace net.vieapps.Services.Portals
 								return;
 							}
 
-							// cached data
+							// prepare cacheing data
 							stepwatch.Restart();
-							var cached = await Handler.Cache.GetAsync<string>(cacheKey, cts.Token).ConfigureAwait(false);
-
-							if (!string.IsNullOrWhiteSpace(cached))
+							var cachedBody = await Handler.Cache.GetAsync(cacheKey, cts.Token).ConfigureAwait(false);
+							var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
+							byte[] body = null;
+							lastModified ??= (cachedBody != null ? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) : null) ?? DateTime.Now.ToHttpString();
+							var maxAge = Handler.CacheMaxAge * 60;
+							var expiresAt = !isBase64 && isHtml && cachedBody != null ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
+							if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
 							{
-								var maxAge = Handler.CacheMaxAge * 60;
-								var expiresAt = !isBase64 && isHtml ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
-								if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
-								{
-									expires = expiresAtTime;
-									maxAge = (expires - DateTime.UtcNow).TotalSeconds.As<int>();
-								}
-								lastModified ??= await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
+								expires = expiresAtTime;
+								maxAge = (int)expires.GetTotalSecondsToNow();
+							}
 
-								if (context.ContainsKey("x-sliding-cache"))
-								{
-									var items = new Dictionary<string, string>
-									{
-										[cacheKey] = cached,
-										[$"{cacheKey}:time"] = lastModified
-									};
-									if (expiresAt != null && DateTime.TryParse(expiresAt, out expiresAtTime))
-									{
-										items[$"{cacheKey}:expiration"] = expiresAtTime.AddMinutes(Handler.CacheMaxAge).ToIsoString(true);
-										Handler.Cache.SetAsync(items, null, expiresAtTime.AddMinutes(Handler.CacheMaxAge), Global.CancellationToken).Execute();
-									}
-									else
-										Handler.Cache.SetAsync(items, null, 0, Global.CancellationToken).Execute();
-								}
-
-								headers["Last-Modified"] = lastModified;
-								headers["Expires"] = expires.ToHttpString();
-								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(maxAge) : context.GetHttpCacheControl();
-								
-								var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
+							// caching data is string (raw)
+							if (cachedBody is string cached)
+							{
 								if (isCacheLogEnabled)
-									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey})\r\n\r\nRaw cache:\r\n{cached}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey}){(isHtml ? $"\r\n\r\nRaw cache:\r\n{cached}" : "")}").ConfigureAwait(false);
 
 								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
-								cached = !isBase64 && isHtml ? context.NormalizeHtml(cached, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL) : cached;
-								var body = isBase64 ? cached.Base64ToBytes() : cached.ToBytes();
-
-								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
-								context.SetResponseHeaders((int)HttpStatusCode.OK, headers);
-								await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
+								cached = isHtml ? context.NormalizeHtml(cached, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL) : cached;
+								body = isBase64 ? cached.Base64ToBytes() : cached.ToBytes();
 
 								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
-									context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
+								{
+									if (Handler.Cache.UseL1Cache)
+										context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
+									else if (Handler.AllowL2CacheInBytes)
+										await Handler.Cache.SetAsync(cacheKey, body, cts.Token).ConfigureAwait(false);
+								}
 
 								stepwatch.Stop();
 								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(isCacheLogEnabled ? $"\r\n\r\nNormalized cache:\r\n{cached}" : "")}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(isCacheLogEnabled && isHtml ? $"\r\n\r\nNormalized cache:\r\n{cached}" : "")}").ConfigureAwait(false);
+							}
+
+							// caching data is binary
+							else if (cachedBody != null && Handler.AllowL2CacheInBytes)
+							{
+								if (isHtml && requestURI.AbsolutePath.IndexOf("/~") == 0)
+								{
+									var start = requestURI.AbsolutePath.IndexOf("/~");
+									var end = requestURI.AbsolutePath.IndexOf('/', start + 1);
+									baseURL = requestURI.Scheme + "://" + requestURI.Host + "/~" + (end > start ? requestURI.AbsolutePath.Substring(start + 2, end - start - 2) : requestURI.AbsolutePath.Substring(start + 2)) + "/";
+									var html = context.NormalizeHtml(cachedBody.As<byte[]>().GetString(), alwaysUseHTTPs, alwaysReturnHTTPs, baseURL);
+									html = html.Replace("href=\"//", "href=\"#/");
+									html = html.Replace("href=\"/", "href=\"").Replace("href=\"#/", "href=\"//");
+									body = html.ToBytes();
+								}
+								else
+									body = cachedBody.As<byte[]>();
+								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
+									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service L2-Cache was done => FOUND ({cacheKey}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
+							}
+
+							// response by the caching data
+							if (body != null)
+							{
+								headers["Last-Modified"] = lastModified;
+								headers["Expires"] = expires.ToHttpString();
+								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(maxAge) : context.GetHttpCacheControl();
+								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
+								await context.WriteAsync(body, headers, cts.Token).ConfigureAwait(false);
 								return;
 							}
 						}
@@ -928,6 +941,7 @@ namespace net.vieapps.Services.Portals
 								headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
 									["Server-Timing"] = $"ngxPrepare;dur={stepwatch.ElapsedMilliseconds}",
+									["Cache-Control"] = context.GetHttpCacheControl(Handler.CacheMaxAge * 60),
 									["X-Correlation-ID"] = correlationID,
 									["X-Node"] = Global.NodeID
 								};
@@ -1165,7 +1179,7 @@ namespace net.vieapps.Services.Portals
 
 					await Task.WhenAll
 					(
-						context.WriteAsync(session.GetSessionJson(), headers, cts.Token),
+						context.WriteAsync(session.GetSessionJson(), Formatting.None, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully register a new session {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1272,7 +1286,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-						context.WriteAsync(response, headers, cts.Token),
+						context.WriteAsync(response, Formatting.None, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1328,7 +1342,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-						context.WriteAsync(response, headers, cts.Token),
+						context.WriteAsync(response, Formatting.None, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session in with OTP {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1380,7 +1394,7 @@ namespace net.vieapps.Services.Portals
 					await Task.WhenAll
 					(
 						Global.Cache.RemoveAsync($"Attempt#{context.Connection.RemoteIpAddress}", cts.Token),
-						context.WriteAsync(response, headers, cts.Token),
+						context.WriteAsync(response, Formatting.None, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully send a renew password request {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1515,7 +1529,7 @@ namespace net.vieapps.Services.Portals
 
 					await Task.WhenAll
 					(
-						context.WriteAsync(session.GetSessionJson(), headers, cts.Token),
+						context.WriteAsync(session.GetSessionJson(), Formatting.None, headers, cts.Token),
 						Global.IsDebugLogEnabled ? context.WriteLogsAsync(Global.Logger, "Authentications", $"Successfully log a session out {response}") : Task.CompletedTask
 					).ConfigureAwait(false);
 				}
@@ -1929,7 +1943,7 @@ namespace net.vieapps.Services.Portals
 			if (start < 0 && (url.IsStartsWith(Handler.PortalsHttpURI) || url.IsStartsWith(portalsHttpURI)))
 				return false;
 			var end = start > 0 ? url.IndexOf('/', start + 1) : -1;
-			var alias = start < 0 ? null : end > start ? url.Substring(start + 2, end - start - 3) : url.Substring(start + 2);
+			var alias = start < 0 ? null : end > start ? url.Substring(start + 2, end - start - 2) : url.Substring(start + 2);
 			return string.IsNullOrWhiteSpace(alias);
 		}
 
@@ -2269,10 +2283,7 @@ namespace net.vieapps.Services.Portals
 			return identifyJson;
 		}
 
-		public static Task WriteAsync(this HttpContext context, JToken json, Dictionary<string, string> headers, CancellationToken cancellationToken)
-			=> context.WriteAsync(json.ToString(Newtonsoft.Json.Formatting.None), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
-
-		public static Task WriteAsync(this HttpContext context, JToken json, CancellationToken cancellationToken)
-			=> context.WriteAsync(json, null, cancellationToken);
+		public static Task WriteAsync(this HttpContext context, JToken json, Formatting format, Dictionary<string, string> headers, CancellationToken cancellationToken)
+			=> context.WriteAsync(json.ToString(format), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
 	}
 }
