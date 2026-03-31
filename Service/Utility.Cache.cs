@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Repository;
+using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
 #endregion
 
@@ -26,15 +27,17 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool CloudFlareForAll { get; set; } = !string.IsNullOrWhiteSpace(CloudFlareZoneID) && !string.IsNullOrWhiteSpace(CloudFlareApiToken) && "true".IsEquals(UtilityService.GetAppSetting("Portals:CloudFlare:All"));
 
+		public static bool CloudFlarePurgeEverythingOnObject { get; internal set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:CloudFlare:PurgeEverythingOnObject"));
+
 		internal static string RefresherURL { get; set; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
 
 		internal static int RefreshTimeout { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:Timeout"), out var value) && value > 0 ? value : 15;
 
-		internal static int RefreshMaxPage { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage"), out var value) && value > 0 ? value : 10;
+		internal static int RefreshMaxPage { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage"), out var value) && value > 0 ? value : 5;
 
 		internal static int RefreshMaxPageOnMonday { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage:Monday"), out var value) && value > 0 ? value : 30;
 
-		internal static DateTime RefreshMinTime => DateTime.Now.AddDays(0 - (Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxDay"), out var value) && value > 0 ?  value : 30));
+		internal static DateTime RefreshMinTime => DateTime.Now.AddDays(0 - (Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxDay"), out var value) && value > 0 ?  value : 15));
 
 		internal static DateTime RefreshMinTimeOnMonday => DateTime.Now.AddDays(0 - (Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxDay:Monday"), out var value) && value > 0 ? value : 90));
 
@@ -377,9 +380,48 @@ namespace net.vieapps.Services.Portals
 		{
 			if (@object.Organization is Organization organization)
 			{
-				await organization.PurgeCloudFlareCacheAsync([], correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
+				var urls = new[] { organization.URL }.ToList();
+
+				if (@object is Category category)
+				{
+					urls.Add(category.GetURL(true));
+					var parentCategory = category?.ParentCategory;
+					while (parentCategory != null)
+					{
+						urls.Add(parentCategory.GetURL());
+						parentCategory = parentCategory.ParentCategory;
+					}
+				}
+
+				else if (@object is Content content && content.Status.Equals(ApprovalStatus.Published))
+				{
+					urls.AddRange([content.GetURL(), content.Category?.GetURL(false)]);
+					var categories = new[] { content.Category }.ToList();
+					var parentCategory = content.Category?.ParentCategory;
+					while (parentCategory != null)
+					{
+						urls.Add(parentCategory.GetURL());
+						categories.Add(parentCategory);
+						parentCategory = parentCategory.ParentCategory;
+					}
+					categories.ForEach(category => urls.Add(category?.GetURL(true)));
+					(content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).ForEach(category => urls.Add(category?.GetURL(true)));
+				}
+
+				else if (@object is Item item && item.Status.Equals(ApprovalStatus.Published))
+					urls.AddRange([item.GetURL(), item.ContentType?.GetURL(null, true)]);
+
+				else if (@object is Link link)
+					urls.Add(link.URL);
+
+				var (linkURLs, _, _) = await organization.GetRefreshingURLsAsync(true, null, false, false, null).ConfigureAwait(false);
+				urls = urls.Concat(linkURLs).Where(url => !string.IsNullOrWhiteSpace(url) && url.StartsWith("~/")).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+				var siteURL = (organization.DefaultSite?.GetURL() ?? organization.URL.Replace("~/", Utility.PortalsHttpURI)) + "/";
+				await organization.PurgeCloudFlareCacheAsync(Utility.CloudFlarePurgeEverythingOnObject ? [] : urls.Select(url => url.Replace("~/", siteURL)), correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
+
 				if (doRefresh)
-					await organization.RefreshWebPagesAsync([@object.GetURL()], correlationID, "Refresh when purge CloudFlare cache", false, writeLogs, cancellationToken).ConfigureAwait(false);
+					await organization.RefreshWebPagesAsync(urls, false, true, correlationID, "Refresh when purge CloudFlare cache", writeLogs, cancellationToken).ConfigureAwait(false);
 			}
 			onCompleted?.Invoke(@object);
 		}
@@ -389,15 +431,24 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		/// <param name="organization"></param>
 		/// <param name="urls"></param>
-		/// <param name="correlationID"></param>
-		/// <param name="log"></param>
 		/// <param name="force"></param>
+		/// <param name="delayByIndex"></param>
+		/// <param name="correlationID"></param>
+		/// <param name="message"></param>
 		/// <param name="writeLogs"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		public static async Task RefreshWebPagesAsync(this Organization organization, IEnumerable<string> urls, string correlationID, string message, bool force, bool writeLogs, CancellationToken cancellationToken)
+		public static async Task RefreshWebPagesAsync(this Organization organization, IEnumerable<string> urls, bool force, bool delayByIndex, string correlationID, string message, bool writeLogs, CancellationToken cancellationToken)
 		{
-			var query = (force ? "x-force-cache&" : "") + "x-original-correlation-id=" + correlationID;
+			var headers = new Dictionary<string, string>
+			{
+				["x-requester"] = "vieapps-ngx-portals",
+				["x-original-correlation-id"] = correlationID
+			};
+			if (force)
+				headers["x-force-cache"] = "1";
+			else
+				headers["x-sliding-cache"] = "1";
 			var gotCloudFlare = !string.IsNullOrWhiteSpace(organization.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(organization.CloudFlareApiToken);
 			var rootURL = (gotCloudFlare ? (organization.DefaultSite?.GetURL() ?? organization.URL) : organization.URL) + "/";
 			var refreshURLs = (urls ?? [])
@@ -406,7 +457,7 @@ namespace net.vieapps.Services.Portals
 				.SelectMany(url => url)
 				.Select(url =>
 				{
-					var fullURL = url.Replace("~/", rootURL) + (url.IsContains("?") ? "&" : "?") + query;
+					var fullURL = url.Replace("~/", rootURL);
 					return new[] { fullURL, gotCloudFlare && fullURL.IsContains("//www.") ? fullURL.Replace("//www.", "//") : null };
 				})
 				.SelectMany(url => url)
@@ -418,7 +469,7 @@ namespace net.vieapps.Services.Portals
 				writeLogs
 				 ? Utility.WriteLogAsync(correlationID, $"{message ?? $"Refresh URLs of '{organization.Title}' [ID: {organization.ID}]"}\r\nURLs:\r\n- {refreshURLs.Join("\r\n- ")}", "Caches")
 				 : Task.CompletedTask,
-				refreshURLs.ForEachAsync((url, cancellationtoken) => url.RefreshWebPageAsync(0, correlationID, force, cancellationtoken), cancellationToken, true, !force && Utility.RunProcessorInParallelsMode)
+				refreshURLs.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(headers, delayByIndex ? index : 0, correlationID, force, cancellationtoken), cancellationToken, true, !force && Utility.RunProcessorInParallelsMode)
 			).ConfigureAwait(false);
 		}
 
@@ -432,32 +483,35 @@ namespace net.vieapps.Services.Portals
 		/// <param name="force"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		public static Task RefreshWebPagesAsync(this Organization organization, IEnumerable<string> urls, string correlationID, string message, bool force, CancellationToken cancellationToken)
-			=> organization.RefreshWebPagesAsync(urls, correlationID, message, force, false, cancellationToken);
+		public static Task RefreshWebPagesAsync(this Organization organization, IEnumerable<string> urls, bool force, string correlationID, string message, CancellationToken cancellationToken)
+			=> organization.RefreshWebPagesAsync(urls, force, false, correlationID, message, false, cancellationToken);
 
 		/// <summary>
 		/// Refreshs a web-page by specified URL
 		/// </summary>
 		/// <param name="url"></param>
+		/// <param name="headers"></param>
 		/// <param name="delay"></param>
 		/// <param name="correlationID"></param>
 		/// <param name="writeLogs"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		public static async Task RefreshWebPageAsync(this string url, int delay, string correlationID, bool writeLogs, CancellationToken cancellationToken)
+		public static async Task RefreshWebPageAsync(this string url, Dictionary<string, string> headers, int delay, string correlationID, bool writeLogs, CancellationToken cancellationToken)
 		{
 			if (string.IsNullOrWhiteSpace(url) || (!url.IsStartsWith("https://") && !url.IsStartsWith("http://")))
 				return;
 
 			writeLogs = writeLogs || Utility.IsCacheLogEnabled;
 			correlationID = correlationID ?? UtilityService.NewUUID;
+			headers = new Dictionary<string, string>(headers ?? [], StringComparer.OrdinalIgnoreCase);
+			Utility.RefresherHeaders.ForEach(kvp => headers[kvp.Key] = kvp.Value);
 
 			async Task refreshWebPageAsync(Uri uri, bool handleException)
 			{
 				try
 				{
 					var stopwatch = Stopwatch.StartNew();
-					await uri.FetchHttpAsync(Utility.RefresherHeaders, Utility.RefreshTimeout, cancellationToken).ConfigureAwait(false);
+					await uri.FetchHttpAsync(headers, Utility.RefreshTimeout, cancellationToken).ConfigureAwait(false);
 					if (writeLogs)
 						await Utility.WriteLogAsync(correlationID, $"Refresh successful => {uri.AbsoluteUri}\r\nExecution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 				}
@@ -478,7 +532,7 @@ namespace net.vieapps.Services.Portals
 					if (handleException)
 					{
 						if (ex.Code != 522 && !ex.Message.IsContains("No such host is known"))
-							await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [Code: {ex.StatusCode}]{(string.IsNullOrWhiteSpace(ex.Body) ? "" : $"\r\nBody: {ex.Body}")}", "Caches").ConfigureAwait(false);
+							await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({uri.AbsoluteUri}) => {ex.Message} [Code: {ex.StatusCode}]{(string.IsNullOrWhiteSpace(ex.Body) ? "" : $"\r\nBody: {ex.Body}")}", "Caches").ConfigureAwait(false);
 					}
 					else
 						throw;
@@ -488,7 +542,7 @@ namespace net.vieapps.Services.Portals
 					if (handleException)
 					{
 						if (!ex.Message.IsContains("No such host is known"))
-							await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+							await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({uri.AbsoluteUri}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
 					}
 					else
 						throw;
@@ -509,5 +563,17 @@ namespace net.vieapps.Services.Portals
 					await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
 			}
 		}
+
+		/// <summary>
+		/// Refreshs a web-page by specified URL
+		/// </summary>
+		/// <param name="url"></param>
+		/// <param name="delay"></param>
+		/// <param name="correlationID"></param>
+		/// <param name="writeLogs"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static Task RefreshWebPageAsync(this string url, int delay, string correlationID, bool writeLogs, CancellationToken cancellationToken)
+			=> url.RefreshWebPageAsync(null, delay, correlationID, writeLogs, cancellationToken);
 	}
 }
