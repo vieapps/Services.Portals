@@ -323,8 +323,8 @@ namespace net.vieapps.Services.Portals
 							requestInfo.Header["x-rebuild"] = "true";
 							if (DateTime.Now.DayOfWeek == DayOfWeek.Monday)
 							{
-								requestInfo.Header["x-max-page"] = "100";
-								requestInfo.Header["x-min-time"] = DateTime.Now.AddDays(-365 * 3).ToIsoString();
+								requestInfo.Header["x-max-page"] = Utility.RefreshMaxPageOnMonday.ToString();
+								requestInfo.Header["x-min-time"] = Utility.RefreshMinTimeOnMonday.ToIsoString();
 							}
 						})).ConfigureAwait(false);
 					}
@@ -1448,7 +1448,8 @@ namespace net.vieapps.Services.Portals
 			}
 
 			stopwatch.Stop();
-			await requestInfo.WriteLogAsync($"The system was identified - Execution times: {stopwatch.GetElapsedTimes()}{(requestInfo.IsWriteDesktopLogs() ? $"\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identityJson}" : "")}").ConfigureAwait(false);
+			if (requestInfo.IsWriteDesktopLogs())
+				await requestInfo.WriteLogAsync($"The system was identified - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identityJson}").ConfigureAwait(false);
 			return identityJson;
 		}
 
@@ -5976,8 +5977,39 @@ namespace net.vieapps.Services.Portals
 				}.Send());
 			}
 
-			else if (message.Type.IsEquals("PurgeCache") && this.IsRequester)
-				await this.PurgeCloudFlareCacheAsync(message.Data.Get<string>("SystemID"), message.Data.Get<JArray>("URLs").Select(url => (url as JValue).Value.ToString()).ToList()).ConfigureAwait(false);
+			else if (message.Type.IsEquals("Cache#Purge") && this.IsRequester)
+			{
+				var correlationID = UtilityService.NewUUID;
+				var serviceName = message.Data.Get<string>("ServiceName");
+				var objectName = message.Data.Get<string>("ObjectName");
+				var systemID = message.Data.Get<string>("SystemID");
+				var entityInfo = message.Data.Get<string>("EntityInfo");
+				var objectID = message.Data.Get<string>("ObjectID");
+				var urls = message.Data.Get<JArray>("URLs").Select(url => (url as JValue).Value.ToString()).ToList() ?? [];
+
+				var @object = string.IsNullOrWhiteSpace(objectID) || !serviceName.IsEquals(Utility.ServiceName) ? null : await RepositoryMediator.GetAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false);
+				if (@object is IBusinessObject bizObject)
+					await bizObject.PurgeCloudFlareCacheAsync(true, correlationID, false, Utility.CancellationToken).ConfigureAwait(false);
+
+				else
+				{
+					var organization = await (systemID ?? "").GetOrganizationByIDAsync(this.CancellationToken).ConfigureAwait(false);
+					if (organization != null)
+						await organization.PurgeCloudFlareCacheAsync(urls, correlationID, this.IsDebugLogEnabled, this.CancellationToken).ConfigureAwait(false);
+					else
+					{
+						if (Utility.CloudFlareForAll)
+							await urls.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
+						else
+						{
+							var organizations = await Organization.FindAllAsync(false, this.CancellationToken).ConfigureAwait(false);
+							await organizations.ForEachAsync(organization => organization.PurgeCloudFlareCacheAsync([], correlationID, this.IsDebugLogEnabled, this.CancellationToken)).ConfigureAwait(false);
+							if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
+								await urls.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
+						}
+					}
+				}
+			}
 
 			else if (message.Type.IsEquals("Cache#Enable") || message.Type.IsEquals($"{this.ServiceName}#Enable#DataCache"))
 				Utility.IsCacheDisabled = false;
@@ -6034,21 +6066,6 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Working with cache of all organizations
-		async Task PurgeCloudFlareCacheAsync(string systemID, IEnumerable<string> urls)
-		{
-			var correlationID = UtilityService.NewUUID;
-			var organization = await (systemID ?? "").GetOrganizationByIDAsync(this.CancellationToken).ConfigureAwait(false);
-			if (organization != null)
-				await organization.PurgeCloudFlareCacheAsync(urls, correlationID, this.IsDebugLogEnabled, this.CancellationToken).ConfigureAwait(false);
-			else
-			{
-				var organizations = await Organization.FindAllAsync(false, this.CancellationToken).ConfigureAwait(false);
-				await organizations.ForEachAsync(organization => organization.PurgeCloudFlareCacheAsync([], correlationID, this.IsDebugLogEnabled, this.CancellationToken)).ConfigureAwait(false);
-				if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
-					await Array.Empty<string>().PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
-			}
-		}
-
 		async Task ReloadOrganizationsAsync(bool getSchedulingTasks = false)
 		{
 			var organizations = await Organization.FindAllAsync(true, this.CancellationToken).ConfigureAwait(false);

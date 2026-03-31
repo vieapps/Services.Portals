@@ -30,7 +30,13 @@ namespace net.vieapps.Services.Portals
 
 		internal static int RefreshTimeout { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:Timeout"), out var value) && value > 0 ? value : 15;
 
-		internal static int RefreshMaxPage { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage"), out var value) && value > 0 ? value : 20;
+		internal static int RefreshMaxPage { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage"), out var value) && value > 0 ? value : 10;
+
+		internal static int RefreshMaxPageOnMonday { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage:Monday"), out var value) && value > 0 ? value : 30;
+
+		internal static DateTime RefreshMinTime => DateTime.Now.AddDays(0 - (Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxDay"), out var value) && value > 0 ?  value : 30));
+
+		internal static DateTime RefreshMinTimeOnMonday => DateTime.Now.AddDays(0 - (Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxDay:Monday"), out var value) && value > 0 ? value : 90));
 
 		internal static Dictionary<string, string> RefresherHeaders => new()
 		{
@@ -367,10 +373,14 @@ namespace net.vieapps.Services.Portals
 		/// <param name="writeLogs"></param>
 		/// <param name="cancellationToken"></param>
 		/// <returns></returns>
-		public static async Task PurgeCloudFlareCacheAsync(this IBusinessObject @object, string correlationID = null, bool writeLogs = false, CancellationToken cancellationToken = default, Action<IBusinessObject> onCompleted = null)
+		public static async Task PurgeCloudFlareCacheAsync(this IBusinessObject @object, bool doRefresh, string correlationID, bool writeLogs, CancellationToken cancellationToken, Action<IBusinessObject> onCompleted = null)
 		{
 			if (@object.Organization is Organization organization)
+			{
 				await organization.PurgeCloudFlareCacheAsync([], correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
+				if (doRefresh)
+					await organization.RefreshWebPagesAsync([@object.GetURL()], correlationID, "Refresh when purge CloudFlare cache", false, writeLogs, cancellationToken).ConfigureAwait(false);
+			}
 			onCompleted?.Invoke(@object);
 		}
 
@@ -400,7 +410,7 @@ namespace net.vieapps.Services.Portals
 					return new[] { fullURL, gotCloudFlare && fullURL.IsContains("//www.") ? fullURL.Replace("//www.", "//") : null };
 				})
 				.SelectMany(url => url)
-				.Where(url => !string.IsNullOrWhiteSpace(url))
+				.Where(url => !string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("https://") || url.IsStartsWith("http://")))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 			await Task.WhenAll
@@ -436,6 +446,9 @@ namespace net.vieapps.Services.Portals
 		/// <returns></returns>
 		public static async Task RefreshWebPageAsync(this string url, int delay, string correlationID, bool writeLogs, CancellationToken cancellationToken)
 		{
+			if (string.IsNullOrWhiteSpace(url) || (!url.IsStartsWith("https://") && !url.IsStartsWith("http://")))
+				return;
+
 			writeLogs = writeLogs || Utility.IsCacheLogEnabled;
 			correlationID = correlationID ?? UtilityService.NewUUID;
 
@@ -464,7 +477,7 @@ namespace net.vieapps.Services.Portals
 				{
 					if (handleException)
 					{
-						if (ex.Code != 522)
+						if (ex.Code != 522 && !ex.Message.IsContains("No such host is known"))
 							await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [Code: {ex.StatusCode}]{(string.IsNullOrWhiteSpace(ex.Body) ? "" : $"\r\nBody: {ex.Body}")}", "Caches").ConfigureAwait(false);
 					}
 					else
@@ -473,7 +486,10 @@ namespace net.vieapps.Services.Portals
 				catch (Exception ex)
 				{
 					if (handleException)
-						await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+					{
+						if (!ex.Message.IsContains("No such host is known"))
+							await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+					}
 					else
 						throw;
 				}
@@ -489,7 +505,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (ex is RemoteServerMovedException rsme && rsme.InnerException is not ServiceOperationException && rsme.InnerException is not ServiceNotFoundException)
 					await refreshWebPageAsync(rsme.URI, true).ConfigureAwait(false);
-				else
+				else if (!ex.Message.IsContains("No such host is known"))
 					await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
 			}
 		}
