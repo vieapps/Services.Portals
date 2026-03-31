@@ -65,7 +65,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool AllowCache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow", "true"));
 
-		internal static bool AllowL2CacheInBytes { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow:BytesL2Cache"));
+		internal static bool AllowBytesL2Cache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow:BytesL2Cache"));
 
 		internal static int CacheMaxAge { get; set; }
 
@@ -519,6 +519,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// process with cache
+					var maxAge = Handler.CacheMaxAge * 60;
 					if (Handler.AllowCache && !isForceCacheRequested && !context.IsAuthenticated())
 					{
 						var cacheKey = "";
@@ -697,64 +698,85 @@ namespace net.vieapps.Services.Portals
 								return;
 							}
 
-							// prepare cacheing data
+							// fetch
 							stepwatch.Restart();
-							var cachedBody = await Handler.Cache.GetAsync(cacheKey, cts.Token).ConfigureAwait(false);
 							var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
-							byte[] body = null;
-							lastModified ??= (cachedBody != null ? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) : null) ?? DateTime.Now.ToHttpString();
-							var maxAge = Handler.CacheMaxAge * 60;
-							var expiresAt = !isBase64 && isHtml && cachedBody != null ? await Handler.Cache.GetAsync<string>($"{cacheKey}:expiration", cts.Token).ConfigureAwait(false) : null;
+							var cacheKeyOfLastModified = $"{cacheKey}:time";
+							var cacheKeyOfExpiration = $"{cacheKey}:expiration";
+							var cached = await Handler.Cache.GetAsync(cacheKey, cts.Token).ConfigureAwait(false);
+							lastModified ??= (cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false) : null) ?? DateTime.Now.ToHttpString();
+							var expirationTime = Handler.Cache.ExpirationTime;
+							var expiresAt = !isBase64 && isHtml && cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfExpiration, cts.Token).ConfigureAwait(false) : null;
 							if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
 							{
+								expirationTime = (expiresAtTime - DateTime.Now).TotalMinutes.As<int>();
 								expires = expiresAtTime;
 								maxAge = (int)expires.GetTotalSecondsToNow();
 							}
 
-							// caching data is string (raw)
-							if (cachedBody is string cached)
+							// sliding cache
+							if (cached != null && context.ContainsKey("x-sliding-cache"))
+							{
+								var items = new Dictionary<string, object>
+								{
+									[cacheKey] = cached,
+									[cacheKeyOfLastModified] = lastModified
+								};
+								if (expiresAt != null)
+									items[cacheKeyOfExpiration] = expires.ToIsoString(true);
+								Handler.Cache.SetAsync(items, null, expirationTime, Global.CancellationToken).Execute();
+							}
+
+							// prepare body
+							byte[] body = null;
+							if (cached is string cachedBody)
 							{
 								if (isCacheLogEnabled)
-									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey}){(isHtml ? $"\r\n\r\nRaw cache:\r\n{cached}" : "")}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache was found ({cacheKey}){(isHtml ? $"\r\n\r\nRaw cache:\r\n{cachedBody}" : "")}").ConfigureAwait(false);
 
-								cached = isBase64 ? cached : cached.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
+								cachedBody = isBase64 ? cachedBody : cachedBody.Replace("~#/", $"{portalsHttpURI}/").Replace("~~~/", $"{portalsHttpURI}/").Replace("~~/", $"{filesHttpURI}/").Replace("~/", rootURL);
 								if (isHtml)
 								{
-									cached = context.NormalizeHtml(cached, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL);
-									cached = cached.Insert(cached.PositionOf("</body>"), "<script src=\"/~hits/js\"></script>");
+									cachedBody = context.NormalizeHtml(cachedBody, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL);
+									cachedBody = cachedBody.Insert(cachedBody.PositionOf("</body>"), "<script src=\"/~hits/js?l=" + (Handler.AllowBytesL2Cache ? "1.4" : "2") + "&v=" + cacheKey.ToList(":").Last() + "\"></script>");
 								}
 
-								body = isBase64 ? cached.Base64ToBytes() : cached.ToBytes();
+								body = isBase64 ? cachedBody.Base64ToBytes() : cachedBody.ToBytes();
+
 								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
 								{
 									if (Handler.Cache.UseL1Cache)
 										context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
-									else if (Handler.AllowL2CacheInBytes && baseURL == "")
+									else if (Handler.AllowBytesL2Cache && baseURL == "")
 									{
 										await Handler.Cache.SetAsync(cacheKey, body, cts.Token).ConfigureAwait(false);
-										if (isVisitLogEnabled)
+										if (isCacheLogEnabled)
 											await context.WriteLogsAsync("Http.Process.Requests", $"Update CMS Portals service cache (L2) was by bytes was done ({cacheKey})").ConfigureAwait(false);
 									}
 								}
 
-								stepwatch.Stop();
 								if (isVisitLogEnabled)
-									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(isCacheLogEnabled && isHtml ? $"\r\n\r\nNormalized cache:\r\n{cached}" : "")}").ConfigureAwait(false);
+									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(isCacheLogEnabled && isHtml ? $"\r\n\r\nNormalized cache:\r\n{cachedBody}" : "")}").ConfigureAwait(false);
 							}
+							else if (cached != null && Handler.AllowBytesL2Cache)
+							{
+								if (isCacheLogEnabled)
+									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache (L2) was found ({cacheKey})").ConfigureAwait(false);
 
-							// caching data is binary
-							else if (cachedBody != null && Handler.AllowL2CacheInBytes)
-							{								
 								if (isHtml && baseURL != "")
 								{
-									var html = context.NormalizeHtml(cachedBody.As<byte[]>().GetString(), alwaysUseHTTPs, alwaysReturnHTTPs, baseURL);
+									var html = context.NormalizeHtml(cached.As<byte[]>().GetString(), alwaysUseHTTPs, alwaysReturnHTTPs, baseURL);
 									html = html.Replace("href=\"//", "href=\"#/");
 									html = html.Replace("href=\"/", "href=\"").Replace("href=\"#/", "href=\"//");
-									html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js\"></script>");
+									if (html.IsContains("/~hits/js?l=1.4"))
+										html = html.Replace("/~hits/js?l=1.4", "/~hits/js?l=1.8");
+									else
+										html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=1.8&v=" + cacheKey.ToList(":").Last() + "\"></script>");
 									body = html.ToBytes();
 								}
 								else
-									body = cachedBody.As<byte[]>();
+									body = cached.As<byte[]>();
+
 								if (isVisitLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache (L2) was done => FOUND ({cacheKey}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 							}
@@ -763,8 +785,8 @@ namespace net.vieapps.Services.Portals
 							if (body != null)
 							{
 								headers["Last-Modified"] = lastModified;
-								headers["Expires"] = expires.ToHttpString();
-								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(maxAge) : context.GetHttpCacheControl();
+								headers["Expires"] = expires.AddMinutes(-15).ToHttpString();
+								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(maxAge - (15 * 60)) : context.GetHttpCacheControl();
 								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 								await context.WriteAsync(body, headers, cts.Token).ConfigureAwait(false);
 								return;
@@ -793,7 +815,7 @@ namespace net.vieapps.Services.Portals
 
 						var isHtml = headers.TryGetValue("Content-Type", out var contentType) && contentType.IsStartsWith("text/html");
 						if (!headers.TryGetValue("Cache-Control", out var cacheControl))
-							cacheControl = isHtml ? context.GetHttpCacheControl(Handler.CacheMaxAge * 60) : context.GetHttpCacheControl();
+							cacheControl = isHtml ? context.GetHttpCacheControl(maxAge - (15 * 60)) : context.GetHttpCacheControl();
 						if (isForceCacheRequested || isRefresher || context.IsAuthenticated())
 							cacheControl = context.GetHttpCacheControl(true);
 						
@@ -814,7 +836,7 @@ namespace net.vieapps.Services.Portals
 							if (isHtml)
 							{
 								var html = body.GetString();
-								html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js\"></script>");
+								html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=svc&v=" + requestURI.AbsoluteUri.GenerateUUID() + "\"></script>");
 								body = html.ToBytes();
 							}
 							await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
@@ -1948,33 +1970,25 @@ namespace net.vieapps.Services.Portals
 		async Task ProcessJavascriptRequestAsync(HttpContext context)
 		{
 			var session = context.GetSession();
-			var isMobile = string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true";
-			var osInfo = (session.AppAgent ?? "").GetOSInfo();
-			var scripts = $"__vieapps.isMobile={isMobile};__vieapps.osInfo=\"{osInfo}\";"
-				+ "setTimeout(() => __vieapps.utils.ajax('/~hits/tk', undefined, undefined, 'POST', { url:'" + context.GetReferUrl() + "' }), 6789);";
+			var scripts = $"__vieapps.isMobile={(string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true")};__vieapps.osInfo='{(session.AppAgent ?? "").GetOSInfo()}';"
+				+ "setTimeout(()=>__vieapps.utils.ajax('/~hits/tk?v=" + UtilityService.NewUUID + "',undefined,undefined,'POST',{url:'" + (context.GetReferUrl() ?? Handler.PortalsHttpURI) + "'}),6789);";
 			await context.WriteAsync(scripts, "application/javascript", new Dictionary<string, string> { ["Cache-Control"] = context.GetHttpCacheControl(true) }, context.RequestAborted).ConfigureAwait(false);
 		}
 
 		async Task ProcessTrackingRequestAsync(HttpContext context)
 		{
 			await context.WriteAsync(new JObject { ["CorrelationID"] = context.GetCorrelationID() }, Formatting.None, null, context.RequestAborted).ConfigureAwait(false);
-			var requestBody = await context.ReadJsonAsync(context.RequestAborted).ConfigureAwait(false);
-			var requestURI = context.GetRequestUri();
-			var requestURL = requestBody?.Get<string>("url") ?? context.GetReferUrl() ?? requestURI.AbsoluteUri;
-			var serviceSystemID = string.Empty;
-			if (Handler.TrackSessions)
+			try
 			{
-				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					["x-url"] = requestURL,
-					["x-host"] = context.GetParameter("Host") ?? requestURI.Host,
-					["x-requester"] = context.GetParameter("x-requester") ?? "vieapps-ngx-portals"
-				};
-				var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", null, headers, null, null, context.GetCorrelationID());
-				var systemIdentityJson = await context.IdentifySystemAsync(requestInfo, context.RequestAborted).ConfigureAwait(false);
-				serviceSystemID = systemIdentityJson?.Get<string>("ID");
+				var requestBody = await context.ReadJsonAsync(context.RequestAborted).ConfigureAwait(false);
+				var requestURL = requestBody?.Get<string>("url") ?? context.GetReferUrl() ?? context.GetRequestUri().AbsoluteUri;
+				var serviceSystemID = await context.GetSystemIDAsync(new Uri(requestURL)).ConfigureAwait(false);
+				context.SendSessionState(Global.ServiceName + ".HTTP", $"GET {requestURL}", serviceSystemID, true, Handler.TrackPortalStatistics);
 			}
-			context.SendSessionState(Global.ServiceName + ".HTTP", $"GET {requestURL}", serviceSystemID, true, Handler.TrackPortalStatistics);
+			catch (Exception ex)
+			{
+				await context.WriteLogsAsync("Tracks", $"Error occurred while tracking => {ex.Message}", ex).ConfigureAwait(false);
+			}
 		}
 	}
 
@@ -2005,40 +2019,71 @@ namespace net.vieapps.Services.Portals
 
 	internal static class HandlerExtentions
 	{
-		public static string GetBaseURL(this Uri baseURI, string systemIdentity, string baseHost = null)
-			=> baseURI.AbsolutePath.IsStartsWith($"/~{systemIdentity}") ? $"{baseURI.Scheme}://{baseHost ?? baseURI.Host}/~{systemIdentity}/" : "";
+		public static string GetBaseURL(this Uri requestURI, string systemIdentity, string baseHost = null)
+			=> requestURI.AbsolutePath.IsStartsWith($"/~{systemIdentity}") ? $"{requestURI.Scheme}://{baseHost ?? requestURI.Host}/~{systemIdentity}/" : "";
 
-		public static string GetRootURL(this Uri baseURI, string systemIdentity, bool useShortURLs = true, string baseHost = null)
+		public static string GetRootURL(this Uri requestURI, string systemIdentity, bool useShortURLs = true, string baseHost = null)
 		{
-			var baseURL = baseURI.GetBaseURL(systemIdentity, baseHost);
+			var baseURL = requestURI.GetBaseURL(systemIdentity, baseHost);
 			return useShortURLs ? baseURL != "" ? "" : "/" : baseURL;
+		}
+
+		public static string GetSystemIdentity(this Uri requestURI)
+		{
+			var start = requestURI.AbsolutePath.IndexOf("/~");
+			var end = start > -1 ? requestURI.AbsolutePath.IndexOf('/', start + 1) : -1;
+			return start < 0 ? null : end > start ? requestURI.AbsolutePath.Substring(start + 2, end - start - 2) : requestURI.AbsolutePath.Substring(start + 2);
+		}
+
+		public static async Task<string> GetSystemIDAsync(this HttpContext context, Uri requestURI)
+		{
+			string systemID = null;
+			try
+			{
+				var requestURL = requestURI.AbsoluteUri;
+				if (!requestURL.IsContains("/_css/") && !requestURL.IsContains("/_js/") && !requestURL.IsContains("/_themes/") && !requestURL.IsContains("/_assets/"))
+				{
+					var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+					{
+						["x-url"] = requestURL,
+						["x-host"] = requestURI.Host,
+						["x-system"] = requestURI.GetSystemIdentity(),
+						["x-requester"] = context.GetParameter("x-requester") ?? "vieapps-ngx-portals"
+					};
+					var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", null, headers, null, null, context.GetCorrelationID());
+					var systemIdentityJson = await context.IdentifySystemAsync(requestInfo, context.RequestAborted).ConfigureAwait(false);
+					systemID = systemIdentityJson?.Get<string>("ID");
+				}
+			}
+			catch { }
+			return systemID;
 		}
 
 		public static bool IsL1CacheAvailable(this HttpContext context, string portalsHttpURI = null)
 		{
 			var requestURI = context.GetRequestUri();
-			var requestURL = requestURI.GetUrl();
-			var start = requestURI.AbsolutePath.IndexOf("/~");
-			if (start < 0 && (requestURL.IsStartsWith(Handler.PortalsHttpURI) || requestURL.IsStartsWith(portalsHttpURI)))
+			var requestURL = requestURI.AbsoluteUri.Replace("http://", "https://");
+			if (requestURL.IsContains("/_css/") || requestURL.IsContains("/_js/") || requestURL.IsContains("/_themes/") || requestURL.IsContains("/_assets/"))
+				return true;
+			if (requestURI.AbsolutePath.IndexOf("/~") < 0 && (requestURL.IsStartsWith(Handler.PortalsHttpURI) || requestURL.IsStartsWith(portalsHttpURI)))
 				return false;
-			var end = start > 0 ? requestURI.AbsolutePath.IndexOf('/', start + 1) : -1;
-			var systemIdentity = start < 0 ? null : end > start ? requestURI.AbsolutePath.Substring(start + 2, end - start - 2) : requestURI.AbsolutePath.Substring(start + 2);
-			return requestURI.GetBaseURL(systemIdentity) == "";
+			var systemIdentity = requestURI.GetSystemIdentity();
+			return systemIdentity == null || requestURI.GetBaseURL(systemIdentity) == "";
 		}
 
 		public static async Task<bool> ProcessL1CacheAsync(this HttpContext context, bool isForceCacheRequested, Stopwatch stopwatch)
 		{
 			var stepwatch = Stopwatch.StartNew();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs") || context.ContainsKey("x-cache-logs");
-			var url = context.GetRequestUrl();
 
-			if (!Handler.Cache.UseL1Cache || isForceCacheRequested || !context.IsL1CacheAvailable())
+			if (!Handler.Cache.UseL1Cache || !context.IsL1CacheAvailable() || isForceCacheRequested || context.ContainsKey("x-sliding-cache"))
 			{
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache [{!Handler.Cache.UseL1Cache}/{isForceCacheRequested}] => {url}").ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache").ConfigureAwait(false);
 				return false;
 			}
 
+			var url = context.GetRequestUrl();
 			var gotWWW = url.IndexOf("//www.") > 0;
 			var originIsRequired = Handler.CrossOrigin.IsEquals("use-credentials");
 
@@ -2123,13 +2168,16 @@ namespace net.vieapps.Services.Portals
 					else
 					{
 						cachedBody = cachedBody.Replace("~#/", info.PortalsURL + "/").Replace("~~~/", info.PortalsURL + "/").Replace("~~/", info.FilesURL + "/").Replace("~/", "/");
-						cachedBody = context.NormalizeHtml(cachedBody, info.AlwaysUseHTTPs, info.AlwaysReturnHTTPs);
-						cachedBody = cachedBody.Insert(cachedBody.PositionOf("</body>"), "<script src=\"/~hits/js\"></script>");
+						if (isHtml)
+						{
+							cachedBody = context.NormalizeHtml(cachedBody, info.AlwaysUseHTTPs, info.AlwaysReturnHTTPs);
+							cachedBody = cachedBody.Insert(cachedBody.PositionOf("</body>"), "<script src=\"/~hits/js?l=1&v=" + info.BodyCacheKey.ToList(":").Last() + "\"></script>");
+						}
 						body = cachedBody.ToBytes();
 					}
 					Handler.Cache.SetL1CacheItem(info.BodyCacheKey + (originIsRequired && gotWWW ? ":WWW" : ""), body);
 					if (isDebugLogEnabled)
-						await context.WriteLogsAsync("Http.Process.Requests", $"Update L1-Cache (bytes) successful ({info.BodyCacheKey} -> {body.Length}) [{context.GetL1CacheKey()} => {context.GetRequestUrl()}]").ConfigureAwait(false);
+						await context.WriteLogsAsync("Http.Process.Requests", $"Update L1-Cache (bytes) successful ({info.BodyCacheKey} - {body.Length} bytes) [{context.GetL1CacheKey()} => {context.GetRequestUrl()}]").ConfigureAwait(false);
 				}
 				else
 					body = cached.As<byte[]>();
@@ -2256,22 +2304,9 @@ namespace net.vieapps.Services.Portals
 
 		public static async Task SendSessionStateAsync(this HttpContext context, bool online, bool trackStatistics)
 		{
-			var serviceSystemID = string.Empty;
 			var requestURI = context.GetRequestUri();
-			var requestURL = requestURI.AbsoluteUri;
-			if (Handler.TrackSessions && !requestURL.IsContains("/_css/") && !requestURL.IsContains("/_js/") && !requestURL.IsContains("/_themes/") && !requestURL.IsContains("/_assets/"))
-			{
-				var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					["x-url"] = requestURL,
-					["x-host"] = context.GetParameter("Host") ?? requestURI.Host,
-					["x-requester"] = context.GetParameter("x-requester") ?? "vieapps-ngx-portals"
-				};
-				var requestInfo = new RequestInfo(context.GetSession(), "Portals", "Identify.System", "GET", null, headers, null, null, context.GetCorrelationID());
-				var systemIdentityJson = await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
-				serviceSystemID = systemIdentityJson?.Get<string>("ID");
-			}
-			context.SendSessionState(Global.ServiceName + ".HTTP", $"{context.Request.Method} {requestURL}", serviceSystemID, online, trackStatistics);
+			var serviceSystemID = await context.GetSystemIDAsync(requestURI).ConfigureAwait(false);
+			context.SendSessionState(Global.ServiceName + ".HTTP", $"{context.Request.Method} {requestURI.AbsoluteUri}", serviceSystemID, online, trackStatistics);
 		}
 
 		public static string NormalizeHtml(this HttpContext context, string html, bool alwaysUseHTTPs, bool alwaysReturnHTTPs, string baseURL = null)
@@ -2329,14 +2364,14 @@ namespace net.vieapps.Services.Portals
 			var requestURI = context.GetRequestUri();
 			var requestHost = requestURI.Host.Replace("www.", "");
 			var useL1Cache = Handler.Cache.UseL1Cache && context.IsL1CacheAvailable();
-			var identifyJson = useL1Cache ? Handler.Cache.GetL1CacheItem<JObject>(requestHost) : null;
-			if (identifyJson == null)
+			var systemIdentityJson = useL1Cache ? Handler.Cache.GetL1CacheItem<JObject>(requestHost) : null;
+			if (systemIdentityJson == null)
 			{
-				identifyJson = await context.CallServiceAsync(requestInfo, cancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
-				if (identifyJson != null && useL1Cache)
+				systemIdentityJson = await context.CallServiceAsync(requestInfo, cancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+				if (systemIdentityJson != null && useL1Cache)
 				{
 					var updateL1Cache = true;
-					var examinations = identifyJson.Get<JArray>("CacheExaminations")?.Select(examination => examination as JObject)
+					var examinations = systemIdentityJson.Get<JArray>("CacheExaminations")?.Select(examination => examination as JObject)
 						.Select(examination => examination?.Copy<Settings.ExamineURLs>())
 						.Where(examination => examination != null)
 						.ToList();
@@ -2348,19 +2383,19 @@ namespace net.vieapps.Services.Portals
 					}
 					if (updateL1Cache)
 					{
-						Handler.Cache.SetL1CacheItem(requestHost, identifyJson, TimeSpan.FromMinutes(3));
+						Handler.Cache.SetL1CacheItem(requestHost, systemIdentityJson, TimeSpan.FromMinutes(3));
 						new CommunicateMessage(Global.ServiceName + ".HTTP.L1Cache")
 						{
 							ExcludedNodeID = Global.NodeID,
 							Type = requestHost + "#3",
-							Data = identifyJson
+							Data = systemIdentityJson
 						}.Send(Router.GotBackupRouter());
 						if (Global.IsDebugLogEnabled || context.ContainsKey("x-logs"))
-							await context.WriteLogsAsync("Http.Process.Requests", $"Update identify info to L1-Cache successful\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identifyJson}").ConfigureAwait(false);
+							await context.WriteLogsAsync("Http.Process.Requests", $"Update identify info to L1-Cache successful\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {systemIdentityJson}").ConfigureAwait(false);
 					}
 				}
 			}
-			return identifyJson;
+			return systemIdentityJson;
 		}
 
 		public static Task WriteAsync(this HttpContext context, JToken json, Formatting format, Dictionary<string, string> headers, CancellationToken cancellationToken)
