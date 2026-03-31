@@ -166,7 +166,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh)
-				await expression.Organization.RefreshWebPagesAsync([expression.Organization.URL], correlationID, $"Refresh when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]", true, cancellationToken).ConfigureAwait(false);
+				await expression.Organization.RefreshWebPagesAsync([expression.Organization.URL], true, correlationID, $"Refresh when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]", cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static Task ClearCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)

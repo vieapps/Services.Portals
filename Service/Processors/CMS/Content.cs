@@ -107,7 +107,7 @@ namespace net.vieapps.Services.Portals
 					.Where(url => url != null)
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList();
-				await content.Organization.RefreshWebPagesAsync(urls, correlationID, (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]", force, writeLogs, cancellationToken).ConfigureAwait(false);
+				await content.Organization.RefreshWebPagesAsync(urls, force, false, correlationID, (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]", writeLogs, cancellationToken).ConfigureAwait(false);
 			}
 			return content;
 		}

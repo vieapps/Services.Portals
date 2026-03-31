@@ -333,7 +333,7 @@ namespace net.vieapps.Services.Portals
 			{
 				await category.PurgeCloudFlareCacheAsync(false, correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => category.GetURL().RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()).ConfigureAwait(false);
 				if (doRefresh)
-					await category.Organization.RefreshWebPagesAsync([category.Organization.URL, category.GetURL(true)], correlationID, $"Refresh when clear related cache of a category [{category.Title} - ID: {category.ID}]", true, cancellationToken).ConfigureAwait(false);
+					await category.Organization.RefreshWebPagesAsync([category.Organization.URL, category.GetURL(true)], true, correlationID, $"Refresh when clear related cache of a category [{category.Title} - ID: {category.ID}]", cancellationToken).ConfigureAwait(false);
 			}
 		}
 

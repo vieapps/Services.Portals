@@ -592,14 +592,19 @@ namespace net.vieapps.Services.Portals
 						var rootURL = (string.IsNullOrWhiteSpace(schedulingTask.Organization.CloudFlareZoneID) || string.IsNullOrWhiteSpace(schedulingTask.Organization.CloudFlareApiToken)
 							? schedulingTask.Organization.URL
 							: (schedulingTask.Organization.DefaultSite?.GetURL() ?? schedulingTask.Organization.URL)) + "/";
-						var query = "x-force-cache&x-no-purge&x-original-correlation-id=" + correlationID;
+						var headers = new Dictionary<string, string>
+						{
+							["x-force-cache"] = "1",
+							["x-no-purge"] = "1",
+							["x-requester"] = "vieapps-ngx-portals",
+							["x-original-correlation-id"] = correlationID
+						};
 						var urls = await schedulingTask.Organization.GetRefreshingURLsAsync(json?.Get<JArray>("URLs")?.Select(value => value as JValue).Select(value => value.ToString()) ?? []).ConfigureAwait(false);
 						await urls.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL))
 							.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
-							.Select(url => url + (url.IndexOf("?") > 0 ? "&" : "?") + query)
 							.Distinct(StringComparer.OrdinalIgnoreCase)
 							.ToList()
-							.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(index, correlationID, false, cancellationtoken), cancellationToken, true, false).ConfigureAwait(false);
+							.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(headers, index, correlationID, false, cancellationtoken), cancellationToken, true, false).ConfigureAwait(false);
 					}
 				}
 				catch (Exception ex)
@@ -631,7 +636,7 @@ namespace net.vieapps.Services.Portals
 								.ToList();
 					}, true, false).ConfigureAwait(false);
 
-					await schedulingTask.Organization.RefreshWebPagesAsync(refreshingURLs, correlationID, null, false, cancellationToken).ConfigureAwait(false);
+					await schedulingTask.Organization.RefreshWebPagesAsync(refreshingURLs, false, correlationID, null, cancellationToken).ConfigureAwait(false);
 					stepwatch.Stop();
 					if (Utility.IsDebugLogEnabled)
 						await Utility.WriteLogAsync(correlationID, $"Force refresh all pre-defined URLs of '{schedulingTask.Organization.Title}' successful - Execution times: {stepwatch.GetElapsedTimes()}\r\nURLs:\r\n\t- {refreshingURLs.Join("\r\n\t- ")}", "Tasks").ConfigureAwait(false);

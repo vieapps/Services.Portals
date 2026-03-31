@@ -200,7 +200,7 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
 				doRefresh && (contentType.Organization.ExamineURLs == null || contentType.Organization.ExamineURLs.Count < 1)
-					? contentType.Organization.RefreshWebPagesAsync([contentType.Organization.URL], correlationID, $"Refresh when clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID}]", true, cancellationToken)
+					? contentType.Organization.RefreshWebPagesAsync([contentType.Organization.URL], true, correlationID, $"Refresh when clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID}]", cancellationToken)
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 		}

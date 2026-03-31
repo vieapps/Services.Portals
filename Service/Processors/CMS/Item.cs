@@ -127,7 +127,7 @@ namespace net.vieapps.Services.Portals
 						.Where(url => url != null)
 						.Distinct(StringComparer.OrdinalIgnoreCase)
 						.ToList();
-					await item.Organization.RefreshWebPagesAsync(urls, correlationID, $"Refresh when a CMS item was clean [{item.Title} - ID: {item.ID}]", true, cancellationToken).ConfigureAwait(false);
+					await item.Organization.RefreshWebPagesAsync(urls, true, correlationID, $"Refresh when a CMS item was clean [{item.Title} - ID: {item.ID}]", cancellationToken).ConfigureAwait(false);
 				}
 			}
 		}
