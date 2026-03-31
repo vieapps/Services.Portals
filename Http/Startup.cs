@@ -182,6 +182,9 @@ namespace net.vieapps.Services.Portals
 			// MCP pipeline
 			appBuilder.Map("/~mcp", pipeline => pipeline.UseMiddleware<Starter>().UseMiddleware<Authenticator>(false, true).UseMiddleware<McpHandler>());
 
+			// visit tracker
+			appBuilder.Map("/~hits", pipeline => pipeline.UseMiddleware<Starter>().UseMiddleware<Authenticator>().UseMiddleware<Tracker>());
+
 			// main pipeline
 			appBuilder
 				.UseSession()
