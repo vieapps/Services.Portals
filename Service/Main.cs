@@ -754,7 +754,7 @@ namespace net.vieapps.Services.Portals
 
 					case "cache":
 					case "caches":
-						json = requestInfo.ContainsKey("x-rebuild")
+						json = requestInfo.ContainsKey("x-rebuild") || requestInfo.ContainsKey("x-stop")
 							? await this.RebuildOrganizationsCacheAsync(requestInfo).ConfigureAwait(false)
 							: await this.ClearCacheAsync(requestInfo, cts.Token).ConfigureAwait(false);
 						break;
@@ -6334,7 +6334,7 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 				await Task.WhenAll
 				(
-					site.Organization.RefreshWebPagesAsync([site.Organization.URL, $"{site.Organization.URL}/index{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}", desktop == null ? "" : $"~/{desktop.Alias}{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"], correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]", true, cancellationToken),
+					site.Organization.RefreshWebPagesAsync([site.Organization.URL, $"{site.Organization.URL}/index{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}", desktop == null ? "" : $"~/{desktop.Alias}{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"], true, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]", cancellationToken),
 					site.Organization.PurgeCloudFlareCacheAsync([], correlationID, Utility.IsCacheLogEnabled, cancellationToken)
 				).ConfigureAwait(false);
 			}
