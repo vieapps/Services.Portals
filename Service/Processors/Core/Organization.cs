@@ -1251,7 +1251,7 @@ namespace net.vieapps.Services.Portals
 				if (!Int32.TryParse(requestInfo.GetParameter("x-max-page"), out var maxPage) || maxPage < 0)
 					maxPage = Utility.RefreshMaxPage;
 				if (!DateTime.TryParse(requestInfo.GetParameter("x-min-time"), out var minTime))
-					minTime = DateTime.Now.AddDays(-90);
+					minTime = Utility.RefreshMinTime;
 				organization.RebuildCacheAsync(done, maxPage, minTime, requestInfo.CorrelationID, requestInfo.ContainsKey("x-logs"), cancellationToken).Execute();
 			}
 			return Task.FromResult(new JObject { ["CorrelationID"] = requestInfo.CorrelationID });

@@ -119,7 +119,7 @@ namespace net.vieapps.Services.Portals
 			if (item != null)
 			{
 				var url = item.GetURL();
-				await item.PurgeCloudFlareCacheAsync(correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => url.RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()).ConfigureAwait(false);
+				await item.PurgeCloudFlareCacheAsync(false, correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => url.RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()).ConfigureAwait(false);
 				if (doRefresh)
 				{
 					var urls = new[] { item.Status.Equals(ApprovalStatus.Published) ? url : null }

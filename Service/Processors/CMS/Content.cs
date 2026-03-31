@@ -168,7 +168,7 @@ namespace net.vieapps.Services.Portals
 			if (content != null)
 				await Task.WhenAll
 				(
-					content.PurgeCloudFlareCacheAsync(correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => content.GetURL().RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()),
+					content.PurgeCloudFlareCacheAsync(false, correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => content.GetURL().RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()),
 					doRefresh
 						? content.RefreshAsync(false, cancellationToken, true, writeLogs, correlationID, "Refresh when related cache of a CMS content was clean")
 						: Task.CompletedTask

@@ -331,7 +331,7 @@ namespace net.vieapps.Services.Portals
 
 			if (category != null && category.Organization != null && (category.Organization.ExamineURLs == null || category.Organization.ExamineURLs.Count < 1))
 			{
-				await category.PurgeCloudFlareCacheAsync(correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => category.GetURL().RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()).ConfigureAwait(false);
+				await category.PurgeCloudFlareCacheAsync(false, correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => category.GetURL().RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()).ConfigureAwait(false);
 				if (doRefresh)
 					await category.Organization.RefreshWebPagesAsync([category.Organization.URL, category.GetURL(true)], correlationID, $"Refresh when clear related cache of a category [{category.Title} - ID: {category.ID}]", true, cancellationToken).ConfigureAwait(false);
 			}
