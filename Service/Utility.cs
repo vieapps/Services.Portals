@@ -19,6 +19,7 @@ using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Settings;
+using System.Runtime.CompilerServices;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -888,6 +889,17 @@ namespace net.vieapps.Services.Portals
 			=> baseURI != null && (baseURI.AbsoluteUri.IsStartsWith(Utility.PortalsHttpURI) || baseURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI) || baseURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI));
 
 		/// <summary>
+		/// Gets the base URL for working with an organizations' resources
+		/// </summary>
+		/// <param name="baseURI"></param>
+		/// <param name="systemIdentity"></param>
+		/// <param name="useShortURLs"></param>
+		/// <param name="baseHost"></param>
+		/// <returns></returns>
+		public static string GetBaseURL(this Uri baseURI, string systemIdentity, string baseHost = null)
+			=> baseURI.AbsolutePath.IsStartsWith($"/~{systemIdentity}")	? $"{baseURI.Scheme}://{baseHost ?? baseURI.Host}/~{systemIdentity}/" : "";
+
+		/// <summary>
 		/// Gets the root URL for working with an organizations' resources
 		/// </summary>
 		/// <param name="baseURI"></param>
@@ -895,10 +907,11 @@ namespace net.vieapps.Services.Portals
 		/// <param name="useShortURLs"></param>
 		/// <param name="baseHost"></param>
 		/// <returns></returns>
-		public static string GetRootURL(this Uri baseURI, string systemIdentity, bool useShortURLs = false, string baseHost = null)
-			=> useShortURLs
-				? baseURI.IsPortalsHttpURI() ? "" : "/"
-				: baseURI.IsPortalsHttpURI() ? $"{Utility.PortalsHttpURI}/~{systemIdentity}/" : $"{baseURI.Scheme}://{baseHost ?? baseURI.Host}/";
+		public static string GetRootURL(this Uri baseURI, string systemIdentity, bool useShortURLs = true, string baseHost = null)
+		{
+			var baseURL = baseURI.GetBaseURL(systemIdentity, baseHost);
+			return useShortURLs ? baseURL != "" ? "" : "/" : baseURL;
+		}
 
 		/// <summary>
 		/// Normalizes all URLs of a HTML content
@@ -962,8 +975,12 @@ namespace net.vieapps.Services.Portals
 
 			html = html.NormalizeURLs(forDisplaying ? requestURI.GetRootURL(systemIdentity, useShortURLs, baseHost) : requestURI.GetRootURL(systemIdentity, useShortURLs, baseHost), forDisplaying, filesHttpURI, portalsHttpURI);
 
-			if (forDisplaying && useShortURLs && requestURI.IsPortalsHttpURI())
-				html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{Utility.PortalsHttpURI}/~{systemIdentity}/\"/>");
+			if (forDisplaying && useShortURLs)
+			{
+				var baseURL = requestURI.GetBaseURL(systemIdentity, baseHost);
+				if (baseURL != "")
+					html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
+			}
 
 			return html;
 		}
@@ -981,7 +998,7 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(html) || organization == null)
 				return html;
 
-			rootURL = rootURL ?? new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false);
+			rootURL ??= new Uri(Utility.PortalsHttpURI).GetRootURL(organization.Alias, false);
 			if (forDisplaying)
 				return html.NormalizeURLs(rootURL, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
 
