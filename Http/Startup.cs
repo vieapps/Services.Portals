@@ -39,6 +39,8 @@ namespace net.vieapps.Services.Portals
 
 		public bool UseRateLimit { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:RateLimit"));
 
+		string TooManyRequests { get; } = UtilityService.GetAppSetting("Portals:TooManyRequests", "Whoa, slow down! You're living too fast... 429 times and counting!");
+
 		public void ConfigureServices(IServiceCollection services)
 		{
 			// set name of the service
@@ -108,7 +110,7 @@ namespace net.vieapps.Services.Portals
 				).OnRejected = async (context, cancellationToken) =>
 				{
 					context.HttpContext.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
-					await context.HttpContext.Response.WriteAsync("Too many requests... ", cancellationToken).ConfigureAwait(false);
+					await context.HttpContext.WriteAsync(this.TooManyRequests, "text/plain", null, cancellationToken).ConfigureAwait(false);
 				});
 		}
 
