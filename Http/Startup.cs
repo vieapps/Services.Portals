@@ -110,7 +110,8 @@ namespace net.vieapps.Services.Portals
 				).OnRejected = async (context, cancellationToken) =>
 				{
 					context.HttpContext.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
-					await context.HttpContext.WriteAsync(this.TooManyRequests, "text/plain", null, cancellationToken).ConfigureAwait(false);
+					context.HttpContext.Response.ContentType = "text/plain";
+					await context.HttpContext.Response.Body.WriteAsync(this.TooManyRequests.ToBytes(), cancellationToken).ConfigureAwait(false);
 				});
 		}
 
