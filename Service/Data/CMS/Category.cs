@@ -66,6 +66,10 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ReadOnly = true, Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
 		public int OrderIndex { get; set; } = 0;
 
+		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
+		[FormControl(Segment = "basic", Label = "{{portals.cms.categories.controls.[name].label}}", PlaceHolder = "{{portals.cms.categories.controls.[name].placeholder}}", Description = "{{portals.cms.categories.controls.[name].description}}")]
+		public ApprovalStatus Status { get; set; } = ApprovalStatus.Published;
+
 		[Ignore, BsonIgnore, XmlIgnore]
 		public string PrimaryContentID { get; set; }
 
@@ -124,9 +128,6 @@ namespace net.vieapps.Services.Portals
 		[Sortable(IndexName = "Management")]
 		[FormControl(Hidden = true)]
 		public override string RepositoryEntityID { get; set; }
-
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public ApprovalStatus Status => ApprovalStatus.Published;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public string OrganizationID => this.SystemID;
