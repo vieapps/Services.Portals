@@ -168,7 +168,20 @@ namespace net.vieapps.Services.Portals
 			return organization;
 		}
 
-		internal static async Task<(List<string> LinkURLs, List<string> CategoryURLs, List<string> ContentURLs)> GetRefreshingURLsAsync(this Organization organization, bool getLinks, IEnumerable<Link> links, bool getCategories, bool getContents, IEnumerable<Category> categories, int maxCategoryPageNumber = 0, int maxContentPageNumber = 0, DateTime? minPublishedTime = null, Func<Link, Task> onProcessLinkAsync = null, Func<Category, Task> onProcessCategoryAsync = null, Func<Category, ContentType, int, int, Task> onProcessContentsAsync = null, string correlationID = null)
+		internal static async Task<(List<string> LinkURLs, List<string> CategoryURLs, List<string> ContentURLs)> GetRefreshingURLsAsync(
+			this Organization organization, 
+			bool getLinks, 
+			IEnumerable<Link> links, 
+			bool getCategories, 
+			bool getContents, 
+			IEnumerable<Category> categories, 
+			int maxCategoryPageNumber = 0, 
+			int maxContentPageNumber = 0, 
+			DateTime? minPublishedTime = null, 
+			Func<Link, Task> onProcessLinkAsync = null, 
+			Func<Category, Task> onProcessCategoryAsync = null, 
+			Func<Category, ContentType, int, int, Task> onProcessContentsAsync = null, 
+			string correlationID = null)
 		{
 			var linkURLs = new List<string>();
 			var categoryURLs = new List<string>();
@@ -193,7 +206,7 @@ namespace net.vieapps.Services.Portals
 					await children.Where(child => child.Status == ApprovalStatus.Published).ForEachAsync(child => getLinkURLsAsync(child)).ConfigureAwait(false);
 			}
 
-			async Task getURLsAsync(Category category, IEnumerable<ContentType> contentTypes)
+			async Task getContentURLsAsync(Category category, IEnumerable<ContentType> contentTypes)
 			{
 				await Task.WhenAll
 				(
@@ -218,10 +231,9 @@ namespace net.vieapps.Services.Portals
 								var filter = ContentProcessor.GetContentsFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID, category.ID);
 								var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
 
-								var cacheKeyOfTotal = Extensions.GetCacheKeyOfTotalObjects(filter, sort);
+								var (totalRecords, cacheKeyOfTotal) = await ContentProcessor.CountAsync(filter, sort, contentType.ID, Utility.CancellationToken).ConfigureAwait(false);
 								await Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKeyOfTotal, Utility.CancellationToken).ConfigureAwait(false);
-
-								var totalRecords = await Content.CountAsync(filter, contentType.ID, true, cacheKeyOfTotal, 0, Utility.CancellationToken).ConfigureAwait(false);
+								
 								if (totalRecords > 0)
 								{
 									var pageNumber = 0;
@@ -231,21 +243,19 @@ namespace net.vieapps.Services.Portals
 									while (pageNumber < totalPages && (maxContentPageNumber > 0 ? pageNumber < maxContentPageNumber : true))
 									{
 										pageNumber++;
-										var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, pageSize, pageNumber);
-										var contents = await Content.FindAsync(filter, sort, pageSize, pageNumber, contentType.ID, true, cacheKeyOfObjects, 0, Utility.CancellationToken).ConfigureAwait(false) ?? [];
+										var (contents, _, _) = await ContentProcessor.SearchAsync(filter, sort, pageSize, pageNumber, contentType.ID, totalRecords, Utility.CancellationToken).ConfigureAwait(false);
 
 										await Task.WhenAll
 										(
 											onProcessContentsAsync == null ? Task.CompletedTask : onProcessContentsAsync(category, contentType, totalPages, pageNumber),
-											Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, contents.Select(content => content.GetCacheKey()), Utility.CancellationToken),
-											Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), contents.Select(content => new[] { content.GetCacheKey(), content.GetCacheKeyOfAliasedContent() }).SelectMany(keys => keys).Concat([cacheKeyOfObjects]), Utility.CancellationToken)
+											Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), contents.Select(content => new[] { content.GetCacheKey(), content.GetCacheKeyOfAliasedContent() }).SelectMany(keys => keys).Concat([Extensions.GetCacheKey(filter, sort, pageSize, pageNumber)]), Utility.CancellationToken)
 										).ConfigureAwait(false);
 
 										contents = contents.Where(content => content.Status == ApprovalStatus.Published).ToList();
 										if (contents.Count > 0)
 										{
-											contentURLs = contentURLs.Concat(contents.Select(content => content.GetURL())).ToList();
-											if (minPublishedTime != null && contents.Last().PublishedTime.Value < minPublishedTime.Value)
+											contentURLs.AddRange(contents.Where(content => minPublishedTime != null ? minPublishedTime.Value > content.PublishedTime.Value : true).Select(content => content.GetURL()));
+											if (minPublishedTime != null && minPublishedTime.Value > contents.Last().PublishedTime.Value)
 												break;
 										}
 									}
@@ -256,7 +266,7 @@ namespace net.vieapps.Services.Portals
 
 				var children = await category.FindChildrenAsync(Utility.CancellationToken).ConfigureAwait(false) ?? [];
 				if (children.Count > 0)
-					await children.Where(child => child.Status == ApprovalStatus.Published).ForEachAsync(child => getURLsAsync(child, contentTypes), true, false).ConfigureAwait(false);
+					await children.Where(child => child.Status == ApprovalStatus.Published).ForEachAsync(child => getContentURLsAsync(child, contentTypes), true, false).ConfigureAwait(false);
 			}
 
 			if (getLinks)
@@ -292,7 +302,7 @@ namespace net.vieapps.Services.Portals
 				if (categories != null)
 					try
 					{
-						await categories.Where(category => category.Status == ApprovalStatus.Published).ForEachAsync(category => getURLsAsync(category, organization.ContentTypesOfContent), true, false).ConfigureAwait(false);
+						await categories.Where(category => category.Status == ApprovalStatus.Published).ForEachAsync(category => getContentURLsAsync(category, organization.ContentTypesOfContent), true, false).ConfigureAwait(false);
 					}
 					catch (Exception ex)
 					{
@@ -306,7 +316,25 @@ namespace net.vieapps.Services.Portals
 							var filter = CategoryProcessor.GetCategoriesFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
 							var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
 							categories = await Category.FindAsync(filter, sort, 0, 1, contentType.ID, true, Extensions.GetCacheKey(filter, sort, 0, 1), 0, Utility.CancellationToken).ConfigureAwait(false);
-							await categories.Where(category => category.Status == ApprovalStatus.Published).ForEachAsync(category => getURLsAsync(category, organization.ContentTypesOfContent), true, false).ConfigureAwait(false);
+							await categories.ForEachAsync(async category =>
+							{
+								var cat = (category?.ID ?? "").GetCategoryByID(false, false);
+								if (cat != null)
+									await cat.FindChildrenAsync(Utility.CancellationToken).ConfigureAwait(false);
+								else if (category?.Set() != null)
+								{
+									await category.FindChildrenAsync(Utility.CancellationToken).ConfigureAwait(false);
+									new CommunicateMessage(Utility.ServiceName)
+									{
+										Type = $"{category.GetObjectName()}#Update",
+										Data = category.ToJson(true, false),
+										ExcludedNodeID = Utility.NodeID
+									}.Send();
+								}
+							}, true, false).ConfigureAwait(false);
+							await categories.Select(category => category.ID.GetCategoryByID(false, false))
+								.Where(category => category != null && category.Status == ApprovalStatus.Published)
+								.ForEachAsync(category => getContentURLsAsync(category, organization.ContentTypesOfContent), true, false).ConfigureAwait(false);
 						}
 						catch (Exception ex)
 						{
@@ -360,7 +388,7 @@ namespace net.vieapps.Services.Portals
 			links = links.Where(link => link != null && link.ID.IsValidUUID()).ToList();
 			categories = categories.Where(category => category != null && category.ID.IsValidUUID()).ToList();
 			var (linkURLs, categoryURLs, contentURLs) = await organization.GetRefreshingURLsAsync(true, links, true, true, categories, Utility.RefreshMaxPage, 2).ConfigureAwait(false);
-			return refreshingURLs.Concat(linkURLs).Concat(contentURLs).Concat(categoryURLs)
+			return refreshingURLs.Concat(linkURLs).Concat(categoryURLs).Concat(contentURLs)
 				.Where(url => url != null).Select(url => url.IsEquals("~/default.aspx") || url.IsEquals("~/index.html") ? "~/" : url)
 				.Where(url => url != "~/").Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
@@ -1304,11 +1332,11 @@ namespace net.vieapps.Services.Portals
 				["x-requester"] = "vieapps-ngx-portals",
 				["x-original-correlation-id"] = correlationID
 			};
-			refreshingURLs = refreshingURLs.Concat(linkURLs).Concat(contentURLs).Concat(categoryURLs)
+			refreshingURLs = refreshingURLs.Concat(linkURLs).Concat(categoryURLs).Concat(contentURLs)
 				.Where(url => url.IsStartsWith("~/") || domains.Contains(new Uri(url).Host))
 				.Select(url => url.Replace("~/", rootURL))
 				.ToList();
-			await Utility.WriteLogAsync(correlationID, $"{refreshingURLs.Count:###,###,##0} caching URLs of '{organization.Title}' were prepared to rebuild cache", "Caches").ConfigureAwait(false);
+			await Utility.WriteLogAsync(correlationID, $"{refreshingURLs.Count:###,###,##0} caching URLs of '{organization.Title}' were prepared to rebuild cache\r\n- Link URLs: {linkURLs.Count:###,###,##0}\r\n- Category URLs: {categoryURLs.Count:###,###,##0}\r\n- Content URLs: {contentURLs.Count:###,###,##0}", "Caches").ConfigureAwait(false);
 			sendStatus("Prepared");
 
 			while (!cancellationToken.IsCancellationRequested)
