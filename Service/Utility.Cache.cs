@@ -35,7 +35,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static int RefreshMaxPage { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage"), out var value) && value > 0 ? value : 5;
 
-		internal static int RefreshMaxPageOnMonday { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage:Monday"), out var value) && value > 0 ? value : 30;
+		internal static int RefreshMaxPageOnMonday { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxPage:Monday"), out var value) && value > 0 ? value : 20;
 
 		internal static DateTime RefreshMinTime => DateTime.Now.AddDays(0 - (Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:MaxDay"), out var value) && value > 0 ?  value : 15));
 
@@ -252,6 +252,22 @@ namespace net.vieapps.Services.Portals
 				cacheKeys = cacheKeys.Concat(organization.Sites.Select(site => site.HomeDesktop?.GetDesktopCacheKey($"{organization.URL}/{site.HomeDesktop?.Alias}", site))).ToList();
 			cacheKeys = cacheKeys.Where(cacheKey => cacheKey != null).ToList();
 			return cacheKeys.Concat(cacheKeys.Select(cacheKey => new[] { $"{cacheKey}:time", $"{cacheKey}:expiration" }).SelectMany(keys => keys)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+		}
+
+		/// <summary>
+		/// Sets cache of page-size (to clear related cached further)
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="filter"></param>
+		/// <param name="sort"></param>
+		/// <param name="pageSize"></param>
+		/// <param name="cancellationToken"></param>
+		/// <returns></returns>
+		public static string SetCacheOfPageSize<T>(IFilterBy<T> filter, SortBy<T> sort, int pageSize) where T : class
+		{
+			var cacheKey = $"{Extensions.GetCacheKey(filter, sort)}:size";
+			Utility.Cache.SetAsync(cacheKey, pageSize, Utility.CancellationToken).Execute();
+			return cacheKey;
 		}
 
 		/// <summary>
@@ -531,7 +547,7 @@ namespace net.vieapps.Services.Portals
 				{
 					if (handleException)
 					{
-						if (ex.Code != 522 && !ex.Message.IsContains("No such host is known"))
+						if (ex.Code != 404 && ex.Code != 502 && ex.Code != 503 && ex.Code != 522 && !ex.Message.IsContains("No such host is known"))
 							await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({uri.AbsoluteUri}) => {ex.Message} [Code: {ex.StatusCode}]{(string.IsNullOrWhiteSpace(ex.Body) ? "" : $"\r\nBody: {ex.Body}")}", "Caches").ConfigureAwait(false);
 					}
 					else

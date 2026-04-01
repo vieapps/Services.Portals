@@ -175,19 +175,57 @@ namespace net.vieapps.Services.Portals
 				).ConfigureAwait(false);
 		}
 
-		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Content> filter, SortBy<Content> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true, bool randomPage = false, int minRandomPage = 0, int maxRandomPage = 0, int cacheTime = 0)
+		internal static async Task<(long TotalRecords, string CacheKeyOfTotalObjects)> CountAsync(
+			string query,
+			IFilterBy<Content> filter,
+			SortBy<Content> sort,
+			string contentTypeID,
+			int cacheTime,
+			CancellationToken cancellationToken)
+		{
+			var cacheKeyOfTotalObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfTotalObjects(filter, sort) : null;
+			var totalRecords = string.IsNullOrWhiteSpace(query)
+				? await Content.CountAsync(filter, contentTypeID, true, !Utility.IsCacheDisabled, cacheKeyOfTotalObjects, cacheTime, cancellationToken).ConfigureAwait(false)
+				: await Content.CountAsync(query, filter, contentTypeID, cancellationToken).ConfigureAwait(false);
+			return (totalRecords, cacheKeyOfTotalObjects);
+		}
+
+		internal static Task<(long TotalRecords, string CacheKeyOfTotalObjects)> CountAsync(
+			IFilterBy<Content> filter,
+			SortBy<Content> sort,
+			string contentTypeID,
+			CancellationToken cancellationToken)
+			=> ContentProcessor.CountAsync(null, filter, sort, contentTypeID, 0, cancellationToken);
+
+		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber, List<string> CacheKeys)> SearchAsync(
+			string query,
+			IFilterBy<Content> filter,
+			SortBy<Content> sort,
+			int pageSize,
+			int pageNumber,
+			string contentTypeID,
+			long totalRecords,
+			bool randomPage,
+			int minRandomPage,
+			int maxRandomPage,
+			int cacheTime,
+			CancellationToken cancellationToken)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
 			var cacheKeyOfTotalObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfTotalObjects(filter, sort) : null;
-			var cacheKeys = string.IsNullOrWhiteSpace(query) ? [cacheKeyOfObjects, cacheKeyOfTotalObjects] : new List<string>();
+			var cacheKeys = string.IsNullOrWhiteSpace(query) ? [cacheKeyOfObjects] : new List<string>();
 
 			// count
-			totalRecords = totalRecords > -1
-				? totalRecords
-				: string.IsNullOrWhiteSpace(query)
-					? await Content.CountAsync(filter, contentTypeID, true, !Utility.IsCacheDisabled, cacheKeyOfTotalObjects, cacheTime, cancellationToken).ConfigureAwait(false)
-					: await Content.CountAsync(query, filter, contentTypeID, cancellationToken).ConfigureAwait(false);
+			if (totalRecords < 0)
+			{
+				var count = await ContentProcessor.CountAsync(query, filter, sort, contentTypeID, cacheTime, cancellationToken).ConfigureAwait(false);
+				totalRecords = count.TotalRecords;
+				if (!string.IsNullOrWhiteSpace(query))
+					cacheKeys.Add(count.CacheKeyOfTotalObjects);
+			}
+			else if (!string.IsNullOrWhiteSpace(query))
+				cacheKeys.Add(Extensions.GetCacheKeyOfTotalObjects(filter, sort));
 
 			// page number
 			if (randomPage)
@@ -204,46 +242,95 @@ namespace net.vieapps.Services.Portals
 					? await Content.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, true, !Utility.IsCacheDisabled, cacheKeyOfObjects, cacheTime, cancellationToken).ConfigureAwait(false)
 					: await Content.SearchAsync(query, filter, null, pageSize, pageNumber, contentTypeID, cancellationToken).ConfigureAwait(false)
 				: [];
-
-			// search thumbnails
 			objects = objects.Where(@object => @object != null && !string.IsNullOrWhiteSpace(@object.ID)).ToList();
-
-			JToken thumbnails = null;
-			if (objects.Count > 0 && searchThumbnails)
-			{
-				requestInfo.Header["x-thumbnails-as-attachments"] = "true";
-				if (requestInfo.ContainsKey("x-logs"))
-					requestInfo.Header["x-logs"] = "true";
-				if (requestInfo.GetParameter("x-force-cache") != null)
-					requestInfo.Header["x-force-cache"] = "true";
-				thumbnails = objects.Count == 1
-					? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
-					: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
-			}
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-				cacheKeys.Add(await Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).ConfigureAwait(false));
+				cacheKeys.Add(Utility.SetCacheOfPageSize(filter, sort, pageSize));
 
-			var contentType = objects.FirstOrDefault()?.ContentType;
-			await Task.WhenAll
-			(
-				contentType != null
-					? Task.WhenAll
-						(
-							Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), cancellationToken),
-							requestInfo.IsWriteCacheLogs()
-								? requestInfo.WriteLogAsync($"Update Content-Type's set cache when search for contents => {contentType.GetSetCacheKey()} [{objects.Select(@object => @object.GetCacheKey()).Join(", ")}]", "Caches")
-								: Task.CompletedTask
-						)
-					: Task.CompletedTask,
-				requestInfo.IsWriteCacheLogs()
-					? requestInfo.WriteLogAsync($"Search for CMS.Contents\r\n- Filter: {filter?.ToJson()}\r\n- Sort: {sort?.ToJson()}" + (string.IsNullOrWhiteSpace(query) ? $"\r\n- Cache keys: {cacheKeys.Join(", ")}" : ""), "Caches")
-					: Task.CompletedTask
-			).ConfigureAwait(false);
+			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) ?? objects.FirstOrDefault()?.ContentType;
+			if (contentType != null)
+				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), Utility.CancellationToken).Execute();
 
 			// return the results
-			return (objects, totalRecords, pageNumber, thumbnails, cacheKeys);
+			return (objects, totalRecords, pageNumber, cacheKeys);
+		}
+
+		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber)> SearchAsync(
+			IFilterBy<Content> filter,
+			SortBy<Content> sort,
+			int pageSize,
+			int pageNumber,
+			string contentTypeID,
+			long totalRecords,
+			CancellationToken cancellationToken)
+		{
+			var results = await ContentProcessor.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, totalRecords, false, 0, 0, 0, cancellationToken).ConfigureAwait(false);
+			return (results.Objects, results.TotalRecords, results.PageNumber);
+		}
+
+		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(
+			this RequestInfo requestInfo,
+			string query,
+			IFilterBy<Content> filter,
+			SortBy<Content> sort,
+			int pageSize,
+			int pageNumber,
+			string contentTypeID = null,
+			long totalRecords = -1,
+			CancellationToken cancellationToken = default,
+			bool searchThumbnails = true,
+			bool randomPage = false,
+			int minRandomPage = 0,
+			int maxRandomPage = 0,
+			int cacheTime = 0)
+		{
+			// search objects
+			var results = await ContentProcessor.SearchAsync(query, filter, sort, pageSize, pageNumber, contentTypeID, totalRecords, randomPage, minRandomPage, maxRandomPage, cacheTime, cancellationToken).ConfigureAwait(false);
+
+			// search thumbnails
+			var writeLogs = requestInfo.IsWriteCacheLogs();
+			JToken thumbnails = null;
+			if (results.Objects.Count > 0 && searchThumbnails)
+			{
+				requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+				if (writeLogs)
+					requestInfo.Header["x-logs"] = "true";
+				if (requestInfo.IsForceCache())
+					requestInfo.Header["x-force-cache"] = "true";
+				thumbnails = results.Objects.Count == 1
+					? await requestInfo.GetThumbnailsAsync(results.Objects[0].ID, results.Objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
+					: await requestInfo.GetThumbnailsAsync(results.Objects.Select(@object => @object.ID).Join(","), results.Objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
+			}
+
+			// update cache
+			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) ?? results.Objects.FirstOrDefault()?.ContentType;
+			Task.WhenAll
+			(
+				contentType != null && writeLogs
+					? requestInfo.WriteLogAsync($"Update Content-Type's set cache when search for contents => {contentType.GetSetCacheKey()} [{results.Objects.Select(@object => @object.GetCacheKey()).Join(", ")}]", "Caches")
+					: Task.CompletedTask,
+				writeLogs
+					? requestInfo.WriteLogAsync($"Search for CMS.Contents\r\n- Filter: {filter?.ToJson()}\r\n- Sort: {sort?.ToJson()}" + (string.IsNullOrWhiteSpace(query) ? $"\r\n- Cache keys: {results.CacheKeys.Join(", ")}" : ""), "Caches")
+					: Task.CompletedTask
+			).Execute();
+
+			// return the results
+			return (results.Objects, results.TotalRecords, results.PageNumber, thumbnails, results.CacheKeys);
+		}
+
+		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber, JToken Thumbnails)> SearchAsync(
+			this RequestInfo requestInfo,
+			IFilterBy<Content> filter,
+			SortBy<Content> sort,
+			int pageSize,
+			int pageNumber,
+			string contentTypeID,
+			bool searchThumbnails,
+			CancellationToken cancellationToken)
+		{
+			var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, searchThumbnails).ConfigureAwait(false);
+			return (results.Objects, results.TotalRecords, results.PageNumber, results.Thumbnails);
 		}
 
 		internal static async Task<JObject> SearchContentsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)

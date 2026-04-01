@@ -175,7 +175,7 @@ namespace net.vieapps.Services.Portals
 			return category;
 		}
 
-		public static List<Category> FindCategories(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool updateCache = true)
+		public static List<Category> FindCategories(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool updateCache = false)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Category>();
@@ -186,7 +186,7 @@ namespace net.vieapps.Services.Portals
 			return categories;
 		}
 
-		public static async Task<List<Category>> FindCategoriesAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool updateCache = true)
+		public static async Task<List<Category>> FindCategoriesAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool updateCache = false)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
 				return new List<Category>();
@@ -357,6 +357,9 @@ namespace net.vieapps.Services.Portals
 					? await Category.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, !Utility.IsCacheDisabled, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
 					: await Category.SearchAsync(query, filter, null, pageSize, pageNumber, contentTypeID, cancellationToken).ConfigureAwait(false)
 				: [];
+
+			// update collection
+			objects.ForEach(category => category?.Set());
 
 			// search thumbnails
 			JToken thumbnails = null;

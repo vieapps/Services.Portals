@@ -6756,7 +6756,7 @@ namespace net.vieapps.Services.Portals
 					if (category != null)
 						filter.Add(Filters<Content>.Equals("CategoryID", category.ID));
 					var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
-					var (objects, _, _, jthumbnails, _) = await requestInfo.SearchAsync(null, filter, sort, 20, 1, contentType.ID, -1, cancellationToken, true, false, 0, 0, 60).ConfigureAwait(false);
+					var (objects, _, _, jthumbnails) = await requestInfo.SearchAsync(filter, sort, 20, 1, contentType.ID, true, cancellationToken).ConfigureAwait(false);
 					objects.Where(@object => contents.Find(obj => obj.ID == @object.ID) == null).ForEach(@object => contents.Add(@object));
 					(jthumbnails as JObject)?.ForEach(kvp => thumbnails[kvp.Key] = kvp.Value);
 				}, true, false).ConfigureAwait(false);
