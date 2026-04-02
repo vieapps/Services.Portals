@@ -884,7 +884,7 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			if (isRefresh)
-				await organization.GetSchedulingTasksAsync(cancellationToken).ConfigureAwait(false);
+				organization.GetSchedulingTasksAsync(Utility.CancellationToken).Execute();
 
 			else
 			{
@@ -938,11 +938,11 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// send notification & update scheduling tasks
-			await Task.WhenAll
+			Task.WhenAll
 			(
-				organization.SendNotificationAsync(@event ?? "Update", organization.Notifications, oldStatus, organization.Status, requestInfo, cancellationToken),
+				organization.SendNotificationAsync(@event ?? "Update", organization.Notifications, oldStatus, organization.Status, requestInfo, Utility.CancellationToken),
 				organization.SendRefreshingTasksAsync()
-			).ConfigureAwait(false);
+			).Execute();
 
 			// tell HTTP servers to update MCP settings
 			if (organization.McpSettings != null)

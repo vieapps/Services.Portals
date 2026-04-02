@@ -364,9 +364,11 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// send notification
-			await module.SendNotificationAsync("Create", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
+			Task.WhenAll
+			(
+				module.SendNotificationAsync("Create", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, Utility.CancellationToken),
+				module.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
+			).Execute();
 			return response;
 		}
 
@@ -452,7 +454,11 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// send notification
-			await module.SendNotificationAsync("Update", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			Task.WhenAll
+			(
+				module.SendNotificationAsync("Update", module.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, Utility.CancellationToken),
+				module.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
+			).Execute();
 
 			// broadcast update when the privileges were changed
 			// ...
@@ -531,7 +537,12 @@ namespace net.vieapps.Services.Portals
 			}
 
 			module.Remove();
-			await module.SendNotificationAsync("Delete", module.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+
+			Task.WhenAll
+			(
+				module.SendNotificationAsync("Delete", module.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, Utility.CancellationToken),
+				module.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
+			).Execute();
 			return json;
 		}
 

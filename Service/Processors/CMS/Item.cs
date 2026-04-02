@@ -391,12 +391,12 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// update related cache & send notification
-			await Task.WhenAll
+			Task.WhenAll
 			(
 				item.SendNotificationAsync("Create", item.ContentType.Notifications, ApprovalStatus.Draft, item.Status, requestInfo, Utility.CancellationToken),
 				item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(), Utility.CancellationToken)
-			).ConfigureAwait(false);
+			).Execute();
 			return response;
 		}
 
@@ -515,12 +515,12 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// update related cache & send notification
-			await Task.WhenAll
+			Task.WhenAll
 			(
 				item.SendNotificationAsync(@event ?? "Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, Utility.CancellationToken),
 				item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(),	Utility.CancellationToken)
-			).ConfigureAwait(false);
+			).Execute();
 			return response;
 		}
 

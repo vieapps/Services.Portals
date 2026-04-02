@@ -686,9 +686,11 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// send notification
-			await desktop.SendNotificationAsync("Update", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
+			Task.WhenAll
+			(
+				desktop.SendNotificationAsync("Update", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, Utility.CancellationToken),
+				desktop.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
+			).Execute();
 			return response;
 		}
 
@@ -833,7 +835,11 @@ namespace net.vieapps.Services.Portals
 			}
 
 			desktop.Remove();
-			await desktop.SendNotificationAsync("Delete", desktop.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			Task.WhenAll
+			(
+				desktop.SendNotificationAsync("Delete", desktop.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, Utility.CancellationToken),
+				desktop.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
+			).Execute();
 			return json;
 		}
 

@@ -449,7 +449,7 @@ namespace net.vieapps.Services.Portals
 			communicateMessages.Send();
 			Task.WhenAll
 			(
-				link.Organization.SendRefreshingTasksAsync(),
+				link.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
 				link.SendNotificationAsync("Create", link.ContentType.Notifications, ApprovalStatus.Draft, link.Status, requestInfo, Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken)
 			).Execute();
@@ -597,7 +597,7 @@ namespace net.vieapps.Services.Portals
 				link.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
 				link.SendNotificationAsync(@event ?? "Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, Utility.CancellationToken),
-				link.Organization.SendRefreshingTasksAsync()
+				link.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
 			).Execute();
 
 			// send updates messages
@@ -844,6 +844,7 @@ namespace net.vieapps.Services.Portals
 			if (updateCache)
 				Task.WhenAll
 				(
+					link.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
 					link.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 					Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken)
 				).Execute();

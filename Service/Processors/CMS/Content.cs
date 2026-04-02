@@ -655,6 +655,7 @@ namespace net.vieapps.Services.Portals
 			// update related cache & send notification
 			Task.WhenAll
 			(
+				content.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
 				content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, Utility.CancellationToken),
 				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken)
@@ -813,6 +814,7 @@ namespace net.vieapps.Services.Portals
 			// update related cache & send notification
 			Task.WhenAll
 			(
+				content.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
 				content.SendNotificationAsync(@event ?? "Update", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken),
 				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, requestInfo.IsWriteCacheLogs()),
 				Utility.Cache.SetAsync(content.GetCacheKeyOfAliasedContent(), content.ID, Utility.CancellationToken),
@@ -939,7 +941,8 @@ namespace net.vieapps.Services.Portals
 				Task.WhenAll
 				(
 					Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
-					content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, requestInfo.IsWriteCacheLogs(), true, true, false)
+					content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, requestInfo.IsWriteCacheLogs(), true, true, false),
+					content.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
 				).Execute();
 
 			var json = sendUpdatingMessages ? content.ToJson(json => json.Remove("Details")) : null;

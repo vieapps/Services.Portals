@@ -519,13 +519,11 @@ namespace net.vieapps.Services.Portals
 			}.Send();
 
 			// send notification & update refreshing task
-			await Task.WhenAll
+			Task.WhenAll
 			(
-				site.SendNotificationAsync("Create", site.Organization.Notifications, ApprovalStatus.Draft, site.Status, requestInfo, cancellationToken),
-				site.Organization.SendRefreshingTasksAsync(false, false)
-			).ConfigureAwait(false);
-
-			// response
+				site.SendNotificationAsync("Create", site.Organization.Notifications, ApprovalStatus.Draft, site.Status, requestInfo, Utility.CancellationToken),
+				site.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
+			).Execute();
 			return response;
 		}
 
@@ -588,12 +586,10 @@ namespace net.vieapps.Services.Portals
 			// update refreshing task, clear cache & send notification
 			Task.WhenAll
 			(
-				site.Organization.SendRefreshingTasksAsync(false, false),
+				site.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
 				site.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false),
 				site.SendNotificationAsync(@event ?? "Update", site.Organization.Notifications, oldStatus, site.Status, requestInfo, Utility.CancellationToken)
 			).Execute();
-
-			// response
 			return response;
 		}
 
@@ -711,9 +707,12 @@ namespace net.vieapps.Services.Portals
 			}.ToList();
 			for (var page = 1; page < 100; page++)
 				cacheKeys.AddRange(Extensions.GetCacheKey(Filters<Site>.And(), Sorts<Site>.Ascending("Title"), 20, page), Extensions.GetCacheKeyOfObjectsJson(Filters<Site>.And(), Sorts<Site>.Ascending("Title"), 20, page));
-			await Utility.Cache.RemoveAsync(cacheKeys, cancellationToken).ConfigureAwait(false);
+			Task.WhenAll
+			(
+				Utility.Cache.RemoveAsync(cacheKeys, Utility.CancellationToken),
+				site.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
+			).Execute();
 			site.Remove();
-
 			return json;
 		}
 
