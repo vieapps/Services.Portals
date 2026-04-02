@@ -2129,8 +2129,10 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 
-			info.Headers["X-Cache"] = "L1-HTTP-200";
 			info.Headers["Access-Control-Allow-Origin"] = allowOrigin;
+			info.Headers["Cache-Control"] = contentType.IsStartsWith("text/html") ? context.GetHttpCacheControl((Handler.CacheMaxAge - 15) * 60) : context.GetHttpCacheControl();
+			info.Headers["X-Correlation-ID"] = context.GetCorrelationID();
+			info.Headers["X-Cache"] = "L1-HTTP-200";
 
 			var statusCode = (int)HttpStatusCode.OK;
 			byte[] body = null;
@@ -2185,7 +2187,6 @@ namespace net.vieapps.Services.Portals
 				context.UpdateServerTiming("ngxFetch", stepwatch.ElapsedMilliseconds);
 			}
 
-			info.Headers["X-Correlation-ID"] = context.GetCorrelationID();
 			context.UpdateServerTiming("ngxServe", stopwatch.ElapsedMilliseconds);
 			context.SetResponseHeaders(statusCode, info.Headers);
 			if (body != null)
