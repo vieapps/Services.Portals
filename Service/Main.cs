@@ -2685,72 +2685,78 @@ namespace net.vieapps.Services.Portals
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Update canonical URL of {desktopInfo} ({requestURL} => {canonicalURL})", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 				// prepare caching - for anonymous request only
-				if (this.CacheDesktopHtmls && !requestInfo.IsAuthenticated())
+				var doRemove = true;
+				if (this.CacheDesktopHtmls && !requestInfo.IsAuthenticated() && !gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.GotError))
 				{
+					doRemove = false;
 					var watch = Stopwatch.StartNew();
-					if (isForceCacheRequested)
-						await Task.WhenAll
-						(
-							Utility.Cache.RemoveAsync([cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
-							isWriteDesktopLogs
-								? this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove HTML cache of {desktopInfo} ({requestURL}) => {cacheKey}", null, this.ServiceName, "Caches")
-								: Task.CompletedTask
-						).ConfigureAwait(false);
-
-					if (!gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.GotError))
+					
+					var expirationTime = 0;
+					portletHtmls.Values.Where(data => data.CacheExpiration != null).ForEach(data =>
 					{
-						var expirationTime = 0;
-						portletHtmls.Values.Where(data => data.CacheExpiration != null).ForEach(data =>
+						if (Int32.TryParse(data.CacheExpiration, out var minutes) && minutes > 0)
 						{
-							if (Int32.TryParse(data.CacheExpiration, out var minutes) && minutes > 0)
-							{
-								if (expirationTime < minutes)
-									expirationTime = minutes;
-							}
-						});
+							if (expirationTime < minutes)
+								expirationTime = minutes;
+						}
+					});
 
-						lastModified = DateTime.Now.ToHttpString();
-						if (expirationTime > 0)
-							maxAge = expirationTime * 60;
-						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-						{
-							["ETag"] = eTag,
-							["Last-Modified"] = lastModified,
-							["Expires"] = DateTime.Now.AddSeconds(maxAge).ToHttpString(),
-							["Cache-Control"] = this.GetCacheControl(isForceCacheRequested, maxAge),
-							["X-Cache"] = "None"
-						};
+					lastModified = DateTime.Now.ToHttpString();
+					if (expirationTime > 0)
+						maxAge = expirationTime * 60;
 
-						var items = new Dictionary<string, string>
-						{
-							[cacheKey] = this.NormalizeDesktopHtml(html, organization, site, desktop),
-							[cacheKeyOfLastModified] = lastModified
-						};
-						if (expirationTime > 0)
-							items[cacheKeyOfExpiration] = DateTime.Now.AddMinutes(expirationTime).ToIsoString(true);
+					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+					{
+						["ETag"] = eTag,
+						["Last-Modified"] = lastModified,
+						["Expires"] = DateTime.Now.AddSeconds(maxAge).ToHttpString(),
+						["Cache-Control"] = this.GetCacheControl(isForceCacheRequested, maxAge),
+						["X-Cache"] = "None"
+					};
 
-						Task.WhenAll
-						(
-							expirationTime > 0
-								? Task.CompletedTask
-								: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, this.CancellationToken),
-							expirationTime > 0
-								? Utility.Cache.SetAsync(items, null, DateTime.Now.AddMinutes(expirationTime), this.CancellationToken)
-								: Utility.Cache.SetAsync(items, null, expirationTime, this.CancellationToken)
-						).Execute();
+					var items = new Dictionary<string, string>
+					{
+						[cacheKey] = this.NormalizeDesktopHtml(html, organization, site, desktop),
+						[cacheKeyOfLastModified] = lastModified
+					};
+					if (expirationTime > 0)
+						items[cacheKeyOfExpiration] = DateTime.Now.AddMinutes(expirationTime).ToIsoString(true);
 
-						var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity) ? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false) : null;
-						Task.WhenAll
-						(
-							Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], this.CancellationToken),
-							category != null ? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], this.CancellationToken) : Task.CompletedTask,
-							isWriteDesktopLogs ? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Caches") : Task.CompletedTask
-						).Execute();
-					}
+					Task.WhenAll
+					(
+						expirationTime > 0
+							? Task.CompletedTask
+							: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, this.CancellationToken),
+						expirationTime > 0
+							? Utility.Cache.SetAsync(items, null, DateTime.Now.AddMinutes(expirationTime), this.CancellationToken)
+							: Utility.Cache.SetAsync(items, null, expirationTime, this.CancellationToken)
+					).Execute();
+
+					var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity) ? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false) : null;
+					Task.WhenAll
+					(
+						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], this.CancellationToken),
+						category != null
+							? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], this.CancellationToken)
+							: Task.CompletedTask,
+						isWriteDesktopLogs
+							? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Caches")
+							: Task.CompletedTask
+					).Execute();
 
 					watch.Stop();
 					serverTiming += (serverTiming != "" ? ", " : "") + $"ngxCache;dur={watch.ElapsedMilliseconds}";
 				}
+
+				// remove when got error or this request was made by an authenticated user
+				if (doRemove)
+					await Task.WhenAll
+					(
+						Utility.Cache.RemoveAsync([cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
+						isWriteDesktopLogs
+							? this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove HTML cache of {desktopInfo} ({requestURL}) => {cacheKey}", null, this.ServiceName, "Caches")
+							: Task.CompletedTask
+					).ConfigureAwait(false);
 
 				// normalize
 				html = this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.Session.DeviceID, requestInfo.CorrelationID);
@@ -2783,10 +2789,10 @@ namespace net.vieapps.Services.Portals
 						var urls = new[] { canonicalURL, $"{Utility.PortalsHttpURI}/~{organization.Alias}{new Uri(canonicalURL).AbsolutePath}" }
 							.Select(url => new[] { url, url.EndsWith("/index.html") ? url.Replace("/index.html", "/") : null })
 							.SelectMany(url => url);
-						organization.PurgeCloudFlareCacheAsync(urls, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken, _ =>
+						organization.PurgeCloudFlareCacheAsync(urls, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken, doRemove ? null : _ =>
 						{
 							var refreshURLs = new[] { canonicalURL, canonicalURL.EndsWith("/index.html") ? canonicalURL.Replace("/index.html", "/") : null }.ToList();
-							refreshURLs.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(5 + index, requestInfo.CorrelationID, isWriteDesktopLogs, cancellationtoken), Utility.CancellationToken).Execute();
+							refreshURLs.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(3 + index, requestInfo.CorrelationID, isWriteDesktopLogs, cancellationtoken), Utility.CancellationToken).Execute();
 						}).Execute();
 					}
 				}
@@ -6779,7 +6785,7 @@ namespace net.vieapps.Services.Portals
 					if (category != null)
 						filter.Add(Filters<Content>.Equals("CategoryID", category.ID));
 					var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
-					var (objects, _, _, jthumbnails) = await requestInfo.SearchAsync(filter, sort, 20, 1, contentType.ID, true, cancellationToken).ConfigureAwait(false);
+					var (objects, _, _, jthumbnails, _) = await requestInfo.SearchAsync(null, filter, sort, 20, 1, contentType.ID, -1, cancellationToken, true).ConfigureAwait(false);
 					objects.Where(@object => contents.Find(obj => obj.ID == @object.ID) == null).ForEach(@object => contents.Add(@object));
 					(jthumbnails as JObject)?.ForEach(kvp => thumbnails[kvp.Key] = kvp.Value);
 				}, true, false).ConfigureAwait(false);
