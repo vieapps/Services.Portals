@@ -465,7 +465,7 @@ namespace net.vieapps.Services.Portals
 				var siteURL = (organization.DefaultSite?.GetURL() ?? organization.URL.Replace("~/", Utility.PortalsHttpURI)) + "/";
 				urls = urls.Concat(linkURLs)
 					.Where(url => !string.IsNullOrWhiteSpace(url) && (url.StartsWith("~/") || url.IsStartsWith("https://") || url.IsStartsWith("http://")))
-					.Select(url => url?.Replace("~/", siteURL))
+					.Select(url => url.Replace("~/", siteURL))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList();
 
