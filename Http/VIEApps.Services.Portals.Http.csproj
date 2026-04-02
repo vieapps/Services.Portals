@@ -31,7 +31,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.10.2603.7" />
+		<PackageReference Include="VIEApps.Services.Base.Http" Version="10.10.2604.1" />
 	</ItemGroup>
 
 </Project>
