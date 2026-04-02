@@ -1306,27 +1306,22 @@ namespace net.vieapps.Services.Portals
 			NearLosslessQuality = 60
 		};
 
-		internal static async Task<byte[]> ToWebPAsync(this byte[] data, bool isPNG, CancellationToken cancellationToken)
+		internal static async Task<byte[]> ToWebPAsync(this byte[] data, bool useAdvancedSettings, CancellationToken cancellationToken)
 		{
-			using var webpStream = UtilityService.CreateMemoryStream();
 			using var imageStream = data.ToMemoryStream();
 			using var imageObject = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
-			imageObject.Metadata.ExifProfile = null;
-			imageObject.Metadata.IccProfile = null;
-			imageObject.Metadata.XmpProfile = null;
-			imageObject.Metadata.IptcProfile = null;
-			if (isPNG)
-				await imageObject.SaveAsync(webpStream, WebpEncoder, cancellationToken).ConfigureAwait(false);
-			else
+			if (useAdvancedSettings)
 			{
-				imageObject.Mutate(op => op.AutoOrient());
-				if (imageObject.PixelType.BitsPerPixel != 24)
-				{
-					using var rgbImage = imageObject.CloneAs<SixLabors.ImageSharp.PixelFormats.Rgb24>();
-					await rgbImage.SaveAsync(webpStream, WebpAdvancedEncoder, cancellationToken).ConfigureAwait(false);
-				}
+				imageObject.Mutate(context => context.AutoOrient());
+				imageObject.Metadata.ExifProfile = null;
+				imageObject.Metadata.IccProfile = null;
+				imageObject.Metadata.XmpProfile = null;
+				imageObject.Metadata.IptcProfile = null;
 			}
-			return webpStream.ToBytes();
+			using var outputStream = UtilityService.CreateMemoryStream();
+			await imageObject.SaveAsync(outputStream, useAdvancedSettings ? Utility.WebpAdvancedEncoder : Utility.WebpEncoder, cancellationToken).ConfigureAwait(false);
+			outputStream.Seek(0, SeekOrigin.Begin);
+			return outputStream.ToBytes();
 		}
 
 		internal static IEnumerable<string> GetPaginatingURLs(this string url, int totalPages, string suffix = "")

@@ -1745,7 +1745,10 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// get cached resource
-			var resources = this.CacheDesktopResources && !isForceCacheRequested ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
+			var resources = this.CacheDesktopResources && !isForceCacheRequested
+				? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false)
+				: null;
+
 			if (resources != null)
 			{
 				var contentType = "application/octet-stream";
@@ -1812,8 +1815,11 @@ namespace net.vieapps.Services.Portals
 					throw new InformationNotFoundException(filePath);
 
 				lastModified = fileInfo.LastWriteTime.ToHttpString();
-				var contentType = isRequestOfWebpImage ? "image/webp" : fileInfo.GetMimeType();
-				contentType = contentType.IsStartsWith("application/font-") ? contentType.ToList("/").Last().Replace(StringComparison.OrdinalIgnoreCase, "font-", "font/") : contentType;
+				var contentType = fileInfo.GetMimeType();
+				contentType = contentType.IsStartsWith("application/font-")
+					? contentType.ToList("/").Last().Replace(StringComparison.OrdinalIgnoreCase, "font-", "font/")
+					: contentType;
+				var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") || contentType.IsStartsWith("video/") || contentType.IsStartsWith("audio/") || contentType.IsEndsWith("/octet-stream");
 
 				var stepwatch = Stopwatch.StartNew();
 				var data = filePath.IsEndsWith(".css")
@@ -1826,14 +1832,31 @@ namespace net.vieapps.Services.Portals
 				serverTiming += $", ngxRead;dur={stepwatch.ElapsedMilliseconds}";
 
 				if (isRequestOfWebpImage)
-				{
-					stepwatch.Restart();
-					data = await data.ToWebPAsync(fileInfo.Extension.IsEquals(".png"), cancellationToken).ConfigureAwait(false);
-					stepwatch.Stop();
-					serverTiming += $", ngxConvert;dur={stepwatch.ElapsedMilliseconds}";
-				}
+					try
+					{
+						stepwatch.Restart();
+						var webpImage = await data.ToWebPAsync(!fileInfo.Extension.IsEquals(".png"), cancellationToken).ConfigureAwait(false);
+						stepwatch.Stop();
+						serverTiming += $", ngxConvert;dur={stepwatch.ElapsedMilliseconds}";
+						if (webpImage.Length > 0)
+						{
+							if (isCacheLogEnabled)
+								await requestInfo.WriteLogAsync($"Convert to WebP image successful [Original: {data.Length:###,###,##0} - Converted: {webpImage.Length:###,###,##0}] - Execution times: {stepwatch.GetElapsedTimes()}", "Process.Http.Request").ConfigureAwait(false);
+							data = webpImage;
+							contentType = "image/webp";
+						}
+						else
+						{
+							await requestInfo.WriteLogAsync($"Convert to WebP image failed", "Process.Http.Request").ConfigureAwait(false);
+						}
+					}
+					catch (Exception ex)
+					{
+						await requestInfo.WriteErrorAsync(ex, $"Error occurred while converting to WebP image => {ex.Message}", "Process.Http.Request").ConfigureAwait(false);
+					}
+				else if (isCacheLogEnabled)
+					await requestInfo.WriteLogAsync($"Resource was fetched [Content-Type: {contentType} ({isBase64}) - Length: {data.Length:###,###,##0}]", "Process.Http.Request").ConfigureAwait(false);
 
-				var isBase64 = contentType.IsStartsWith("image/") || contentType.IsStartsWith("font/") || contentType.IsStartsWith("video/") || contentType.IsStartsWith("audio/") || contentType.IsEndsWith("/octet-stream");
 				if (this.CacheDesktopResources)
 				{
 					stepwatch.Restart();
@@ -5742,7 +5765,7 @@ namespace net.vieapps.Services.Portals
 				{
 					using var image = await new Uri(url).SendHttpRequestAsync("GET", null, null, 120, cancellationToken).ConfigureAwait(false);
 					data = await image.ReadAsByteArrayAsync().ConfigureAwait(false);
-					data = await data.ToWebPAsync(false, cancellationToken).ConfigureAwait(false);
+					data = await data.ToWebPAsync(true, cancellationToken).ConfigureAwait(false);
 					data = data.Compress(this.BodyEncoding);
 					await Utility.Cache.SetAsync(cacheKey, data, cancellationToken).ConfigureAwait(false);
 				}
