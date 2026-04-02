@@ -115,21 +115,8 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS item [{item.Title} - ID: {item.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-
 			if (item != null)
-			{
-				var url = item.GetURL();
-				await item.PurgeCloudFlareCacheAsync(false, correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => url.RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()).ConfigureAwait(false);
-				if (doRefresh)
-				{
-					var urls = new[] { item.Status.Equals(ApprovalStatus.Published) ? url : null }
-						.Concat([item.Organization.URL, item.ContentType.GetURL(null, true)])
-						.Where(url => url != null)
-						.Distinct(StringComparer.OrdinalIgnoreCase)
-						.ToList();
-					await item.Organization.RefreshWebPagesAsync(urls, true, correlationID, $"Refresh when a CMS item was clean [{item.Title} - ID: {item.ID}]", cancellationToken).ConfigureAwait(false);
-				}
-			}
+				item.PurgeCloudFlareCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging CloudFlare cache => {ex.Message}", "Caches", correlationID));
 		}
 
 		internal static async Task<(long TotalRecords, List<Item> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)

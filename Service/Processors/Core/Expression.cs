@@ -76,7 +76,7 @@ namespace net.vieapps.Services.Portals
 		public static List<Expression> FindExpressions(this string systemID, string repositoryID = null, string repositoryEntityID = null, string contentTypeDefinitionID = null, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Expression>();
+				return [];
 			var filter = systemID.GetExpressionsFilter(repositoryID, repositoryEntityID, contentTypeDefinitionID);
 			var sort = Sorts<Expression>.Ascending("Title");
 			var expressions = Expression.Find(filter, sort, 0, 1, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, 0, 1));
@@ -87,7 +87,7 @@ namespace net.vieapps.Services.Portals
 		public static async Task<List<Expression>> FindExpressionsAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string contentTypeDefinitionID = null, CancellationToken cancellationToken = default, bool updateCache = true)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Expression>();
+				return [];
 			var filter = systemID.GetExpressionsFilter(repositoryID, repositoryEntityID, contentTypeDefinitionID);
 			var sort = Sorts<Expression>.Ascending("Title");
 			var expressions = await Expression.FindAsync(filter, sort, 0, 1, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
@@ -134,7 +134,7 @@ namespace net.vieapps.Services.Portals
 					.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, expression.RepositoryEntityID, null), sort))
 					.Concat(Extensions.GetRelatedCacheKeys(expression.SystemID.GetExpressionsFilter(expression.RepositoryID, null, expression.ContentTypeDefinitionID), sort))
 					.ToList()
-				: new List<string>();
+				: [];
 
 			if (clearDataCache)
 			{
@@ -155,7 +155,7 @@ namespace net.vieapps.Services.Portals
 			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// html cache keys (desktop HTMLs)
-			var htmlCacheKeys = clearHtmlCache ? await expression.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>();
+			var htmlCacheKeys = clearHtmlCache ? await expression.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : [];
 
 			// remove related cache & refresh
 			await Task.WhenAll
@@ -166,7 +166,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh)
-				await expression.Organization.RefreshWebPagesAsync([expression.Organization.URL], true, correlationID, $"Refresh when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]", cancellationToken).ConfigureAwait(false);
+				expression.Organization.RefreshWebPagesAsync([expression.Organization.URL], true, correlationID, $"Refresh when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]", cancellationToken).Execute();
 		}
 
 		internal static Task ClearCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
@@ -180,7 +180,9 @@ namespace net.vieapps.Services.Portals
 					Data = expression.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of an expression [{expression.Title} - ID: {expression.ID}]", "Caches") : Task.CompletedTask
+				Utility.IsCacheLogEnabled
+					? Utility.WriteLogAsync(correlationID, $"Clear cache of an expression [{expression.Title} - ID: {expression.ID}]", "Caches")
+					: Task.CompletedTask
 			});
 
 		internal static async Task<JObject> SearchExpressionsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -234,7 +236,7 @@ namespace net.vieapps.Services.Portals
 				? string.IsNullOrWhiteSpace(query)
 					? await Expression.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Expression.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
-				: new List<Expression>();
+				: [];
 
 			// build result
 			var response = new JObject

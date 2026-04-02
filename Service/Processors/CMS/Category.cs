@@ -328,13 +328,8 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS category [{category.Title} - ID: {category.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-
 			if (category != null && category.Organization != null && (category.Organization.ExamineURLs == null || category.Organization.ExamineURLs.Count < 1))
-			{
-				await category.PurgeCloudFlareCacheAsync(false, correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => category.GetURL().RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()).ConfigureAwait(false);
-				if (doRefresh)
-					await category.Organization.RefreshWebPagesAsync([category.Organization.URL, category.GetURL(true)], true, correlationID, $"Refresh when clear related cache of a category [{category.Title} - ID: {category.ID}]", cancellationToken).ConfigureAwait(false);
-			}
+				category.PurgeCloudFlareCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging CloudFlare cache => {ex.Message}", "Caches", correlationID));
 		}
 
 		static async Task<(long TotalRecords, List<Category> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Category> filter, SortBy<Category> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = false)

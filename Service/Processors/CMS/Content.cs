@@ -92,23 +92,7 @@ namespace net.vieapps.Services.Portals
 				content = await Content.GetAsync(content.ID, cancellationToken).ConfigureAwait(false);
 			}
 			if (reloadWebpages)
-			{
-				var urls = new[] { content.Status.Equals(ApprovalStatus.Published) ? content.GetURL() : null }.Concat([content.Organization.URL, content.Category?.GetURL(false)]).ToList();
-				var categories = new[] { content.Category }.ToList();
-				var parentCategory = content.Category?.ParentCategory;
-				while (parentCategory != null)
-				{
-					urls = urls.Concat([parentCategory.GetURL()]).ToList();
-					categories.Add(parentCategory);
-					parentCategory = parentCategory.ParentCategory;
-				}
-				urls = urls.Concat(categories.Where(category => category != null).Select(category => category?.GetURL(true)))
-					.Concat((content.OtherCategories ?? []).Select(id => id.GetCategoryByID()).Select(category => category?.GetURL(true)))
-					.Where(url => url != null)
-					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ToList();
-				await content.Organization.RefreshWebPagesAsync(urls, force, false, correlationID, (message ?? "Refresh a CMS content") + $" [{content.Title} - ID: {content.ID}]", writeLogs, cancellationToken).ConfigureAwait(false);
-			}
+				await content.PurgeCloudFlareCacheAsync(true, correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
 			return content;
 		}
 
@@ -120,7 +104,7 @@ namespace net.vieapps.Services.Portals
 			// data cache keys
 			var dataCacheKeys = clearDataCache && content != null
 				? Extensions.GetRelatedCacheKeys(content.GetCacheKey()).Concat([content.GetCacheKeyOfAliasedContent()]).Where(key => key != null).ToList()
-				: new List<string>();
+				: [];
 			if (clearDataCache && content?.ContentType != null)
 			{
 				var cacheKeys = await Utility.Cache.GetSetMembersAsync(content.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
@@ -136,9 +120,9 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = new List<string>();
 			if (clearHtmlCache)
 			{
-				htmlCacheKeys = content?.Organization?.GetDesktopCacheKeys() ?? new List<string>();
+				htmlCacheKeys = content?.Organization?.GetDesktopCacheKeys() ?? [];
 				await new[] { content?.Desktop?.GetSetCacheKey() }
-					.Concat(content?.ContentType != null ? await content.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new List<string>())
+					.Concat(content?.ContentType != null ? await content.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : [])
 					.Where(id => !string.IsNullOrWhiteSpace(id))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList()
@@ -164,15 +148,8 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS content [{content.Title} - ID: {content.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-
 			if (content != null)
-				await Task.WhenAll
-				(
-					content.PurgeCloudFlareCacheAsync(false, correlationID, writeLogs, cancellationToken, doRefresh ? null : _ => content.GetURL().RefreshWebPageAsync(5, correlationID, writeLogs, Utility.CancellationToken).Execute()),
-					doRefresh
-						? content.RefreshAsync(false, cancellationToken, true, writeLogs, correlationID, "Refresh when related cache of a CMS content was clean")
-						: Task.CompletedTask
-				).ConfigureAwait(false);
+				content.PurgeCloudFlareCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging CloudFlare cache => {ex.Message}", "Caches", correlationID));
 		}
 
 		internal static async Task<(long TotalRecords, string CacheKeyOfTotalObjects)> CountAsync(
@@ -189,13 +166,6 @@ namespace net.vieapps.Services.Portals
 				: await Content.CountAsync(query, filter, contentTypeID, cancellationToken).ConfigureAwait(false);
 			return (totalRecords, cacheKeyOfTotalObjects);
 		}
-
-		internal static Task<(long TotalRecords, string CacheKeyOfTotalObjects)> CountAsync(
-			IFilterBy<Content> filter,
-			SortBy<Content> sort,
-			string contentTypeID,
-			CancellationToken cancellationToken)
-			=> ContentProcessor.CountAsync(null, filter, sort, contentTypeID, 0, cancellationToken);
 
 		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber, List<string> CacheKeys)> SearchAsync(
 			string query,
@@ -256,19 +226,6 @@ namespace net.vieapps.Services.Portals
 			return (objects, totalRecords, pageNumber, cacheKeys);
 		}
 
-		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber)> SearchAsync(
-			IFilterBy<Content> filter,
-			SortBy<Content> sort,
-			int pageSize,
-			int pageNumber,
-			string contentTypeID,
-			long totalRecords,
-			CancellationToken cancellationToken)
-		{
-			var results = await ContentProcessor.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, totalRecords, false, 0, 0, 0, cancellationToken).ConfigureAwait(false);
-			return (results.Objects, results.TotalRecords, results.PageNumber);
-		}
-
 		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(
 			this RequestInfo requestInfo,
 			string query,
@@ -317,20 +274,6 @@ namespace net.vieapps.Services.Portals
 
 			// return the results
 			return (results.Objects, results.TotalRecords, results.PageNumber, thumbnails, results.CacheKeys);
-		}
-
-		internal static async Task<(List<Content> Objects, long TotalRecords, int PageNumber, JToken Thumbnails)> SearchAsync(
-			this RequestInfo requestInfo,
-			IFilterBy<Content> filter,
-			SortBy<Content> sort,
-			int pageSize,
-			int pageNumber,
-			string contentTypeID,
-			bool searchThumbnails,
-			CancellationToken cancellationToken)
-		{
-			var results = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken, searchThumbnails).ConfigureAwait(false);
-			return (results.Objects, results.TotalRecords, results.PageNumber, results.Thumbnails);
 		}
 
 		internal static async Task<JObject> SearchContentsAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
@@ -643,7 +586,7 @@ namespace net.vieapps.Services.Portals
 				json["Thumbnails"] = thumbnailsTask.Result;
 				json["Attachments"] = attachmentsTask.Result;
 				json["Details"] = organization.NormalizeURLs(content.Details);
-				json.UpdateVersions(new List<VersionContent>());
+				json.UpdateVersions([]);
 			});
 			new UpdateMessage
 			{

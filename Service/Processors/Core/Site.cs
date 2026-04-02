@@ -350,7 +350,7 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (site.Organization.ExamineURLs == null || site.Organization.ExamineURLs.Count < 1))
-				await site.Organization.RefreshWebPagesAsync([site.Organization.URL, site.GetURL(), $"{site.GetURL()}/favicon.ico", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/s_{site.ID}.js", $"{Utility.PortalsHttpURI}/_css/s_{site.ID}.css", $"{Utility.PortalsHttpURI}/_js/s_{site.ID}.js"], true, true, correlationID, $"Refresh when clear related cache of a site [{site.Title} - ID: {site.ID}]", false, cancellationToken).ConfigureAwait(false);
+				site.Organization.RefreshWebPagesAsync([site.Organization.URL, site.GetURL(), $"{site.GetURL()}/favicon.ico", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}", $"{Utility.PortalsHttpURI}/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}", $"{Utility.PortalsHttpURI}/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"], true, true, correlationID, $"Refresh when clear related cache of a site [{site.Title} - ID: {site.ID}]", false, cancellationToken).Execute();
 		}
 
 		internal static Task ClearCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
@@ -364,7 +364,9 @@ namespace net.vieapps.Services.Portals
 					Data = site.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", "Caches") : Task.CompletedTask
+				Utility.IsCacheLogEnabled
+					? Utility.WriteLogAsync(correlationID, $"Clear cache of a site [{site.Title} - ID: {site.ID}]", "Caches")
+					: Task.CompletedTask
 			);
 
 		internal static async Task<JObject> SearchSitesAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)

@@ -82,7 +82,7 @@ namespace net.vieapps.Services.Portals
 			return links != null && links.Count > 0 ? links.Last().OrderIndex : -1;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Link link, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Link link, bool writeLogs, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
 			// tasks for updating sets
 			var setTasks = new List<Task>();
@@ -103,10 +103,10 @@ namespace net.vieapps.Services.Portals
 
 			if (clearDataCache && link?.ContentType != null)
 			{
-				var cacheKeys = await Utility.Cache.GetSetMembersAsync(link.ContentType.GetSetCacheKey(), Utility.CancellationToken).ConfigureAwait(false);
+				var cacheKeys = await Utility.Cache.GetSetMembersAsync(link.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
 				if (cacheKeys != null && cacheKeys.Any())
 				{
-					setTasks.Add(Utility.Cache.RemoveSetMembersAsync(link.ContentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken));
+					setTasks.Add(Utility.Cache.RemoveSetMembersAsync(link.ContentType.GetSetCacheKey(), cacheKeys, cancellationToken));
 					dataCacheKeys = dataCacheKeys.Concat(cacheKeys).ToList();
 				}
 			}
@@ -126,10 +126,10 @@ namespace net.vieapps.Services.Portals
 					.ToList()
 					.ForEachAsync(async desktopSetCacheKey =>
 					{
-						var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, Utility.CancellationToken).ConfigureAwait(false);
+						var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
 						if (cacheKeys != null && cacheKeys.Any())
 						{
-							setTasks.Add(Utility.Cache.RemoveSetMembersAsync(desktopSetCacheKey, cacheKeys, Utility.CancellationToken));
+							setTasks.Add(Utility.Cache.RemoveSetMembersAsync(desktopSetCacheKey, cacheKeys, cancellationToken));
 							htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).ToList();
 						}
 					}, true, false).ConfigureAwait(false);
@@ -137,17 +137,21 @@ namespace net.vieapps.Services.Portals
 			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 			// remove related cache & refresh
+			writeLogs = writeLogs || Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(
 				Task.WhenAll(setTasks),
-				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), Utility.CancellationToken),
-				Utility.IsCacheLogEnabled && link != null
+				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
+				writeLogs && link != null
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS link [{link.Title} - ID: {link.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			if (doRefresh && link != null)
-				await link.Organization.RefreshWebPagesAsync([link.Organization.URL, desktop != null ? $"{link.Organization.URL}/{desktop.Alias ?? "-default"}/{link.ContentType?.Title.GetANSIUri() ?? "-"}" : null, link.Status.Equals(ApprovalStatus.Published) ? link.GetURL() : null], true, correlationID, $"Refresh when a CMS link was clean [{link.Title} - ID: {link.ID}]", cancellationToken).ConfigureAwait(false);
+			if (link != null)
+				link.PurgeCloudFlareCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging CloudFlare cache => {ex.Message}", "Caches", correlationID));
 		}
+
+		internal static Task ClearRelatedCacheAsync(this Link link, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
+			=> link.ClearRelatedCacheAsync(false, cancellationToken, correlationID, clearHtmlCache, clearHtmlCache, doRefresh);
 
 		static async Task<(long TotalRecords, List<Link> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
 		{
@@ -594,7 +598,7 @@ namespace net.vieapps.Services.Portals
 			// update cache & send notification
 			Task.WhenAll
 			(
-				link.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				link.ClearRelatedCacheAsync(requestInfo.IsWriteCacheLogs(), Utility.CancellationToken, requestInfo.CorrelationID),
 				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
 				link.SendNotificationAsync(@event ?? "Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, Utility.CancellationToken),
 				link.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
