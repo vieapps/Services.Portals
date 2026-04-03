@@ -634,6 +634,8 @@ namespace net.vieapps.Services.Portals
 						{
 							var isHtml = contentType.IsStartsWith("text/html");
 							var isBase64 = contentType.IsStartsWith("font/") || contentType.IsStartsWith("image/");
+							var cacheKeyOfLastModified = $"{cacheKey}:time";
+							var cacheKeyOfExpiration = $"{cacheKey}:expiration";
 
 							// redirect (HTTPS or None-WWW)
 							if (isHtml && ((alwaysUseHTTPs && !requestURI.Scheme.IsEquals("https")) || (redirectToNoneWWW && requestURI.Host.IsStartsWith("www."))))
@@ -681,7 +683,7 @@ namespace net.vieapps.Services.Portals
 
 							// last modified
 							var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
-							var lastModified = modifiedSince != null ? await Handler.Cache.GetAsync<string>($"{cacheKey}:time", cts.Token).ConfigureAwait(false) : null;
+							var lastModified = modifiedSince != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false) : null;
 							var noneMatch = lastModified != null ? context.GetHeaderParameter("If-None-Match") : null;
 							if (lastModified != null && eTag.IsEquals(noneMatch) && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 							{
@@ -701,8 +703,6 @@ namespace net.vieapps.Services.Portals
 							// fetch
 							stepwatch.Restart();
 							var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
-							var cacheKeyOfLastModified = $"{cacheKey}:time";
-							var cacheKeyOfExpiration = $"{cacheKey}:expiration";
 							var cached = await Handler.Cache.GetAsync(cacheKey, cts.Token).ConfigureAwait(false);
 							lastModified ??= (cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false) : null) ?? DateTime.Now.ToHttpString();
 							var expirationTime = Handler.Cache.ExpirationTime;
@@ -2000,21 +2000,29 @@ namespace net.vieapps.Services.Portals
 			this.AlwaysReturnHTTPs = alwaysReturnHTTPs;
 			this.PortalsURL = portalsHttpURI;
 			this.FilesURL = filesHttpURI;
-			this.Headers = headers;
+			this.Headers = new ConcurrentDictionary<string, string>(headers ?? new(), StringComparer.OrdinalIgnoreCase);
 			this.BodyCacheKey = bodyCacheKey;
-			this.Headers["X-Node"] = Global.NodeID;
+			this.Normalize();
 		}
 		public L1CacheInfo(JToken json)
 		{
-			this.CopyFrom(json, ["Headers"], info => info.Headers = new Dictionary<string, string>(json?.Get<JObject>("Headers")?.ToDictionary<string>() ?? new(), StringComparer.OrdinalIgnoreCase));
-			this.Headers["X-Node"] = Global.NodeID;
+			this.CopyFrom(json, ["Headers"]);
+			this.Headers = new ConcurrentDictionary<string, string>(json?.Get<JObject>("Headers")?.ToDictionary<string>() ?? new(), StringComparer.OrdinalIgnoreCase);
+			this.Normalize();
 		}
-		public bool AlwaysUseHTTPs { get; set; }
-		public bool AlwaysReturnHTTPs { get; set; }
-		public string PortalsURL { get; set; }
-		public string FilesURL { get; set; }
-		public string BodyCacheKey { get; set; }
-		public Dictionary<string, string> Headers { get; set; }
+		void Normalize()
+		{
+			this.Headers.Remove("Cache-Control");
+			this.Headers.Remove("X-Node");
+			this.Headers.Remove("X-Cache");
+			this.Headers.Remove("X-Correlation-ID");
+		}
+		public bool AlwaysUseHTTPs { get; init; }
+		public bool AlwaysReturnHTTPs { get; init; }
+		public string PortalsURL { get; init; }
+		public string FilesURL { get; init; }
+		public string BodyCacheKey { get; init; }
+		public ConcurrentDictionary<string, string> Headers { get; init; }
 	}
 
 	internal static class HandlerExtentions
@@ -2100,12 +2108,11 @@ namespace net.vieapps.Services.Portals
 
 			info.Headers.TryGetValue("ETag", out var eTag);
 			info.Headers.TryGetValue("Content-Type", out var contentType);
-			info.Headers.TryGetValue("Last-Modified", out var lastModified);
 
-			if (eTag == null || contentType == null || lastModified == null)
+			if (contentType == null || eTag == null)
 			{
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no required info) [{context.GetL1CacheKey()} => {eTag}/{contentType}/{lastModified}]").ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no content-type or e-tag info) [{context.GetL1CacheKey()} => {contentType} @ {eTag}]").ConfigureAwait(false);
 				return context.RemoveL1Cache(info.BodyCacheKey);
 			}
 
@@ -2130,9 +2137,16 @@ namespace net.vieapps.Services.Portals
 			}
 
 			info.Headers["Access-Control-Allow-Origin"] = allowOrigin;
-			info.Headers["Cache-Control"] = contentType.IsStartsWith("text/html") ? context.GetHttpCacheControl((Handler.CacheMaxAge - 15) * 60) : context.GetHttpCacheControl();
+			info.Headers["Cache-Control"] = contentType.IsStartsWith("text/html") ? context.GetHttpCacheControl(false, 60, (Handler.CacheMaxAge - 15) * 60, false) : context.GetHttpCacheControl();
 			info.Headers["X-Correlation-ID"] = context.GetCorrelationID();
 			info.Headers["X-Cache"] = "L1-HTTP-200";
+
+			if (!info.Headers.TryGetValue("Last-Modified", out var lastModified) || string.IsNullOrWhiteSpace(lastModified))
+			{
+				var cacheKeyOfLastModified = info.BodyCacheKey + ":time";
+				lastModified = Handler.Cache.GetL1CacheItem<string>(cacheKeyOfLastModified) ?? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, context.RequestAborted).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
+				info.Headers["Last-Modified"] = lastModified;
+			}
 
 			var statusCode = (int)HttpStatusCode.OK;
 			byte[] body = null;
@@ -2163,10 +2177,17 @@ namespace net.vieapps.Services.Portals
 					return context.RemoveL1Cache(info.BodyCacheKey);
 				}
 
+				context.UpdateServerTiming("ngxFetch", stepwatch.ElapsedMilliseconds);
+				stepwatch.Restart();
+
 				if (cached is string cachedBody)
 				{
 					if (isBase64)
+					{
 						body = cachedBody.Base64ToBytes();
+						context.UpdateServerTiming("ngxTransform", stepwatch.ElapsedMilliseconds);
+					}
+
 					else
 					{
 						cachedBody = cachedBody.Replace("~#/", info.PortalsURL + "/").Replace("~~~/", info.PortalsURL + "/").Replace("~~/", info.FilesURL + "/").Replace("~/", "/");
@@ -2176,19 +2197,20 @@ namespace net.vieapps.Services.Portals
 							cachedBody = cachedBody.Insert(cachedBody.PositionOf("</body>"), "<script src=\"/~hits/js?l=1&v=" + info.BodyCacheKey.ToList(":").Last() + "\"></script>");
 						}
 						body = cachedBody.ToBytes();
+						context.UpdateServerTiming("ngxNormalize", stepwatch.ElapsedMilliseconds);
 					}
+
 					Handler.Cache.SetL1CacheItem(info.BodyCacheKey + (originIsRequired && gotWWW ? ":WWW" : ""), body);
 					if (isDebugLogEnabled)
 						await context.WriteLogsAsync("Http.Process.Requests", $"Update L1-Cache (bytes) successful ({info.BodyCacheKey} - {body.Length} bytes) [{context.GetL1CacheKey()} => {context.GetRequestUrl()}]").ConfigureAwait(false);
 				}
+
 				else
 					body = cached.As<byte[]>();
-
-				context.UpdateServerTiming("ngxFetch", stepwatch.ElapsedMilliseconds);
 			}
 
 			context.UpdateServerTiming("ngxServe", stopwatch.ElapsedMilliseconds);
-			context.SetResponseHeaders(statusCode, info.Headers);
+			context.SetResponseHeaders(statusCode, info.Headers.ToDictionary());
 			if (body != null)
 				try
 				{
@@ -2223,6 +2245,7 @@ namespace net.vieapps.Services.Portals
 					Type = key,
 					Data = info.ToJson()
 				}.Send(Router.GotBackupRouter());
+				info.Headers["X-Node"] = Global.NodeID;
 				Handler.Cache.SetL1CacheItem(key, info);
 				if (isDebugLogEnabled)
 					context.WriteLogsAsync("Http.Process.Requests", $"Update L1-Cache successful [{key} => {context.GetRequestUrl()}]\r\nInfo: {info.ToJson()}").Execute();
@@ -2245,7 +2268,11 @@ namespace net.vieapps.Services.Portals
 					key = key.Left(pos);
 				}
 				if (key.IsValidUUID())
-					Handler.Cache.SetL1CacheItem(key, new L1CacheInfo(message.Data), validFor);
+				{
+					var info = new L1CacheInfo(message.Data);
+					info.Headers["X-Node"] = Global.NodeID;
+					Handler.Cache.SetL1CacheItem(key, info, validFor);
+				}
 				else
 					Handler.Cache.SetL1CacheItem(key, message.Data, validFor);
 			}
