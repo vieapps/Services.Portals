@@ -137,7 +137,7 @@ namespace net.vieapps.Services.Portals
 
 			// page size to clear related cached
 			if (string.IsNullOrWhiteSpace(query) && pageSize > 0)
-				Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, Utility.CancellationToken).Execute();
+				Utility.SetCacheOfPageSize(filter, sort, pageSize);
 
 			// return the results
 			return (totalRecords, objects, cacheKeys);
@@ -589,9 +589,7 @@ namespace net.vieapps.Services.Portals
 
 					if (@object.Status.Equals(ApprovalStatus.Published))
 					{
-						var rootURL = (string.IsNullOrWhiteSpace(schedulingTask.Organization.CloudFlareZoneID) || string.IsNullOrWhiteSpace(schedulingTask.Organization.CloudFlareApiToken)
-							? schedulingTask.Organization.URL
-							: (schedulingTask.Organization.DefaultSite?.GetURL() ?? schedulingTask.Organization.URL)) + "/";
+						var rootURL = (schedulingTask.Organization.GotCDN(true) ? (schedulingTask.Organization.DefaultSite?.GetURL() ?? schedulingTask.Organization.URL) : schedulingTask.Organization.URL) + "/";
 						var headers = new Dictionary<string, string>
 						{
 							["x-force-cache"] = "1",

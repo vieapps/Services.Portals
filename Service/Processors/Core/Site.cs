@@ -328,25 +328,24 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
-			// data cache keys
-			var sort = Sorts<Site>.Ascending("PrimaryDomain").ThenByAscending("SubDomain").ThenByAscending("Title");
-			var dataCacheKeys = clearDataCache
-				? Extensions.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title"))
-					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), sort))
-					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), sort))
-					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")))					
-					.ToList()
-				: [];
-
-			// html cache keys (desktop HTMLs and related resources)
-			var htmlCacheKeys = (clearHtmlCache	? site.Organization.GetDesktopCacheKeys() : []).Concat(await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).ToList();
-
-			// remove related cache & refresh
+			var (dataCacheKeys, htmlCacheKeys) = await site.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
+			IEnumerable<string> cacheKeys = new List<string>();
+			var tasks = new List<Task>();
+			if (clearDataCache)
+				cacheKeys = cacheKeys.Concat(dataCacheKeys);
+			if (clearHtmlCache)
+				htmlCacheKeys.ForEach(info =>
+				{
+					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
+					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
+				});
+			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
-				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
+				Task.WhenAll(tasks),
+				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
-					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches")
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (site.Organization.ExamineURLs == null || site.Organization.ExamineURLs.Count < 1))

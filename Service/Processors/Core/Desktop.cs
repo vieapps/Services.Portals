@@ -252,27 +252,24 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
 		{
-			// data cache keys
-			var sort = Sorts<Desktop>.Ascending("Title");
-			var dataCacheKeys = new List<string>();
+			var (dataCacheKeys, htmlCacheKeys) = await desktop.GetCacheKeysAsync(oldParentID, clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
+			IEnumerable<string> cacheKeys = new List<string>();
+			var tasks = new List<Task>();
 			if (clearDataCache)
-			{
-				dataCacheKeys = Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, null), sort);
-				if (!string.IsNullOrWhiteSpace(desktop.ParentID) && desktop.ParentID.IsValidUUID())
-					dataCacheKeys = Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, desktop.ParentID), sort).Concat(dataCacheKeys).ToList();
-				if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
-					dataCacheKeys = Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, oldParentID), sort).Concat(dataCacheKeys).ToList();
-			}
-
-			// html cache keys (desktop HTMLs and related resources)
-			var htmlCacheKeys = (clearHtmlCache ? desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}") : []).Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false)).ToList();
-
-			// remove related cache & refresh
+				cacheKeys = cacheKeys.Concat(dataCacheKeys);
+			if (clearHtmlCache)
+				htmlCacheKeys.ForEach(info =>
+				{
+					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
+					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
+				});
+			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
-				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
+				Task.WhenAll(tasks),
+				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
-					? Utility.WriteLogAsync(correlationID, $"Clear related cache of desktop [{desktop.ID} => {desktop.Title}]\r\n- {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} data keys => {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}\r\n- {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count()} html keys => {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Join(", ")}", "Caches")
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a desktop [{desktop.Title} - ID: {desktop.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (desktop.Organization.ExamineURLs == null || desktop.Organization.ExamineURLs.Count < 1))

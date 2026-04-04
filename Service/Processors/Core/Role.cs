@@ -114,24 +114,17 @@ namespace net.vieapps.Services.Portals
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Role role, string oldParentID, CancellationToken cancellationToken, string correlationID = null)
-		{
-			var sort = Sorts<Role>.Ascending("Title");
-			var dataCacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID), sort);
-			if (!string.IsNullOrWhiteSpace(role.ParentID) && role.ParentID.IsValidUUID())
-				dataCacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, role.ParentID), sort).Concat(dataCacheKeys).ToList();
-			if (!string.IsNullOrWhiteSpace(oldParentID) && oldParentID.IsValidUUID())
-				dataCacheKeys = Extensions.GetRelatedCacheKeys(RoleProcessor.GetRolesFilter(role.SystemID, oldParentID), sort).Concat(dataCacheKeys).ToList();
-			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			return Task.WhenAll
+			=> Task.WhenAll
 			(
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear related cache of role [{role.ID} => {role.Title}]\r\n{dataCacheKeys.Count} keys => {dataCacheKeys.Join(", ")}", "Caches") : Task.CompletedTask,
-				Utility.Cache.RemoveAsync(dataCacheKeys, cancellationToken)
+				Utility.IsCacheLogEnabled
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a role [{role.ID} => {role.Title}]", "Caches")
+					: Task.CompletedTask,
+				Utility.Cache.RemoveAsync(role.GetCacheKeys(oldParentID), cancellationToken)
 			);
-		}
 
 		internal static Task ClearCacheAsync(this Role role, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true)
-			=> Task.WhenAll(new[]
-			{
+			=> Task.WhenAll
+			(
 				clearRelatedDataCache ? role.ClearRelatedCacheAsync(null, cancellationToken, correlationID) : Task.CompletedTask,
 				Utility.Cache.RemoveAsync(role.Remove(), cancellationToken),
 				new CommunicateMessage(Utility.ServiceName)
@@ -141,7 +134,7 @@ namespace net.vieapps.Services.Portals
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
 				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a role [{role.Title} - ID: {role.ID}]", "Caches") : Task.CompletedTask
-			});
+			);
 
 		internal static async Task<JObject> SearchRolesAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{

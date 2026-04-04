@@ -146,7 +146,7 @@ namespace net.vieapps.Services.Portals
 
 			// page size to clear related cached
 			if (string.IsNullOrWhiteSpace(query))
-				await Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, cancellationToken).ConfigureAwait(false);
+				Utility.SetCacheOfPageSize(filter, sort, pageSize);
 
 			// return the results
 			return new Tuple<long, List<Crawler>, List<string>>(totalRecords, objects, cacheKeys);

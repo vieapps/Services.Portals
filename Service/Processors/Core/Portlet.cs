@@ -126,38 +126,27 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID, bool clearDataCache, bool clearHtmlCache, bool clearAllHtmlCache, bool doRefresh)
 		{
-			// data cache keys
-			var dataCacheKeys = new List<string>();
+			var (dataCacheKeys, htmlCacheKeys) = await portlet.GetCacheKeysAsync(clearDataCache, clearHtmlCache, clearAllHtmlCache, cancellationToken).ConfigureAwait(false);
+			IEnumerable<string> cacheKeys = new List<string>();
+			var tasks = new List<Task>();
 			if (clearDataCache)
-			{
-				dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Portlet>.And(Filters<Portlet>.Equals("DesktopID", portlet.DesktopID)), Sorts<Portlet>.Ascending("Zone").ThenByAscending("OrderIndex"));
-				if (string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
-					dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Portlet>.Equals("OriginalPortletID", portlet.ID), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex")).Concat(dataCacheKeys).ToList();
-			}
-			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
-			// html cache keys (desktop HTMLs and related resources)
-			var htmlCacheKeys = clearHtmlCache && portlet.Desktop != null ? portlet.Desktop.GetDesktopCacheKeys($"{Utility.PortalsHttpURI}/~{portlet.Organization.Alias}/{portlet.Desktop.Alias}") : [];
+				cacheKeys = cacheKeys.Concat(dataCacheKeys);
 			if (clearHtmlCache)
-			{
-				if (clearAllHtmlCache)
+				htmlCacheKeys.ForEach(info =>
 				{
-					var dekstops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
-					htmlCacheKeys = htmlCacheKeys.Concat(await dekstops.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-				}
-				else if (portlet.Desktop != null)
-					htmlCacheKeys = htmlCacheKeys.Concat(await portlet.Desktop.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			}
-
-			// remove related cache & refresh
+					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
+					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
+				});
+			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
-				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
+				Task.WhenAll(tasks),
+				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
-					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			if (doRefresh && portlet.Desktop != null && (portlet.Organization.ExamineURLs == null || portlet.Organization.ExamineURLs.Count < 1))
+			if (doRefresh && portlet?.Organization != null && (portlet.Organization.ExamineURLs == null || portlet.Organization.ExamineURLs.Count < 1))
 				portlet.Organization.RefreshWebPagesAsync([portlet.Desktop.GetURL(), portlet.Desktop.ID.Equals(portlet.Organization.HomeDesktop?.ID) ? portlet.Organization.URL : null], true, correlationID, $"Refresh when clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", cancellationToken).Execute();
 		}
 
@@ -202,8 +191,11 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// process cache
+			var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, pageSize, pageNumber);
+			var cacheKeyOfTotalObjects = Extensions.GetCacheKeyOfTotalObjects(filter, sort);
+			var cacheKeyOfObjectsJson = Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber);
 			var json = string.IsNullOrWhiteSpace(query) && !Utility.IsCacheDisabled
-				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+				? await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsJson, cancellationToken).ConfigureAwait(false)
 				: null;
 			if (!string.IsNullOrWhiteSpace(json))
 				return JObject.Parse(json);
@@ -212,7 +204,7 @@ namespace net.vieapps.Services.Portals
 			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Portlet.CountAsync(filter, !Utility.IsCacheDisabled, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await Portlet.CountAsync(filter, !Utility.IsCacheDisabled, cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false)
 					: await Portlet.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
@@ -222,7 +214,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Portlet.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await Portlet.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
 					: await Portlet.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<Portlet>();
 
@@ -237,7 +229,7 @@ namespace net.vieapps.Services.Portals
 
 			// update cache
 			if (string.IsNullOrWhiteSpace(query))
-				Utility.Cache.SetAsync(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), response.ToString(Formatting.None)).Execute();
+				Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None)).Execute();
 
 			// response
 			return response;

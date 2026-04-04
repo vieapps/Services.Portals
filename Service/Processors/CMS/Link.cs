@@ -84,76 +84,39 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task ClearRelatedCacheAsync(this Link link, bool writeLogs, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
-			// tasks for updating sets
-			var setTasks = new List<Task>();
-
-			// data cache keys
-			var dataCacheKeys = clearDataCache && link != null
-				? Extensions.GetRelatedCacheKeys(link.GetCacheKey())
-				: [];
-
+			var (dataCacheKeys, htmlCacheKeys) = await link.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
+			IEnumerable<string> cacheKeys = new List<string>();
+			var tasks = new List<Task>();
 			if (clearDataCache)
-			{
-				var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
-				if (!string.IsNullOrWhiteSpace(link?.ID))
-					dataCacheKeys.Add(Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ID), sort, 0, 1));
-				if (!string.IsNullOrWhiteSpace(link?.ParentID))
-					dataCacheKeys.Add(Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID), sort, 0, 1));
-			}
-
-			if (clearDataCache && link?.ContentType != null)
-			{
-				var cacheKeys = await Utility.Cache.GetSetMembersAsync(link.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false);
-				if (cacheKeys != null && cacheKeys.Any())
+				dataCacheKeys.ForEach(info =>
 				{
-					setTasks.Add(Utility.Cache.RemoveSetMembersAsync(link.ContentType.GetSetCacheKey(), cacheKeys, cancellationToken));
-					dataCacheKeys = dataCacheKeys.Concat(cacheKeys).ToList();
-				}
-			}
-			dataCacheKeys = dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
-			// html cache keys (desktop HTMLs)
-			Desktop desktop = null;
-			var htmlCacheKeys = new List<string>();
+					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
+					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
+				});
 			if (clearHtmlCache)
-			{
-				desktop = link?.ContentType?.Desktop;
-				htmlCacheKeys = link?.Organization?.GetDesktopCacheKeys() ?? new List<string>();
-				await new[] { desktop?.GetSetCacheKey() }
-					.Concat(link?.ContentType != null ? await link.ContentType.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) : new())
-					.Where(id => !string.IsNullOrWhiteSpace(id))
-					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ToList()
-					.ForEachAsync(async desktopSetCacheKey =>
-					{
-						var cacheKeys = await Utility.Cache.GetSetMembersAsync(desktopSetCacheKey, cancellationToken).ConfigureAwait(false);
-						if (cacheKeys != null && cacheKeys.Any())
-						{
-							setTasks.Add(Utility.Cache.RemoveSetMembersAsync(desktopSetCacheKey, cacheKeys, cancellationToken));
-							htmlCacheKeys = htmlCacheKeys.Concat(cacheKeys).ToList();
-						}
-					}, true, false).ConfigureAwait(false);
-			}
-			htmlCacheKeys = htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-
-			// remove related cache & refresh
+				htmlCacheKeys.ForEach(info =>
+				{
+					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
+					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
+				});
+			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			writeLogs = writeLogs || Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(
-				Task.WhenAll(setTasks),
-				Utility.Cache.RemoveAsync(htmlCacheKeys.Concat(dataCacheKeys).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				writeLogs && link != null
-					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS link [{link.Title} - ID: {link.ID}]\r\n- {dataCacheKeys.Count} data keys => {dataCacheKeys.Join(", ")}\r\n- {htmlCacheKeys.Count} html keys => {htmlCacheKeys.Join(", ")}", "Caches")
+				Task.WhenAll(tasks),
+				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
+				writeLogs
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS.Link [{link.Title} - ID: {link.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			if (link != null)
-				link.PurgeCloudFlareCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging CloudFlare cache => {ex.Message}", "Caches", correlationID));
+			if (link?.Organization != null && (link.Organization.ExamineURLs == null || link.Organization.ExamineURLs.Count < 1))
+				link.PurgeCDNCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging CDN cache => {ex.Message}", "Caches", correlationID));
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Link link, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 			=> link.ClearRelatedCacheAsync(false, cancellationToken, correlationID, clearHtmlCache, clearHtmlCache, doRefresh);
 
-		static async Task<(long TotalRecords, List<Link> Objects, JToken Thumbnails, List<string> CacheKeys)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
+		static async Task<(List<Link> Objects, long TotalRecords, JToken Thumbnails)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -186,15 +149,19 @@ namespace net.vieapps.Services.Portals
 
 			// page size to clear related cached
 			if (string.IsNullOrWhiteSpace(query))
-				Utility.SetCacheOfPageSizeAsync(filter, sort, pageSize, Utility.CancellationToken).Execute();
+				cacheKeys.Add(Utility.SetCacheOfPageSize(filter, sort, pageSize));
 
 			// store object identities to clear related cached
 			var contentType = objects.FirstOrDefault()?.ContentType;
 			if (contentType != null)
-				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), Utility.CancellationToken).Execute();
+				Task.WhenAll
+				(
+					Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), Utility.CancellationToken),
+					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken)
+				).Execute();
 
 			// return the results
-			return (totalRecords, objects, thumbnails, cacheKeys);
+			return (objects, totalRecords, thumbnails);
 		}
 
 		internal static async Task<JObject> SearchLinksAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
@@ -300,7 +267,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// search if has no cache
-			var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, cancellationToken).ConfigureAwait(false);
+			var (objects, totalRecords, thumbnails) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, cancellationToken).ConfigureAwait(false);
 
 			// build response
 			var totalPages = (totalRecords, pageSize).GetTotalPages();
@@ -320,15 +287,14 @@ namespace net.vieapps.Services.Portals
 
 			// update cache & response
 			if (string.IsNullOrWhiteSpace(query) && !addChildren)
-			{
-				cacheKeys = cacheKeys.Concat([cacheKeyOfObjectsJson]).ToList();
 				Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
-					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken),
-					Utility.IsDebugLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS.Link\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType.GetSetCacheKey()}\r\n- Related cache keys: {cacheKeys.Join(", ")}", "Link") : Task.CompletedTask
+					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKeyOfObjectsJson, Utility.CancellationToken),
+					Utility.IsDebugLogEnabled
+						? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS.Link\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of realated sets: {contentType.GetSetCacheKey()}", "Link")
+						: Task.CompletedTask
 				).Execute();
-			}
 			return response;
 		}
 
@@ -1092,7 +1058,7 @@ namespace net.vieapps.Services.Portals
 			var maxLevel = options.Get("MaxLevel", 0);
 			var addChildren = options.Get("ShowChildrens", options.Get("ShowChildren", options.Get("AddChildrens", options.Get("AddChildren", false))));
 
-			var forceCache = requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache");
+			var forceCache = requestInfo.IsForceCache();
 			string data = null;
 
 			var requestedURL = requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri");
@@ -1113,8 +1079,8 @@ namespace net.vieapps.Services.Portals
 				? parentFilter.Value as string
 				: null;
 
-			if (forceCache && !string.IsNullOrWhiteSpace(parentIdentity))
-				Utility.Cache.RemoveAsync(parentIdentity.GetCacheKey<Link>(), Utility.CancellationToken).Execute();
+			if (!string.IsNullOrWhiteSpace(parentIdentity))
+				requestInfo.RemoveCache([parentIdentity.GetCacheKey<Link>()]);
 
 			var parent = !string.IsNullOrWhiteSpace(parentIdentity)
 				? await Link.GetAsync(parentIdentity, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false)
@@ -1125,8 +1091,7 @@ namespace net.vieapps.Services.Portals
 			{
 				// prepare cache
 				var cacheKey = $"{parent.GetCacheKey()}:xml:o#{optionsJson.ToString(Formatting.None).GenerateUUID()}:p#{paginationJson.ToString(Formatting.None).GenerateUUID()}";
-				if (forceCache)
-					await Utility.Cache.RemoveAsync(cacheKey, Utility.CancellationToken).ConfigureAwait(false);
+				requestInfo.RemoveCache([cacheKey]);
 
 				// get cache
 				data = Utility.IsCacheDisabled ? null : await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
@@ -1177,8 +1142,11 @@ namespace net.vieapps.Services.Portals
 								(
 									Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken),
 									Utility.Cache.AddSetMemberAsync(contentType.ObjectCacheKeys, parent.GetCacheKey(), Utility.CancellationToken)
-								) : Task.CompletedTask,
-							Utility.IsDebugLogEnabled ? Utility.WriteLogAsync(requestInfo, $"Generate menu from look-up data [{parent.LookupRepositoryID}/{parent.LookupRepositoryEntityID}/{parent.LookupRepositoryObjectID}]\r\n- Content-Type: {lookupContentType?.Title}\r\n- JSON: {menu}\r\n- XML: {dataXml}", "Menus") : Task.CompletedTask
+								)
+								: Task.CompletedTask,
+							Utility.IsDebugLogEnabled
+								? Utility.WriteLogAsync(requestInfo, $"Generate menu from look-up data [{parent.LookupRepositoryID}/{parent.LookupRepositoryEntityID}/{parent.LookupRepositoryObjectID}]\r\n- Content-Type: {lookupContentType?.Title}\r\n- JSON: {menu}\r\n- XML: {dataXml}", "Menus")
+								: Task.CompletedTask
 						).Execute();
 
 						// update 'Selected' states and get data
@@ -1219,7 +1187,8 @@ namespace net.vieapps.Services.Portals
 								(
 									Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken),
 									Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, new[] { parent.GetCacheKey() }.Concat((parent.Children ?? []).Where(obj => obj != null && obj.ID != null && obj.ID.IsValidUUID()).Select(obj => obj.GetCacheKey())), Utility.CancellationToken)
-								) : Task.CompletedTask,
+								)
+								: Task.CompletedTask,
 							Utility.IsCacheLogEnabled
 								? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys (1): {cacheKey}", "Caches")
 								: Task.CompletedTask
@@ -1239,8 +1208,7 @@ namespace net.vieapps.Services.Portals
 			{
 				// prepare cache
 				var cacheKey = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
-				if (forceCache)
-					Utility.Cache.RemoveAsync(new[] { cacheKey, Extensions.GetCacheKeyOfTotalObjects(filter, sort), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) }, Utility.CancellationToken).Execute();
+				requestInfo.RemoveCache([cacheKey, Extensions.GetCacheKeyOfTotalObjects(filter, sort), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber)]);
 
 				// get cache
 				data = Utility.IsCacheDisabled ? null : await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
@@ -1249,7 +1217,7 @@ namespace net.vieapps.Services.Portals
 				if (string.IsNullOrWhiteSpace(data))
 				{
 					// search
-					var (totalRecords, objects, thumbnails, cacheKeys) = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
+					var (objects, totalRecords, thumbnails) = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
 
 					// prepare pagination
 					var totalPages = (totalRecords, pageSize).GetTotalPages();
@@ -1324,10 +1292,10 @@ namespace net.vieapps.Services.Portals
 					(
 						Utility.Cache.SetAsync(cacheKey, dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting), Utility.CancellationToken),
 						contentType != null
-							? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys.Concat([cacheKey]), Utility.CancellationToken)
+							? Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
 							: Task.CompletedTask,
 						Utility.IsCacheLogEnabled
-							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]\r\n- Related cache keys ({cacheKeys.Count + 1}): {cacheKeys.Concat([cacheKey]).Join(", ")}", "Caches")
+							? Utility.WriteLogAsync(requestInfo, $"Update related keys into Content-Type's set when generate collection of CMS.Link [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()}]", "Caches")
 							: Task.CompletedTask
 					).Execute();
 
