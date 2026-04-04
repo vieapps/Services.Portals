@@ -661,7 +661,7 @@ namespace net.vieapps.Services.Portals
 							{
 								["Content-Type"] = contentType + (isBase64 ? "" : "; charset=utf-8"),
 								["ETag"] = eTag,
-								["Cache-Control"] = isHtml ? context.GetHttpCacheControl(Handler.CacheMaxAge * 60) : context.GetHttpCacheControl(),
+								["Cache-Control"] = isHtml ? context.GetHttpCacheControl(false, 60, (Handler.CacheMaxAge - 15) * 60, false) : context.GetHttpCacheControl(),
 								["X-Cache"] = "HTTP-200",
 								["X-Node"] = Global.NodeID,
 								["X-Correlation-ID"] = correlationID
@@ -786,7 +786,7 @@ namespace net.vieapps.Services.Portals
 							{
 								headers["Last-Modified"] = lastModified;
 								headers["Expires"] = expires.AddMinutes(-15).ToHttpString();
-								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(maxAge - (15 * 60)) : context.GetHttpCacheControl();
+								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(false, 60, maxAge - (15 * 60), false) : context.GetHttpCacheControl();
 								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 								await context.WriteAsync(body, headers, cts.Token).ConfigureAwait(false);
 								return;
@@ -815,7 +815,7 @@ namespace net.vieapps.Services.Portals
 
 						var isHtml = headers.TryGetValue("Content-Type", out var contentType) && contentType.IsStartsWith("text/html");
 						if (!headers.TryGetValue("Cache-Control", out var cacheControl))
-							cacheControl = isHtml ? context.GetHttpCacheControl(maxAge - (15 * 60)) : context.GetHttpCacheControl();
+							cacheControl = isHtml ? context.GetHttpCacheControl(false, 60, maxAge - (15 * 60), false) : context.GetHttpCacheControl();
 						if (isForceCacheRequested || isRefresher || context.IsAuthenticated())
 							cacheControl = context.GetHttpCacheControl(true);
 						
@@ -1937,7 +1937,7 @@ namespace net.vieapps.Services.Portals
 				{
 					context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
 					if (Global.IsVisitLogEnabled && !context.GetRequestUri().AbsolutePath.IsStartsWith("/~hits"))
-						await context.WriteVisitStartingLogAsync().ConfigureAwait(false);
+						await context.WriteVisitStartingLogAsync(Global.Logger, "Http.Visits", context.ContainsKey("x-header-logs")).ConfigureAwait(false);
 				}
 			}
 
@@ -2112,7 +2112,7 @@ namespace net.vieapps.Services.Portals
 			if (contentType == null || eTag == null)
 			{
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no content-type or e-tag info) [{context.GetL1CacheKey()} => {contentType} @ {eTag}]").ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no required info) [{context.GetL1CacheKey()} => {contentType} @ {eTag}]").ConfigureAwait(false);
 				return context.RemoveL1Cache(info.BodyCacheKey);
 			}
 
@@ -2144,7 +2144,12 @@ namespace net.vieapps.Services.Portals
 			if (!info.Headers.TryGetValue("Last-Modified", out var lastModified) || string.IsNullOrWhiteSpace(lastModified))
 			{
 				var cacheKeyOfLastModified = info.BodyCacheKey + ":time";
-				lastModified = Handler.Cache.GetL1CacheItem<string>(cacheKeyOfLastModified) ?? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, context.RequestAborted).ConfigureAwait(false) ?? DateTime.Now.ToHttpString();
+				lastModified = await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, context.RequestAborted).ConfigureAwait(false);
+				if (lastModified == null)
+				{
+					lastModified = DateTime.Now.ToHttpString();
+					Handler.Cache.SetAsync(cacheKeyOfLastModified, lastModified, Global.CancellationToken).Execute();
+				}
 				info.Headers["Last-Modified"] = lastModified;
 			}
 
