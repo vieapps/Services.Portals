@@ -2344,6 +2344,9 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(html))
 			{
 				html = this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.Session.DeviceID, requestInfo.CorrelationID);
+				if (site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs)
+					html = html.Replace("<base href=\"http://", "<base href=\"https://");
+
 				lastModified = lastModified ?? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false);
 				if (string.IsNullOrWhiteSpace(lastModified))
 				{
@@ -3960,7 +3963,7 @@ namespace net.vieapps.Services.Portals
 				["time-stamp"] = DateTime.Now.ToUnixTimestamp(),
 				["host-md5"] = requestURI.Host.GenerateUUID(),
 				["host-uuid"] = requestURI.Host.GenerateUUID()
-			}).NormalizeURLs(requestURI, organization.Alias, useShortURLs, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI);
+			}).NormalizeURLs(requestURI, organization.Alias, useShortURLs, true, string.IsNullOrWhiteSpace(organization.FakeFilesHttpURI) ? null : organization.FakeFilesHttpURI, string.IsNullOrWhiteSpace(organization.FakePortalsHttpURI) ? null : organization.FakePortalsHttpURI, null, site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs);
 
 		JObject GenerateErrorJson(Exception exception, RequestInfo requestInfo, bool addErrorStack, string errorMessage = null)
 		{

@@ -598,8 +598,12 @@ namespace net.vieapps.Services.Portals
 							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
 							var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
 
-							baseURL = requestURI.GetBaseURL(organizationAlias);
-							rootURL = requestURI.GetRootURL(organizationAlias);
+							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
+							alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
+							redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
+							
+							baseURL = requestURI.GetBaseURL(organizationAlias, alwaysUseHTTPs || alwaysReturnHTTPs);
+							rootURL = requestURI.GetRootURL(organizationAlias, Handler.UseShortURLs, alwaysUseHTTPs || alwaysReturnHTTPs);
 
 							var desktopAlias = query["x-desktop"].ToLower();
 							var path = homeDesktopAlias.IsEquals(desktopAlias) || homeDesktopAliases.IsContains(desktopAlias) || "-default".IsEquals(desktopAlias) ? "-default" : null;
@@ -617,16 +621,12 @@ namespace net.vieapps.Services.Portals
 							
 							if (baseURL == "" && (portalsHttpURI.IsEndsWith(siteURI) || Handler.PortalsHttpURI.IsEndsWith(siteURI)))
 							{
-								baseURL = requestURI.Scheme + "://" + requestURI.Host + "/~" + organizationAlias + "/";
+								baseURL = (alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme) + "://" + requestURI.Host + "/~" + organizationAlias + "/";
 								rootURL = "";
 							}
 
 							cacheKey = systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID();
 							eTag = $"vieapps#{cacheKey.GenerateUUID()}";
-
-							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
-							alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
-							redirectToNoneWWW = systemIdentityJson.Get("RedirectToNoneWWW", false);
 						}
 
 						stepwatch.Restart();
@@ -705,6 +705,7 @@ namespace net.vieapps.Services.Portals
 							var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
 							var cached = await Handler.Cache.GetAsync(cacheKey, cts.Token).ConfigureAwait(false);
 							lastModified ??= (cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false) : null) ?? DateTime.Now.ToHttpString();
+							
 							var expirationTime = Handler.Cache.ExpirationTime;
 							var expiresAt = !isBase64 && isHtml && cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfExpiration, cts.Token).ConfigureAwait(false) : null;
 							if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
@@ -738,7 +739,8 @@ namespace net.vieapps.Services.Portals
 								if (isHtml)
 								{
 									cachedBody = context.NormalizeHtml(cachedBody, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL);
-									cachedBody = cachedBody.Insert(cachedBody.PositionOf("</body>"), "<script src=\"/~hits/js?l=" + (Handler.AllowBytesL2Cache ? "1.4" : "2") + "&v=" + cacheKey.ToList(":").Last() + "\"></script>");
+									var version = Handler.Cache.UseL1Cache || Handler.AllowBytesL2Cache ? "1.4" : "2";
+									cachedBody = cachedBody.Insert(cachedBody.PositionOf("</body>"), "<script src=\"/~hits/js?l=" + version + "&v=" + cacheKey.ToList(":").Last() + "\"></script>");
 								}
 
 								body = isBase64 ? cachedBody.Base64ToBytes() : cachedBody.ToBytes();
@@ -758,7 +760,7 @@ namespace net.vieapps.Services.Portals
 								if (isVisitLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache was done => FOUND ({cacheKey}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}{(isCacheLogEnabled && isHtml ? $"\r\n\r\nNormalized cache:\r\n{cachedBody}" : "")}").ConfigureAwait(false);
 							}
-							else if (cached != null && Handler.AllowBytesL2Cache)
+							else if (cached != null && (Handler.Cache.UseL1Cache || Handler.AllowBytesL2Cache))
 							{
 								if (isCacheLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"CMS Portals service cache (L2) was found ({cacheKey})").ConfigureAwait(false);
@@ -768,10 +770,15 @@ namespace net.vieapps.Services.Portals
 									var html = context.NormalizeHtml(cached.As<byte[]>().GetString(), alwaysUseHTTPs, alwaysReturnHTTPs, baseURL);
 									html = html.Replace("href=\"//", "href=\"#/");
 									html = html.Replace("href=\"/", "href=\"").Replace("href=\"#/", "href=\"//");
-									if (html.IsContains("/~hits/js?l=1.4"))
-										html = html.Replace("/~hits/js?l=1.4", "/~hits/js?l=1.8");
+									var version = Handler.Cache.UseL1Cache ? "1" : "1.8";
+									if (html.IsContains("/~hits/js?l=1.8"))
+										html = html.Replace("/~hits/js?l=1.8", "/~hits/js?l=" + version);
+									else if (html.IsContains("/~hits/js?l=1.4"))
+										html = html.Replace("/~hits/js?l=1.4", "/~hits/js?l=" + version);
+									else if (html.IsContains("/~hits/js?l=1"))
+										html = html.Replace("/~hits/js?l=1", "/~hits/js?l=" + version);
 									else
-										html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=1.8&v=" + cacheKey.ToList(":").Last() + "\"></script>");
+										html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=" + version + "&v=" + cacheKey.ToList(":").Last() + "\"></script>");
 									body = html.ToBytes();
 								}
 								else
@@ -1971,7 +1978,7 @@ namespace net.vieapps.Services.Portals
 		{
 			var session = context.GetSession();
 			var scripts = $"__vieapps.isMobile={(string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true")};__vieapps.osInfo='{(session.AppAgent ?? "").GetOSInfo()}';"
-				+ "setTimeout(()=>__vieapps.utils.ajax('/~hits/tk?v=" + UtilityService.NewUUID + "',undefined,undefined,'POST',{url:'" + (context.GetReferUrl() ?? Handler.PortalsHttpURI) + "'}),6789);";
+				+ "setTimeout(()=>__vieapps.utils.ajax('/~hits/tk?x-advanced&v=" + UtilityService.NewUUID + "',undefined,undefined,'POST',{url:'" + (context.GetReferUrl() ?? Handler.PortalsHttpURI) + "'}),6789);";
 			await context.WriteAsync(scripts, "application/javascript", new Dictionary<string, string> { ["Cache-Control"] = context.GetHttpCacheControl(true) }, context.RequestAborted).ConfigureAwait(false);
 		}
 
@@ -1982,8 +1989,52 @@ namespace net.vieapps.Services.Portals
 			{
 				var requestBody = await context.ReadJsonAsync(context.RequestAborted).ConfigureAwait(false);
 				var requestURL = requestBody?.Get<string>("url") ?? context.GetReferUrl() ?? context.GetRequestUri().AbsoluteUri;
+				var serviceName = (Global.ServiceName + ".HTTP").ToLower();
+				var serviceURI = $"GET {requestURL}";
 				var serviceSystemID = await context.GetSystemIDAsync(new Uri(requestURL)).ConfigureAwait(false);
-				context.SendSessionState(Global.ServiceName + ".HTTP", $"GET {requestURL}", serviceSystemID, true, Handler.TrackPortalStatistics);
+				if (context.ContainsKey("x-advanced"))
+				{
+					var session = context.GetSession();
+					var correlationID = context.GetCorrelationID();
+					if (Handler.TrackSessions)
+						new CommunicateMessage("Users")
+						{
+							Type = "Session#State",
+							Data = session.ToJson(json =>
+							{
+								json["SessionID"] = session.SessionID;
+								json["DeviceID"] = session.DeviceID;
+								json["UserID"] = session.User?.ID;
+								json["Online"] = true;
+								json["Track"] = Handler.TrackPortalStatistics;
+								json["AppInfo"] = $"{session.AppName} @ {session.AppPlatform}";
+								json["OSInfo"] = $"{Extensions.GetOSInfo(session.AppAgent)} [{session.AppAgent}]";
+								json["Crawler"] = context.IsCrawlerbot();
+								json["Service"] = new JObject
+								{
+									["Name"] = serviceName.ToLower(),
+									["URI"] = serviceURI,
+									["SystemID"] = string.IsNullOrWhiteSpace(serviceSystemID) ? null : serviceSystemID
+								};
+								json["CorrelationID"] = correlationID;
+								json["Advanced"] = true;
+							})
+						}.Send(Router.GotBackupRouter());
+					else if (Handler.TrackPortalStatistics)
+						new CommunicateMessage("Users")
+						{
+							Type = "Statistics#Track",
+							Data = new JObject
+							{
+								["SessionID"] = session.SessionID,
+								["UserID"] = session.User?.ID,
+								["CorrelationID"] = correlationID,
+								["Advanced"] = true
+							}
+						}.Send(Router.GotBackupRouter());
+				}
+				else
+					context.SendSessionState(serviceName, serviceURI, serviceSystemID, true, Handler.TrackPortalStatistics);
 			}
 			catch (Exception ex)
 			{
@@ -2027,12 +2078,12 @@ namespace net.vieapps.Services.Portals
 
 	internal static class HandlerExtentions
 	{
-		public static string GetBaseURL(this Uri requestURI, string systemIdentity, string baseHost = null)
-			=> requestURI.AbsolutePath.IsStartsWith($"/~{systemIdentity}") ? $"{requestURI.Scheme}://{baseHost ?? requestURI.Host}/~{systemIdentity}/" : "";
+		public static string GetBaseURL(this Uri requestURI, string systemIdentity, bool alwaysUseHTTPs = false)
+			=> requestURI.AbsolutePath.IsStartsWith($"/~{systemIdentity}") ? $"{(alwaysUseHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/~{systemIdentity}/" : "";
 
-		public static string GetRootURL(this Uri requestURI, string systemIdentity, bool useShortURLs = true, string baseHost = null)
+		public static string GetRootURL(this Uri requestURI, string systemIdentity, bool useShortURLs = true, bool alwaysUseHTTPs = false)
 		{
-			var baseURL = requestURI.GetBaseURL(systemIdentity, baseHost);
+			var baseURL = requestURI.GetBaseURL(systemIdentity, alwaysUseHTTPs);
 			return useShortURLs ? baseURL != "" ? "" : "/" : baseURL;
 		}
 
