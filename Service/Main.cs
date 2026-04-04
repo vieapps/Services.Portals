@@ -2075,9 +2075,9 @@ namespace net.vieapps.Services.Portals
 				urls = urls.Select(url => new[] { url, $"{Utility.PortalsHttpURI}{new Uri(url).PathAndQuery}" }).SelectMany(url => url).ToList();
 				organization ??= (await requestURI.Host.ToArray(".").Skip(1).Join(".").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false))?.Organization;
 				if (organization != null)
-					await organization.PurgeCloudFlareCacheAsync(urls, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
-				else if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
-					await urls.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
+					await organization.PurgeCDNCacheAsync(urls, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
+				else if (!string.IsNullOrWhiteSpace(Utility.CDNZoneID) && !string.IsNullOrWhiteSpace(Utility.CDNApiToken))
+					await urls.PurgeCloudFlareCacheAsync(Utility.CDNZoneID, Utility.CDNApiToken, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
 			}
 
 			// response
@@ -2291,7 +2291,7 @@ namespace net.vieapps.Services.Portals
 					{
 						["ETag"] = eTag,
 						["Last-Modified"] = lastModified,
-						["Cache-Control"] = this.GetCacheControl(maxAge),
+						["Cache-Control"] = this.GetCacheControl(false, 60, maxAge, false),
 						["Server-Timing"] = $"ngxCache;dur=${stepwatch.ElapsedMilliseconds}",
 						["X-Cache"] = "SVC-304"
 					};
@@ -2367,7 +2367,7 @@ namespace net.vieapps.Services.Portals
 				{
 					["ETag"] = eTag,
 					["Last-Modified"] = lastModified,
-					["Cache-Control"] = this.GetCacheControl(maxAge),
+					["Cache-Control"] = this.GetCacheControl(false, 60, maxAge, false),
 					["Expires"] = expiresAt,
 					["Server-Timing"] = $"ngxCache;dur={stepwatch.ElapsedMilliseconds}",
 					["X-Cache"] = "SVC-200"
@@ -2710,7 +2710,7 @@ namespace net.vieapps.Services.Portals
 						["ETag"] = eTag,
 						["Last-Modified"] = lastModified,
 						["Expires"] = DateTime.Now.AddSeconds(maxAge).ToHttpString(),
-						["Cache-Control"] = this.GetCacheControl(isForceCacheRequested, maxAge),
+						["Cache-Control"] = this.GetCacheControl(isForceCacheRequested, 60, maxAge, false),
 						["X-Cache"] = "None"
 					};
 
@@ -2732,12 +2732,16 @@ namespace net.vieapps.Services.Portals
 							: Utility.Cache.SetAsync(items, null, expirationTime, this.CancellationToken)
 					).Execute();
 
-					var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity) ? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false) : null;
+					var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity)
+						? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false)
+						: null;
+
+					var cacheKeys = new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration };
 					Task.WhenAll
 					(
-						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], this.CancellationToken),
+						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), cacheKeys, this.CancellationToken),
 						category != null
-							? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), [cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], this.CancellationToken)
+							? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), cacheKeys, this.CancellationToken)
 							: Task.CompletedTask,
 						isWriteDesktopLogs
 							? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Caches")
@@ -2789,7 +2793,7 @@ namespace net.vieapps.Services.Portals
 						var urls = new[] { canonicalURL, $"{Utility.PortalsHttpURI}/~{organization.Alias}{new Uri(canonicalURL).AbsolutePath}" }
 							.Select(url => new[] { url, url.EndsWith("/index.html") ? url.Replace("/index.html", "/") : null })
 							.SelectMany(url => url);
-						organization.PurgeCloudFlareCacheAsync(urls, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken, doRemove ? null : _ =>
+						organization.PurgeCDNCacheAsync(urls, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken, doRemove ? null : _ =>
 						{
 							var refreshURLs = new[] { canonicalURL, canonicalURL.EndsWith("/index.html") ? canonicalURL.Replace("/index.html", "/") : null }.ToList();
 							refreshURLs.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(3 + index, requestInfo.CorrelationID, isWriteDesktopLogs, cancellationtoken), Utility.CancellationToken).Execute();
@@ -6018,23 +6022,23 @@ namespace net.vieapps.Services.Portals
 
 				var @object = string.IsNullOrWhiteSpace(objectID) || !serviceName.IsEquals(Utility.ServiceName) ? null : await RepositoryMediator.GetAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false);
 				if (@object is IBusinessObject bizObject)
-					await bizObject.PurgeCloudFlareCacheAsync(true, correlationID, false, Utility.CancellationToken).ConfigureAwait(false);
+					await bizObject.PurgeCDNCacheAsync(true, correlationID, false, Utility.CancellationToken).ConfigureAwait(false);
 
 				else
 				{
 					var organization = await (systemID ?? "").GetOrganizationByIDAsync(this.CancellationToken).ConfigureAwait(false);
 					if (organization != null)
-						await organization.PurgeCloudFlareCacheAsync(urls, correlationID, this.IsDebugLogEnabled, this.CancellationToken).ConfigureAwait(false);
+						await organization.PurgeCDNCacheAsync(urls, correlationID, this.IsDebugLogEnabled, this.CancellationToken).ConfigureAwait(false);
 					else
 					{
-						if (Utility.CloudFlareForAll)
-							await urls.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
+						if (Utility.CDNForAll)
+							await urls.PurgeCloudFlareCacheAsync(Utility.CDNZoneID, Utility.CDNApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
 						else
 						{
 							var organizations = await Organization.FindAllAsync(false, this.CancellationToken).ConfigureAwait(false);
-							await organizations.ForEachAsync(organization => organization.PurgeCloudFlareCacheAsync([], correlationID, this.IsDebugLogEnabled, this.CancellationToken)).ConfigureAwait(false);
-							if (!string.IsNullOrWhiteSpace(Utility.CloudFlareZoneID) && !string.IsNullOrWhiteSpace(Utility.CloudFlareApiToken))
-								await urls.PurgeCloudFlareCacheAsync(Utility.CloudFlareZoneID, Utility.CloudFlareApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
+							await organizations.ForEachAsync(organization => organization.PurgeCDNCacheAsync([], correlationID, this.IsDebugLogEnabled, this.CancellationToken)).ConfigureAwait(false);
+							if (!string.IsNullOrWhiteSpace(Utility.CDNZoneID) && !string.IsNullOrWhiteSpace(Utility.CDNApiToken))
+								await urls.PurgeCloudFlareCacheAsync(Utility.CDNZoneID, Utility.CDNApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
 						}
 					}
 				}
@@ -6313,7 +6317,7 @@ namespace net.vieapps.Services.Portals
 
 			await this.ClearCacheAsync(organization ?? module ?? contentType ?? site ?? desktop ?? expression as IPortalObject, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 			organization = organization ?? module?.Organization ?? contentType?.Organization ?? site?.Organization ?? desktop?.Organization ?? expression?.Organization;
-			await organization.PurgeCloudFlareCacheAsync(null, requestInfo.CorrelationID, Utility.IsCacheLogEnabled, cancellationToken).ConfigureAwait(false);
+			await organization.PurgeCDNCacheAsync(null, requestInfo.CorrelationID, Utility.IsCacheLogEnabled, cancellationToken).ConfigureAwait(false);
 
 			stopwatch.Stop();
 			if (Utility.IsCacheLogEnabled)
@@ -6327,7 +6331,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					organization.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false),
-					organization.PurgeCloudFlareCacheAsync([], correlationID, Utility.IsCacheLogEnabled, cancellationToken)
+					organization.PurgeCDNCacheAsync([], correlationID, Utility.IsCacheLogEnabled, cancellationToken)
 				).ConfigureAwait(false);
 
 			else if (@object is Module module)
@@ -6364,7 +6368,7 @@ namespace net.vieapps.Services.Portals
 				await Task.WhenAll
 				(
 					site.Organization.RefreshWebPagesAsync([site.Organization.URL, $"{site.Organization.URL}/index{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}", desktop == null ? "" : $"~/{desktop.Alias}{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"], true, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]", cancellationToken),
-					site.Organization.PurgeCloudFlareCacheAsync([], correlationID, Utility.IsCacheLogEnabled, cancellationToken)
+					site.Organization.PurgeCDNCacheAsync([], correlationID, Utility.IsCacheLogEnabled, cancellationToken)
 				).ConfigureAwait(false);
 			}
 
@@ -6698,7 +6702,7 @@ namespace net.vieapps.Services.Portals
 				}, true, false).ConfigureAwait(false);
 
 				// clear related cache
-				await cntType.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false).ConfigureAwait(false);
+				await cntType.ClearRelatedCacheAsync(true, true, false, true, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
 			}
 
 			return new JObject();
@@ -6785,7 +6789,7 @@ namespace net.vieapps.Services.Portals
 					if (category != null)
 						filter.Add(Filters<Content>.Equals("CategoryID", category.ID));
 					var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
-					var (objects, _, _, jthumbnails, _) = await requestInfo.SearchAsync(null, filter, sort, 20, 1, contentType.ID, -1, cancellationToken, true).ConfigureAwait(false);
+					var (objects, _, _, jthumbnails) = await requestInfo.SearchAsync(null, filter, sort, 20, 1, contentType.ID, -1, cancellationToken, true).ConfigureAwait(false);
 					objects.Where(@object => contents.Find(obj => obj.ID == @object.ID) == null).ForEach(@object => contents.Add(@object));
 					(jthumbnails as JObject)?.ForEach(kvp => thumbnails[kvp.Key] = kvp.Value);
 				}, true, false).ConfigureAwait(false);
