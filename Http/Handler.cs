@@ -523,6 +523,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// process with cache
+					var noExamination = examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now);
 					var maxAge = Handler.CacheMaxAge * 60;
 					if (Handler.AllowCache && !isForceCacheRequested && !context.IsAuthenticated())
 					{
@@ -665,7 +666,6 @@ namespace net.vieapps.Services.Portals
 							{
 								["Content-Type"] = contentType + (isBase64 ? "" : "; charset=utf-8"),
 								["ETag"] = eTag,
-								["Cache-Control"] = isHtml ? context.GetHttpCacheControl(false, 60, (Handler.CacheMaxAge - 15) * 60, false) : context.GetHttpCacheControl(),
 								["X-Cache"] = "HTTP-200",
 								["X-Node"] = Global.NodeID,
 								["X-Correlation-ID"] = correlationID
@@ -685,18 +685,20 @@ namespace net.vieapps.Services.Portals
 							}
 							headers["Access-Control-Allow-Origin"] = allowOrigin;
 
-							// last modified
+							// check 304
 							var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
 							var lastModified = modifiedSince != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false) : null;
 							var noneMatch = lastModified != null ? context.GetHeaderParameter("If-None-Match") : null;
 							if (lastModified != null && eTag.IsEquals(noneMatch) && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 							{
+								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(false, 60, (Handler.CacheMaxAge - 15) * 60, false) : context.GetHttpCacheControl();
 								headers["Last-Modified"] = lastModified;
 								headers["X-Cache"] = "HTTP-304";
 								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 								context.SetResponseHeaders((int)HttpStatusCode.NotModified, headers);
 
-								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
+								// update L1-cache
+								if (noExamination)
 									context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
 
 								if (isVisitLogEnabled)
@@ -719,6 +721,11 @@ namespace net.vieapps.Services.Portals
 								maxAge = (int)expires.GetTotalSecondsToNow();
 							}
 
+							// headers of 304
+							headers["Last-Modified"] = lastModified;
+							headers["Expires"] = expires.AddMinutes(-15).ToHttpString();
+							headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(false, 60, maxAge - (15 * 60), false) : context.GetHttpCacheControl();
+
 							// sliding cache
 							if (cached != null && context.ContainsKey("x-sliding-cache"))
 							{
@@ -732,7 +739,7 @@ namespace net.vieapps.Services.Portals
 								Handler.Cache.SetAsync(items, null, expirationTime, Global.CancellationToken).Execute();
 							}
 
-							// prepare body
+							// normalize
 							byte[] body = null;
 							if (cached is string cachedBody)
 							{
@@ -752,16 +759,12 @@ namespace net.vieapps.Services.Portals
 
 								body = isBase64 ? cachedBody.Base64ToBytes() : cachedBody.ToBytes();
 
-								if (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now))
+								// update L2-cache
+								if (Handler.AllowBytesL2Cache && noExamination && baseURL == "")
 								{
-									if (Handler.Cache.UseL1Cache)
-										context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
-									else if (Handler.AllowBytesL2Cache && baseURL == "")
-									{
-										await Handler.Cache.SetAsync(cacheKey, body, cts.Token).ConfigureAwait(false);
-										if (isCacheLogEnabled)
-											await context.WriteLogsAsync("Http.Process.Requests", $"Update CMS Portals service cache (L2) was by bytes was done ({cacheKey})").ConfigureAwait(false);
-									}
+									await Handler.Cache.SetAsync(cacheKey, body, cts.Token).ConfigureAwait(false);
+									if (isCacheLogEnabled)
+										await context.WriteLogsAsync("Http.Process.Requests", $"Update CMS Portals service cache (L2) was done ({cacheKey})").ConfigureAwait(false);
 								}
 
 								if (isVisitLogEnabled)
@@ -800,12 +803,13 @@ namespace net.vieapps.Services.Portals
 									await context.WriteLogsAsync("Http.Process.Requests", $"Process the CMS Portals service cache (L2) was done => FOUND ({cacheKey}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 							}
 
-							// response by the caching data
+							// update L1-cache
+							if (cached != null && Handler.Cache.UseL1Cache && noExamination)
+								context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
+
+							// response
 							if (body != null)
 							{
-								headers["Last-Modified"] = lastModified;
-								headers["Expires"] = expires.AddMinutes(-15).ToHttpString();
-								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(false, 60, maxAge - (15 * 60), false) : context.GetHttpCacheControl();
 								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 								await context.WriteAsync(body, headers, cts.Token).ConfigureAwait(false);
 								return;
@@ -833,9 +837,12 @@ namespace net.vieapps.Services.Portals
 							headers["X-Service-Node"] = nodeID;
 
 						var isHtml = headers.TryGetValue("Content-Type", out var contentType) && contentType.IsStartsWith("text/html");
+						if (headers.TryGetValue("Expires", out var expires) && DateTime.TryParse(expires, out var expiresAt))
+							maxAge = (int)expiresAt.GetTotalSecondsToNow();
+
 						if (!headers.TryGetValue("Cache-Control", out var cacheControl))
 							cacheControl = isHtml ? context.GetHttpCacheControl(false, 60, maxAge - (15 * 60), false) : context.GetHttpCacheControl();
-						if (isForceCacheRequested || isRefresher || context.IsAuthenticated())
+						if (isForceCacheRequested || context.IsAuthenticated())
 							cacheControl = context.GetHttpCacheControl(true);
 						
 						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
@@ -861,7 +868,8 @@ namespace net.vieapps.Services.Portals
 							await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
 						}
 
-						if (Handler.Cache.UseL1Cache && !context.IsAuthenticated() && (examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now)))
+						// update L1-cache
+						if (Handler.Cache.UseL1Cache && noExamination && !context.IsAuthenticated())
 						{
 							var filesHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
 							var portalsHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("PortalsHttpURI") ?? Handler.PortalsHttpURI);
@@ -2292,7 +2300,7 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				context.SendSessionStateAsync(true, Handler.TrackPortalStatistics),
-				context.WriteLogsAsync("Http.Process.Requests", $"Process L1-Cache was done {(isDebugLogEnabled ? $" [{context.GetL1CacheKey()} => {url}]\r\nInfo: {info.ToJson()}" : "")} - Execution times: {stopwatch.GetElapsedTimes()}")
+				context.WriteLogsAsync("Http.Process.Requests", $"Process L1-Cache was done - Execution times: {stopwatch.GetElapsedTimes()}{(isDebugLogEnabled ? $"\r\n[{context.GetL1CacheKey()}] => {url}\r\nInfo: {info.ToJson()}" : "")}")
 			).Execute();
 			return true;
 		}
