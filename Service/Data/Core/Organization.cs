@@ -194,10 +194,13 @@ namespace net.vieapps.Services.Portals
 		public string FakePortalsHttpURI { get; set; }
 
 		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public string CloudFlareZoneID { get; set; }
+		public string CDNProvider { get; set; } = "Cloudflare";
 
 		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public string CloudFlareApiToken { get; set; }
+		public string CDNZoneID { get; set; }
+
+		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
+		public string CDNApiToken { get; set; }
 
 		[Ignore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Settings.ExamineURLs> ExamineURLs { get; set; }
@@ -345,8 +348,8 @@ namespace net.vieapps.Services.Portals
 			{
 				this.FakePortalsHttpURI = null;
 			}
-			if (string.IsNullOrWhiteSpace(this.CloudFlareZoneID) || string.IsNullOrWhiteSpace(this.CloudFlareApiToken))
-				this.CloudFlareZoneID = this.CloudFlareApiToken = null;
+			if (!this.GotCDN())
+				this.CDNZoneID = this.CDNApiToken = null;
 			this.ExamineURLs = this.ExamineURLs?.Select(examineURL => examineURL.Normalize(_ =>
 			{
 				var defaultURL = $"{Utility.PortalsHttpURI}/~{this.Alias}";
@@ -397,8 +400,9 @@ namespace net.vieapps.Services.Portals
 				this.HttpIndicators = this._json["HttpIndicators"]?.As<List<Settings.HttpIndicator>>();
 				this.FakeFilesHttpURI = this._json["FakeFilesHttpURI"]?.As<string>();
 				this.FakePortalsHttpURI = this._json["FakePortalsHttpURI"]?.As<string>();
-				this.CloudFlareZoneID = this._json["CloudFlareZoneID"]?.As<string>();
-				this.CloudFlareApiToken = this._json["CloudFlareApiToken"]?.As<string>();
+				this.CDNProvider = this._json["CDNProvider"]?.As<string>() ?? "Cloudflare";
+				this.CDNZoneID = this._json["CDNZoneID"]?.As<string>() ?? this._json["CDNZoneID"]?.As<string>();
+				this.CDNApiToken = this._json["CDNApiToken"]?.As<string>() ?? this._json["CDNApiToken"]?.As<string>();
 				this.ExamineURLs = (this._json["ExamineURLs"] as JArray)?.Select(examineURLs => examineURLs as JObject).Select(examineURLs => examineURLs.As<Settings.ExamineURLs>()).Where(examineURLs => examineURLs != null).ToList();
 				this.McpSettings = this._json["McpSettings"]?.As<Settings.McpSettings>();
 				this.PrepareRedirectAddresses();

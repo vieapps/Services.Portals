@@ -133,7 +133,10 @@ namespace net.vieapps.Services.Portals
 			});
 
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
-			=> $"~/{this.ContentType?.Desktop?.Alias ?? desktop ?? "-default"}/{parentIdentity ?? this.ContentType?.Title?.GetANSIUri() ?? "-"}/{this.Alias}{(addPageNumberHolder ? "/{{pageNumber}}" : "")}{(this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}";
+		{
+			var suffix = "/" + this.ContentType.Title.GetANSIUri() + "/" + this.Alias + (addPageNumberHolder ? "/{{pageNumber}}" : this.Organization != null && this.Organization.AlwaysUseHtmlSuffix ? ".html" : "");
+			return this.ContentType.GetURL(desktop, false, suffix);
+		}
 
 		public string GetURL(bool addPageNumberHolder)
 			=> this.GetURL(null, addPageNumberHolder, null);
@@ -149,7 +152,7 @@ namespace net.vieapps.Services.Portals
 			if (contentType == null || string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			var cacheKey = contentType.ID.GetCacheKeyOfAliasedItem(alias);
+			var cacheKey = contentType.ID.GetCacheKeyOfAlias(alias);
 			var id = Utility.Cache.Get<string>(cacheKey);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return Item.Get(id);
@@ -174,7 +177,7 @@ namespace net.vieapps.Services.Portals
 			if (contentType == null || string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			var cacheKey = contentType.ID.GetCacheKeyOfAliasedItem(alias);
+			var cacheKey = contentType.ID.GetCacheKeyOfAlias(alias);
 			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
 			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
 				return await Item.GetAsync(id, cancellationToken).ConfigureAwait(false);

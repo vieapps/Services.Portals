@@ -229,8 +229,13 @@ namespace net.vieapps.Services.Portals
 			return this;
 		}
 
-		public string GetURL(Desktop desktop = null, bool addPageNumberHolder = false)
-			=> (desktop ??= this.Desktop)?.GetURL(true, "/" + this.Title.GetANSIUri() + (addPageNumberHolder ? "/{{pageNumber}}" : this.Organization.AlwaysUseHtmlSuffix ? ".html" : ""));
+		public string GetURL(Desktop desktop = null, bool addPageNumberHolder = false, string suffix = null)
+			=> (desktop ?? this.Desktop)?.GetURL(true, suffix ?? "/" + this.Title.GetANSIUri() + (addPageNumberHolder ? "/{{pageNumber}}" : this.Organization.AlwaysUseHtmlSuffix ? ".html" : ""));
 
+		public string GetURL(string desktop, bool addPageNumberHolder, string suffix)
+			=> this.GetURL(this.SystemID.GetDesktopByAlias(desktop, false, false), addPageNumberHolder, suffix);
+
+		public string GetURL(bool addPageNumberHolder)
+			=> this.GetURL(this.Desktop, addPageNumberHolder);
 	}
 }
