@@ -548,7 +548,7 @@ namespace net.vieapps.Services.Portals
 			if (schedulingTask.SchedulingType.Equals(SchedulingType.Update))
 				try
 				{
-					if (!(await RepositoryMediator.GetAsync(schedulingTask.EntityInfo, schedulingTask.ObjectID, cancellationToken).ConfigureAwait(false) is IBusinessObject @object) || @object.Organization is not Organization)
+					if (await schedulingTask.ObjectID.GetBusinessObjectAsync(schedulingTask.EntityInfo, cancellationToken).ConfigureAwait(false) is not IBusinessObject @object || @object.Organization is not Organization)
 						throw new InformationInvalidException($"The object for updating is invalid");
 
 					var status = @object.Status;

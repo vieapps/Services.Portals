@@ -51,28 +51,22 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the key for storing a set of keys that belong to an organization
 		/// </summary>
-		/// <param name="organization"></param>
-		/// <param name="suffix"></param>
-		/// <returns></returns>
 		public static string GetSetCacheKey(this Organization organization, string suffix)
 			=> $"Set:{organization.ID}:{suffix}";
 
 		/// <summary>
 		/// Gets the key for storing a set of keys that related to a content-type
 		/// </summary>
-		/// <param name="contentType"></param>
-		/// <param name="suffix"></param>
-		/// <returns></returns>
 		public static string GetSetCacheKey(this ContentType contentType, string suffix = null)
-			=> contentType.Organization.GetSetCacheKey($"ContentType:{contentType.ID}{suffix}");
+			=> contentType.Organization.GetSetCacheKey($"ContentType:{contentType.ID}{(string.IsNullOrWhiteSpace(suffix) ? "" : $":{suffix}")}");
 
 		/// <summary>
 		/// Gets the key for storing a set of keys that related to a desktop
 		/// </summary>
 		/// <param name="desktop"></param>
 		/// <returns></returns>
-		public static string GetSetCacheKey(this Desktop desktop)
-			=> desktop.Organization.GetSetCacheKey($"Desktop:{desktop.ID}");
+		public static string GetSetCacheKey(this Desktop desktop, string suffix = null)
+			=> desktop.Organization.GetSetCacheKey($"Desktop:{desktop.ID}{(string.IsNullOrWhiteSpace(suffix) ? "" : $":{suffix}")}");
 
 		/// <summary>
 		/// Gets the key for storing a set of keys that related to a category
@@ -85,9 +79,6 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the set of keys that used to store HTML cache that related to this organization
 		/// </summary>
-		/// <param name="organization"></param>
-		/// <param name="cancellationToken"></param>
-		/// <returns></returns>
 		public static async Task<List<string>> GetSetCacheKeysAsync(this Organization organization, CancellationToken cancellationToken = default)
 		{
 			var theme = organization.Theme ?? "defaut";
@@ -101,9 +92,6 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the set of keys that used to store HTML cache that related to this site
 		/// </summary>
-		/// <param name="site"></param>
-		/// <param name="cancellationToken"></param>
-		/// <returns></returns>
 		public static async Task<List<string>> GetSetCacheKeysAsync(this Site site, CancellationToken cancellationToken = default)
 		{
 			var theme = site.WorkingTheme ?? "defaut";
@@ -165,18 +153,12 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
 		/// </summary>
-		/// <param name="desktop"></param>B
-		/// <param name="requestURL"></param>
-		/// <param name="site"></param>
-		/// <returns></returns>
 		public static string GetDesktopCacheKey(this Desktop desktop, string requestURL, Site site = null)
 			=> desktop.GetDesktopCacheKey(new Uri(requestURL.IsStartsWith("http://") || requestURL.IsStartsWith("https://") ? requestURL : "https://site.vieapps.net/" + (requestURL.Equals("#") ? "" : requestURL.Replace("~/", ""))), site);
 
 		/// <summary>
 		/// Gets all the keys for storing HTML code of home desktops (of all sites)
 		/// </summary>
-		/// <param name="organization"></param>
-		/// <returns></returns>
 		internal static List<string> GetDesktopCacheKeys(this Organization organization)
 		{
 			var cacheKeys = new[]
@@ -271,7 +253,7 @@ namespace net.vieapps.Services.Portals
 		public static async Task PurgeCDNCacheAsync(this Organization organization, IEnumerable<string> urls, bool doRefresh, string correlationID, bool writeLogs, CancellationToken cancellationToken, Action<IEnumerable<string>> onCompleted = null)
 		{
 			var gotCDN = organization.GotCDN(true);
-			var purgeURLs = (urls ?? []).Where(url => !string.IsNullOrWhiteSpace(url))
+			var purgeURLs = (urls ?? []).Where(url => !string.IsNullOrWhiteSpace(url) && (url.IsStartsWith("https://") || url.IsStartsWith("http://")))
 				.Select(url => url.GetPaginatingURLs(Utility.RefreshMaxPage, organization.AlwaysUseHtmlSuffix ? ".html" : ""))
 				.SelectMany(url => url)
 				.Distinct(StringComparer.OrdinalIgnoreCase);
@@ -279,7 +261,6 @@ namespace net.vieapps.Services.Portals
 			var orgURLs = purgeURLs.Except(systemURLs)
 				.Select(url => new[] { url, gotCDN && url.IsContains("//www.") ? url.Replace("//www.", "//") : null })
 				.SelectMany(url => url)
-				.Where(url => !string.IsNullOrWhiteSpace(url))
 				.ToList();
 
 			writeLogs = writeLogs || Utility.IsPurgeCacheLogEnabled;
@@ -311,7 +292,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static Task PurgeCDNCacheAsync(this Organization organization, IEnumerable<string> urls, string correlationID, bool writeLogs, CancellationToken cancellationToken, Action<IEnumerable<string>> onCompleted = null)
 		{
-			var siteURL = (organization.DefaultSite?.GetURL() ?? organization.URL.Replace("~/", Utility.PortalsHttpURI)) + "/";
+			var siteURL = (organization.DefaultSite?.GetURL() ?? organization.URL) + "/";
 			return organization.PurgeCDNCacheAsync(urls?.Select(url => url?.Replace("~/", siteURL)), false, correlationID, writeLogs, cancellationToken, onCompleted);
 		}
 
@@ -378,7 +359,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				var (linkURLs, _, _, _) = await organization.GetRefreshingURLsAsync(true, false, false, false, 0, 0, null, null, null, correlationID, cancellationToken).ConfigureAwait(false);
-				var siteURL = (organization.DefaultSite?.GetURL() ?? organization.URL.Replace("~/", Utility.PortalsHttpURI)) + "/";
+				var siteURL = (organization.DefaultSite?.GetURL() ?? organization.URL) + "/";
 				urls = urls.Concat(linkURLs)
 					.Where(url => !string.IsNullOrWhiteSpace(url) && (url.StartsWith("~/") || url.IsStartsWith("https://") || url.IsStartsWith("http://")))
 					.Select(url => url.Replace("~/", siteURL))
@@ -729,7 +710,7 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
 			if (getHtmlCacheKeys)
 			{
-				var cacheKey = desktop.GetDesktopCacheKey($"{Utility.PortalsHttpURI}/~{desktop.Organization.Alias}/{desktop.Alias}");
+				var cacheKey = desktop.GetDesktopCacheKey($"{desktop.Organization.URL}/{desktop.Alias}");
 				var cacheKeys = new[] { cacheKey, $"{cacheKey}:time", $"{cacheKey}:expiration" }.Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false));
 				htmlCacheKeys.Add((desktop.GetSetCacheKey(), cacheKeys));
 			}
@@ -922,11 +903,11 @@ namespace net.vieapps.Services.Portals
 			{
 				var allDesktops = new Dictionary<string, Desktop>();
 				var portlets = await contentType.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? [];
-				await portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
+				await portlets.Where(portlet => portlet != null).ForEachAsync(async (portlet, cancellationtoken) =>
 				{
-					var desktops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false) ?? [];
+					var desktops = await portlet.GetDesktopsAsync(cancellationtoken).ConfigureAwait(false) ?? [];
 					desktops.Where(desktop => desktop != null).ForEach(desktop => allDesktops.TryAdd(desktop.ID, desktop));
-				}, true, false).ConfigureAwait(false);
+				}, cancellationToken, true, false).ConfigureAwait(false);
 				return allDesktops.Values.ToList();
 			}
 			else
@@ -935,15 +916,15 @@ namespace net.vieapps.Services.Portals
 				await new[] { contentType.DesktopID, contentType.Module?.DesktopID }
 					.Where(desktopID => desktopID != null)
 					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ForEachAsync(async desktopID => desktops.Add(await desktopID.GetDesktopByIDAsync(cancellationToken).ConfigureAwait(false)));
+					.ForEachAsync(async (desktopID, cancellationtoken) => desktops.Add(await desktopID.GetDesktopByIDAsync(cancellationtoken).ConfigureAwait(false)), cancellationToken, true, false).ConfigureAwait(false);
 				if ("B0000000000000000000000000000001" == contentType.ContentTypeDefinitionID)
 				{
 					var (categories, _) = await contentType.FindCategoriesAsync(cancellationToken).ConfigureAwait(false);
-					await categories.ForEachAsync(async category =>
+					categories.ForEach(category =>
 					{
 						var categoryDesktops = category.FindDesktops();
-						desktops.AddRange(categoryDesktops.Where(categoryDesktop => desktops.FirstOrDefault(d => d?.ID == categoryDesktop.ID) == null));
-					}, true, false).ConfigureAwait(false);
+						desktops.AddRange(categoryDesktops.Where(categoryDesktop => desktops.FirstOrDefault(desktop => desktop?.ID == categoryDesktop.ID) == null));
+					});
 				}
 				return desktops.Where(desktop => desktop != null).ToList();
 			}
@@ -959,7 +940,7 @@ namespace net.vieapps.Services.Portals
 			while (parentCategory != null)
 			{
 				desktop = parentCategory.Desktop;
-				if (desktop != null && desktops.FirstOrDefault(d => d.ID == desktop.ID) == null)
+				if (desktop != null && desktops.FirstOrDefault(desktopObj => desktopObj.ID == desktop.ID) == null)
 					desktops.Add(desktop);
 				parentCategory = parentCategory.ParentCategory;
 			}
@@ -979,28 +960,28 @@ namespace net.vieapps.Services.Portals
 			{
 				desktops = content.Category?.FindDesktops() ?? [];
 				(content.OtherCategories ?? []).Select(id => id.GetCategoryByID())
-				.Where(category => category != null)
-				.ForEach(category =>
-				{
-					var categoryDesktops = category.FindDesktops();
-					desktops.AddRange(categoryDesktops.Where(categoryDesktop => desktops.FirstOrDefault(d => d.ID == categoryDesktop.ID) == null));
-				});
+					.Where(category => category != null)
+					.ForEach(category =>
+					{
+						var categoryDesktops = category.FindDesktops();
+						desktops.AddRange(categoryDesktops.Where(categoryDesktop => desktops.FirstOrDefault(desktop => desktop.ID == categoryDesktop.ID) == null));
+					});
 				others = await content.ContentType.FindDesktopsAsync(false, cancellationToken).ConfigureAwait(false);
 			}
 			else if (@object is Item item)
 				others = await item.ContentType.FindDesktopsAsync(false, cancellationToken).ConfigureAwait(false);
-			return desktops.Where(desktop => desktop != null).Concat(others.Where(desktop => desktop != null && desktops.FirstOrDefault(d => d?.ID == desktop.ID) == null)).ToList();
+			return desktops.Where(desktop => desktop != null).Concat(others.Where(desktop => desktop != null && desktops.FirstOrDefault(desktopObj => desktopObj?.ID == desktop.ID) == null)).ToList();
 		}
 
 		internal static async Task<List<Desktop>> FindDesktopsAsync(this Expression expression, CancellationToken cancellationToken)
 		{
 			var allDesktops = new Dictionary<string, Desktop>();
 			var portlets = await expression.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? [];
-			await portlets.Where(portlet => portlet != null).ForEachAsync(async portlet =>
+			await portlets.Where(portlet => portlet != null).ForEachAsync(async (portlet, cancellationtoken) =>
 			{
-				var desktops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false) ?? [];
+				var desktops = await portlet.GetDesktopsAsync(cancellationtoken).ConfigureAwait(false) ?? [];
 				desktops.Where(desktop => desktop != null).ForEach(desktop => allDesktops.TryAdd(desktop.ID, desktop));
-			}, true, false).ConfigureAwait(false);
+			}, cancellationToken, true, false).ConfigureAwait(false);
 			return allDesktops.Values.ToList();
 		}
 
@@ -1240,7 +1221,8 @@ namespace net.vieapps.Services.Portals
 					{
 						var pageSize = 20;
 						var pageNumber = 1;
-						while (pageNumber <= (maxContentPageNumber > 0 ? maxContentPageNumber : Utility.RefreshMaxPage))
+						var maxPage = (maxContentPageNumber > 0 ? maxContentPageNumber : Utility.RefreshMaxPage) / 2;
+						while (pageNumber <= maxPage)
 						{
 							var items = await contentType.FindItemsAsync(pageSize, pageNumber, cancellationtoken).ConfigureAwait(false);
 							itemURLs.AddRange(items.Where(item => item.Status == ApprovalStatus.Published).Select(item => item.GetURL()));

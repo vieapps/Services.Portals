@@ -166,9 +166,6 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Normalizes an alias
 		/// </summary>
-		/// <param name="alias"></param>
-		/// <param name="allowMinusSymbols"></param>
-		/// <returns></returns>
 		public static string NormalizeAlias(this string alias, bool allowMinusSymbols = true)
 		{
 			alias = alias.Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "");
@@ -180,16 +177,12 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Normalizes a domain name
 		/// </summary>
-		/// <param name="domain"></param>
-		/// <returns></returns>
 		public static string NormalizeDomain(this string domain)
 			=> domain.ToArray(".", true).Select(name => name.Equals("*") ? name : name.GetANSIUri(true, false, true)).Where(name => !string.IsNullOrWhiteSpace(name)).Join(".");
 
 		/// <summary>
 		/// Gets the parent content-type of this content-type
 		/// </summary>
-		/// <param name="contentType"></param>
-		/// <returns></returns>
 		public static ContentType GetParent(this ContentType contentType)
 		{
 			var parentDefinition = RepositoryMediator.GetEntityDefinition(contentType?.EntityDefinition?.ParentType);
@@ -201,8 +194,6 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the children content-type of this content-type
 		/// </summary>
-		/// <param name="contentType"></param>
-		/// <returns></returns>
 		public static List<ContentType> GetChildren(this ContentType contentType)
 		{
 			var entityDefinition = contentType?.EntityDefinition;
@@ -214,24 +205,26 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Gets the entity object name for working with real-time update messages
 		/// </summary>
-		/// <param name="definition"></param>
-		/// <returns></returns>
 		public static string GetObjectName(this ContentTypeDefinition definition)
 			=> definition.EntityDefinition?.GetObjectName();
 
 		/// <summary>
 		/// Gets a business object
 		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="objectID"></param>
-		/// <param name="entityInfo"></param>
-		/// <param name="cancellationToken"></param>
-		/// <returns></returns>
-		public static async Task<T> GetBusinessObjectAsync<T>(this string objectID, string entityInfo = null, CancellationToken cancellationToken = default) where T : class
+		public static async Task<RepositoryBase> GetBusinessObjectAsync(this string objectID, string entityInfo = null, CancellationToken cancellationToken = default)
 		{
 			if (!string.IsNullOrWhiteSpace(entityInfo) && entityInfo.IsValidUUID())
 				await entityInfo.GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			return await RepositoryMediator.GetAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false) as T;
+			return await RepositoryMediator.GetAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false);
+		}
+
+		/// <summary>
+		/// Gets a business object
+		/// </summary>
+		public static async Task<T> GetBusinessObjectAsync<T>(this string objectID, string entityInfo = null, CancellationToken cancellationToken = default) where T : class
+		{
+			var @object = objectID.GetBusinessObjectAsync(entityInfo, cancellationToken).ConfigureAwait(false);
+			return @object is T tobject ? tobject : default;
 		}
 
 		static Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider MimeTypeProvider { get; } = new();

@@ -1585,8 +1585,8 @@ namespace net.vieapps.Services.Portals
 
 				var link = info.Replace(StringComparison.OrdinalIgnoreCase, ".html", "").Replace(StringComparison.OrdinalIgnoreCase, ".aspx", "").Replace(StringComparison.OrdinalIgnoreCase, ".php", "").ToArray("/");
 				var contentType = (link.Length > 1 ? await link[link.Length - 2].GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false) : null) ?? throw new InvalidRequestException();
-
-				var @object = await RepositoryMediator.GetAsync(contentType.ID, link[link.Length - 1], cancellationToken).ConfigureAwait(false);
+				var objectID = link[link.Length - 1];
+				var @object = await objectID.GetBusinessObjectAsync(contentType.ID, cancellationToken).ConfigureAwait(false);
 				var url = @object != null
 					? @object is IBusinessObject businessObject
 						? businessObject.GetURL()
@@ -2790,10 +2790,10 @@ namespace net.vieapps.Services.Portals
 				if (isForceCacheRequested)
 				{
 					if (requestInfo.ContainsKey("x-no-purge"))
-						canonicalURL.RefreshWebPageAsync(3, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken).Execute();
+						canonicalURL.RefreshWebPageAsync(1, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken).Execute();
 					else
 					{
-						var urls = new[] { canonicalURL, $"{Utility.PortalsHttpURI}/~{organization.Alias}{new Uri(canonicalURL).AbsolutePath}" }
+						var urls = new[] { canonicalURL, $"{organization.URL}{new Uri(canonicalURL).AbsolutePath}" }
 							.Select(url => new[] { url, url.EndsWith("/index.html") ? url.Replace("/index.html", "/") : null })
 							.SelectMany(url => url);
 						organization.PurgeCDNCacheAsync(urls, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken, doRemove ? null : _ =>
@@ -6023,7 +6023,10 @@ namespace net.vieapps.Services.Portals
 				var objectID = message.Data.Get<string>("ObjectID");
 				var urls = message.Data.Get<JArray>("URLs").Select(url => (url as JValue).Value.ToString()).ToList() ?? [];
 
-				var @object = string.IsNullOrWhiteSpace(objectID) || !serviceName.IsEquals(Utility.ServiceName) ? null : await RepositoryMediator.GetAsync(entityInfo, objectID, cancellationToken).ConfigureAwait(false);
+				var @object = !string.IsNullOrWhiteSpace(objectID) && serviceName.IsEquals(Utility.ServiceName)
+					? await objectID.GetBusinessObjectAsync(entityInfo, cancellationToken).ConfigureAwait(false)
+					: null;
+
 				if (@object is IBusinessObject bizObject)
 					await bizObject.PurgeCDNCacheAsync(true, correlationID, false, Utility.CancellationToken).ConfigureAwait(false);
 

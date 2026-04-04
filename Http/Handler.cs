@@ -73,7 +73,11 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool TrackPortalStatistics { get; set; } = Handler.TrackSessions || "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Portals", "true"));
 
-		internal static bool TrackAPIStatistics { get; set; } = Handler.TrackSessions && "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
+		internal static bool TrackAPIStatistics { get; set; } = Handler.TrackSessions || "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:APIs", "false"));
+
+		internal static bool TrackByJavascript { get; set; } = !"false".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Javascript"));
+
+		internal static bool TrackInAdvanced { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track:Advanced"));
 
 		internal static string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
@@ -739,8 +743,11 @@ namespace net.vieapps.Services.Portals
 								if (isHtml)
 								{
 									cachedBody = context.NormalizeHtml(cachedBody, alwaysUseHTTPs, alwaysReturnHTTPs, baseURL);
-									var version = Handler.Cache.UseL1Cache || Handler.AllowBytesL2Cache ? "1.4" : "2";
-									cachedBody = cachedBody.Insert(cachedBody.PositionOf("</body>"), "<script src=\"/~hits/js?l=" + version + "&v=" + cacheKey.ToList(":").Last() + "\"></script>");
+									if (Handler.TrackByJavascript)
+									{
+										var layer = Handler.Cache.UseL1Cache || Handler.AllowBytesL2Cache ? "1.4" : "2";
+										cachedBody = cachedBody.Insert(cachedBody.PositionOf("</body>"), "<script src=\"/~hits/js?l=" + layer + "&k=" + cacheKey.ToList(":").Last() + "\"></script>");
+									}
 								}
 
 								body = isBase64 ? cachedBody.Base64ToBytes() : cachedBody.ToBytes();
@@ -770,15 +777,20 @@ namespace net.vieapps.Services.Portals
 									var html = context.NormalizeHtml(cached.As<byte[]>().GetString(), alwaysUseHTTPs, alwaysReturnHTTPs, baseURL);
 									html = html.Replace("href=\"//", "href=\"#/");
 									html = html.Replace("href=\"/", "href=\"").Replace("href=\"#/", "href=\"//");
-									var version = Handler.Cache.UseL1Cache ? "1" : "1.8";
-									if (html.IsContains("/~hits/js?l=1.8"))
-										html = html.Replace("/~hits/js?l=1.8", "/~hits/js?l=" + version);
-									else if (html.IsContains("/~hits/js?l=1.4"))
-										html = html.Replace("/~hits/js?l=1.4", "/~hits/js?l=" + version);
-									else if (html.IsContains("/~hits/js?l=1"))
-										html = html.Replace("/~hits/js?l=1", "/~hits/js?l=" + version);
-									else
-										html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=" + version + "&v=" + cacheKey.ToList(":").Last() + "\"></script>");
+									if (Handler.TrackByJavascript)
+									{
+										var layer = Handler.Cache.UseL1Cache ? "1" : "1.8";
+										if (html.IsContains("/~hits/js?l=2"))
+											html = html.Replace("/~hits/js?l=2", "/~hits/js?l=" + layer);
+										else if (html.IsContains("/~hits/js?l=1.8"))
+											html = html.Replace("/~hits/js?l=1.8", "/~hits/js?l=" + layer);
+										else if (html.IsContains("/~hits/js?l=1.4"))
+											html = html.Replace("/~hits/js?l=1.4", "/~hits/js?l=" + layer);
+										else if (html.IsContains("/~hits/js?l=1"))
+											html = html.Replace("/~hits/js?l=1", "/~hits/js?l=" + layer);
+										else
+											html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=" + layer + "&k=" + cacheKey.ToList(":").Last() + "\"></script>");
+									}
 									body = html.ToBytes();
 								}
 								else
@@ -840,10 +852,10 @@ namespace net.vieapps.Services.Portals
 						context.SetResponseHeaders(statusCode, headers);
 						if (body != null)
 						{
-							if (isHtml)
+							if (isHtml && Handler.TrackByJavascript)
 							{
 								var html = body.GetString();
-								html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=svc&v=" + requestURI.AbsoluteUri.GenerateUUID() + "\"></script>");
+								html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=svc&k=" + requestURI.AbsoluteUri.GenerateUUID() + "\"></script>");
 								body = html.ToBytes();
 							}
 							await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
@@ -1179,22 +1191,6 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		async Task<JToken> ProcessSessionRequestAsync(HttpContext context, Session session)
-		{
-			var body = session.GetSessionBody().ToString(Formatting.None);
-			var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
-			{
-				Body = body,
-				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-				{
-					{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
-				},
-				CorrelationID = context.GetCorrelationID()
-			}, context.RequestAborted, Global.Logger, "Authentications").ConfigureAwait(false);
-			context.StoreSession(session);
-			return response;
-		}
-
 		async Task ProcessLogInRequestAsync(HttpContext context, JObject systemIdentityJson, bool isUserInteract)
 		{
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
@@ -1211,15 +1207,18 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					var session = context.GetSession();
-					session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
-					session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
-						? session.User.SessionID
-						: !string.IsNullOrWhiteSpace(session.SessionID)
-							? session.SessionID
-							: UtilityService.NewUUID;
+					var response = await context.RegisterSessionAsync(session).ConfigureAwait(false);
 
-					var response = await this.ProcessSessionRequestAsync(context, session).ConfigureAwait(false);
-					context.SendSessionState("Users", "POST /session", true, Handler.TrackAPIStatistics);
+					var requestURL = context.GetReferUrl();
+					if (string.IsNullOrWhiteSpace(requestURL))
+						context.SendSessionState("Users", "POST /session", true, Handler.TrackAPIStatistics);
+					else
+					{
+						var serviceName = (Global.ServiceName + ".HTTP").ToLower();
+						var serviceURI = $"GET {requestURL}";
+						var serviceSystemID = await context.GetSystemIDAsync(new Uri(requestURL)).ConfigureAwait(false);
+						context.SendSessionState(serviceName, serviceURI, serviceSystemID, true, true);
+					}
 
 					await Task.WhenAll
 					(
@@ -1273,7 +1272,7 @@ namespace net.vieapps.Services.Portals
 				var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, session.User.Roles, session.User.Privileges, CookieAuthenticationDefaults.AuthenticationScheme));
 				await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
 
-				await this.ProcessSessionRequestAsync(context, session).ConfigureAwait(false);
+				await context.RegisterSessionAsync(session).ConfigureAwait(false);
 				context.SendSessionState("Users", $"PUT /session{state}", true, Handler.TrackAPIStatistics);
 				await context.WriteLogsAsync("Authentications", $"User sign-in successful\r\nIdentity: {context.User.Identity.Name}]\r\nSession Info: {session.ToJson()}").ConfigureAwait(false);
 
@@ -1568,7 +1567,7 @@ namespace net.vieapps.Services.Portals
 					{
 						SessionID = session.SessionID = UtilityService.NewUUID
 					};
-					response = await this.ProcessSessionRequestAsync(context, session).ConfigureAwait(false);
+					response = await context.RegisterSessionAsync(session).ConfigureAwait(false);
 					context.SendSessionState("Users", "POST /session", true, Handler.TrackAPIStatistics);
 
 					await Task.WhenAll
@@ -1978,13 +1977,23 @@ namespace net.vieapps.Services.Portals
 		{
 			var session = context.GetSession();
 			var scripts = $"__vieapps.isMobile={(string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true")};__vieapps.osInfo='{(session.AppAgent ?? "").GetOSInfo()}';"
-				+ "setTimeout(()=>__vieapps.utils.ajax('/~hits/tk?x-advanced&v=" + UtilityService.NewUUID + "',undefined,undefined,'POST',{url:'" + (context.GetReferUrl() ?? Handler.PortalsHttpURI) + "'}),6789);";
+				+ "__vieapps.session.track=()=>__vieapps.utils.ajax(__vieapps.URLs.get('/~hits/tk'),()=>__vieapps.session.tracked=true,undefined,'POST',{url:'" + (context.GetReferUrl() ?? Handler.PortalsHttpURI) + "'});"
+				+ "__vieapps.session.events.in=()=>__vieapps.session.track();"
+				+ "setTimeout(()=>{if(!!!__vieapps.session.tracked){__vieapps.session.track();}},6789);";
 			await context.WriteAsync(scripts, "application/javascript", new Dictionary<string, string> { ["Cache-Control"] = context.GetHttpCacheControl(true) }, context.RequestAborted).ConfigureAwait(false);
 		}
 
 		async Task ProcessTrackingRequestAsync(HttpContext context)
 		{
-			await context.WriteAsync(new JObject { ["CorrelationID"] = context.GetCorrelationID() }, Formatting.None, null, context.RequestAborted).ConfigureAwait(false);
+			var session = context.GetSession();
+			if (string.IsNullOrWhiteSpace(session.SessionID) || string.IsNullOrWhiteSpace(session.User.SessionID))
+				await context.RegisterSessionAsync(session).ConfigureAwait(false);
+			var correlationID = context.GetCorrelationID();
+			await context.WriteAsync(new JObject
+			{
+				["SessionID"] = session.GetEncryptedID(),
+				["CorrelationID"] = correlationID
+			}, Formatting.None, null, context.RequestAborted).ConfigureAwait(false);
 			try
 			{
 				var requestBody = await context.ReadJsonAsync(context.RequestAborted).ConfigureAwait(false);
@@ -1992,10 +2001,8 @@ namespace net.vieapps.Services.Portals
 				var serviceName = (Global.ServiceName + ".HTTP").ToLower();
 				var serviceURI = $"GET {requestURL}";
 				var serviceSystemID = await context.GetSystemIDAsync(new Uri(requestURL)).ConfigureAwait(false);
-				if (context.ContainsKey("x-advanced"))
+				if (Handler.TrackInAdvanced)
 				{
-					var session = context.GetSession();
-					var correlationID = context.GetCorrelationID();
 					if (Handler.TrackSessions)
 						new CommunicateMessage("Users")
 						{
@@ -2064,8 +2071,9 @@ namespace net.vieapps.Services.Portals
 		void Normalize()
 		{
 			this.Headers.Remove("Cache-Control");
-			this.Headers.Remove("X-Node");
 			this.Headers.Remove("X-Cache");
+			this.Headers.Remove("X-Node");
+			this.Headers.Remove("X-Service-Node");
 			this.Headers.Remove("X-Correlation-ID");
 		}
 		public bool AlwaysUseHTTPs { get; init; }
@@ -2229,7 +2237,7 @@ namespace net.vieapps.Services.Portals
 				if (cached == null)
 				{
 					if (isDebugLogEnabled)
-						await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no body) [{context.GetL1CacheKey()} => {context.GetRequestUrl()}]").ConfigureAwait(false);
+						await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no body) [{context.GetL1CacheKey()} => {url}]").ConfigureAwait(false);
 					return context.RemoveL1Cache(info.BodyCacheKey);
 				}
 
@@ -2250,7 +2258,8 @@ namespace net.vieapps.Services.Portals
 						if (isHtml)
 						{
 							cachedBody = context.NormalizeHtml(cachedBody, info.AlwaysUseHTTPs, info.AlwaysReturnHTTPs);
-							cachedBody = cachedBody.Insert(cachedBody.PositionOf("</body>"), "<script src=\"/~hits/js?l=1&v=" + info.BodyCacheKey.ToList(":").Last() + "\"></script>");
+							if (Handler.TrackByJavascript)
+								cachedBody = cachedBody.Insert(cachedBody.PositionOf("</body>"), "<script src=\"/~hits/js?l=1&k=" + info.BodyCacheKey.ToList(":").Last() + "\"></script>");
 						}
 						body = cachedBody.ToBytes();
 						context.UpdateServerTiming("ngxNormalize", stepwatch.ElapsedMilliseconds);
@@ -2258,7 +2267,7 @@ namespace net.vieapps.Services.Portals
 
 					Handler.Cache.SetL1CacheItem(info.BodyCacheKey + (originIsRequired && gotWWW ? ":WWW" : ""), body);
 					if (isDebugLogEnabled)
-						await context.WriteLogsAsync("Http.Process.Requests", $"Update L1-Cache (bytes) successful ({info.BodyCacheKey} - {body.Length} bytes) [{context.GetL1CacheKey()} => {context.GetRequestUrl()}]").ConfigureAwait(false);
+						await context.WriteLogsAsync("Http.Process.Requests", $"Update L1-Cache (bytes) successful ({info.BodyCacheKey} - {body.Length} bytes) [{context.GetL1CacheKey()} => {url}]").ConfigureAwait(false);
 				}
 
 				else
@@ -2283,7 +2292,7 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				context.SendSessionStateAsync(true, Handler.TrackPortalStatistics),
-				context.WriteLogsAsync("Http.Process.Requests", $"Process L1-Cache was done {(isDebugLogEnabled ? $" [{context.GetL1CacheKey()} => {context.GetRequestUrl()}]\r\nInfo: {info.ToJson()}" : "")} - Execution times: {stopwatch.GetElapsedTimes()}")
+				context.WriteLogsAsync("Http.Process.Requests", $"Process L1-Cache was done {(isDebugLogEnabled ? $" [{context.GetL1CacheKey()} => {url}]\r\nInfo: {info.ToJson()}" : "")} - Execution times: {stopwatch.GetElapsedTimes()}")
 			).Execute();
 			return true;
 		}
@@ -2357,6 +2366,28 @@ namespace net.vieapps.Services.Portals
 			url = noneWWW ? url.Replace("//www.", "//") : url;
 			url += url.EndsWith('/') ? "index.html" : "";
 			return url.GenerateUUID();
+		}
+
+		public static async Task<JToken> RegisterSessionAsync(this HttpContext context, Session session)
+		{
+			session.DeviceID = string.IsNullOrWhiteSpace(session.DeviceID) ? $"{UtilityService.NewUUID}@vieapps-ngx" : session.DeviceID;
+			session.SessionID = session.User.SessionID = !string.IsNullOrWhiteSpace(session.User.SessionID)
+				? session.User.SessionID
+				: !string.IsNullOrWhiteSpace(session.SessionID)
+					? session.SessionID
+					: UtilityService.NewUUID;
+			var body = session.GetSessionBody().ToString(Formatting.None);
+			var response = await context.CallServiceAsync(new RequestInfo(session, "Users", "Session", "POST")
+			{
+				Body = body,
+				Extra = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+				{
+					{ "Signature", body.GetHMACSHA256(Global.ValidationKey) }
+				},
+				CorrelationID = context.GetCorrelationID()
+			}, context.RequestAborted, Global.Logger, "Authentications").ConfigureAwait(false);
+			context.StoreSession(session);
+			return response;
 		}
 
 		public static void SendSessionState(this RequestInfo requestInfo, JObject systemIdentityJson, string serviceName, string serviceURI, bool trackStatistics)
