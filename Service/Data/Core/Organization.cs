@@ -401,8 +401,8 @@ namespace net.vieapps.Services.Portals
 				this.FakeFilesHttpURI = this._json["FakeFilesHttpURI"]?.As<string>();
 				this.FakePortalsHttpURI = this._json["FakePortalsHttpURI"]?.As<string>();
 				this.CDNProvider = this._json["CDNProvider"]?.As<string>() ?? "Cloudflare";
-				this.CDNZoneID = this._json["CDNZoneID"]?.As<string>() ?? this._json["CDNZoneID"]?.As<string>();
-				this.CDNApiToken = this._json["CDNApiToken"]?.As<string>() ?? this._json["CDNApiToken"]?.As<string>();
+				this.CDNZoneID = this._json["CDNZoneID"]?.As<string>() ?? this._json["CloudFlareZoneID"]?.As<string>();
+				this.CDNApiToken = this._json["CDNApiToken"]?.As<string>() ?? this._json["CloudFlareApiToken"]?.As<string>();
 				this.ExamineURLs = (this._json["ExamineURLs"] as JArray)?.Select(examineURLs => examineURLs as JObject).Select(examineURLs => examineURLs.As<Settings.ExamineURLs>()).Where(examineURLs => examineURLs != null).ToList();
 				this.McpSettings = this._json["McpSettings"]?.As<Settings.McpSettings>();
 				this.PrepareRedirectAddresses();

@@ -21,6 +21,8 @@ namespace net.vieapps.Services.Portals
 
 		public static bool IsCacheDisabled { get; internal set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Disabled"));
 
+		internal static string CDNProvider { get; set; } = UtilityService.GetAppSetting("Portals:CDN:Provider", "Cloudflare");
+
 		internal static string CDNZoneID { get; set; } = UtilityService.GetAppSetting("Portals:CDN:ZoneID") ?? UtilityService.GetAppSetting("Portals:CloudFlare:ZoneID");
 
 		internal static string CDNApiToken { get; set; } = UtilityService.GetAppSetting("Portals:CDN:ApiToken") ?? UtilityService.GetAppSetting("Portals:CloudFlare:ApiToken");
@@ -197,20 +199,16 @@ namespace net.vieapps.Services.Portals
 			return cacheKey;
 		}
 
-		/// <summary>
-		/// Purges cache at CDN (Cloudlare) by specified URLs
-		/// </summary>
-		/// <returns></returns>
-		public static async Task PurgeCloudFlareCacheAsync(this IEnumerable<string> urls, string cloudflareZoneID, string cloudflareApiToken, string correlationID, bool writeLogs, CancellationToken cancellationToken)
+		static async Task PurgeCloudFlareCacheAsync(this IEnumerable<string> urls, string zoneID, string apiToken, string correlationID, bool writeLogs, CancellationToken cancellationToken)
 		{
-			if (string.IsNullOrWhiteSpace(cloudflareZoneID) || string.IsNullOrWhiteSpace(cloudflareApiToken))
+			if (string.IsNullOrWhiteSpace(zoneID) || string.IsNullOrWhiteSpace(apiToken))
 				return;
 
-			var uri = new Uri($"https://api.cloudflare.com/client/v4/zones/{cloudflareZoneID}/purge_cache");
+			var uri = new Uri($"https://api.cloudflare.com/client/v4/zones/{zoneID}/purge_cache");
 			var headers = new Dictionary<string, string>
 			{
 				["Content-Type"] = "application/json",
-				["Authorization"] = $"Bearer {cloudflareApiToken}"
+				["Authorization"] = $"Bearer {apiToken}"
 			};
 			var body = new JObject
 			{
@@ -257,6 +255,19 @@ namespace net.vieapps.Services.Portals
 		}
 
 		/// <summary>
+		/// Purges cache at CDN by specified URLs
+		/// </summary>
+		public static Task PurgeCDNCacheAsync(this IEnumerable<string> urls, string provider, string zoneID, string apiToken, string correlationID, bool writeLogs, CancellationToken cancellationToken)
+		{
+			switch (provider)
+			{
+				case "Cloudflare":
+				default:
+					return urls.PurgeCloudFlareCacheAsync(zoneID, apiToken, correlationID, writeLogs, cancellationToken);
+			}
+		}
+
+		/// <summary>
 		/// Purges cache of this organization at CDN by specified URLs
 		/// </summary>
 		public static async Task PurgeCDNCacheAsync(this Organization organization, IEnumerable<string> urls, bool doRefresh, string correlationID, bool writeLogs, CancellationToken cancellationToken, Action<IEnumerable<string>> onCompleted = null)
@@ -279,10 +290,10 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				gotCDN
-					? orgURLs.PurgeCloudFlareCacheAsync(organization.GetCDNZoneID(), organization.GetCDNApiToken(), correlationID, writeLogs, cancellationToken)
+					? orgURLs.PurgeCDNCacheAsync(organization.GetCDNProvider(), organization.GetCDNZoneID(), organization.GetCDNApiToken(), correlationID, writeLogs, cancellationToken)
 					: Task.CompletedTask,
 				systemURLs.Count > 0 && !string.IsNullOrWhiteSpace(Utility.CDNZoneID) && !string.IsNullOrWhiteSpace(Utility.CDNApiToken)
-					? systemURLs.PurgeCloudFlareCacheAsync(Utility.CDNZoneID, Utility.CDNApiToken, correlationID, writeLogs, cancellationToken)
+					? systemURLs.PurgeCDNCacheAsync(Utility.CDNProvider, Utility.CDNZoneID, Utility.CDNApiToken, correlationID, writeLogs, cancellationToken)
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 
@@ -414,6 +425,11 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool GotCDN(this Organization organization, bool checkCDNForAll = false)
 			=> (organization != null && !string.IsNullOrWhiteSpace(organization.CDNZoneID) && !string.IsNullOrWhiteSpace(organization.CDNApiToken)) || (checkCDNForAll && Utility.CDNForAll);
+
+		internal static string GetCDNProvider(this Organization organization)
+			=> organization != null && organization.GotCDN()
+				? organization.CDNProvider
+				: Utility.CDNProvider;
 
 		internal static string GetCDNZoneID(this Organization organization)
 			=> organization != null && organization.GotCDN()

@@ -2077,7 +2077,7 @@ namespace net.vieapps.Services.Portals
 				if (organization != null)
 					await organization.PurgeCDNCacheAsync(urls, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
 				else if (!string.IsNullOrWhiteSpace(Utility.CDNZoneID) && !string.IsNullOrWhiteSpace(Utility.CDNApiToken))
-					await urls.PurgeCloudFlareCacheAsync(Utility.CDNZoneID, Utility.CDNApiToken, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
+					await urls.PurgeCDNCacheAsync(Utility.CDNProvider, Utility.CDNZoneID, Utility.CDNApiToken, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
 			}
 
 			// response
@@ -6043,13 +6043,13 @@ namespace net.vieapps.Services.Portals
 					else
 					{
 						if (Utility.CDNForAll)
-							await urls.PurgeCloudFlareCacheAsync(Utility.CDNZoneID, Utility.CDNApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
+							await urls.PurgeCDNCacheAsync(Utility.CDNProvider, Utility.CDNZoneID, Utility.CDNApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
 						else
 						{
 							var organizations = await Organization.FindAllAsync(false, this.CancellationToken).ConfigureAwait(false);
 							await organizations.ForEachAsync(organization => organization.PurgeCDNCacheAsync([], correlationID, this.IsDebugLogEnabled, this.CancellationToken)).ConfigureAwait(false);
 							if (!string.IsNullOrWhiteSpace(Utility.CDNZoneID) && !string.IsNullOrWhiteSpace(Utility.CDNApiToken))
-								await urls.PurgeCloudFlareCacheAsync(Utility.CDNZoneID, Utility.CDNApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
+								await urls.PurgeCDNCacheAsync(Utility.CDNProvider, Utility.CDNZoneID, Utility.CDNApiToken, correlationID, false, this.CancellationToken).ConfigureAwait(false);
 						}
 					}
 				}
