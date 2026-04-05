@@ -2265,23 +2265,28 @@ namespace net.vieapps.Services.Portals
 			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
 			var processCache = this.CacheDesktopHtmls && !isForceCacheRequested;
 
-			// check "If-Modified-Since" request to reduce traffic
 			var eTag = $"vieapps#{cacheKey.GenerateUUID()}";
-			var noneMatch = processCache ? requestInfo.GetHeaderParameter("If-None-Match") : null;
-			var modifiedSince = processCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
+			var maxAge = this.CacheMaxAge * 60;
+			string lastModified = null;
+
 			headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 			{
-				["Content-Type"] = "text/html; charset=utf-8"
+				["ETag"] = eTag,
+				["Content-Type"] = "text/html; charset=utf-8",
+				["Cache-Control"] = this.GetCacheControl(true),
+				["X-Cache"] = "None"
 			};
+
 			if (this.CrossOrigin.IsEquals("use-credentials"))
 			{
 				headers["Referrer-Policy"] = "no-referrer-when-downgrade";
 				headers["Access-Control-Allow-Credentials"] = "true";
 			}
 
-			string lastModified = null;
-			var maxAge = this.CacheMaxAge * 60;
+			// check "If-Modified-Since" request to reduce traffic
 			var stepwatch = Stopwatch.StartNew();
+			var noneMatch = processCache ? requestInfo.GetHeaderParameter("If-None-Match") : null;
+			var modifiedSince = processCache ? requestInfo.GetHeaderParameter("If-Modified-Since") ?? requestInfo.GetHeaderParameter("If-Unmodified-Since") : null;
 			if (modifiedSince != null && eTag.IsEquals(noneMatch))
 			{
 				lastModified = processCache ? await Utility.Cache.GetAsync<string>(cacheKeyOfLastModified, cancellationToken).ConfigureAwait(false) : null;
@@ -2289,7 +2294,6 @@ namespace net.vieapps.Services.Portals
 				{
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
-						["ETag"] = eTag,
 						["Last-Modified"] = lastModified,
 						["Cache-Control"] = this.GetCacheControl(false, 60, maxAge, false),
 						["Server-Timing"] = $"ngxCache;dur=${stepwatch.ElapsedMilliseconds}",
@@ -2368,7 +2372,6 @@ namespace net.vieapps.Services.Portals
 				}
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
-					["ETag"] = eTag,
 					["Last-Modified"] = lastModified,
 					["Cache-Control"] = this.GetCacheControl(false, 60, maxAge, false),
 					["Expires"] = expiresAt,
@@ -2688,12 +2691,13 @@ namespace net.vieapps.Services.Portals
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Update canonical URL of {desktopInfo} ({requestURL} => {canonicalURL})", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
 				// prepare caching - for anonymous request only
-				var doRemove = true;
-				if (this.CacheDesktopHtmls && !requestInfo.IsAuthenticated() && !gotErrorOnGenerateDesktop && !portletHtmls.Values.Any(data => data.GotError))
+				headers["Last-Modified"] = DateTime.Now.ToHttpString();
+				var gotError = gotErrorOnGenerateDesktop || portletHtmls.Values.Any(data => data.GotError);
+
+				if (this.CacheDesktopHtmls && !requestInfo.IsAuthenticated() && !gotError)
 				{
-					doRemove = false;
 					var watch = Stopwatch.StartNew();
-					
+
 					var expirationTime = 0;
 					portletHtmls.Values.Where(data => data.CacheExpiration != null).ForEach(data =>
 					{
@@ -2710,11 +2714,9 @@ namespace net.vieapps.Services.Portals
 
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
-						["ETag"] = eTag,
 						["Last-Modified"] = lastModified,
 						["Expires"] = DateTime.Now.AddSeconds(maxAge).ToHttpString(),
-						["Cache-Control"] = this.GetCacheControl(isForceCacheRequested, 60, maxAge, false),
-						["X-Cache"] = "None"
+						["Cache-Control"] = this.GetCacheControl(isForceCacheRequested, 60, maxAge, false)
 					};
 
 					var items = new Dictionary<string, string>
@@ -2756,7 +2758,9 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// remove when got error or this request was made by an authenticated user
-				if (doRemove)
+				if (gotError)
+				{
+					headers["X-Cache"] = "ERROR";
 					await Task.WhenAll
 					(
 						Utility.Cache.RemoveAsync([cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration], cancellationToken),
@@ -2764,6 +2768,7 @@ namespace net.vieapps.Services.Portals
 							? this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove HTML cache of {desktopInfo} ({requestURL}) => {cacheKey}", null, this.ServiceName, "Caches")
 							: Task.CompletedTask
 					).ConfigureAwait(false);
+				}
 
 				// normalize
 				html = this.NormalizeDesktopHtml(html, requestURI, useShortURLs, organization, site, desktop, isMobile, osInfo, requestInfo.Session.DeviceID, requestInfo.CorrelationID);
@@ -2787,7 +2792,7 @@ namespace net.vieapps.Services.Portals
 					await requestInfo.WriteLogAsync($"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\nNormalized HTML:\r\n{html}", "Process.Http.Request").ConfigureAwait(false);
 
 				// purge cache of CDN
-				if (isForceCacheRequested)
+				if (isForceCacheRequested && !gotError)
 				{
 					if (requestInfo.ContainsKey("x-no-purge"))
 						canonicalURL.RefreshWebPageAsync(1, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken).Execute();
@@ -2796,7 +2801,7 @@ namespace net.vieapps.Services.Portals
 						var urls = new[] { canonicalURL, $"{organization.URL}{new Uri(canonicalURL).AbsolutePath}" }
 							.Select(url => new[] { url, url.EndsWith("/index.html") ? url.Replace("/index.html", "/") : null })
 							.SelectMany(url => url);
-						organization.PurgeCDNCacheAsync(urls, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken, doRemove ? null : _ =>
+						organization.PurgeCDNCacheAsync(urls, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken, _ =>
 						{
 							var refreshURLs = new[] { canonicalURL, canonicalURL.EndsWith("/index.html") ? canonicalURL.Replace("/index.html", "/") : null }.ToList();
 							refreshURLs.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(3 + index, requestInfo.CorrelationID, isWriteDesktopLogs, cancellationtoken), Utility.CancellationToken).Execute();

@@ -869,7 +869,7 @@ namespace net.vieapps.Services.Portals
 						}
 
 						// update L1-cache
-						if (Handler.Cache.UseL1Cache && noExamination && !context.IsAuthenticated())
+						if (Handler.Cache.UseL1Cache && noExamination && !context.IsAuthenticated() && !cacheControl.IsContains("private"))
 						{
 							var filesHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
 							var portalsHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("PortalsHttpURI") ?? Handler.PortalsHttpURI);
