@@ -6418,26 +6418,33 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			if (!requestInfo.Verb.IsEquals("GET"))
-				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+				throw new InvalidRequestException($"The request is invalid");
 
-			if (!Enum.TryParse<ApprovalStatus>(requestInfo.GetParameter("Status") ?? requestInfo.GetParameter("x-status"), out var approvalStatus))
-				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+			var newStatus = requestInfo.GetParameter("Status") ?? requestInfo.GetParameter("x-status");
+			if (!Enum.TryParse<ApprovalStatus>(newStatus, out var approvalStatus))
+				throw new InvalidRequestException($"The request is invalid [status]");
 
-			var @object = await requestInfo.GetObjectIdentity(true).GetBusinessObjectAsync<IPortalObject>(requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity"), cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+			var objectID = requestInfo.GetObjectIdentity(true);
+			var contentTypeInfo = requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-entity");
+			var @object = await objectID.GetBusinessObjectAsync<IPortalObject>(contentTypeInfo, cancellationToken).ConfigureAwait(false) ?? throw new InvalidRequestException($"The request is invalid [object]");
 
-			var organization = @object is Organization
-				? @object as Organization
-				: await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+			Organization organization;
+			if (@object is not Organization organizationObject)
+			{
+				organizationObject = null;
+				organization = await (@object.OrganizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+			}
+			else
+				organization = organizationObject;
+
 			if (organization == null)
-				throw new InvalidRequestException($"The request is invalid [({requestInfo.Verb}): {requestInfo.GetURI()}]");
+				throw new InvalidRequestException($"The request is invalid [organization]");
 
-			var site = @object is Site
-				? @object as Site
-				: null;
+			if (@object is not Site siteObject)
+				siteObject = null;
 
-			var bizObject = @object is IBusinessObject
-				? @object as IBusinessObject
-				: null;
+			if (@object is not IBusinessObject businessObject)
+				businessObject = null;
 
 			var update = false;
 			var oldStatus = ApprovalStatus.Draft;
@@ -6447,44 +6454,44 @@ namespace net.vieapps.Services.Portals
 			{
 				case ApprovalStatus.Draft:
 				case ApprovalStatus.Pending:
-					if (bizObject != null)
+					if (businessObject != null)
 					{
-						oldStatus = bizObject.Status;
-						update = !approvalStatus.Equals(bizObject.Status);
+						oldStatus = businessObject.Status;
+						update = !approvalStatus.Equals(businessObject.Status);
 						if (!gotRights)
-							gotRights = (int)bizObject.Status < (int)ApprovalStatus.Approved
+							gotRights = (int)businessObject.Status < (int)ApprovalStatus.Approved
 								? requestInfo.Session.User.ID.IsEquals(@object.CreatedID)
-								: requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges, bizObject.Organization as Organization);
+								: requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, businessObject.ContentType?.WorkingPrivileges, businessObject.Organization as Organization);
 					}
-					else if (site != null)
+					else if (siteObject != null)
 					{
-						oldStatus = site.Status;
-						update = !approvalStatus.Equals(site.Status);
+						oldStatus = siteObject.Status;
+						update = !approvalStatus.Equals(siteObject.Status);
 					}
-					else if (@object is Organization)
+					else if (organizationObject != null)
 					{
-						oldStatus = organization.Status;
+						oldStatus = organizationObject.Status;
 						update = !approvalStatus.Equals(organization.Status);
 					}
 					break;
 
 				case ApprovalStatus.Rejected:
 				case ApprovalStatus.Approved:
-					if (bizObject != null)
+					if (businessObject != null)
 					{
-						oldStatus = bizObject.Status;
-						update = !approvalStatus.Equals(bizObject.Status);
+						oldStatus = businessObject.Status;
+						update = !approvalStatus.Equals(businessObject.Status);
 						if (!gotRights)
-							gotRights = (int)bizObject.Status < (int)ApprovalStatus.Approved
-								? requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges, bizObject.Organization as Organization)
-								: requestInfo.Session.User.IsModerator(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges, bizObject.Organization as Organization);
+							gotRights = (int)businessObject.Status < (int)ApprovalStatus.Approved
+								? requestInfo.Session.User.IsEditor(@object.WorkingPrivileges, businessObject.ContentType?.WorkingPrivileges, businessObject.Organization as Organization)
+								: requestInfo.Session.User.IsModerator(@object.WorkingPrivileges, businessObject.ContentType?.WorkingPrivileges, businessObject.Organization as Organization);
 					}
-					else if (site != null)
+					else if (siteObject != null)
 					{
-						oldStatus = site.Status;
-						update = !approvalStatus.Equals(site.Status);
+						oldStatus = siteObject.Status;
+						update = !approvalStatus.Equals(siteObject.Status);
 					}
-					else if (@object is Organization)
+					else if (organizationObject != null)
 					{
 						oldStatus = organization.Status;
 						update = !approvalStatus.Equals(organization.Status);
@@ -6493,19 +6500,19 @@ namespace net.vieapps.Services.Portals
 
 				case ApprovalStatus.Published:
 				case ApprovalStatus.Archieved:
-					if (bizObject != null)
+					if (businessObject != null)
 					{
-						oldStatus = bizObject.Status;
-						update = !approvalStatus.Equals(bizObject.Status);
+						oldStatus = businessObject.Status;
+						update = !approvalStatus.Equals(businessObject.Status);
 						if (!gotRights)
-							gotRights = requestInfo.Session.User.IsModerator(@object.WorkingPrivileges, bizObject.ContentType?.WorkingPrivileges, bizObject.Organization as Organization);
+							gotRights = requestInfo.Session.User.IsModerator(@object.WorkingPrivileges, businessObject.ContentType?.WorkingPrivileges, businessObject.Organization as Organization);
 					}
-					else if (site != null)
+					else if (siteObject != null)
 					{
-						oldStatus = site.Status;
-						update = !approvalStatus.Equals(site.Status);
+						oldStatus = siteObject.Status;
+						update = !approvalStatus.Equals(siteObject.Status);
 					}
-					else if (@object is Organization)
+					else if (organizationObject != null)
 					{
 						oldStatus = organization.Status;
 						update = !approvalStatus.Equals(organization.Status);
@@ -6522,7 +6529,7 @@ namespace net.vieapps.Services.Portals
 
 			// do the approval process
 			var @event = Components.Security.Action.Approve.ToString();
-			if (@object is Organization)
+			if (organizationObject != null)
 			{
 				organization.Status = approvalStatus;
 				organization.LastModified = DateTime.Now;
@@ -6530,12 +6537,12 @@ namespace net.vieapps.Services.Portals
 				json = await organization.UpdateAsync(requestInfo, oldStatus, cancellationToken, false, null, @event).ConfigureAwait(false);
 			}
 
-			else if (site != null)
+			else if (siteObject != null)
 			{
-				site.Status = approvalStatus;
-				site.LastModified = DateTime.Now;
-				site.LastModifiedID = requestInfo.Session.User.ID;
-				json = await site.UpdateAsync(requestInfo, oldStatus, cancellationToken, null, @event).ConfigureAwait(false);
+				siteObject.Status = approvalStatus;
+				siteObject.LastModified = DateTime.Now;
+				siteObject.LastModifiedID = requestInfo.Session.User.ID;
+				json = await siteObject.UpdateAsync(requestInfo, oldStatus, cancellationToken, null, @event).ConfigureAwait(false);
 			}
 
 			else if (@object is Content content)

@@ -223,7 +223,7 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static async Task<T> GetBusinessObjectAsync<T>(this string objectID, string entityInfo = null, CancellationToken cancellationToken = default) where T : class
 		{
-			var @object = objectID.GetBusinessObjectAsync(entityInfo, cancellationToken).ConfigureAwait(false);
+			var @object = await objectID.GetBusinessObjectAsync(entityInfo, cancellationToken).ConfigureAwait(false);
 			return @object is T tobject ? tobject : default;
 		}
 
