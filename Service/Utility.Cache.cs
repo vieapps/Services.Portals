@@ -216,7 +216,7 @@ namespace net.vieapps.Services.Portals
 				}
 				catch (Exception ex)
 				{
-					await Utility.WriteLogAsync(correlationID, $"Error occurred while purging CloudFlare cache => {(ex is RemoteServerException rse ? $"{rse.Message} (Code: {rse.StatusCode}){(string.IsNullOrWhiteSpace(rse.Body) ? "" : $"\r\nBody: {rse.Body}")}" : $"{ex.Message}")} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+					await Utility.WriteErrorAsync(ex, $"Error occurred while purging CloudFlare cache => {(ex is RemoteServerException rse ? $"{rse.Message} (Code: {rse.StatusCode}){(string.IsNullOrWhiteSpace(rse.Body) ? "" : $"\r\nBody: {rse.Body}")}" : $"{ex.Message}")} [{ex.GetType()}]", "Caches", correlationID).ConfigureAwait(false);
 				}
 			}
 
@@ -493,7 +493,7 @@ namespace net.vieapps.Services.Portals
 				catch (RemoteServerMovedException ex)
 				{
 					if (handleException)
-						await Utility.WriteLogAsync(correlationID, $"Server was moved while refreshing => {ex.URI}", "Caches").ConfigureAwait(false);
+						await Utility.WriteErrorAsync(ex, $"Server was moved while refreshing => {ex.URI}", "Caches", correlationID).ConfigureAwait(false);
 					else
 						throw;
 				}
@@ -502,7 +502,7 @@ namespace net.vieapps.Services.Portals
 					if (handleException)
 					{
 						if (ex.Code != 404 && ex.Code != 502 && ex.Code != 503 && ex.Code != 522)
-							await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({uri.AbsoluteUri}) => {ex.Message} [Code: {ex.StatusCode}]{(string.IsNullOrWhiteSpace(ex.Body) ? "" : $"\r\nBody: {ex.Body}")}", "Caches").ConfigureAwait(false);
+							await Utility.WriteErrorAsync(ex, $"Error occurred while refreshing ({uri.AbsoluteUri}) => {ex.Message} [Code: {ex.StatusCode}]{(string.IsNullOrWhiteSpace(ex.Body) ? "" : $"\r\nBody: {ex.Body}")}", "Caches", correlationID).ConfigureAwait(false);
 					}
 					else
 						throw;
@@ -512,7 +512,7 @@ namespace net.vieapps.Services.Portals
 					if (handleException)
 					{
 						if (!ex.Message.IsContains("No such host is known"))
-							await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({uri.AbsoluteUri}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+							await Utility.WriteErrorAsync(ex, $"Error occurred while refreshing ({uri.AbsoluteUri}) => {ex.Message} [{ex.GetType()}]", "Caches", correlationID).ConfigureAwait(false);
 					}
 					else
 						throw;
@@ -528,14 +528,14 @@ namespace net.vieapps.Services.Portals
 			catch (RemoteServerException ex)
 			{
 				if (ex.Code != 404 && ex.Code != 502 && ex.Code != 503 && ex.Code != 522)
-					await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [Code: {ex.StatusCode}]{(string.IsNullOrWhiteSpace(ex.Body) ? "" : $"\r\nBody: {ex.Body}")}", "Caches").ConfigureAwait(false);
+					await Utility.WriteErrorAsync(ex, $"Error occurred while refreshing ({url}) => {ex.Message} [Code: {ex.StatusCode}]{(string.IsNullOrWhiteSpace(ex.Body) ? "" : $"\r\nBody: {ex.Body}")}", "Caches", correlationID).ConfigureAwait(false);
 			}
 			catch (Exception ex)
 			{
 				if (ex is RemoteServerMovedException rsme && rsme.InnerException is not ServiceOperationException && rsme.InnerException is not ServiceNotFoundException)
 					await refreshWebPageAsync(rsme.URI, true).ConfigureAwait(false);
 				else if (!ex.Message.IsContains("No such host is known"))
-					await Utility.WriteLogAsync(correlationID, $"Error occurred while refreshing ({url}) => {ex.Message} [{ex.GetType()}]", "Caches").ConfigureAwait(false);
+					await Utility.WriteErrorAsync(ex, $"Error occurred while refreshing ({url}) => {ex.Message} [{ex.GetType()}]", "Caches", correlationID).ConfigureAwait(false);
 			}
 		}
 
@@ -996,8 +996,8 @@ namespace net.vieapps.Services.Portals
 			var filter = CategoryProcessor.GetCategoriesFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
 			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
 			var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, 0, 1);
-			var objects = await Category.FindAsync(filter, sort, 0, 1, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false);
-			return (objects, cacheKeyOfObjects);
+			var objects = await Category.FindAsync(filter, sort, 0, 1, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false) ?? [];
+			return (objects.Where(@object => @object != null).ToList(), cacheKeyOfObjects);
 		}
 
 		internal static Task<(long TotalRecords, string CacheKeyOfTotalObjects)> CountContentsAsync(this ContentType contentType, string categoryID, CancellationToken cancellationToken)
@@ -1008,7 +1008,7 @@ namespace net.vieapps.Services.Portals
 			var filter = ContentProcessor.GetContentsFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID, categoryID);
 			var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
 			var results = await ContentProcessor.SearchAsync(null, filter, sort, pageSize, pageNumber, contentType.ID, totalRecords, false, 0, 0, 0, cancellationToken).ConfigureAwait(false);
-			return (results.Objects, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber));
+			return (results.Objects.Where(@object => @object != null).ToList(), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber));
 		}
 
 		internal static async Task<(List<Link> Objects, string CacheKeyOfObjects)> FindLinksAsync(this ContentType contentType, CancellationToken cancellationToken)
@@ -1016,8 +1016,8 @@ namespace net.vieapps.Services.Portals
 			var filter = LinkProcessor.GetLinksFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
 			var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
 			var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, 0, 1);
-			var objects = await Link.FindAsync(filter, sort, 0, 1, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false);
-			return (objects, cacheKeyOfObjects);
+			var objects = await Link.FindAsync(filter, sort, 0, 1, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false) ?? [];
+			return (objects.Where(@object => @object != null).ToList(), cacheKeyOfObjects);
 		}
 
 		internal static async Task<List<Item>> FindItemsAsync(this ContentType contentType, int pageSize, int pageNumber, CancellationToken cancellationToken)
@@ -1025,16 +1025,16 @@ namespace net.vieapps.Services.Portals
 			var filter = ItemProcessor.GetItemsFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
 			var sort = Sorts<Item>.Descending("Created").ThenByAscending("Title");
 			var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, pageSize, pageNumber);
-			var objects = await Item.FindAsync(filter, sort, pageSize, pageNumber, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false);
+			var objects = await Item.FindAsync(filter, sort, pageSize, pageNumber, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false) ?? [];
 			await Task.WhenAll
 			(
-				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), cancellationToken),
-				Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), objects.Select(@object => @object.GetCacheKeyOfAlias()).Concat([cacheKeyOfObjects, Extensions.GetCacheKeyOfTotalObjects(filter, sort), Utility.GetCacheKeyOfPageSize(filter, sort)]), cancellationToken)
+				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object?.GetCacheKey()), cancellationToken),
+				Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), objects.Select(@object => @object?.GetCacheKeyOfAlias()).Concat([cacheKeyOfObjects, Extensions.GetCacheKeyOfTotalObjects(filter, sort), Utility.GetCacheKeyOfPageSize(filter, sort)]), cancellationToken)
 			).ConfigureAwait(false);
-			return objects;
+			return objects.Where(@object => @object != null).ToList();
 		}
 
-		internal static Task<List<Link>> FindLinksAsync(this Category category, CancellationToken cancellationToken)
+		internal static  async Task<List<Link>> FindLinksAsync(this Category category, CancellationToken cancellationToken)
 		{
 			var filter = Filters<Link>.And
 			(
@@ -1042,7 +1042,8 @@ namespace net.vieapps.Services.Portals
 				Filters<Link>.Equals("LookupRepositoryID", category.RepositoryID)
 			);
 			var sort = Sorts<Link>.Ascending("ParentID").ThenByAscending("OrderIndex");
-			return Link.FindAsync(filter, sort, 0, 1, null, cancellationToken);
+			var objects = await Link.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false) ?? [];
+			return objects.Where(@object => @object != null).ToList();
 		}
 
 		internal static async Task<(List<string> LinkURLs, List<string> CategoryURLs, List<string> ContentURLs, List<string> ItemURLs)> GetRefreshingURLsAsync(
@@ -1137,7 +1138,7 @@ namespace net.vieapps.Services.Portals
 					catch (OperationCanceledException) { }
 					catch (Exception ex)
 					{
-						await Utility.WriteLogAsync(correlationID, $"Error occurred while preparing URL of links => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches").ConfigureAwait(false);
+						await Utility.WriteErrorAsync(ex, $"Error occurred while preparing URL of links => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches", correlationID).ConfigureAwait(false);
 					}
 				else
 					await organization.ContentTypesOfLink.ForEachAsync(async (contentType, cancellationtoken) =>
@@ -1156,7 +1157,7 @@ namespace net.vieapps.Services.Portals
 						catch (OperationCanceledException) { }
 						catch (Exception ex)
 						{
-							await Utility.WriteLogAsync(correlationID, $"Error occurred while preparing URL of links => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches").ConfigureAwait(false);
+							await Utility.WriteErrorAsync(ex, $"Error occurred while preparing URL of links => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches", correlationID).ConfigureAwait(false);
 						}
 					}, cancellationToken, true, false).ConfigureAwait(false);
 			}
@@ -1172,7 +1173,7 @@ namespace net.vieapps.Services.Portals
 					catch (OperationCanceledException) { }
 					catch (Exception ex)
 					{
-						await Utility.WriteLogAsync(correlationID, $"Error occurred while preparing URL of categories/contents => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches").ConfigureAwait(false);
+						await Utility.WriteErrorAsync(ex, $"Error occurred while preparing URL of categories/contents => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches", correlationID).ConfigureAwait(false);
 					}
 				else
 					await organization.ContentTypesOfCategory.ForEachAsync(async (contentType, cancellationtoken) =>
@@ -1209,7 +1210,7 @@ namespace net.vieapps.Services.Portals
 						catch (OperationCanceledException) { }
 						catch (Exception ex)
 						{
-							await Utility.WriteLogAsync(correlationID, $"Error occurred while preparing URL of categories/contents => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches").ConfigureAwait(false);
+							await Utility.WriteErrorAsync(ex, $"Error occurred while preparing URL of categories/contents => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches", correlationID).ConfigureAwait(false);
 						}
 					}, cancellationToken, true, false).ConfigureAwait(false);
 			}
@@ -1233,7 +1234,7 @@ namespace net.vieapps.Services.Portals
 					catch (OperationCanceledException) { }
 					catch (Exception ex)
 					{
-						await Utility.WriteLogAsync(correlationID, $"Error occurred while preparing URL of items => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches").ConfigureAwait(false);
+						await Utility.WriteErrorAsync(ex, $"Error occurred while preparing URL of items => {ex.Message}\r\nStack: {ex.StackTrace}", "Caches", correlationID).ConfigureAwait(false);
 					}
 				}, cancellationToken, true, false).ConfigureAwait(false);
 

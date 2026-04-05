@@ -1115,19 +1115,24 @@ namespace net.vieapps.Services.Portals
 			}
 			else if (exception != null)
 			{
-				logs.Add($"> Message: {exception.Message}");
-				logs.Add($"> Type: {exception.GetTypeName(true)}");
+				if (exception is AggregateException agg)
+					foreach (var inner in agg.Flatten().InnerExceptions)
+					{
+						logs.Add($"> Message: {inner.Message}");
+						logs.Add($"> Type: {inner.GetTypeName(true)}");
+					}
+				else
+				{
+					logs.Add($"> Message: {exception.Message}");
+					logs.Add($"> Type: {exception.GetTypeName(true)}");
+				}
 			}
 
 			if (!string.IsNullOrWhiteSpace(additional))
 				logs.Add(additional);
 
-			var stack = wampDetails.Code > 0
-				? $"{wampDetails.Type}: {wampDetails.Message}\r\n{wampDetails.Stack}"
-				: exception?.GetStack();
-
 			// update queue & write to centerlized logs
-			Utility.Logs.Enqueue(((DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.NodeID, Utility.ServiceName, objectName), logs, stack));
+			Utility.Logs.Enqueue(((DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.NodeID, Utility.ServiceName, objectName), logs, exception?.GetStack(false)));
 			return Utility.Logs.WriteLogsAsync(Utility.Logger);
 		}
 
