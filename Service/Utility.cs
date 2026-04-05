@@ -1330,16 +1330,22 @@ namespace net.vieapps.Services.Portals
 		}
 
 		public static AliasKey GetOrganiztionAliasKey(this string alias)
-			=> new AliasKey(AliasTypes.Organization, null, alias);
+			=> new AliasKey(AliasTypes.Organization, null, alias?.NormalizeAlias());
 
 		public static AliasKey GetSiteAliasKey(this string domain)
 			=> new AliasKey(AliasTypes.Site, null, domain);
 
 		public static AliasKey GetDesktopAliasKey(this string systemID, string alias)
-			=> new AliasKey(AliasTypes.Desktop, systemID, alias);
+			=> new AliasKey(AliasTypes.Desktop, systemID, alias?.NormalizeAlias());
 
 		public static AliasKey GetCategoryAliasKey(this string repositoryEntityID, string alias)
-			=> new AliasKey(AliasTypes.Category, repositoryEntityID, alias);
+			=> new AliasKey(AliasTypes.Category, repositoryEntityID, alias?.NormalizeAlias());
+
+		public static AliasKey GetContentAliasKey(this string categoryID, string repositoryEntityID, string alias)
+			=> new AliasKey(AliasTypes.Content, $"{repositoryEntityID}:{categoryID}", alias?.NormalizeAlias());
+
+		public static AliasKey GetItemAliasKey(this string repositoryEntityID, string alias)
+			=> new AliasKey(AliasTypes.Item, repositoryEntityID, alias?.NormalizeAlias());
 	}
 
 	//  --------------------------------------------------------------------------------------------
@@ -1382,18 +1388,17 @@ namespace net.vieapps.Services.Portals
 			=> this._hash;
 
 		public override string ToString()
-			=> this.Scope == null ? $"{Type}:{Value}"  : $"{Type}:{Scope}:{Value}";
+			=> this.Type + ":" + (string.IsNullOrWhiteSpace(this.Scope) ? "" : this.Scope + ":") + this.Value;
 	}
 
-	/// <summary>
-	/// Presents type of an alias
-	/// </summary>
 	public static class AliasTypes
 	{
 		public const byte Organization = 1;
 		public const byte Site = 2;
 		public const byte Desktop = 3;
 		public const byte Category = 4;
+		public const byte Content = 5;
+		public const byte Item = 6;
 	}
 
 	//  --------------------------------------------------------------------------------------------
