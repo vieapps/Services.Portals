@@ -215,21 +215,30 @@ namespace net.vieapps.Services.Portals
 			var category = parentIdentity.IsValidUUID()
 				? parentIdentity.GetCategoryByID()
 				: (contentType.GetParent()?.RepositoryEntityID ?? "").GetCategoryByAlias(parentIdentity.NormalizeAlias());
+
 			if (category == null)
 				return null;
 
-			var cacheKey = contentType.GetCacheKeyOfAlias(category, alias);
-			var id = Utility.Cache.Get<string>(cacheKey);
-			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
-				return Content.Get(id);
+			var aliasKey = category.ID.GetContentAliasKey(contentType.ID, alias);
+			if (Utility.NotRecognizedAliases.Contains(aliasKey))
+				return null;
 
-			var content = Content.Get(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID);
+			var cacheKey = contentType.GetCacheKeyOfAlias(category, alias);
+			var contentID = Utility.Cache.Get<string>(cacheKey);
+
+			var content = !string.IsNullOrWhiteSpace(contentID) && contentID.IsValidUUID()
+				? Content.Get(contentID)
+				: Content.Get(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID);
+
 			if (content != null)
 				Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKey, content.ID, Utility.CancellationToken),
 					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
 				).Execute();
+			else
+				Utility.NotRecognizedAliases.Add(aliasKey);
+
 			return content;
 		}
 
@@ -241,21 +250,30 @@ namespace net.vieapps.Services.Portals
 			var category = parentIdentity.IsValidUUID()
 				? await parentIdentity.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false)
 				: await (contentType.GetParent()?.RepositoryEntityID ?? "").GetCategoryByAliasAsync(parentIdentity.NormalizeAlias(), cancellationToken).ConfigureAwait(false);
+
 			if (category == null)
 				return null;
 
-			var cacheKey = contentType.GetCacheKeyOfAlias(category, alias);
-			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
-			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
-				return await Content.GetAsync(id, cancellationToken).ConfigureAwait(false);
+			var aliasKey = category.ID.GetContentAliasKey(contentType.ID, alias);
+			if (Utility.NotRecognizedAliases.Contains(aliasKey))
+				return null;
 
-			var content = await Content.GetAsync(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID, cancellationToken).ConfigureAwait(false);
+			var cacheKey = contentType.GetCacheKeyOfAlias(category, alias);
+			var contentID = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
+
+			var content = !string.IsNullOrWhiteSpace(contentID) && contentID.IsValidUUID()
+				? await Content.GetAsync(contentID, cancellationToken).ConfigureAwait(false)
+				: await Content.GetAsync(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID, cancellationToken).ConfigureAwait(false);
+
 			if (content != null)
 				Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKey, content.ID, Utility.CancellationToken),
 					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
 				).Execute();
+			else
+				Utility.NotRecognizedAliases.Add(aliasKey);
+
 			return content;
 		}
 

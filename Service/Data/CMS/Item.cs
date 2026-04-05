@@ -152,18 +152,26 @@ namespace net.vieapps.Services.Portals
 			if (contentType == null || string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			var cacheKey = contentType.ID.GetCacheKeyOfAlias(alias);
-			var id = Utility.Cache.Get<string>(cacheKey);
-			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
-				return Item.Get(id);
+			var aliasKey = contentType.ID.GetItemAliasKey(alias);
+			if (Utility.NotRecognizedAliases.Contains(aliasKey))
+				return null;
 
-			var item = Item.Get(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, contentType.ID);
+			var cacheKey = contentType.ID.GetCacheKeyOfAlias(alias);
+			var itemID = Utility.Cache.Get<string>(cacheKey);
+
+			var item = !string.IsNullOrWhiteSpace(itemID) && itemID.IsValidUUID()
+				? Item.Get(itemID)
+				: Item.Get(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, contentType.ID);
+
 			if (item != null)
 				Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKey, item.ID, Utility.CancellationToken),
 					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
 				).Execute();
+			else
+				Utility.NotRecognizedAliases.Add(aliasKey);
+
 			return item;
 		}
 
@@ -177,18 +185,26 @@ namespace net.vieapps.Services.Portals
 			if (contentType == null || string.IsNullOrWhiteSpace(alias))
 				return null;
 
-			var cacheKey = contentType.ID.GetCacheKeyOfAlias(alias);
-			var id = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
-			if (!string.IsNullOrWhiteSpace(id) && id.IsValidUUID())
-				return await Item.GetAsync(id, cancellationToken).ConfigureAwait(false);
+			var aliasKey = contentType.ID.GetItemAliasKey(alias);
+			if (Utility.NotRecognizedAliases.Contains(aliasKey))
+				return null;
 
-			var item = await Item.GetAsync(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, contentType.ID, cancellationToken).ConfigureAwait(false);
+			var cacheKey = contentType.ID.GetCacheKeyOfAlias(alias);
+			var itemID = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
+
+			var item = !string.IsNullOrWhiteSpace(itemID) && itemID.IsValidUUID()
+				? await Item.GetAsync(itemID, cancellationToken).ConfigureAwait(false)
+				: await Item.GetAsync(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, contentType.ID, cancellationToken).ConfigureAwait(false);
+
 			if (item != null)
 				Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKey, item.ID, Utility.CancellationToken),
 					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKey, Utility.CancellationToken)
 				).Execute();
+			else
+				Utility.NotRecognizedAliases.Add(aliasKey);
+
 			return item;
 		}
 
