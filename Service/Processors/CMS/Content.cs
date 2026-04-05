@@ -198,9 +198,7 @@ namespace net.vieapps.Services.Portals
 				Task.WhenAll
 				(
 					Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), Utility.CancellationToken),
-					cacheKeys.Count > 0
-						? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken)
-						: Task.CompletedTask
+					Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys.Concat(objects.Select(@object => @object.GetCacheKeyOfAlias())), Utility.CancellationToken)
 				).Execute();
 
 			// return the results
@@ -423,7 +421,7 @@ namespace net.vieapps.Services.Portals
 			// update cache & response
 			if (string.IsNullOrWhiteSpace(query))
 			{
-				var cacheKeys = objects.Select(@object => @object.GetCacheKeyOfAlias()).Concat([cacheKeyOfObjectsJson, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), Extensions.GetCacheKeyOfTotalObjects(filter, sort), Utility.GetCacheKeyOfPageSize(filter, sort)]);
+				var cacheKeys = new[] { cacheKeyOfObjectsJson, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), Extensions.GetCacheKeyOfTotalObjects(filter, sort), Utility.GetCacheKeyOfPageSize(filter, sort) };
 				await Task.WhenAll
 				(
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), cancellationToken),
@@ -535,7 +533,8 @@ namespace net.vieapps.Services.Portals
 			content.ExternalRelateds = content.ExternalRelateds != null && content.ExternalRelateds.Count > 0 ? content.ExternalRelateds : null;
 
 			// create new
-			await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);			
+			await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
+			Utility.NotRecognizedAliases.Remove(content.CategoryID.GetContentAliasKey(content.RepositoryEntityID, content.Alias));
 
 			// upload inline images
 			if (inlineImages != null && inlineImages.Count > 0)
@@ -710,6 +709,7 @@ namespace net.vieapps.Services.Portals
 
 			// update
 			await Content.UpdateAsync(content, requestInfo.Session.User.ID, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
+			Utility.NotRecognizedAliases.Remove(content.CategoryID.GetContentAliasKey(content.RepositoryEntityID, content.Alias));
 
 			// send update message
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
@@ -1203,16 +1203,8 @@ namespace net.vieapps.Services.Portals
 			// generate details
 			else
 			{
-				// process cache
-				var contentAlias = requestJson.Get<string>("ContentIdentity");
-				if (forceCache)
-				{
-					var cacheKeyOfAlias = contentTypeID.GetCacheKeyOfAlias(category?.ID, contentAlias);
-					var contentIdentity = string.IsNullOrWhiteSpace(cacheKeyOfAlias) ? null : await Utility.Cache.GetAsync<string>(cacheKeyOfAlias, cancellationToken).ConfigureAwait(false);
-					Utility.Cache.RemoveAsync([cacheKeyOfAlias, contentIdentity?.GetCacheKey<Content>()], Utility.CancellationToken).Execute();
-				}
-
 				// get the requested object
+				var contentAlias = requestJson.Get<string>("ContentIdentity");
 				var @object = await Content.GetContentByAliasAsync(contentTypeID, contentAlias, category?.ID, cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 				if (@object.Organization == null || @object.Module == null || @object.ContentType == null)
 					throw new InformationInvalidException("The organization/module/content-type is invalid");
@@ -1690,6 +1682,8 @@ namespace net.vieapps.Services.Portals
 						content.Alias = $"{content.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
 					await Content.UpdateAsync(content, dontCreateNewVersion, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
 				}
+				Utility.NotRecognizedAliases.Remove(content.CategoryID.GetContentAliasKey(content.RepositoryEntityID, content.Alias));
+				await Utility.Cache.SetAsync(content.ContentType.GetCacheKeyOfAlias(content.Category, content.Alias), content.ID, cancellationToken).ConfigureAwait(false);
 			}
 			else if (content != null)
 				await Content.DeleteAsync(content.ID, content.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -1699,16 +1693,21 @@ namespace net.vieapps.Services.Portals
 				return new JObject();
 
 			// update cache & send notification
-			await content.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			if (content.ContentType != null)
-			{
-				if (@event.IsEquals("Delete"))
-					await Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-				else
-					await Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-				if (sendNotifications)
-					await content.SendNotificationAsync(@event, content.ContentType.Notifications, oldStatus, content.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-			}
+			Task.WhenAll
+			(
+				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				content.ContentType != null
+					? Task.WhenAll
+					(
+						@event.IsEquals("Delete")
+							? Utility.Cache.RemoveSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken)
+							: Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
+						sendNotifications
+						? content.SendNotificationAsync(@event, content.ContentType.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken)
+						: Task.CompletedTask
+					)
+					: Task.CompletedTask
+			).Execute();
 
 			// send update messages
 			var response = content.ToJson();
@@ -1737,10 +1736,9 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> RollbackContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var content = await Content.GetAsync(requestInfo.GetObjectIdentity() ?? "", !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
-			if (content == null)
-				throw new InformationNotFoundException();
-			else if (content.Organization == null || content.Module == null || content.ContentType == null)
+			var content = await Content.GetAsync(requestInfo.GetObjectIdentity() ?? "", !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			
+			if (content.Organization == null || content.Module == null || content.ContentType == null)
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
 			// check permission
@@ -1755,12 +1753,15 @@ namespace net.vieapps.Services.Portals
 			// rollback
 			var oldStatus = content.Status;
 			content = await Content.RollbackAsync(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
+			Utility.NotRecognizedAliases.Remove(content.CategoryID.GetContentAliasKey(content.RepositoryEntityID, content.Alias));
 
 			// update cache & send notification
 			Task.WhenAll
 			(
 				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
-				content.SendNotificationAsync("Rollback", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken)
+				content.SendNotificationAsync("Rollback", content.Category.Notifications, oldStatus, content.Status, requestInfo, Utility.CancellationToken),
+				Utility.Cache.SetAsync(content, Utility.CancellationToken),
+				Utility.Cache.SetAsync(content.ContentType.GetCacheKeyOfAlias(content.Category, content.Alias), content.ID, Utility.CancellationToken)
 			).Execute();
 
 			// send update messages

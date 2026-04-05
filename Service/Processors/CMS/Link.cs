@@ -419,8 +419,8 @@ namespace net.vieapps.Services.Portals
 			communicateMessages.Send();
 			Task.WhenAll
 			(
-				link.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
 				link.SendNotificationAsync("Create", link.ContentType.Notifications, ApprovalStatus.Draft, link.Status, requestInfo, Utility.CancellationToken),
+				link.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken)
 			).Execute();
 
@@ -872,19 +872,24 @@ namespace net.vieapps.Services.Portals
 				return new JObject();
 
 			// update cache & send notifications
-			await link.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			if (!@event.IsEquals("Delete"))
-				await link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, cancellationToken).ConfigureAwait(false);
-
-			if (link.ContentType != null)
-			{
-				if (@event.IsEquals("Delete"))
-					await Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken).ConfigureAwait(false);
-				else
-					await Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken).ConfigureAwait(false);
-				if (sendNotifications)
-					await link.SendNotificationAsync(@event, link.ContentType.Notifications, oldStatus, link.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-			}
+			Task.WhenAll
+			(
+				link.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				@event.IsEquals("Delete")
+					? Task.CompletedTask
+					: link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
+				link.ContentType != null
+					? Task.WhenAll
+					(
+						@event.IsEquals("Delete")
+							? Utility.Cache.RemoveSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken)
+							: Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken),
+						sendNotifications
+							? link.SendNotificationAsync(@event, link.ContentType.Notifications, oldStatus, link.Status, requestInfo, Utility.CancellationToken)
+							: Task.CompletedTask
+					)
+					: Task.CompletedTask
+			).Execute();
 
 			// send update messages
 			var response = link.ToJson();
@@ -927,6 +932,7 @@ namespace net.vieapps.Services.Portals
 			// update cache & send notifications
 			Task.WhenAll
 			(
+				link.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
 				link.SendNotificationAsync("Rollback", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, Utility.CancellationToken)
 			).Execute();

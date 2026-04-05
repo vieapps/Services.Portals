@@ -134,9 +134,13 @@ namespace net.vieapps.Services.Portals
 			if (string.IsNullOrWhiteSpace(repositoryEntityID) || string.IsNullOrWhiteSpace(alias))
 				return null;
 
+			var key = repositoryEntityID.GetCategoryAliasKey(alias);
+			if (Utility.NotRecognizedAliases.Contains(key))
+				return null;
+
 			var category = repositoryEntityID.GetCategoryByAlias(alias, false) ?? (await Category.GetAsync(Filters<Category>.And(Filters<Category>.Equals("RepositoryEntityID", repositoryEntityID), Filters<Category>.Equals("Alias", alias.NormalizeAlias())), null, repositoryEntityID, cancellationToken).ConfigureAwait(false))?.Set();
 			if (category == null)
-				Utility.NotRecognizedAliases.Add(repositoryEntityID.GetCategoryAliasKey(alias));
+				Utility.NotRecognizedAliases.Add(key);
 
 			return category;
 		}
@@ -291,7 +295,9 @@ namespace net.vieapps.Services.Portals
 				Task.WhenAll
 				(
 					Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object.GetCacheKey()), Utility.CancellationToken),
-					cacheKeys.Count < 1 ? Task.CompletedTask : Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken)
+					cacheKeys.Count > 0
+						? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken)
+						: Task.CompletedTask
 				).Execute();
 
 			// return the results
@@ -521,9 +527,8 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			await Category.CreateAsync(category, cancellationToken).ConfigureAwait(false);
-
-			// clear caache
-			category.Set().ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).Execute();
+			category.Set();
+			Utility.NotRecognizedAliases.Remove(category.ContentType.ID.GetCategoryAliasKey(category.Alias));
 
 			var updateMessages = new List<UpdateMessage>();
 			var communicateMessages = new List<CommunicateMessage>();
@@ -578,8 +583,9 @@ namespace net.vieapps.Services.Portals
 			communicateMessages.Send();
 			Task.WhenAll
 			(
-				category.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
+				category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, Utility.CancellationToken),
+				category.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
 			).Execute();
 
@@ -749,6 +755,7 @@ namespace net.vieapps.Services.Portals
 			// update
 			await Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			category.Set(false, false, oldAlias);
+			Utility.NotRecognizedAliases.Remove(category.ContentType.ID.GetCategoryAliasKey(category.Alias));
 
 			// update cache & send notification
 			Task.WhenAll
@@ -756,7 +763,8 @@ namespace net.vieapps.Services.Portals
 				category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
 				category.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
 				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, Utility.CancellationToken),
-				category.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
+				category.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
+				Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
 			).Execute();
 
 			// send update messages
@@ -1216,6 +1224,7 @@ namespace net.vieapps.Services.Portals
 					category.Extras = data.Get<string>("Extras") ?? category.Extras;
 					await Category.UpdateAsync(category, dontCreateNewVersion, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
 				}
+				category.Set();
 			}
 			else if (category != null)
 				await Category.DeleteAsync(category.ID, category.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -1225,17 +1234,21 @@ namespace net.vieapps.Services.Portals
 				return new JObject();
 
 			// update cache & notifications
-			await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-
-			if (category.ContentType != null)
-			{
-				if (@event.IsEquals("Delete"))
-					await Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-				else
-					await Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), cancellationToken).ConfigureAwait(false);
-				if (sendNotifications)
-					await category.SendNotificationAsync(@event, category.ContentType.Notifications, category.Status, category.Status, requestInfo, cancellationToken).ConfigureAwait(false);
-			}
+			Task.WhenAll
+			(
+				category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				category.ContentType != null
+					? Task.WhenAll
+					(
+						@event.IsEquals("Delete")
+							? Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
+							: Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken),
+						sendNotifications
+							? category.SendNotificationAsync(@event, category.ContentType.Notifications, category.Status, category.Status, requestInfo, Utility.CancellationToken)
+							: Task.CompletedTask
+					)
+					: Task.CompletedTask
+			).Execute();
 
 			// send update messages
 			var json = @event.IsEquals("Delete")
