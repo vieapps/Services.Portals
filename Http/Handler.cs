@@ -1985,10 +1985,28 @@ namespace net.vieapps.Services.Portals
 		{
 			var session = context.GetSession();
 			var scripts = $"__vieapps.isMobile={(string.IsNullOrWhiteSpace(session.AppPlatform) || session.AppPlatform.IsContains("Desktop") ? "false" : "true")};__vieapps.osInfo='{(session.AppAgent ?? "").GetOSInfo()}';"
-				+ "__vieapps.session.track=()=>__vieapps.utils.ajax(__vieapps.URLs.get('/~hits/tk'),()=>__vieapps.session.tracked=true,undefined,'POST',{url:'" + (context.GetReferUrl() ?? Handler.PortalsHttpURI) + "'});"
-				+ "__vieapps.session.events.in=()=>__vieapps.session.track();"
-				+ "setTimeout(()=>{if(!!!__vieapps.session.tracked){__vieapps.session.track();}},6789);";
-			await context.WriteAsync(scripts, "application/javascript", new Dictionary<string, string> { ["Cache-Control"] = context.GetHttpCacheControl(true) }, context.RequestAborted).ConfigureAwait(false);
+				+ @"
+			__vieapps.session.track = () => {
+				if (__vieapps.session.tracked) {
+					return;
+				}
+				var payload = {	url: location.href };
+				if (navigator.sendBeacon) {
+					navigator.sendBeacon(__vieapps.URLs.get('/~hits/tk'), new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+				}
+				else {
+					fetch(__vieapps.URLs.get('/~hits/tk'), { method: 'POST', body: JSON.stringify(payload), keepalive: true, headers: { 'Content-Type': 'application/json' } });
+				}
+				__vieapps.session.tracked = true;
+			};
+			__vieapps.session.events.init = () => __vieapps.session.track();
+			document.addEventListener('visibilitychange', () => {
+				if (document.visibilityState === 'hidden') {
+					__vieapps.session.track();
+				}
+			});
+			";
+			await context.WriteAsync(scripts.Replace("\r", "").Replace("\n", "").Replace("\t", ""), "application/javascript", new Dictionary<string, string> { ["Cache-Control"] = context.GetHttpCacheControl(true) }, context.RequestAborted).ConfigureAwait(false);
 		}
 
 		async Task ProcessTrackingRequestAsync(HttpContext context)

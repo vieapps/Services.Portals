@@ -52,7 +52,6 @@ namespace net.vieapps.Services.Portals
 			KeepAliveInterval = TimeSpan.FromSeconds(Int32.TryParse(UtilityService.GetAppSetting("Proxy:KeepAliveInterval", "45"), out var interval) ? interval : 45),
 			OnError = (websocket, exception) => Global.WriteLogsAsync(Global.Logger, "APIs", $"Got an error while processing => {exception.Message} ({websocket?.ID} {websocket?.RemoteEndPoint})", exception).Execute(),
 			OnConnectionEstablished = websocket => (websocket == null ? Task.CompletedTask : websocket.PrepareAPIsAsync()).Execute(),
-			OnConnectionBroken = websocket => (websocket == null ? Task.CompletedTask : websocket.DisconnectAPIsAsync()).Execute(),
 			OnMessageReceived = (websocket, result, data) => (websocket == null ? Task.CompletedTask : websocket.ProcessAPIsRequestAsync(result, data)).Execute()
 		};
 	}
@@ -143,11 +142,6 @@ namespace net.vieapps.Services.Portals
 				requestInfo.Verb = "GET";
 			}
 
-			if (Handler.TrackSessions)
-				requestInfo.SendSessionState(null, message => message.Data["Crawler"] = context.IsCrawlerbot(), Handler.TrackAPIStatistics);
-			else
-				requestInfo.TrackStatistics();
-
 			context.UpdateServerTiming("ngxPrepare", stopwatch.ElapsedMilliseconds);
 			stopwatch.Restart();
 
@@ -171,6 +165,7 @@ namespace net.vieapps.Services.Portals
 					context.WriteAsync(response, Formatting.None, headers, cts.Token),
 					isDebugLogEnabled ? context.WriteLogsAsync("APIs", $"Successfully process request of a service {response}") : Task.CompletedTask
 				).ConfigureAwait(false);
+				requestInfo.TrackStatistics();
 			}
 			catch (OperationCanceledException) { }
 			catch (Exception ex)
@@ -186,17 +181,10 @@ namespace net.vieapps.Services.Portals
 			{
 				var context = Global.CurrentHttpContext;
 				websocket.Set("Session", session = context?.GetSession());
-				session?.SendSessionState("Users", "CONNECT /session", false, Handler.TrackAPIStatistics);
+				session?.TrackStatistics(context?.GetCorrelationID());
 				if (context != null && context.ContainsKey("x-logs"))
 					return Global.WriteLogsAsync(Global.Logger, "APIs", $"A websocket connection was established {websocket.RemoteEndPoint}\r\nSession:{session.ToJson()}");
 			}
-			return Task.CompletedTask;
-		}
-
-		public static Task DisconnectAPIsAsync(this ManagedWebSocket websocket)
-		{
-			if (websocket.Remove("Session", out Session session) && session != null && Handler.TrackSessions)
-				session.SendSessionState("Users", "DISCONNECT /session", false, Handler.TrackAPIStatistics);
 			return Task.CompletedTask;
 		}
 
@@ -320,11 +308,6 @@ namespace net.vieapps.Services.Portals
 						requestInfo.Verb = "GET";
 					}
 
-					if (Handler.TrackSessions)
-						requestInfo.SendSessionState(Handler.TrackAPIStatistics);
-					else
-						requestInfo.TrackStatistics();
-
 					var response = new JObject
 					{
 						["Data"] = await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false),
@@ -335,6 +318,8 @@ namespace net.vieapps.Services.Portals
 						response["ID"] = requestID;
 
 					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+					requestInfo.TrackStatistics();
+
 					if (isDebugLogEnabled)
 						await Global.WriteLogsAsync(Global.Logger, objectName, $"Process a request successful\r\nRequest: {requestInfo.ToString()}\r\nResponse: {response}", null, serviceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 				}
