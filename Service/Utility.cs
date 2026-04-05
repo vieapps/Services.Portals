@@ -19,7 +19,6 @@ using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
 using net.vieapps.Services.Portals.Settings;
-using System.Runtime.CompilerServices;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -1365,15 +1364,7 @@ namespace net.vieapps.Services.Portals
 			this.Type = type;
 			this.Scope = scope;
 			this.Value = value;
-			unchecked
-			{
-				int hash = type;
-				if (scope != null)
-					hash = (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(scope);
-				if (value != null)
-					hash = (hash * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(value);
-				this._hash = hash;
-			}
+			this._hash = this.ToString().GetUniqueHash();
 		}
 
 		public bool Equals(AliasKey other)
@@ -1388,7 +1379,7 @@ namespace net.vieapps.Services.Portals
 			=> this._hash;
 
 		public override string ToString()
-			=> this.Type + ":" + (string.IsNullOrWhiteSpace(this.Scope) ? "" : this.Scope + ":") + this.Value;
+			=> $"{this.Type}:{(string.IsNullOrWhiteSpace(this.Scope) ? "" : this.Scope + ":")}{this.Value}";
 	}
 
 	public static class AliasTypes
