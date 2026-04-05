@@ -111,6 +111,15 @@ namespace net.vieapps.Services.Portals
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 
+		/// <summary>
+		/// Removes the items from caching storages by specified keys when request got 'x-force-cache' parameter 
+		/// </summary>
+		internal static void RemoveCache(this RequestInfo requestInfo, IEnumerable<string> cacheKeys)
+		{
+			if (requestInfo.IsForceCache())
+				Utility.Cache.RemoveAsync(cacheKeys, Utility.CancellationToken).Execute();
+		}
+
 		static string GetPath(this Uri requestURI, string organizationAlias, string desktopAlias)
 		{
 			var path = requestURI.AbsolutePath.ToLower();
@@ -1239,12 +1248,6 @@ namespace net.vieapps.Services.Portals
 				}, cancellationToken, true, false).ConfigureAwait(false);
 
 			return (linkURLs, categoryURLs, contentURLs, itemURLs.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
-		}
-
-		internal static void RemoveCache(this RequestInfo requestInfo, IEnumerable<string> cacheKeys)
-		{
-			if (requestInfo.IsForceCache())
-				Utility.Cache.RemoveAsync(cacheKeys, Utility.CancellationToken).Execute();
 		}
 	}
 }
