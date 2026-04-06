@@ -67,7 +67,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool AllowBytesL2Cache { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Allow:BytesL2Cache"));
 
-		internal static int CacheMaxAge { get; set; }
+		internal static int CacheMaxAge { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge"), out var value) && value > 0 ? value : 720;
+
+		internal static int CacheClientMaxAge { get; set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge:Client"), out var value) && value > 0 ? value : 13;
 
 		internal static bool TrackSessions { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Sessions:Track", "true"));
 
@@ -95,7 +97,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static string PortalsWebSocketURI	{ get; } = UtilityService.GetAppSetting("HttpUri:WebSockets", Handler.PortalsHttpURI);
 
-		internal static string CMSPortalsHttpURI	{ get; } = UtilityService.GetAppSetting("HttpUri:CMSPortals", "https://cms.vieapps.net");
+		internal static string PortalsCMSAppURI	{ get; } = UtilityService.GetAppSetting("HttpUri:CMSPortals", "https://cms.vieapps.net");
 
 		internal static string FilesHttpURI { get; } = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
 		#endregion
@@ -691,7 +693,7 @@ namespace net.vieapps.Services.Portals
 							var noneMatch = lastModified != null ? context.GetHeaderParameter("If-None-Match") : null;
 							if (lastModified != null && eTag.IsEquals(noneMatch) && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 							{
-								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(false, 60, (Handler.CacheMaxAge - 15) * 60, false) : context.GetHttpCacheControl();
+								headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(false, Handler.CacheClientMaxAge * 60, (Handler.CacheMaxAge - 15) * 60, false) : context.GetHttpCacheControl();
 								headers["Last-Modified"] = lastModified;
 								headers["X-Cache"] = "HTTP-304";
 								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
@@ -724,7 +726,7 @@ namespace net.vieapps.Services.Portals
 							// headers of 304
 							headers["Last-Modified"] = lastModified;
 							headers["Expires"] = expires.AddMinutes(-15).ToHttpString();
-							headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(false, 60, maxAge - (15 * 60), false) : context.GetHttpCacheControl();
+							headers["Cache-Control"] = isHtml ? context.GetHttpCacheControl(false, Handler.CacheClientMaxAge * 60, maxAge - (15 * 60), false) : context.GetHttpCacheControl();
 
 							// sliding cache
 							if (cached != null && context.ContainsKey("x-sliding-cache"))
@@ -841,7 +843,7 @@ namespace net.vieapps.Services.Portals
 							maxAge = (int)expiresAt.GetTotalSecondsToNow();
 
 						if (!headers.TryGetValue("Cache-Control", out var cacheControl))
-							cacheControl = isHtml ? context.GetHttpCacheControl(false, 60, maxAge - (15 * 60), false) : context.GetHttpCacheControl();
+							cacheControl = isHtml ? context.GetHttpCacheControl(false, Handler.CacheClientMaxAge * 60, maxAge - (15 * 60), false) : context.GetHttpCacheControl();
 						if (isForceCacheRequested || context.IsAuthenticated())
 							cacheControl = context.GetHttpCacheControl(true);
 						
@@ -966,7 +968,7 @@ namespace net.vieapps.Services.Portals
 							try
 							{
 								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, Global.CancellationToken).ConfigureAwait(false);
-								await this.ProcessCmsPortalsRequestAsync(context, systemIdentityJson?.Get<string>("ID"), systemIdentityJson?.Get<string>("ObjectID"), systemIdentityJson?.Get<string>("RepositoryEntityID") ?? systemIdentityJson?.Get<string>("ObjectName"), systemIdentityJson?.Get<string>("Location"), systemIdentityJson?.Get<string>("TrackingContentType"), systemIdentityJson?.Get<string>("TrackingBody"), systemIdentityJson?.Get<string>("TrackingBodyEncoding"), systemIdentityJson?.Get<string>("TrackingCacheControl")).ConfigureAwait(false);
+								await this.ProcessPortalsCMSAppRequestAsync(context, systemIdentityJson?.Get<string>("ID"), systemIdentityJson?.Get<string>("ObjectID"), systemIdentityJson?.Get<string>("RepositoryEntityID") ?? systemIdentityJson?.Get<string>("ObjectName"), systemIdentityJson?.Get<string>("Location"), systemIdentityJson?.Get<string>("TrackingContentType"), systemIdentityJson?.Get<string>("TrackingBody"), systemIdentityJson?.Get<string>("TrackingBodyEncoding"), systemIdentityJson?.Get<string>("TrackingCacheControl")).ConfigureAwait(false);
 							}
 							catch (TaskCanceledException) { }
 							catch (OperationCanceledException) { }
@@ -1005,7 +1007,7 @@ namespace net.vieapps.Services.Portals
 								headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 								{
 									["Server-Timing"] = $"ngxPrepare;dur={stepwatch.ElapsedMilliseconds}",
-									["Cache-Control"] = context.GetHttpCacheControl(Handler.CacheMaxAge * 60),
+									["Cache-Control"] = context.GetHttpCacheControl(false, Handler.CacheClientMaxAge * 60, (Handler.CacheMaxAge - 15) * 60, false),
 									["X-Correlation-ID"] = correlationID,
 									["X-Node"] = Global.NodeID
 								};
@@ -1607,7 +1609,7 @@ namespace net.vieapps.Services.Portals
 			}
 		}
 
-		async Task ProcessCmsPortalsRequestAsync(HttpContext context, string systemID, string objectID, string objectNameOrContentTypeID, string location, string trackingContentType, string trackingBody, string trackingBodyEncoding, string trackingCacheControl)
+		async Task ProcessPortalsCMSAppRequestAsync(HttpContext context, string systemID, string objectID, string objectNameOrContentTypeID, string location, string trackingContentType, string trackingBody, string trackingBodyEncoding, string trackingCacheControl)
 		{
 			var headers = new Dictionary<string, string>
 			{
@@ -1623,7 +1625,7 @@ namespace net.vieapps.Services.Portals
 					["ObjectID"] = objectID
 				};
 				request[!string.IsNullOrWhiteSpace(objectNameOrContentTypeID) && objectNameOrContentTypeID.IsValidUUID() ? "RepositoryEntityID" : "ObjectName"] = objectNameOrContentTypeID;
-				location ??= $"{this.RemoveURITrail(Handler.CMSPortalsHttpURI)}/home?redirect={$"/portals/initializer?x-request={request.ToString(Formatting.None).Url64Encode()}".Url64Encode()}&r={UtilityService.GetRandomNumber()}";
+				location ??= $"{this.RemoveURITrail(Handler.PortalsCMSAppURI)}/home?redirect={$"/portals/initializer?x-request={request.ToString(Formatting.None).Url64Encode()}".Url64Encode()}&r={UtilityService.GetRandomNumber()}";
 				context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
 					["Location"] = location
@@ -2222,7 +2224,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			info.Headers["Access-Control-Allow-Origin"] = allowOrigin;
-			info.Headers["Cache-Control"] = contentType.IsStartsWith("text/html") ? context.GetHttpCacheControl(false, 60, (Handler.CacheMaxAge - 15) * 60, false) : context.GetHttpCacheControl();
+			info.Headers["Cache-Control"] = contentType.IsStartsWith("text/html") ? context.GetHttpCacheControl(false, Handler.CacheClientMaxAge * 60, (Handler.CacheMaxAge - 15) * 60, false) : context.GetHttpCacheControl();
 			info.Headers["X-Correlation-ID"] = context.GetCorrelationID();
 			info.Headers["X-Cache"] = "L1-HTTP-200";
 

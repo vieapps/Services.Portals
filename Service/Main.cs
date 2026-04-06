@@ -82,7 +82,9 @@ namespace net.vieapps.Services.Portals
 
 		bool IsCacheDisabled => Utility.IsCacheDisabled;
 
-		int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge", "720"), out var cacheMaxAge) && cacheMaxAge > 0 ? cacheMaxAge : 720;
+		int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge"), out var value) && value > 0 ? value : 720;
+
+		int CacheClientMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge:Client"), out var value) && value > 0 ? value : 13;
 
 		bool Monitor { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Monitor"));
 
@@ -226,8 +228,9 @@ namespace net.vieapps.Services.Portals
 				Utility.APIsHttpURI = this.GetHttpURI("APIs", "https://apis.vieapps.net").RemoveURITrail();
 				Utility.FilesHttpURI = this.GetHttpURI("Files", "https://fs.vieapps.net").RemoveURITrail();
 				Utility.PortalsHttpURI = this.GetHttpURI("Portals", "https://portals.vieapps.net").RemoveURITrail();
+				Utility.PortalsHttpURIBypassCDN = this.GetHttpURI("Portals:BypassCDN", Utility.PortalsHttpURI).RemoveURITrail();
 				Utility.PortalsWebSocketURI = this.GetHttpURI("WebSockets", Utility.PortalsHttpURI).RemoveURITrail().Replace("http://", "ws://").Replace("https://", "wss://");
-				Utility.CmsPortalsHttpURI = this.GetHttpURI("CMSPortals", "https://cms.vieapps.net").RemoveURITrail();
+				Utility.PortalsCMSAppURI = this.GetHttpURI("CMSPortals", "https://cms.vieapps.net").RemoveURITrail();
 				Utility.NotRecognizedAliases.Add(new Uri(Utility.PortalsHttpURI).Host.GetSiteAliasKey());
 
 				Utility.Logger = this.Logger;
@@ -1391,8 +1394,9 @@ namespace net.vieapps.Services.Portals
 			{
 				identityJson["FilesHttpURI"] = this.GetFilesHttpURI(organization);
 				identityJson["PortalsHttpURI"] = this.GetPortalsHttpURI(organization);
+				identityJson["PortalsHttpURI:BypassCDN"] = organization.GetURL(false, Utility.PortalsHttpURIBypassCDN, "/");
 				identityJson["PortalsWebSocketURI"] = Utility.PortalsWebSocketURI;
-				identityJson["CmsPortalsHttpURI"] = Utility.CmsPortalsHttpURI;
+				identityJson["PortalsCMSAppURI"] = Utility.PortalsCMSAppURI;
 				identityJson["AlwaysUseHtmlSuffix"] = organization.AlwaysUseHtmlSuffix;
 				identityJson["AlwaysUseHTTPs"] = site != null && site.AlwaysUseHTTPs;
 				identityJson["AlwaysReturnHTTPs"] = site != null && site.AlwaysReturnHTTPs;
@@ -2134,7 +2138,7 @@ namespace net.vieapps.Services.Portals
 
 			if (site == null)
 			{
-				if (!string.IsNullOrWhiteSpace(Utility.CmsPortalsHttpURI) && new Uri(Utility.CmsPortalsHttpURI).Host.IsEquals(host) && (organization._siteIDs == null || !organization._siteIDs.Any()))
+				if (!string.IsNullOrWhiteSpace(Utility.PortalsCMSAppURI) && new Uri(Utility.PortalsCMSAppURI).Host.IsEquals(host) && (organization._siteIDs == null || !organization._siteIDs.Any()))
 				{
 					organization._siteIDs = null;
 					await organization.FindSitesAsync(cancellationToken).ConfigureAwait(false);
@@ -2295,7 +2299,7 @@ namespace net.vieapps.Services.Portals
 					headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 					{
 						["Last-Modified"] = lastModified,
-						["Cache-Control"] = this.GetCacheControl(false, 60, maxAge, false),
+						["Cache-Control"] = this.GetCacheControl(false, this.CacheClientMaxAge * 60, maxAge, false),
 						["Server-Timing"] = $"ngxCache;dur=${stepwatch.ElapsedMilliseconds}",
 						["X-Cache"] = "SVC-304"
 					};
@@ -2373,7 +2377,7 @@ namespace net.vieapps.Services.Portals
 				headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
 				{
 					["Last-Modified"] = lastModified,
-					["Cache-Control"] = this.GetCacheControl(false, 60, maxAge, false),
+					["Cache-Control"] = this.GetCacheControl(false, this.CacheClientMaxAge * 60, maxAge, false),
 					["Expires"] = expiresAt,
 					["Server-Timing"] = $"ngxCache;dur={stepwatch.ElapsedMilliseconds}",
 					["X-Cache"] = "SVC-200"
@@ -2716,7 +2720,7 @@ namespace net.vieapps.Services.Portals
 					{
 						["Last-Modified"] = lastModified,
 						["Expires"] = DateTime.Now.AddSeconds(maxAge).ToHttpString(),
-						["Cache-Control"] = this.GetCacheControl(isForceCacheRequested, 60, maxAge, false)
+						["Cache-Control"] = this.GetCacheControl(isForceCacheRequested, this.CacheClientMaxAge * 60, maxAge, false)
 					};
 
 					var items = new Dictionary<string, string>
@@ -2791,22 +2795,15 @@ namespace net.vieapps.Services.Portals
 				if (isWriteDesktopLogs)
 					await requestInfo.WriteLogAsync($"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\nNormalized HTML:\r\n{html}", "Process.Http.Request").ConfigureAwait(false);
 
-				// purge cache of CDN
-				if (isForceCacheRequested && !gotError)
+				// purge CDN cache
+				if (isForceCacheRequested && !gotError && !requestInfo.ContainsKey("x-no-purge"))
 				{
-					if (requestInfo.ContainsKey("x-no-purge"))
-						canonicalURL.RefreshWebPageAsync(1, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken).Execute();
-					else
-					{
-						var urls = new[] { canonicalURL, $"{organization.URL}{new Uri(canonicalURL).AbsolutePath}" }
-							.Select(url => new[] { url, url.EndsWith("/index.html") ? url.Replace("/index.html", "/") : null })
-							.SelectMany(url => url);
-						organization.PurgeCDNCacheAsync(urls, requestInfo.CorrelationID, isWriteDesktopLogs, Utility.CancellationToken, _ =>
-						{
-							var refreshURLs = new[] { canonicalURL, canonicalURL.EndsWith("/index.html") ? canonicalURL.Replace("/index.html", "/") : null }.ToList();
-							refreshURLs.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(3 + index, requestInfo.CorrelationID, isWriteDesktopLogs, cancellationtoken), Utility.CancellationToken).Execute();
-						}).Execute();
-					}
+					var correlationID = requestInfo.CorrelationID;
+					var delaySeconds = Utility.CDNDelaySeconds * 1234;
+					var urls = new[] { canonicalURL, organization.GetURL(false, site, "") + new Uri(canonicalURL).AbsolutePath }
+						.Select(url => new[] { url, url.EndsWith("/index.html") ? url.Replace("/index.html", "/") : null })
+						.SelectMany(url => url);
+					organization.PurgeCDNCacheAsync(urls, true, delaySeconds, correlationID, isWriteDesktopLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
 				}
 			}
 			catch (Exception ex)
@@ -6033,7 +6030,7 @@ namespace net.vieapps.Services.Portals
 					: null;
 
 				if (@object is IBusinessObject bizObject)
-					await bizObject.PurgeCDNCacheAsync(true, correlationID, false, Utility.CancellationToken).ConfigureAwait(false);
+					bizObject.RebuildCacheAsync(true, correlationID, false, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred rebuild cache of '{@object.Title}' [ID: {@object.ID}] => {ex.Message}", "Caches", correlationID));
 
 				else
 				{
@@ -6327,8 +6324,6 @@ namespace net.vieapps.Services.Portals
 				await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Clear all cache{(organization != null ? " of the whole organization" : "")} [{requestInfo.GetURI()}]", "Caches").ConfigureAwait(false);
 
 			await this.ClearCacheAsync(organization ?? module ?? contentType ?? site ?? desktop ?? expression as IPortalObject, requestInfo.CorrelationID, cancellationToken).ConfigureAwait(false);
-			organization = organization ?? module?.Organization ?? contentType?.Organization ?? site?.Organization ?? desktop?.Organization ?? expression?.Organization;
-			await organization.PurgeCDNCacheAsync(null, requestInfo.CorrelationID, Utility.IsCacheLogEnabled, cancellationToken).ConfigureAwait(false);
 
 			stopwatch.Stop();
 			if (Utility.IsCacheLogEnabled)
@@ -6376,11 +6371,7 @@ namespace net.vieapps.Services.Portals
 					site.SetAsync(false, true, cancellationToken),
 					desktop != null ? desktop.SetAsync(false, true, cancellationToken) : Task.CompletedTask
 				).ConfigureAwait(false);
-				await Task.WhenAll
-				(
-					site.Organization.RefreshWebPagesAsync([site.Organization.URL, $"{site.Organization.URL}/index{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}", desktop == null ? "" : $"~/{desktop.Alias}{(site.Organization.AlwaysUseHtmlSuffix ? ".html" : "")}"], true, correlationID, $"Refresh home desktop when related cache of a site was clean [{site.Title} - ID: {site.ID}]", cancellationToken),
-					site.Organization.PurgeCDNCacheAsync([], correlationID, Utility.IsCacheLogEnabled, cancellationToken)
-				).ConfigureAwait(false);
+				await site.Organization.PurgeCDNCacheAsync([site.Organization.GetURL(false, site)], correlationID, Utility.IsCacheLogEnabled, cancellationToken).ConfigureAwait(false);
 			}
 
 			else if (@object is Desktop desktop)
