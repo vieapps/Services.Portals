@@ -83,9 +83,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", ControlType = "Lookup", Label = "{{portals.organizations.controls.[name].label}}", PlaceHolder = "{{portals.organizations.controls.[name].placeholder}}", Description = "{{portals.organizations.controls.[name].description}}")]
 		public string SearchDesktopID { get; set; }
 
-		[MessagePackIgnore]
 		JObject _json;
-
 		string _extras;
 
 		[JsonIgnore, XmlIgnore]
@@ -217,8 +215,14 @@ namespace net.vieapps.Services.Portals
 			set => this._siteIDs = value;
 		}
 
-		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public string URL => $"{Utility.PortalsHttpURI}/~{this.Alias}";
+		public string GetURL(bool useRelativeURL, string siteURL, string suffix)
+			=> useRelativeURL ? $"~/~{this.Alias}" : (siteURL ?? $"{this.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/~{this.Alias}") + (suffix ?? (this.AlwaysUseHtmlSuffix ? "/index.html" : "/"));
+	
+		public string GetURL(bool useRelativeURL, string suffix)
+			=> this.GetURL(useRelativeURL, null as string, suffix);
+
+		public string GetURL(bool useRelativeURL = true, Site site = null, string suffix = null)
+			=> this.GetURL(useRelativeURL, site?.GetURL(), suffix);
 
 		internal List<Site> FindSites(List<Site> sites = null, bool notifyPropertyChanged = true)
 		{
