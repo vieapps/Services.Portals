@@ -133,14 +133,19 @@ namespace net.vieapps.Services.Portals
 		public static string PortalsHttpURI { get; internal set; }
 
 		/// <summary>
+		/// Gets the URI of the Portals HTTP service that bypass CDN (to rebuild or warm-up cache)
+		/// </summary>
+		public static string PortalsHttpURIBypassCDN { get; internal set; }
+
+		/// <summary>
 		/// Gets the URI of the Portals WebSocket HTTP service
 		/// </summary>
 		public static string PortalsWebSocketURI { get; internal set; }
 
 		/// <summary>
-		/// Gets the URI of the CMS Portals app
+		/// Gets the URI of the Portals CMS app
 		/// </summary>
-		public static string CmsPortalsHttpURI { get; internal set; }
+		public static string PortalsCMSAppURI { get; internal set; }
 
 		/// <summary>
 		/// Gets the default site
