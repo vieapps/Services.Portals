@@ -148,33 +148,21 @@ namespace net.vieapps.Services.Portals
 		{
 			var (workingCacheKeys, objectCacheKeys, dataCacheKeys, htmlCacheKeys) = await contentType.GetCacheKeysAsync(clearObjectCache, clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			IEnumerable<string> cacheKeys = workingCacheKeys.ToList();
-			var tasks = new List<Task>();
 			if (clearObjectCache)
-			{
 				cacheKeys = cacheKeys.Concat(objectCacheKeys);
-				tasks.Add(Utility.Cache.RemoveAsync(contentType.ObjectCacheKeys, cancellationToken));
-			}
 			if (clearDataCache)
-			{
 				cacheKeys = cacheKeys.Concat(dataCacheKeys);
-				tasks.Add(Utility.Cache.RemoveAsync(contentType.GetSetCacheKey(), cancellationToken));
-			}
 			if (clearHtmlCache)
-				htmlCacheKeys.ForEach(info =>
-				{
-					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
-					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
-				});
+				cacheKeys = cacheKeys.Concat(htmlCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
 			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
-				Task.WhenAll(tasks),
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask,
 				doRefresh && (contentType.Organization.ExamineURLs == null || contentType.Organization.ExamineURLs.Count < 1)
-					? contentType.Organization.RefreshWebPagesAsync([contentType.Organization.URL], true, correlationID, $"Refresh when clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID}]", cancellationToken)
+					? contentType.Organization.RefreshWebPagesAsync([contentType.Organization.GetURL()], true, correlationID, $"Refresh when clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID}]", cancellationToken)
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 		}

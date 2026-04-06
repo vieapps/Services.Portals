@@ -86,31 +86,21 @@ namespace net.vieapps.Services.Portals
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await link.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			IEnumerable<string> cacheKeys = new List<string>();
-			var tasks = new List<Task>();
 			if (clearDataCache)
-				dataCacheKeys.ForEach(info =>
-				{
-					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
-					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
-				});
+				cacheKeys = cacheKeys.Concat(dataCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
 			if (clearHtmlCache)
-				htmlCacheKeys.ForEach(info =>
-				{
-					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
-					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
-				});
+				cacheKeys = cacheKeys.Concat(htmlCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
 			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			writeLogs = writeLogs || Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(
-				Task.WhenAll(tasks),
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				writeLogs
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS.Link [{link.Title} - ID: {link.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (link?.Organization != null && (link.Organization.ExamineURLs == null || link.Organization.ExamineURLs.Count < 1))
-				link.PurgeCDNCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging CDN cache => {ex.Message}", "Caches", correlationID));
+				link.RebuildCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred rebuild cache of '{link.FullTitle}' [ID: {link.ID}] => {ex.Message}", "Caches", correlationID));
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Link link, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)

@@ -155,35 +155,21 @@ namespace net.vieapps.Services.Portals
 		{
 			var (workingCacheKeys, objectCacheKeys, dataCacheKeys, htmlCacheKeys) = await module.GetCacheKeysAsync(clearObjectCache, clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			IEnumerable<string> cacheKeys = workingCacheKeys.ToList();
-			var tasks = new List<Task>();
 			if (clearObjectCache)
-				objectCacheKeys.ForEach(info =>
-				{
-					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
-					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
-				});
+				cacheKeys = cacheKeys.Concat(objectCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
 			if (clearDataCache)
-				dataCacheKeys.ForEach(info =>
-				{
-					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
-					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
-				});
+				cacheKeys = cacheKeys.Concat(dataCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
 			if (clearHtmlCache)
-				htmlCacheKeys.ForEach(info =>
-				{
-					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
-					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
-				});
+				cacheKeys = cacheKeys.Concat(htmlCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
 			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
-				Task.WhenAll(tasks),
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a module [{module.Title} - ID: {module.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask,
 				doRefresh && (module.Organization.ExamineURLs == null || module.Organization.ExamineURLs.Count < 1)
-					? module.Organization.RefreshWebPagesAsync([module.Organization.URL], true, correlationID, $"Refresh when clear related cache of a module [{module.Title} - ID: {module.ID}]", cancellationToken)
+					? module.Organization.RefreshWebPagesAsync([module.Organization.GetURL()], true, correlationID, $"Refresh when clear related cache of a module [{module.Title} - ID: {module.ID}]", cancellationToken)
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 		}

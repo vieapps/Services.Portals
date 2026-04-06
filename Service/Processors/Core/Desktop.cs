@@ -254,26 +254,30 @@ namespace net.vieapps.Services.Portals
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await desktop.GetCacheKeysAsync(oldParentID, clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			IEnumerable<string> cacheKeys = new List<string>();
-			var tasks = new List<Task>();
 			if (clearDataCache)
 				cacheKeys = cacheKeys.Concat(dataCacheKeys);
 			if (clearHtmlCache)
-				htmlCacheKeys.ForEach(info =>
-				{
-					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
-					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
-				});
+				cacheKeys = cacheKeys.Concat(htmlCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
 			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
-				Task.WhenAll(tasks),
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a desktop [{desktop.Title} - ID: {desktop.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (desktop.Organization.ExamineURLs == null || desktop.Organization.ExamineURLs.Count < 1))
-				desktop.Organization.RefreshWebPagesAsync([desktop.GetURL(), desktop.ID.Equals(desktop.Organization.HomeDesktop?.ID) ? desktop.Organization.URL : null, $"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}", $"{desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}", $"{Utility.PortalsHttpURI}/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}", $"{Utility.PortalsHttpURI}/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"], true, correlationID, $"Refresh when clear related cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", cancellationToken).Execute();
+			{
+				var urls = new[] {
+					desktop.GetURL(),
+					desktop.ID.Equals(desktop.Organization.HomeDesktop?.ID) ? desktop.Organization.GetURL() : null,
+					desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
+					desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}"),
+					desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
+					desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}")
+				};
+				desktop.Organization.RefreshWebPagesAsync(urls, true, correlationID, $"Refresh when clear related cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", cancellationToken).Execute();
+			}
 		}
 
 		internal static Task ClearCacheAsync(this Desktop desktop, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool clearChildrenCache = false, bool doRefresh = false)

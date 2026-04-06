@@ -588,22 +588,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					if (@object.Status.Equals(ApprovalStatus.Published))
-					{
-						var rootURL = (schedulingTask.Organization.GotCDN(true) ? (schedulingTask.Organization.DefaultSite?.GetURL() ?? schedulingTask.Organization.URL) : schedulingTask.Organization.URL) + "/";
-						var headers = new Dictionary<string, string>
-						{
-							["x-force-cache"] = "1",
-							["x-no-purge"] = "1",
-							["x-requester"] = "vieapps-ngx-portals",
-							["x-original-correlation-id"] = correlationID
-						};
-						var urls = await schedulingTask.Organization.GetRefreshingURLsAsync(json?.Get<JArray>("URLs")?.Select(value => value as JValue).Select(value => value.ToString()) ?? []).ConfigureAwait(false);
-						await urls.Select(url => string.IsNullOrWhiteSpace(url) ? "" : url.Replace("~/", rootURL))
-							.Where(url => url.IsStartsWith("https://") || url.IsStartsWith("http://"))
-							.Distinct(StringComparer.OrdinalIgnoreCase)
-							.ToList()
-							.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(headers, index, correlationID, false, cancellationtoken), cancellationToken, true, false).ConfigureAwait(false);
-					}
+						@object.RebuildCacheAsync(true, correlationID, false, cancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred rebuild cache of '{((IPortalObject)@object).Title}' [ID: {((IPortalObject)@object).ID}] => {ex.Message}", "Caches", correlationID));
 				}
 				catch (Exception ex)
 				{

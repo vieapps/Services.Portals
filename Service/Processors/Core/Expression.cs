@@ -126,26 +126,20 @@ namespace net.vieapps.Services.Portals
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await expression.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			IEnumerable<string> cacheKeys = new List<string>();
-			var tasks = new List<Task>();
 			if (clearDataCache)
 				cacheKeys = cacheKeys.Concat(dataCacheKeys);
 			if (clearHtmlCache)
-				htmlCacheKeys.ForEach(info =>
-				{
-					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
-					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
-				});
+				cacheKeys = cacheKeys.Concat(htmlCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
 			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
-				Task.WhenAll(tasks),
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of an expression [{expression.Title} - ID: {expression.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (expression.Organization.ExamineURLs == null || expression.Organization.ExamineURLs.Count < 1))
-				expression.Organization.RefreshWebPagesAsync([expression.Organization.URL], true, correlationID, $"Refresh when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]", cancellationToken).Execute();
+				expression.Organization.RefreshWebPagesAsync([expression.Organization.GetURL()], true, correlationID, $"Refresh when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]", cancellationToken).Execute();
 		}
 
 		internal static Task ClearCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)

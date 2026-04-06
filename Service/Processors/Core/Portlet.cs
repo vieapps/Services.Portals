@@ -128,26 +128,26 @@ namespace net.vieapps.Services.Portals
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await portlet.GetCacheKeysAsync(clearDataCache, clearHtmlCache, clearAllHtmlCache, cancellationToken).ConfigureAwait(false);
 			IEnumerable<string> cacheKeys = new List<string>();
-			var tasks = new List<Task>();
 			if (clearDataCache)
 				cacheKeys = cacheKeys.Concat(dataCacheKeys);
 			if (clearHtmlCache)
-				htmlCacheKeys.ForEach(info =>
-				{
-					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
-					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
-				});
+				cacheKeys = cacheKeys.Concat(htmlCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
 			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
-				Task.WhenAll(tasks),
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && portlet?.Organization != null && (portlet.Organization.ExamineURLs == null || portlet.Organization.ExamineURLs.Count < 1))
-				portlet.Organization.RefreshWebPagesAsync([portlet.Desktop.GetURL(), portlet.Desktop.ID.Equals(portlet.Organization.HomeDesktop?.ID) ? portlet.Organization.URL : null], true, correlationID, $"Refresh when clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", cancellationToken).Execute();
+			{
+				var urls = new[] {
+					portlet.Desktop.GetURL(),
+					portlet.Desktop.ID.Equals(portlet.Organization.HomeDesktop?.ID) ? portlet.Organization.GetURL() : null
+				};
+				portlet.Organization.RefreshWebPagesAsync(urls, true, correlationID, $"Refresh when clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", cancellationToken).Execute();
+			}
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)

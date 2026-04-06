@@ -330,26 +330,32 @@ namespace net.vieapps.Services.Portals
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await site.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			IEnumerable<string> cacheKeys = new List<string>();
-			var tasks = new List<Task>();
 			if (clearDataCache)
 				cacheKeys = cacheKeys.Concat(dataCacheKeys);
 			if (clearHtmlCache)
-				htmlCacheKeys.ForEach(info =>
-				{
-					cacheKeys = cacheKeys.Concat(info.SetCacheKeys);
-					tasks.Add(Utility.Cache.RemoveAsync(info.SetCacheKey, cancellationToken));
-				});
+				cacheKeys = cacheKeys.Concat(htmlCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
 			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
-				Task.WhenAll(tasks),
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (site.Organization.ExamineURLs == null || site.Organization.ExamineURLs.Count < 1))
-				site.Organization.RefreshWebPagesAsync([site.Organization.URL, site.GetURL(), $"{site.GetURL()}/favicon.ico", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}", $"{site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI}/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}", $"{Utility.PortalsHttpURI}/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}", $"{Utility.PortalsHttpURI}/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"], true, true, correlationID, $"Refresh when clear related cache of a site [{site.Title} - ID: {site.ID}]", false, cancellationToken).Execute();
+			{
+				var urls = new[] {
+					site.Organization.GetURL(),
+					site.Organization.GetURL(false, site),
+					site.Organization.GetURL(false, site, "/"),
+					site.Organization.GetURL(false, site, "/favicon.ico"),
+					site.Organization.GetURL(false, site.Organization.FakePortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
+					site.Organization.GetURL(false, site.Organization.FakePortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}"),
+					site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
+					site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}")
+				};
+				site.Organization.RefreshWebPagesAsync(urls, true, new Dictionary<string, string> { ["x-force-cache"] = "1" }, 0, true, correlationID, $"Refresh when clear related cache of a site [{site.Title} - ID: {site.ID}]", false, cancellationToken).Execute();
+			}
 		}
 
 		internal static Task ClearCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
