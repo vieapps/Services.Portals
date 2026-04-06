@@ -20,7 +20,7 @@ namespace net.vieapps.Services.Portals
 			=> url.Replace("~/", siteURL);
 
 		internal static string GetAppURL(this string url)
-			=> $"{Utility.CmsPortalsHttpURI}/home?redirect={url.Url64Encode()}";
+			=> $"{Utility.PortalsCMSAppURI}/home?redirect={url.Url64Encode()}";
 
 		/// <summary>
 		/// Sends a notification when object was changed
