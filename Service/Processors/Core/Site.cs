@@ -349,7 +349,7 @@ namespace net.vieapps.Services.Portals
 					site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
 					site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}")
 				};
-				site.Organization.RefreshWebPagesAsync(urls, true, new Dictionary<string, string> { ["x-force-cache"] = "1" }, 0, true, correlationID, $"Refresh when clear related cache of a site [{site.Title} - ID: {site.ID}]", false, cancellationToken).Execute();
+				site.Organization.PurgeCDNCacheAsync(urls, true, 0, false, correlationID, false, Utility.CancellationToken).Execute();
 			}
 		}
 

@@ -134,7 +134,14 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (doRefresh && (expression.Organization.ExamineURLs == null || expression.Organization.ExamineURLs.Count < 1))
-				expression.Organization.RefreshWebPagesAsync([expression.Organization.GetURL()], true, correlationID, $"Refresh when related cache of an expression was clean [{expression.Title} - ID: {expression.ID}]", cancellationToken).Execute();
+			{
+				var desktops = await expression.FindDesktopsAsync(cancellationToken).ConfigureAwait(false);
+				Task.WhenAll
+				(
+					expression.Organization.PurgeCDNCacheAsync([expression.Organization.GetURL()], true, 0, false, correlationID, false, Utility.CancellationToken),
+					desktops.PurgeDesktopURLCachesAsync(correlationID, Utility.CancellationToken)
+				).Execute();
+			}
 		}
 
 		internal static Task ClearCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)

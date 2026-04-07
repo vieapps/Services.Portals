@@ -425,7 +425,7 @@ namespace net.vieapps.Services.Portals
 					organization.GetURL(false, organization.FakePortalsHttpURI, $"/_js/o_{organization.ID}.js?v={organization.LastModified.ToUnixTimestamp()}"),
 					organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/o_{organization.ID}.js?v={organization.LastModified.ToUnixTimestamp()}")
 				};
-				organization.RefreshWebPagesAsync(urls, true, correlationID, $"Refresh when clear related cache of an organization [{organization.Title} - ID: {organization.ID}]", cancellationToken).Execute();
+				organization.PurgeCDNCacheAsync(urls, true, 0, false, correlationID, false, Utility.CancellationToken).Execute();
 			}
 		}
 

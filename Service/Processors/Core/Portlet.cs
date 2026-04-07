@@ -137,11 +137,12 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 			if (doRefresh && portlet?.Organization != null && (portlet.Organization.ExamineURLs == null || portlet.Organization.ExamineURLs.Count < 1))
 			{
-				var urls = new[] {
-					portlet.Desktop.GetURL(),
-					portlet.Desktop.ID.Equals(portlet.Organization.HomeDesktop?.ID) ? portlet.Organization.GetURL() : null
-				};
-				portlet.Organization.RefreshWebPagesAsync(urls, true, correlationID, $"Refresh when clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID}]", cancellationToken).Execute();
+				var desktops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
+				Task.WhenAll
+				(
+					portlet.Organization.PurgeCDNCacheAsync([portlet.Organization.GetURL()], true, 0, false, correlationID, false, Utility.CancellationToken),
+					desktops.PurgeDesktopURLCachesAsync(correlationID, Utility.CancellationToken)
+				).Execute();
 			}
 		}
 

@@ -155,7 +155,7 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask,
 				doRefresh && (contentType.Organization.ExamineURLs == null || contentType.Organization.ExamineURLs.Count < 1)
-					? contentType.Organization.RefreshWebPagesAsync([contentType.Organization.GetURL()], true, correlationID, $"Refresh when clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID}]", cancellationToken)
+					? contentType.Organization.PurgeCDNCacheAsync([contentType.Organization.GetURL()], true, 0, false, correlationID, false, cancellationToken)
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 		}

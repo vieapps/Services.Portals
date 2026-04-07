@@ -162,7 +162,7 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a module [{module.Title} - ID: {module.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask,
 				doRefresh && (module.Organization.ExamineURLs == null || module.Organization.ExamineURLs.Count < 1)
-					? module.Organization.RefreshWebPagesAsync([module.Organization.GetURL()], true, correlationID, $"Refresh when clear related cache of a module [{module.Title} - ID: {module.ID}]", cancellationToken)
+					? module.Organization.PurgeCDNCacheAsync([module.Organization.GetURL()], true, 0, false, correlationID, false, cancellationToken)
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 		}

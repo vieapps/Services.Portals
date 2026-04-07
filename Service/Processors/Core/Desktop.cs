@@ -271,7 +271,11 @@ namespace net.vieapps.Services.Portals
 					desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
 					desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}")
 				};
-				desktop.Organization.RefreshWebPagesAsync(urls, true, correlationID, $"Refresh when clear related cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", cancellationToken).Execute();
+				Task.WhenAll
+				(
+					desktop.Organization.PurgeCDNCacheAsync(urls, true, 0, false, correlationID, false, Utility.CancellationToken),
+					desktop.PurgeDesktopURLCachesAsync(correlationID, Utility.CancellationToken)
+				).Execute();
 			}
 		}
 
