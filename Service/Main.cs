@@ -2735,10 +2735,10 @@ namespace net.vieapps.Services.Portals
 					(
 						expirationTime > 0
 							? Task.CompletedTask
-							: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, this.CancellationToken),
+							: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, Utility.CancellationToken),
 						expirationTime > 0
-							? Utility.Cache.SetAsync(items, null, DateTime.Now.AddMinutes(expirationTime), this.CancellationToken)
-							: Utility.Cache.SetAsync(items, null, expirationTime, this.CancellationToken)
+							? Utility.Cache.SetAsync(items, null, DateTime.Now.AddMinutes(expirationTime), Utility.CancellationToken)
+							: Utility.Cache.SetAsync(items, null, expirationTime, Utility.CancellationToken)
 					).Execute();
 
 					var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity)
@@ -2748,9 +2748,9 @@ namespace net.vieapps.Services.Portals
 					var cacheKeys = new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration };
 					Task.WhenAll
 					(
-						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), cacheKeys, this.CancellationToken),
+						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), cacheKeys, Utility.CancellationToken),
 						category != null
-							? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), cacheKeys, this.CancellationToken)
+							? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), cacheKeys, Utility.CancellationToken)
 							: Task.CompletedTask,
 						isWriteDesktopLogs
 							? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Caches")
@@ -2796,14 +2796,14 @@ namespace net.vieapps.Services.Portals
 					await requestInfo.WriteLogAsync($"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\nNormalized HTML:\r\n{html}", "Process.Http.Request").ConfigureAwait(false);
 
 				// purge CDN cache
-				if (isForceCacheRequested && !gotError && !requestInfo.ContainsKey("x-no-purge"))
+				if (isForceCacheRequested && !gotError && !requestInfo.ContainsKey("x-dont-purge-cdn-cache"))
 				{
 					var correlationID = requestInfo.CorrelationID;
 					var delaySeconds = Utility.CDNDelaySeconds * 1234;
 					var urls = new[] { canonicalURL, organization.GetURL(false, site, "") + new Uri(canonicalURL).AbsolutePath }
 						.Select(url => new[] { url, url.EndsWith("/index.html") ? url.Replace("/index.html", "/") : null })
 						.SelectMany(url => url);
-					organization.PurgeCDNCacheAsync(urls, true, delaySeconds, correlationID, isWriteDesktopLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
+					organization.PurgeCDNCacheAsync(urls, true, delaySeconds, false, correlationID, isWriteDesktopLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
 				}
 			}
 			catch (Exception ex)

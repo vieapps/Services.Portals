@@ -281,6 +281,7 @@ namespace net.vieapps.Services.Portals
 			IEnumerable<string> urls,
 			bool doRefresh,
 			int delayBeforeRefresh,
+			bool waitForRefreshen,
 			string correlationID,
 			bool writeLogs,
 			CancellationToken cancellationToken,
@@ -323,8 +324,11 @@ namespace net.vieapps.Services.Portals
 					["x-cdn-provider"] = organization.GetCDNProvider() ?? "None",
 					["x-sliding-cache"] = "1"
 				};
-				var delaySeconds = Utility.CDNDelaySeconds * 1234;
-				await organization.RefreshWebPagesAsync(urls, true, refreshHeaders, gotCDN ? delayBeforeRefresh > 0 ? delayBeforeRefresh : delaySeconds : 0, true, correlationID, "Refresh when purge CDN cache", writeLogs, cancellationToken).ConfigureAwait(false);
+				delayBeforeRefresh = gotCDN ? delayBeforeRefresh > 0 ? delayBeforeRefresh : Utility.CDNDelaySeconds * 1234 : 0;
+				if (waitForRefreshen)
+					await organization.RefreshWebPagesAsync(urls, true, refreshHeaders, delayBeforeRefresh, true, correlationID, "Refresh when purge CDN cache", writeLogs, cancellationToken).ConfigureAwait(false);
+				else
+					organization.RefreshWebPagesAsync(urls, true, refreshHeaders, delayBeforeRefresh, true, correlationID, "Refresh when purge CDN cache", writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while refreshing after purging CDN cache => {ex.Message}", "Caaches", correlationID));
 			}
 
 			onCompleted?.Invoke(urls);
@@ -336,7 +340,7 @@ namespace net.vieapps.Services.Portals
 		public static Task PurgeCDNCacheAsync(this Organization organization, IEnumerable<string> urls, string correlationID, bool writeLogs, CancellationToken cancellationToken, Action<IEnumerable<string>> onCompleted = null)
 		{
 			var siteURL = organization.GetURL(false, organization.DefaultSite, "/");
-			return organization.PurgeCDNCacheAsync(urls?.Select(url => url?.Replace("~/", siteURL)), false, 0, correlationID, writeLogs, cancellationToken, urls => onCompleted?.Invoke(urls));
+			return organization.PurgeCDNCacheAsync(urls?.Select(url => url?.Replace("~/", siteURL)), false, 0, false, correlationID, writeLogs, cancellationToken, urls => onCompleted?.Invoke(urls));
 		}
 
 		internal static bool GotCDN(this Organization organization, bool checkCDNForAll = false)
@@ -410,7 +414,18 @@ namespace net.vieapps.Services.Portals
 		/// Refreshs URLs of this organization
 		/// </summary>
 		public static Task RefreshWebPagesAsync(this Organization organization, IEnumerable<string> urls, bool force, string correlationID, string message, CancellationToken cancellationToken)
-			=> organization.RefreshWebPagesAsync(urls, true, force ? new Dictionary<string, string> { ["x-force-cache"] = "1" } : new Dictionary<string, string> { ["x-sliding-cache"] = "1" }, 0, false, correlationID, message, false, cancellationToken);
+		{
+			var headers = force
+				? new Dictionary<string, string>
+				{
+					["x-force-cache"] = "1"
+				}
+				: new Dictionary<string, string>
+				{
+					["x-sliding-cache"] = "1"
+				};
+			return organization.RefreshWebPagesAsync(urls, true, headers, 0, false, correlationID, message, false, cancellationToken);
+		}
 
 		/// <summary>
 		/// Refreshs a web-page by specified URL
@@ -498,7 +513,7 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Rebuilds cache of the specified URLs
 		/// </summary>
-		public static async Task RebuildCacheAsync(this Organization organization, IEnumerable<string> priorityURLs, IEnumerable<string> otherURLs, bool doRefresh, string correlationID, string message, bool writeLogs, CancellationToken cancellationToken, Action<IEnumerable<string>> onRebuilt = null, Action<IEnumerable<string>> onRefreshen = null)
+		public static async Task RebuildCacheAsync(this Organization organization, IEnumerable<string> priorityURLs, IEnumerable<string> otherURLs, bool doRefresh, bool waitForRefreshen, string correlationID, string message, bool writeLogs, CancellationToken cancellationToken, Action<IEnumerable<string>> onRebuilt = null, Action<IEnumerable<string>> onRefreshen = null)
 		{
 			var gotCDN = organization.GotCDN(true);
 			var siteURL = organization.GetURL(false, organization.DefaultSite, "/");
@@ -506,7 +521,7 @@ namespace net.vieapps.Services.Portals
 			var rebuildHeaders = new Dictionary<string, string>
 			{
 				["x-force-cache"] = "1",
-				["x-no-purge"] = "1"
+				["x-dont-purge-cdn-cache"] = "1"
 			};
 			var refreshHeaders = new Dictionary<string, string>
 			{
@@ -519,19 +534,21 @@ namespace net.vieapps.Services.Portals
 			if (writeLogs)
 				await Utility.WriteLogAsync(correlationID, $"Rebuild priority cache of '{organization.Title}' [{priorityURLs.Count():###,##0}]\r\n- {priorityURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 
-			await organization.RefreshWebPagesAsync(priorityURLs.Select(url => url.Replace("~/", siteURLBypassCDN)), false, rebuildHeaders, 0, true, correlationID, message, writeLogs, cancellationToken).ConfigureAwait(false);
-			onRebuilt?.Invoke(priorityURLs.Select(url => url.Replace("~/", siteURLBypassCDN)));
+			var urls = priorityURLs.Select(url => url.Replace("~/", siteURLBypassCDN));
+			await organization.RefreshWebPagesAsync(urls, false, rebuildHeaders, 0, true, correlationID, message, writeLogs, cancellationToken).ConfigureAwait(false);
+			onRebuilt?.Invoke(urls);
 
 			if (gotCDN)
 			{
+				urls = priorityURLs.Select(url => url.Replace("~/", siteURL));
 				if (Utility.CDNPurgeEverythingOnObject)
 				{
 					await organization.PurgeCDNCacheAsync([], correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
 					if (doRefresh)
-						organization.RefreshWebPagesAsync(priorityURLs.Select(url => url.Replace("~/", siteURL)), true, refreshHeaders, delaySeconds, true, correlationID, message, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while refreshing cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
+						organization.RefreshWebPagesAsync(urls, true, refreshHeaders, delaySeconds, waitForRefreshen, correlationID, message, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while refreshing cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
 				}
 				else
-					await organization.PurgeCDNCacheAsync(priorityURLs.Select(url => url.Replace("~/", siteURL)), doRefresh, delaySeconds, correlationID, writeLogs, cancellationToken, onRefreshen).ConfigureAwait(false);
+					await organization.PurgeCDNCacheAsync(urls, doRefresh, delaySeconds, waitForRefreshen, correlationID, writeLogs, cancellationToken, onRefreshen).ConfigureAwait(false);
 			}
 
 			if (otherURLs.Count() > 0)
@@ -539,15 +556,17 @@ namespace net.vieapps.Services.Portals
 				if (writeLogs)
 					await Utility.WriteLogAsync(correlationID, $"Rebuild other cache of '{organization.Title}' [{otherURLs.Count():###,##0}]\r\n- {otherURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 
-				await organization.RefreshWebPagesAsync(otherURLs.Select(url => url.Replace("~/", siteURLBypassCDN)), false, rebuildHeaders, 0, true, correlationID, message, writeLogs, cancellationToken).ConfigureAwait(false);
-				onRebuilt?.Invoke(otherURLs.Select(url => url.Replace("~/", siteURLBypassCDN)));
+				urls = otherURLs.Select(url => url.Replace("~/", siteURLBypassCDN));
+				await organization.RefreshWebPagesAsync(urls, false, rebuildHeaders, 0, true, correlationID, message, writeLogs, cancellationToken).ConfigureAwait(false);
+				onRebuilt?.Invoke(urls);
 
 				if (gotCDN)
 				{
+					urls = otherURLs.Select(url => url.Replace("~/", siteURL));
 					if (Utility.CDNPurgeEverythingOnObject && doRefresh)
-						organization.RefreshWebPagesAsync(otherURLs.Select(url => url.Replace("~/", siteURL)), true, refreshHeaders, delaySeconds, true, correlationID, message, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while refreshing cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
+						organization.RefreshWebPagesAsync(urls, true, refreshHeaders, delaySeconds, true, correlationID, message, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while refreshing cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
 					else
-						organization.PurgeCDNCacheAsync(otherURLs.Select(url => url.Replace("~/", siteURL)), doRefresh, delaySeconds, correlationID, writeLogs, cancellationToken, onRefreshen).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while refreshing cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
+						organization.PurgeCDNCacheAsync(urls, doRefresh, delaySeconds, waitForRefreshen, correlationID, writeLogs, Utility.CancellationToken, onRefreshen).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while refreshing cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
 				}
 			}
 		}
@@ -653,7 +672,7 @@ namespace net.vieapps.Services.Portals
 					await Utility.WriteLogAsync(correlationID, $"Remove all related before rebuilding cache{log}\r\nPaths [{cachePaths.Count:###,##0}]: {cachePaths.Join(", ")}\r\nKeys [{cacheKeys.Count:###,##0}]: {cacheKeys.Join(", ")}", "Caches").ConfigureAwait(false);
 
 				// rebuild & refresh
-				await organization.RebuildCacheAsync(priorityURLs, otherURLs, doRefresh, correlationID, $"Rebuild cache{log}", writeLogs, cancellationToken).ConfigureAwait(false);
+				await organization.RebuildCacheAsync(priorityURLs, otherURLs, doRefresh, true, correlationID, $"Rebuild cache{log}", writeLogs, cancellationToken).ConfigureAwait(false);
 			}
 			onCompleted?.Invoke(@object);
 		}

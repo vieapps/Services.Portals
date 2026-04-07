@@ -1157,7 +1157,7 @@ namespace net.vieapps.Services.Portals
 				if (workingURLs.Count < 1)
 					break;
 
-				await organization.RebuildCacheAsync(workingURLs, [], true, correlationID, $"Rebuild cache of '{organization.Title}'", false, cancellationToken).ConfigureAwait(false);
+				await organization.RebuildCacheAsync(workingURLs, [], true, false, correlationID, $"Rebuild cache of '{organization.Title}'", false, cancellationToken).ConfigureAwait(false);
 
 				if (!cancellationToken.IsCancellationRequested)
 				{
