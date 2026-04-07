@@ -156,14 +156,23 @@ namespace net.vieapps.Services.Portals
 		}
 
 		/// <summary>
+		/// Gets the path of this desktop for making key of HTML that specified by alias and requested URL
+		/// </summary>
+		public static string GetPath(this Desktop desktop, Uri requestURI, Site site = null)
+		{
+			var organization = desktop.Organization;
+			return desktop.Alias.IsEquals("-default") || desktop.ID.IsEquals((site?.HomeDesktop ?? organization.HomeDesktop)?.ID)
+				? "-default"
+				: requestURI.AbsolutePath.GetPath(organization.Alias, desktop.Alias);
+		}
+
+		/// <summary>
 		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
 		/// </summary>
 		public static string GetDesktopCacheKey(this Desktop desktop, Uri requestURI, Site site = null)
 		{
 			var organization = desktop.Organization;
-			var path = desktop.Alias.IsEquals("-default") || desktop.ID.IsEquals((site?.HomeDesktop ?? organization.HomeDesktop)?.ID)
-				? "-default"
-				: requestURI.AbsolutePath.GetPath(organization.Alias, desktop.Alias);
+			var path = desktop.GetPath(requestURI, site);
 			return organization.ID + (site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? "" : ":" + site.ID) + ":" + path.GenerateUUID();
 		}
 
@@ -204,6 +213,39 @@ namespace net.vieapps.Services.Portals
 			Utility.Cache.SetAsync(cacheKey, pageSize, Utility.CancellationToken).Execute();
 			return cacheKey;
 		}
+
+		/// <summary>
+		/// Purgs the cache (HTML and CDN) of this collection of desktop
+		/// </summary>
+		public static async Task PurgeDesktopURLCachesAsync(this IEnumerable<Desktop> desktops, string correlationID, CancellationToken cancellationToken)
+		{
+			var organization = desktops?.FirstOrDefault()?.Organization;
+			if (organization == null)
+				return;
+
+			var keys = new List<string>();
+			var urls = new List<string>();
+
+			var suffix = organization.AlwaysUseHtmlSuffix ? ".html" : "";
+			await desktops.ForEachAsync(async (desktop, cancellationtoken) =>
+			{
+				var paths = await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey("Paths"), cancellationToken).ConfigureAwait(false) ?? [];
+				keys.AddRange(paths.Where(path => path.IsStartsWith("/")).Select(path => $"{organization.ID}:{path.GenerateUUID()}"));
+				urls.AddRange(paths.Where(path => path.IsStartsWith("/")).Select(path => $"~{path}{suffix}"));
+			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			await Task.WhenAll
+			(
+				Utility.Cache.RemoveAsync(keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
+				organization.PurgeCDNCacheAsync(urls.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), false, 0, false, correlationID, false, cancellationToken)
+			).ConfigureAwait(false);
+		}
+
+		/// <summary>
+		/// Purgs the cache (HTML and CDN) of this desktop
+		/// </summary>
+		public static Task PurgeDesktopURLCachesAsync(this Desktop desktop, string correlationID, CancellationToken cancellationToken)
+			=> new[] { desktop }.PurgeDesktopURLCachesAsync(correlationID, cancellationToken);
 
 		static async Task PurgeCloudFlareCacheAsync(this IEnumerable<string> urls, string zoneID, string apiToken, string correlationID, bool writeLogs, CancellationToken cancellationToken)
 		{
@@ -830,8 +872,9 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = new List<string>();
 			if (getHtmlCacheKeys)
 			{
-				var cacheKey = desktop.GetDesktopCacheKey(desktop.Organization.GetURL(false, desktop.Alias));
-				var cacheKeys = new[] { cacheKey, $"{cacheKey}:time", $"{cacheKey}:expiration" }.Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false));
+				var cacheKeys = await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false);
+				var desktopCacheKey = desktop.GetDesktopCacheKey($"{Utility.PortalsHttpURI}/~{desktop.Organization?.Alias}/{desktop.Alias}");
+				cacheKeys = cacheKeys.Concat([desktopCacheKey, $"{desktopCacheKey}:time", $"{desktopCacheKey}:expiration"]).ToList();
 				htmlCacheKeys.AddRange(cacheKeys);
 			}
 

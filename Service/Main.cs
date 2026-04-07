@@ -2749,6 +2749,7 @@ namespace net.vieapps.Services.Portals
 					Task.WhenAll
 					(
 						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), cacheKeys, Utility.CancellationToken),
+						Utility.Cache.AddSetMemberAsync(desktop.GetSetCacheKey("Paths"), desktop.GetPath(requestURI, site), Utility.CancellationToken),
 						category != null
 							? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), cacheKeys, Utility.CancellationToken)
 							: Task.CompletedTask,
