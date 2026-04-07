@@ -306,15 +306,15 @@ namespace net.vieapps.Services.Portals
 					}.RefreshIPs();
 
 					// send info & reload resources (12 hours)
-					if (DateTime.Now.Hour % 11 == 0 && DateTime.Now.Minute >= 5 && DateTime.Now.Minute <= 10)
+					if (DateTime.Now.Hour % 11 == 0 && DateTime.Now.Minute >= 5 && DateTime.Now.Minute < 10)
 						this.SendDefinitionInfo();
 
 					// re-load all orangizations/sites (24 hours)
-					if (DateTime.Now.Hour == 3 && DateTime.Now.Minute >= 10 && DateTime.Now.Minute <= 15)
+					if (DateTime.Now.Hour == 3 && DateTime.Now.Minute >= 10 && DateTime.Now.Minute < 15)
 						await this.ReloadOrganizationsAsync(this.IsRequester).ConfigureAwait(false);
 
 					// re-build to warm-up L1/L2 cache (5 AM)
-					if (this.IsRequester && DateTime.Now.Hour == 5 && DateTime.Now.Minute >= 10 && DateTime.Now.Minute <= 15)
+					if (this.IsRequester && DateTime.Now.Hour == 5 && DateTime.Now.Minute >= 10 && DateTime.Now.Minute < 15)
 					{
 						this.CacheRebuildStatus = new();
 						this.CacheRebuildMonitor = this.StartTimer(this.MonitorCacheRebuildAsync, 2 * 60);
