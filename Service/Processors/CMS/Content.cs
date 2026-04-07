@@ -99,12 +99,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task ClearRelatedCacheAsync(this Content content, CancellationToken cancellationToken = default, string correlationID = null, bool isWriteLogs = false, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await content.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
-			IEnumerable<string> cacheKeys = new List<string>();
-			if (clearDataCache)
-				cacheKeys = cacheKeys.Concat(dataCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
-			if (clearHtmlCache)
-				cacheKeys = cacheKeys.Concat(htmlCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
-			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var cacheKeys = (clearDataCache ? dataCacheKeys : []).Concat(clearHtmlCache ? htmlCacheKeys : []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			var writeLogs = isWriteLogs || Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(

@@ -658,22 +658,19 @@ namespace net.vieapps.Services.Portals
 			onCompleted?.Invoke(@object);
 		}
 
-		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> HtmlCacheKeys)> GetCacheKeysAsync(this Organization organization, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
+		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<string> HtmlCacheKeys)> GetCacheKeysAsync(this Organization organization, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
 		{
-			IEnumerable<string> dataCacheKeys = new List<string>();
-			if (getDataCacheKeys)
-				dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
+			var dataCacheKeys = getDataCacheKeys
+				? Extensions.GetRelatedCacheKeys(Filters<Organization>.And(), Sorts<Organization>.Ascending("Title"))
 					.Concat(Extensions.GetRelatedCacheKeys(Filters<Organization>.And(Filters<Organization>.Equals("OwnerID", organization.OwnerID)), Sorts<Organization>.Ascending("Title")))
-					.ToList();
-
-			var htmlCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
-			if (getHtmlCacheKeys)
-				htmlCacheKeys.Add(("Global", organization.GetDesktopCacheKeys().Concat(await organization.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false))));
-
+				: [];
+			var htmlCacheKeys = getHtmlCacheKeys
+				? organization.GetDesktopCacheKeys().Concat(await organization.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false))
+				: [];
 			return (dataCacheKeys, htmlCacheKeys);
 		}
 
-		internal static async Task<(IEnumerable<string> WorkingCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> ObjectCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> DataCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> HtmlCacheKeys)> GetCacheKeysAsync(this Module module, bool getObjectCacheKeys, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
+		internal static async Task<(IEnumerable<string> WorkingCacheKeys, IEnumerable<string> ObjectCacheKeys, IEnumerable<string> DataCacheKeys, IEnumerable<string> HtmlCacheKeys)> GetCacheKeysAsync(this Module module, bool getObjectCacheKeys, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
 		{
 			var sort = Sorts<Module>.Ascending("Title");
 			var workingCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Module>.And(), sort)
@@ -681,59 +678,54 @@ namespace net.vieapps.Services.Portals
 				.Concat(Extensions.GetRelatedCacheKeys(ModuleProcessor.GetModulesFilter(module.SystemID, module.ModuleDefinitionID), sort))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
-			var objectCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
-			var dataCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
-			var htmlCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
+			var objectCacheKeys = new List<string>();
+			var dataCacheKeys = new List<string>();
+			var htmlCacheKeys = new List<string>();
 
 			await module.ContentTypes.ForEachAsync(async (contentType, cancellationtoken) =>
 			{
-				var info = await contentType.GetCacheKeysAsync(getObjectCacheKeys, getDataCacheKeys, getHtmlCacheKeys, cancellationtoken).ConfigureAwait(false);
-				workingCacheKeys.AddRange(info.WorkingCacheKeys);
-				objectCacheKeys.Add((contentType.ObjectCacheKeys, info.ObjectCacheKeys));
-				dataCacheKeys.Add((contentType.GetSetCacheKey(), info.DataCacheKeys));
-				htmlCacheKeys.AddRange(info.HtmlCacheKeys);
+				var keys = await contentType.GetCacheKeysAsync(getObjectCacheKeys, getDataCacheKeys, getHtmlCacheKeys, cancellationtoken).ConfigureAwait(false);
+				workingCacheKeys.AddRange(keys.WorkingCacheKeys);
+				objectCacheKeys.AddRange(keys.ObjectCacheKeys);
+				dataCacheKeys.AddRange(keys.DataCacheKeys);
+				htmlCacheKeys.AddRange(keys.HtmlCacheKeys);
 			}, cancellationToken, true, false).ConfigureAwait(false);
 
 			return (workingCacheKeys, objectCacheKeys, dataCacheKeys, htmlCacheKeys);
 		}
 
-		internal static async Task<(IEnumerable<string> WorkingCacheKeys, IEnumerable<string> ObjectCacheKeys, IEnumerable<string> DataCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> HtmlCacheKeys)> GetCacheKeysAsync(this ContentType contentType, bool getObjectCacheKeys, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
+		internal static async Task<(IEnumerable<string> WorkingCacheKeys, IEnumerable<string> ObjectCacheKeys, IEnumerable<string> DataCacheKeys, IEnumerable<string> HtmlCacheKeys)> GetCacheKeysAsync(this ContentType contentType, bool getObjectCacheKeys, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
 		{
 			var sort = Sorts<ContentType>.Ascending("Title");
 			var workingCacheKeys = Extensions.GetRelatedCacheKeys(Filters<ContentType>.And(), sort)
 				.Concat(Extensions.GetRelatedCacheKeys(ContentTypeProcessor.GetContentTypesFilter(contentType.SystemID), sort))
 				.Concat(Extensions.GetRelatedCacheKeys(ContentTypeProcessor.GetContentTypesFilter(contentType.SystemID, contentType.RepositoryID, contentType.ContentTypeDefinitionID), sort))
 				.Concat(Extensions.GetRelatedCacheKeys(ContentTypeProcessor.GetContentTypesFilter(contentType.SystemID, contentType.RepositoryID, null), sort))
-				.Concat(Extensions.GetRelatedCacheKeys(ContentTypeProcessor.GetContentTypesFilter(contentType.SystemID, null, contentType.ContentTypeDefinitionID), sort))
-				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.ToList();
+				.Concat(Extensions.GetRelatedCacheKeys(ContentTypeProcessor.GetContentTypesFilter(contentType.SystemID, null, contentType.ContentTypeDefinitionID), sort));
 
-			var objectCacheKeys = (getObjectCacheKeys
+			var objectCacheKeys = getObjectCacheKeys
 				? await Utility.Cache.GetSetMembersAsync(contentType.ObjectCacheKeys, cancellationToken).ConfigureAwait(false) ?? []
-				: []).ToList();
+				: [];
 
-			var dataCacheKeys = (getDataCacheKeys
+			var dataCacheKeys = getDataCacheKeys
 				? await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? []
-				: []).ToList();
+				: [];
 
-			var htmlCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
+			var htmlCacheKeys = new List<string>();
 			if (getHtmlCacheKeys)
 			{
-				htmlCacheKeys.Add(("Global", contentType.Organization.GetDesktopCacheKeys()));
+				htmlCacheKeys.AddRange(contentType.Organization.GetDesktopCacheKeys());
 				var desktops = await contentType.FindDesktopsAsync(false, cancellationToken).ConfigureAwait(false);
 				await desktops.ForEachAsync(async (desktop, cancellationtoken) =>
 				{
-					var cacheKey = desktop.GetSetCacheKey();
-					var cacheKeys = await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationtoken).ConfigureAwait(false) ?? [];
-					if (cacheKeys.Any())
-						htmlCacheKeys.Add((cacheKey, cacheKeys));
+					htmlCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationtoken).ConfigureAwait(false) ?? []);
 				}, cancellationToken, true, false).ConfigureAwait(false);
 			}
 
 			return (workingCacheKeys, objectCacheKeys, dataCacheKeys, htmlCacheKeys);
 		}
 
-		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> HtmlCacheKeys)> GetCacheKeysAsync(this Expression expression, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
+		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<string> HtmlCacheKeys)> GetCacheKeysAsync(this Expression expression, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
 		{
 			IEnumerable<string> dataCacheKeys = new List<string>();
 			if (getDataCacheKeys)
@@ -759,17 +751,14 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 
-			var htmlCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
+			var htmlCacheKeys = new List<string>();
 			if (getHtmlCacheKeys)
 			{
-				htmlCacheKeys.Add(("Global", expression.Organization.GetDesktopCacheKeys()));
+				htmlCacheKeys.AddRange(expression.Organization.GetDesktopCacheKeys());
 				var desktops = await expression.FindDesktopsAsync(cancellationToken).ConfigureAwait(false);
 				await desktops.ForEachAsync(async (desktop, cancellationtoken) =>
 				{
-					var cacheKey = desktop.GetSetCacheKey();
-					var cacheKeys = await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationtoken).ConfigureAwait(false) ?? [];
-					if (cacheKeys.Any())
-						htmlCacheKeys.Add((cacheKey, cacheKeys));
+					htmlCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationtoken).ConfigureAwait(false) ?? []);
 				}, cancellationToken, true, false).ConfigureAwait(false);
 			}
 
@@ -787,7 +776,7 @@ namespace net.vieapps.Services.Portals
 			return cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
 
-		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> HtmlCacheKeys)> GetCacheKeysAsync(this Site site, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
+		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<string> HtmlCacheKeys)> GetCacheKeysAsync(this Site site, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
 		{
 			IEnumerable<string> dataCacheKeys = new List<string>();
 			if (getDataCacheKeys)
@@ -796,18 +785,17 @@ namespace net.vieapps.Services.Portals
 				dataCacheKeys = Extensions.GetRelatedCacheKeys(Filters<Site>.And(), Sorts<Site>.Ascending("Title"))
 					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(), sort))
 					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), sort))
-					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")))
-					.ToList();
+					.Concat(Extensions.GetRelatedCacheKeys(Filters<Site>.And(Filters<Site>.Equals("SystemID", site.SystemID)), Sorts<Site>.Ascending("Title")));
 			}
 
-			var htmlCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
+			var htmlCacheKeys = new List<string>();
 			if (getHtmlCacheKeys)
-				htmlCacheKeys.Add(("Global", await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false)));
+				htmlCacheKeys.AddRange(await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false));
 
 			return (dataCacheKeys, htmlCacheKeys);
 		}
 
-		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> HtmlCacheKeys)> GetCacheKeysAsync(this Desktop desktop, string oldParentID, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
+		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<string> HtmlCacheKeys)> GetCacheKeysAsync(this Desktop desktop, string oldParentID, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
 		{
 			IEnumerable<string> dataCacheKeys = new List<string>();
 			if (getDataCacheKeys)
@@ -820,18 +808,18 @@ namespace net.vieapps.Services.Portals
 					dataCacheKeys = dataCacheKeys.Concat(Extensions.GetRelatedCacheKeys(DesktopProcessor.GetDesktopsFilter(desktop.SystemID, oldParentID), sort));
 			}
 
-			var htmlCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
+			var htmlCacheKeys = new List<string>();
 			if (getHtmlCacheKeys)
 			{
 				var cacheKey = desktop.GetDesktopCacheKey(desktop.Organization.GetURL(false, desktop.Alias));
 				var cacheKeys = new[] { cacheKey, $"{cacheKey}:time", $"{cacheKey}:expiration" }.Concat(await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false));
-				htmlCacheKeys.Add((desktop.GetSetCacheKey(), cacheKeys));
+				htmlCacheKeys.AddRange(cacheKeys);
 			}
 
 			return (dataCacheKeys, htmlCacheKeys);
 		}
 
-		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> HtmlCacheKeys)> GetCacheKeysAsync(this Portlet portlet, bool getDataCacheKeys, bool getHtmlCacheKeys, bool getAllHtmlCacheKeys, CancellationToken cancellationToken)
+		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<string> HtmlCacheKeys)> GetCacheKeysAsync(this Portlet portlet, bool getDataCacheKeys, bool getHtmlCacheKeys, bool getAllHtmlCacheKeys, CancellationToken cancellationToken)
 		{
 			IEnumerable<string> dataCacheKeys = new List<string>();
 			if (getDataCacheKeys)
@@ -841,7 +829,7 @@ namespace net.vieapps.Services.Portals
 					dataCacheKeys = dataCacheKeys.Concat(Extensions.GetRelatedCacheKeys(Filters<Portlet>.Equals("OriginalPortletID", portlet.ID), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex")));
 			}
 
-			var htmlCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
+			var htmlCacheKeys = new List<string>();
 			if (getHtmlCacheKeys)
 			{
 				if (getAllHtmlCacheKeys)
@@ -863,33 +851,27 @@ namespace net.vieapps.Services.Portals
 			return (dataCacheKeys, htmlCacheKeys);
 		}
 
-		internal static async Task<(IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> DataCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> HtmlCacheKeys)> GetCacheKeysAsync(this Category category, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
+		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<string> HtmlCacheKeys)> GetCacheKeysAsync(this Category category, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
 		{
 			var childrenContentTypes = category.ContentType.GetChildren() ?? [];
 			var linkContentTypes = new HashSet<ContentType>();
 
-			var dataCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
+			var dataCacheKeys = new List<string>();
 			if (getDataCacheKeys)
 			{
 				var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
 				var cacheKey = category.GetSetCacheKey();
-				IEnumerable<string> cacheKeys = await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationToken).ConfigureAwait(false) ?? [];
+				IEnumerable<string> cacheKeys = await Utility.Cache.GetSetMembersAsync(category.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? [];
 				cacheKeys = cacheKeys.Concat([Extensions.GetCacheKey(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ID), sort, 0, 1)]);
 				if (!string.IsNullOrWhiteSpace(category.ParentID))
 					cacheKeys = cacheKeys.Concat([Extensions.GetCacheKey(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID), sort, 0, 1)]);
-				dataCacheKeys.Add((cacheKey, cacheKeys));
-				
-				cacheKey = category.ContentType.GetSetCacheKey();
-				cacheKeys = await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationToken).ConfigureAwait(false) ?? [];
-				if (cacheKeys.Any())
-					dataCacheKeys.Add((cacheKey, cacheKeys));
+				dataCacheKeys.AddRange(cacheKeys);
+
+				dataCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(category.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? []);
 
 				await childrenContentTypes.ForEachAsync(async (contentType, cancellationtoken) =>
 				{
-					cacheKey = contentType.GetSetCacheKey();
-					cacheKeys = await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationtoken).ConfigureAwait(false) ?? [];
-					if (cacheKeys.Any())
-						dataCacheKeys.Add((cacheKey, cacheKeys));
+					dataCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationtoken).ConfigureAwait(false) ?? []);
 				}, cancellationToken, true, false).ConfigureAwait(false);
 
 				IEnumerable<string> linkCacheKeys = new List<string>();
@@ -899,42 +881,25 @@ namespace net.vieapps.Services.Portals
 					linkCacheKeys = linkCacheKeys.Concat(Extensions.GetRelatedCacheKeys(link.GetCacheKey()));
 					if (link.ContentType != null && linkContentTypes.Add(link.ContentType))
 					{
-						cacheKey = link.ContentType.GetSetCacheKey();
-						cacheKeys = await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationtoken).ConfigureAwait(false) ?? [];
-						if (cacheKeys.Any())
-							dataCacheKeys.Add((cacheKey, cacheKeys));
+						dataCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(link.ContentType.GetSetCacheKey(), cancellationtoken).ConfigureAwait(false) ?? []);
 					}
 				}, cancellationToken, true, false).ConfigureAwait(false);
 
 				if (linkCacheKeys.Any())
-					dataCacheKeys[0] = (dataCacheKeys[0].SetCacheKey, dataCacheKeys[0].SetCacheKeys.Concat(linkCacheKeys));
+					dataCacheKeys.AddRange(linkCacheKeys);
 			}
 
-			var htmlCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
+			var htmlCacheKeys = new List<string>();
 			if (getHtmlCacheKeys)
 			{
-				htmlCacheKeys.Add(("Global", category.Organization.GetDesktopCacheKeys()));
-
-				var cacheKey = category.GetSetCacheKey("HTMLs");
-				var cacheKeys = await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationToken).ConfigureAwait(false) ?? [];
-				if (cacheKeys.Any())
-					htmlCacheKeys.Add((cacheKey, cacheKeys));
-
-				cacheKey = category.Desktop?.GetSetCacheKey();
-				if (cacheKey != null)
-				{
-					cacheKeys = await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationToken).ConfigureAwait(false) ?? [];
-					if (cacheKeys.Any())
-						htmlCacheKeys.Add((cacheKey, cacheKeys));
-				}
+				htmlCacheKeys.AddRange(category.Organization.GetDesktopCacheKeys());
+				htmlCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(category.GetSetCacheKey("HTMLs"), cancellationToken).ConfigureAwait(false) ?? []);
+				htmlCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(category.Desktop?.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? []);
 
 				var desktops = category.FindDesktops();
 				await desktops.ForEachAsync(async (desktop, cancellationtoken) =>
 				{
-					var cacheKey = desktop.GetSetCacheKey();
-					var cacheKeys = await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationtoken).ConfigureAwait(false) ?? [];
-					if (cacheKeys.Any())
-						htmlCacheKeys.Add((cacheKey, cacheKeys));
+					htmlCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationtoken).ConfigureAwait(false) ?? []);
 				}, cancellationToken, true, false).ConfigureAwait(false);
 
 				if (linkContentTypes.Count < 1)
@@ -952,21 +917,19 @@ namespace net.vieapps.Services.Portals
 			return (dataCacheKeys, htmlCacheKeys);
 		}
 
-		internal static async Task<(IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> DataCacheKeys, IEnumerable<(string SetCacheKey, IEnumerable<string> SetCacheKeys)> HtmlCacheKeys)> GetCacheKeysAsync(this IBusinessObject @object, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
+		internal static async Task<(IEnumerable<string> DataCacheKeys, IEnumerable<string> HtmlCacheKeys)> GetCacheKeysAsync(this IBusinessObject @object, bool getDataCacheKeys, bool getHtmlCacheKeys, CancellationToken cancellationToken)
 		{
 			if (@object is Category category)
 				return await category.GetCacheKeysAsync(getDataCacheKeys, getHtmlCacheKeys, cancellationToken).ConfigureAwait(false);
 
-			var dataCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
-			var htmlCacheKeys = new List<(string SetCacheKey, IEnumerable<string> SetCacheKeys)>();
+			var dataCacheKeys = new List<string>();
+			var htmlCacheKeys = new List<string>();
 
 			if (@object.ContentType is ContentType contentType)
 			{
 				if (getDataCacheKeys)
 				{
-					var cacheKey = contentType.GetSetCacheKey();
-					var cacheKeys = Extensions.GetRelatedCacheKeys(@object.GetCacheKey()).Concat(await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationToken).ConfigureAwait(false) ?? []);
-
+					var cacheKeys = Extensions.GetRelatedCacheKeys(@object.GetCacheKey()).Concat(await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? []);
 					if (@object is Content content)
 						cacheKeys = cacheKeys.Concat([content.GetCacheKeyOfAlias()]);
 					else if (@object is Item item)
@@ -978,8 +941,7 @@ namespace net.vieapps.Services.Portals
 						if (!string.IsNullOrWhiteSpace(link.ParentID))
 							cacheKeys = cacheKeys.Concat([Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID), sort, 0, 1)]);
 					}
-
-					dataCacheKeys.Add((cacheKey, cacheKeys));
+					dataCacheKeys.AddRange(cacheKeys);
 				}
 
 				if (getHtmlCacheKeys)
@@ -990,10 +952,7 @@ namespace net.vieapps.Services.Portals
 					var desktops = await @object.FindDesktopsAsync(cancellationToken).ConfigureAwait(false);
 					await desktops.ForEachAsync(async (desktop, cancellationtoken) =>
 					{
-						var cacheKey = desktop.GetSetCacheKey();
-						var cacheKeys = await Utility.Cache.GetSetMembersAsync(cacheKey, cancellationtoken).ConfigureAwait(false) ?? [];
-						if (cacheKeys.Any())
-							htmlCacheKeys.Add((cacheKey, cacheKeys));
+						htmlCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationtoken).ConfigureAwait(false) ?? []);
 					}, cancellationToken, true, false).ConfigureAwait(false);
 				}
 

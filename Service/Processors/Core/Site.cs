@@ -329,12 +329,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await site.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
-			IEnumerable<string> cacheKeys = new List<string>();
-			if (clearDataCache)
-				cacheKeys = cacheKeys.Concat(dataCacheKeys);
-			if (clearHtmlCache)
-				cacheKeys = cacheKeys.Concat(htmlCacheKeys.Select(info => info.SetCacheKeys).SelectMany(keys => keys));
-			cacheKeys = cacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var cacheKeys = (clearDataCache ? dataCacheKeys : []).Concat(clearHtmlCache ? htmlCacheKeys : []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
