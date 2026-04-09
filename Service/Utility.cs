@@ -55,8 +55,6 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool IsMessageLogEnabled => Utility.IsWriteMessageLogs(null);
 
-		internal static bool IsForceCache(this RequestInfo requestInfo) => requestInfo.ContainsKey("x-force-cache") || requestInfo.ContainsKey("x-no-cache");
-
 		internal static bool AllowInlineImages { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Allow", "true"));
 
 		internal static bool UploadInlineImages	{ get; } = "upload".IsEquals(UtilityService.GetAppSetting("Portals:InlineImages:Mode", "Upload"));

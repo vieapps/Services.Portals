@@ -142,8 +142,8 @@ namespace net.vieapps.Services.Portals
 			if (isVisitLogEnabled)
 				await context.WriteLogsAsync("Http.Process.Requests", $"Start process a request of CMS Portals [{requestMethod} {requestURI}]").ConfigureAwait(false);
 
-			var isForceCacheRequested = context.ContainsKey("x-force-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-bypass-cache");
-			if (requestMethod == "GET" && await context.ProcessL1CacheAsync(isForceCacheRequested, stopwatch).ConfigureAwait(false))
+			var isBypassCacheRequested = context.ContainsKey("x-bypass-cache") || context.ContainsKey("x-no-cache") || context.ContainsKey("x-force-cache");
+			if (requestMethod == "GET" && await context.ProcessL1CacheAsync(isBypassCacheRequested, stopwatch).ConfigureAwait(false))
 				return;
 
 			// gathering the requesting information
@@ -408,7 +408,6 @@ namespace net.vieapps.Services.Portals
 
 			// process the request
 			JObject systemIdentityJson = null;
-			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 			var requestInfo = new RequestInfo(session, "Portals", "Identify.System", "GET", query, headers, null, extra, correlationID);
 
 			var alwaysUseHTTPs = false;
@@ -422,7 +421,7 @@ namespace net.vieapps.Services.Portals
 					// call the Portals service to identify the system
 					if (!"~resources".IsEquals(systemIdentity))
 					{
-						systemIdentityJson = await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+						systemIdentityJson = await context.IdentifySystemAsync(requestInfo, context.RequestAborted).ConfigureAwait(false);
 						requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 						alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
 						alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
@@ -516,7 +515,7 @@ namespace net.vieapps.Services.Portals
 						{
 							var seconds = UtilityService.GetRandomNumber(examination.WaitSecondsMin, examination.WaitSecondsMax);
 							await context.WriteLogsAsync("Http.Process.Examinations", $"Do the examination in {seconds} seconds => {requestURI}{("Continue".IsEquals(examination.ResponseMode) ? "" : $" [{examination.ResponseCode}: {examination.ResponseType} - {examination.ResponseMessage}]")}").ConfigureAwait(false);
-							await Task.Delay(seconds * 1000, cts.Token).ConfigureAwait(false);
+							await Task.Delay(seconds * 1000, context.RequestAborted).ConfigureAwait(false);
 							if (!"Continue".IsEquals(examination.ResponseMode))
 							{
 								context.ShowError(examination.ResponseCode, examination.ResponseMessage, examination.ResponseType, correlationID);
@@ -528,7 +527,7 @@ namespace net.vieapps.Services.Portals
 					// process with cache
 					var noExamination = examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now);
 					var maxAge = Handler.CacheMaxAge * 60;
-					if (Handler.AllowCache && !isForceCacheRequested && !context.IsAuthenticated())
+					if (Handler.AllowCache && !isBypassCacheRequested && !context.IsAuthenticated())
 					{
 						var cacheKey = "";
 						var eTag = "";
@@ -599,7 +598,7 @@ namespace net.vieapps.Services.Portals
 
 						else if (!"~indicators".IsEquals(systemIdentity))
 						{
-							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+							systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, context.RequestAborted).ConfigureAwait(false);
 							
 							var siteURI = $"//{systemIdentityJson.Get<string>("SiteHost")}";
 							var organizationAlias = systemIdentityJson.Get<string>("Alias");
@@ -690,7 +689,7 @@ namespace net.vieapps.Services.Portals
 
 							// check 304
 							var modifiedSince = context.GetHeaderParameter("If-Modified-Since") ?? context.GetHeaderParameter("If-Unmodified-Since");
-							var lastModified = modifiedSince != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false) : null;
+							var lastModified = modifiedSince != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, context.RequestAborted).ConfigureAwait(false) : null;
 							var noneMatch = lastModified != null ? context.GetHeaderParameter("If-None-Match") : null;
 							if (lastModified != null && eTag.IsEquals(noneMatch) && modifiedSince.FromHttpDateTime() >= lastModified.FromHttpDateTime())
 							{
@@ -712,11 +711,11 @@ namespace net.vieapps.Services.Portals
 							// fetch
 							stepwatch.Restart();
 							var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
-							var cached = await Handler.Cache.GetAsync(cacheKey, cts.Token).ConfigureAwait(false);
-							lastModified ??= (cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, cts.Token).ConfigureAwait(false) : null) ?? DateTime.Now.ToHttpString();
+							var cached = await Handler.Cache.GetAsync(cacheKey, context.RequestAborted).ConfigureAwait(false);
+							lastModified ??= (cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, context.RequestAborted).ConfigureAwait(false) : null) ?? DateTime.Now.ToHttpString();
 							
 							var expirationTime = Handler.Cache.ExpirationTime;
-							var expiresAt = !isBase64 && isHtml && cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfExpiration, cts.Token).ConfigureAwait(false) : null;
+							var expiresAt = !isBase64 && isHtml && cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfExpiration, context.RequestAborted).ConfigureAwait(false) : null;
 							if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
 							{
 								expirationTime = (expiresAtTime - DateTime.Now).TotalMinutes.As<int>();
@@ -745,7 +744,7 @@ namespace net.vieapps.Services.Portals
 									await context.WriteLogsAsync("Caches", $"Reupdate with sliding cache successful ({cacheKey} => {expirationTime} minutes)").ConfigureAwait(false);
 							}
 
-							// notify L1-Cache
+							// L1-Cache
 							if (cached != null && Handler.Cache.UseL1Cache && noExamination)
 								context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
 
@@ -772,7 +771,7 @@ namespace net.vieapps.Services.Portals
 								// update L2-cache
 								if (Handler.AllowBytesL2Cache && noExamination && baseURL == "")
 								{
-									await Handler.Cache.SetAsync(cacheKey, body, cts.Token).ConfigureAwait(false);
+									await Handler.Cache.SetAsync(cacheKey, body, context.RequestAborted).ConfigureAwait(false);
 									if (isCacheLogEnabled)
 										await context.WriteLogsAsync("Caches", $"Update CMS Portals service cache (L2) was done ({cacheKey})").ConfigureAwait(false);
 								}
@@ -817,14 +816,16 @@ namespace net.vieapps.Services.Portals
 							if (body != null)
 							{
 								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
-								await context.WriteAsync(body, headers, cts.Token).ConfigureAwait(false);
+								await context.WriteAsync(body, headers, context.RequestAborted).ConfigureAwait(false);
 								return;
 							}
 						}
 					}
 
 					// call CMS Portals service to process the request
+					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 					stepwatch.Restart();
+
 					try
 					{
 						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
@@ -846,10 +847,11 @@ namespace net.vieapps.Services.Portals
 						if (headers.TryGetValue("Expires", out var expires) && DateTime.TryParse(expires, out var expiresAt))
 							maxAge = (int)expiresAt.GetTotalSecondsToNow();
 
-						if (!headers.TryGetValue("Cache-Control", out var cacheControl))
-							cacheControl = isHtml ? context.GetHttpCacheControl(false, Handler.CacheClientMaxAge * 60, maxAge - (15 * 60), false) : context.GetHttpCacheControl();
-						if (isForceCacheRequested || context.IsAuthenticated())
-							cacheControl = context.GetHttpCacheControl(true);
+						var isPrivate = isBypassCacheRequested || context.IsAuthenticated();
+						if (!headers.TryGetValue("Cache-Control", out var cacheControl) || isPrivate)
+							cacheControl = isHtml
+								? context.GetHttpCacheControl(isPrivate, Handler.CacheClientMaxAge * 60, maxAge - (15 * 60), false)
+								: context.GetHttpCacheControl();
 
 						if (Handler.Cache.UseL1Cache && noExamination && !context.IsAuthenticated() && !cacheControl.IsContains("private"))
 						{
@@ -938,7 +940,7 @@ namespace net.vieapps.Services.Portals
 					{
 						case "initializer":
 							if (context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, context.RequestAborted).ConfigureAwait(false);
 							await this.ProcessInitializerRequestAsync(context, systemIdentityJson).ConfigureAwait(false);
 							break;
 
@@ -948,7 +950,7 @@ namespace net.vieapps.Services.Portals
 
 						case "login":
 							if (!context.Request.Method.IsEquals("GET") || context.Request.Path.Value.IsEndsWith(".aspx") || context.Request.Path.Value.IsEndsWith(".html") || context.Request.Path.Value.IsEndsWith(".php"))
-								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, context.RequestAborted).ConfigureAwait(false);
 							await this.ProcessLogInRequestAsync(context, systemIdentityJson, isUserInteract).ConfigureAwait(false);
 							break;
 
@@ -983,14 +985,14 @@ namespace net.vieapps.Services.Portals
 							try
 							{
 								stepwatch.Restart();
-								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, cts.Token).ConfigureAwait(false);
+								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, context.RequestAborted).ConfigureAwait(false);
 
 								requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
 								requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
 								if (isDebugLogEnabled)
 									await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
-								var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+								var response = (await context.CallServiceAsync(requestInfo, context.RequestAborted, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
 
 								var responseBody = response.Get<string>("Body");
 								var body = responseBody != null ? responseBody.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")) : null;
@@ -1008,7 +1010,7 @@ namespace net.vieapps.Services.Portals
 
 								context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
 								if (body != null)
-									await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
+									await context.WriteAsync(body, context.RequestAborted).ConfigureAwait(false);
 
 								requestInfo.SendSessionState(systemIdentityJson, Global.ServiceName + $".HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
 							}
@@ -2164,12 +2166,12 @@ namespace net.vieapps.Services.Portals
 		public static bool IsL1CacheAvailable(this HttpContext context, string portalsHttpURI = null)
 			=> context.GetRequestUri().IsL1CacheAvailable(portalsHttpURI);
 
-		public static async Task<bool> ProcessL1CacheAsync(this HttpContext context, bool isForceCacheRequested, Stopwatch stopwatch)
+		public static async Task<bool> ProcessL1CacheAsync(this HttpContext context, bool isBypassCacheRequested, Stopwatch stopwatch)
 		{
 			var stepwatch = Stopwatch.StartNew();
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs") || context.ContainsKey("x-cache-logs") || context.ContainsKey("x-l1-cache-logs");
 
-			if (!Handler.Cache.UseL1Cache || !context.IsL1CacheAvailable() || isForceCacheRequested || context.ContainsKey("x-sliding-cache"))
+			if (!Handler.Cache.UseL1Cache || !context.IsL1CacheAvailable() || isBypassCacheRequested || context.ContainsKey("x-sliding-cache"))
 				return false;
 
 			var url = context.GetRequestUrl();
@@ -2183,7 +2185,7 @@ namespace net.vieapps.Services.Portals
 			if (info == null)
 			{
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync("Caches", $"Stop process L1-Cache (no info) [{context.GetL1CacheKey()} => {url}]").ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no info) [{context.GetL1CacheKey()} => {url}]").ConfigureAwait(false);
 				return false;
 			}
 
@@ -2193,14 +2195,14 @@ namespace net.vieapps.Services.Portals
 			if (contentType == null || eTag == null)
 			{
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync("Caches", $"Stop process L1-Cache (no required info) [{context.GetL1CacheKey()} => {contentType} @ {eTag}]").ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no required info) [{context.GetL1CacheKey()} => {contentType} @ {eTag}]").ConfigureAwait(false);
 				return context.RemoveL1Cache(info.BodyCacheKey);
 			}
 
 			if (info.Headers.TryGetValue("Expires", out var expiresAt) && !string.IsNullOrWhiteSpace(expiresAt) && expiresAt.FromHttpDateTime() < DateTime.UtcNow)
 			{
 				if (isDebugLogEnabled)
-					await context.WriteLogsAsync("Caches", $"Stop process L1-Cache (expired) [{context.GetL1CacheKey()} => {expiresAt.FromHttpDateTime().ToIsoString()}]").ConfigureAwait(false);
+					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (expired) [{context.GetL1CacheKey()} => {expiresAt.FromHttpDateTime().ToIsoString()}]").ConfigureAwait(false);
 				return context.RemoveL1Cache(info.BodyCacheKey);
 			}
 
@@ -2260,7 +2262,7 @@ namespace net.vieapps.Services.Portals
 				if (cached == null)
 				{
 					if (isDebugLogEnabled)
-						await context.WriteLogsAsync("Caches", $"Stop process L1-Cache (no body) [{context.GetL1CacheKey()} => {url}]").ConfigureAwait(false);
+						await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no body) [{context.GetL1CacheKey()} => {url}]").ConfigureAwait(false);
 					return context.RemoveL1Cache(info.BodyCacheKey);
 				}
 
@@ -2315,7 +2317,7 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				context.SendSessionStateAsync(true, Handler.TrackPortalStatistics),
-				context.WriteLogsAsync("Caches", $"Process L1-Cache was done - Execution times: {stopwatch.GetElapsedTimes()}{(isDebugLogEnabled ? $"\r\n[{context.GetL1CacheKey()}] => {url}\r\nInfo: {info.ToJson()}" : "")}")
+				context.WriteLogsAsync("Http.Process.Requests", $"Process L1-Cache was done - Execution times: {stopwatch.GetElapsedTimes()}{(isDebugLogEnabled ? $"\r\n[{context.GetL1CacheKey()}] => {url}\r\nInfo: {info.ToJson()}" : "")}")
 			).Execute();
 			return true;
 		}
@@ -2354,7 +2356,7 @@ namespace net.vieapps.Services.Portals
 					var key = uri.GetL1CacheKey();
 					var keyWWW = uri.GetL1CacheKey(false);
 					var bodyCacheKey = message.Data.Get<string>("Key");
-					RemoveL1Cache(key, keyWWW, bodyCacheKey);
+					HandlerExtentions.RemoveL1Cache(key, keyWWW, bodyCacheKey);
 					if (writeLogs)
 						Global.WriteLogs("Caches", $"Invalidated => {uri} [{key} : {keyWWW} : {bodyCacheKey}]", null, Global.ServiceName, LogLevel.Information, correlationID);
 				}
@@ -2381,7 +2383,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		public static bool RemoveL1Cache(this HttpContext context, string bodyCacheKey)
-			=> RemoveL1Cache(context.GetL1CacheKey(), context.GetL1CacheKey(false), bodyCacheKey);
+			=> HandlerExtentions.RemoveL1Cache(context.GetL1CacheKey(), context.GetL1CacheKey(false), bodyCacheKey);
 
 		public static string GetL1CacheKey(this Uri requestURI, bool noneWWW = true)
 		{

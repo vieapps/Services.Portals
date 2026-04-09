@@ -21,6 +21,18 @@ namespace net.vieapps.Services.Portals
 
 		public static bool IsCacheDisabled { get; internal set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Disabled"));
 
+		internal static bool IsCacheAvailable()
+			=> !Utility.IsCacheDisabled;
+
+		internal static bool IsCacheAvailable(this RequestInfo requestInfo)
+			=> Utility.IsCacheAvailable() && (requestInfo == null ? true : !requestInfo.IsRefreshRequested());
+
+		internal static bool IsRefreshRequested(this RequestInfo requestInfo)
+			=> requestInfo != null && requestInfo.IsAuthenticated() ? requestInfo.ContainsKey("x-refresh") || requestInfo.ContainsKey("x-reload") : false;
+
+		internal static bool IsBypassCacheRequested(this RequestInfo requestInfo)
+			=> requestInfo.ContainsKey("x-bypass-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-force-cache") || requestInfo.IsRefreshRequested();
+
 		internal static string CDNProvider { get; set; } = UtilityService.GetAppSetting("Portals:CDN:Provider", "Cloudflare");
 
 		internal static string CDNZoneID { get; set; } = UtilityService.GetAppSetting("Portals:CDN:ZoneID") ?? UtilityService.GetAppSetting("Portals:CloudFlare:ZoneID");
@@ -118,15 +130,6 @@ namespace net.vieapps.Services.Portals
 				.Concat(await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? [])
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
-
-		/// <summary>
-		/// Removes the items from caching storages by specified keys when request got 'x-force-cache' or 'x-reload' or 'x-refresh' parameter 
-		/// </summary>
-		internal static void RemoveCache(this RequestInfo requestInfo, IEnumerable<string> cacheKeys)
-		{
-			if (requestInfo.IsForceCache() || requestInfo.ContainsKey("x-reload") || requestInfo.ContainsKey("x-refresh"))
-				Utility.Cache.RemoveAsync(cacheKeys, Utility.CancellationToken).Execute();
-		}
 
 		/// <summary>
 		/// Gets the key for storing HTML code of a desktop that specified by alias and requested URL
@@ -524,7 +527,7 @@ namespace net.vieapps.Services.Portals
 			var siteURLBypassCDN = organization.GetURL(false, Utility.PortalsHttpURIBypassCDN, $"/~{organization.Alias}/");
 			var rebuildHeaders = new Dictionary<string, string>
 			{
-				["x-force-cache"] = "1",				
+				["x-no-cache"] = "1",				
 				["x-dont-purge-cdn-cache"] = "1"
 			};
 			if (writeLogs)
@@ -533,7 +536,7 @@ namespace net.vieapps.Services.Portals
 			await organization.RefreshWebPagesAsync(urls.Select(url => url.Replace("~/", siteURLBypassCDN)), false, rebuildHeaders, 0, true, correlationID, message, writeLogs, cancellationToken).ConfigureAwait(false);
 			onRebuilt?.Invoke(urls.Select(url => url.Replace("~/", siteURLBypassCDN)));
 			if (writeLogs)
-				await Utility.WriteLogAsync(correlationID, $"Step-1 was completed: Rebuild caches with 'x-force-cache'\r\nURLs [{urls.Count():###,##0}]:\r\n- {urls.Select(url => url.Replace("~/", siteURLBypassCDN)).Join("\r\n- ")}\r\nHeaders: {rebuildHeaders.ToJson()}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Step-1 was completed: Rebuild caches with 'x-no-cache'\r\nURLs [{urls.Count():###,##0}]:\r\n- {urls.Select(url => url.Replace("~/", siteURLBypassCDN)).Join("\r\n- ")}\r\nHeaders: {rebuildHeaders.ToJson()}", "Caches").ConfigureAwait(false);
 
 			// step-2: refresh to refill CDN
 			var gotCDN = organization.GotCDN(true);
@@ -820,7 +823,7 @@ namespace net.vieapps.Services.Portals
 					);
 					dataCacheKeys = dataCacheKeys.Concat(Extensions.GetRelatedCacheKeys(filter, sort)).Concat(Extensions.GetRelatedCacheKeys(Filters<Expression>.And(Filters<Expression>.Equals("RepositoryID", expression.RepositoryID), filter), sort));
 					if (expression.ContentType != null)
-						dataCacheKeys = dataCacheKeys.Concat(await Utility.Cache.GetSetMembersAsync(expression.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false));
+						dataCacheKeys = dataCacheKeys.Concat(await Utility.Cache.GetSetMembersAsync(expression.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? []);
 				}
 			}
 
@@ -863,7 +866,7 @@ namespace net.vieapps.Services.Portals
 
 			var htmlCacheKeys = new List<string>();
 			if (getHtmlCacheKeys)
-				htmlCacheKeys.AddRange(await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false));
+				htmlCacheKeys.AddRange(await site.GetSetCacheKeysAsync(cancellationToken).ConfigureAwait(false) ?? []);
 
 			return (dataCacheKeys, htmlCacheKeys);
 		}
@@ -884,7 +887,7 @@ namespace net.vieapps.Services.Portals
 			var htmlCacheKeys = new List<string>();
 			if (getHtmlCacheKeys)
 			{
-				var cacheKeys = await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false);
+				var cacheKeys = await desktop.GetSetCacheKeysAsync(cancellationToken, true).ConfigureAwait(false) ?? [];
 				var desktopCacheKey = desktop.GetDesktopCacheKey($"{Utility.PortalsHttpURI}/~{desktop.Organization?.Alias}/{desktop.Alias}");
 				cacheKeys = cacheKeys.Concat([desktopCacheKey, $"{desktopCacheKey}:time", $"{desktopCacheKey}:expiration"]).ToList();
 				htmlCacheKeys.AddRange(cacheKeys);
@@ -954,9 +957,7 @@ namespace net.vieapps.Services.Portals
 				{
 					linkCacheKeys = linkCacheKeys.Concat(Extensions.GetRelatedCacheKeys(link.GetCacheKey()));
 					if (link.ContentType != null && linkContentTypes.Add(link.ContentType))
-					{
 						dataCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(link.ContentType.GetSetCacheKey(), cancellationtoken).ConfigureAwait(false) ?? []);
-					}
 				}, cancellationToken, true, false).ConfigureAwait(false);
 
 				if (linkCacheKeys.Any())
@@ -1145,18 +1146,18 @@ namespace net.vieapps.Services.Portals
 			var filter = CategoryProcessor.GetCategoriesFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
 			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
 			var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, 0, 1);
-			var objects = await Category.FindAsync(filter, sort, 0, 1, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false) ?? [];
+			var objects = await Category.FindAsync(filter, sort, 0, 1, contentType.ID, true, Utility.IsCacheAvailable(), cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false) ?? [];
 			return (objects.Where(@object => @object != null).ToList(), cacheKeyOfObjects);
 		}
 
 		internal static Task<(long TotalRecords, string CacheKeyOfTotalObjects)> CountContentsAsync(this ContentType contentType, string categoryID, CancellationToken cancellationToken)
-			=> ContentProcessor.CountAsync(null, ContentProcessor.GetContentsFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID, categoryID), Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime"), contentType.ID, 0, cancellationToken);
+			=> ContentProcessor.CountAsync(null, ContentProcessor.GetContentsFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID, categoryID), Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime"), contentType.ID, Utility.IsCacheAvailable(), 0, cancellationToken);
 
 		internal static async Task<(List<Content> Objects, string CacheKeyOfObjects)> FindContentsAsync(this ContentType contentType, string categoryID, long totalRecords, int pageSize, int pageNumber, CancellationToken cancellationToken)
 		{
 			var filter = ContentProcessor.GetContentsFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID, categoryID);
 			var sort = Sorts<Content>.Descending("StartDate").ThenByDescending("PublishedTime");
-			var results = await ContentProcessor.SearchAsync(null, filter, sort, pageSize, pageNumber, contentType.ID, totalRecords, false, 0, 0, 0, cancellationToken).ConfigureAwait(false);
+			var results = await ContentProcessor.SearchAsync(null, filter, sort, pageSize, pageNumber, contentType.ID, totalRecords, false, 0, 0, Utility.IsCacheAvailable(), 0, cancellationToken).ConfigureAwait(false);
 			return (results.Objects.Where(@object => @object != null).ToList(), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber));
 		}
 
@@ -1165,7 +1166,7 @@ namespace net.vieapps.Services.Portals
 			var filter = LinkProcessor.GetLinksFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
 			var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
 			var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, 0, 1);
-			var objects = await Link.FindAsync(filter, sort, 0, 1, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false) ?? [];
+			var objects = await Link.FindAsync(filter, sort, 0, 1, contentType.ID, true, Utility.IsCacheAvailable(), cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false) ?? [];
 			return (objects.Where(@object => @object != null).ToList(), cacheKeyOfObjects);
 		}
 
@@ -1174,7 +1175,7 @@ namespace net.vieapps.Services.Portals
 			var filter = ItemProcessor.GetItemsFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
 			var sort = Sorts<Item>.Descending("Created").ThenByAscending("Title");
 			var cacheKeyOfObjects = Extensions.GetCacheKey(filter, sort, pageSize, pageNumber);
-			var objects = await Item.FindAsync(filter, sort, pageSize, pageNumber, contentType.ID, true, cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false) ?? [];
+			var objects = await Item.FindAsync(filter, sort, pageSize, pageNumber, contentType.ID, true, Utility.IsCacheAvailable(), cacheKeyOfObjects, 0, cancellationToken).ConfigureAwait(false) ?? [];
 			await Task.WhenAll
 			(
 				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object?.GetCacheKey()), cancellationToken),

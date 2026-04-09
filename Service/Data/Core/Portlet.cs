@@ -161,12 +161,12 @@ namespace net.vieapps.Services.Portals
 		internal Portlet GetOriginalPortlet()
 			=> string.IsNullOrWhiteSpace(this.OriginalPortletID)
 				? this
-				: this._originalPortlet ?? (this._originalPortlet = Portlet.Get(this.OriginalPortletID, !Utility.IsCacheDisabled));
+				: this._originalPortlet ?? (this._originalPortlet = Portlet.Get(this.OriginalPortletID, Utility.IsCacheAvailable()));
 
 		internal async Task<Portlet> GetOriginalPortletAsync(CancellationToken cancellationToken = default)
 			=> string.IsNullOrWhiteSpace(this.OriginalPortletID)
 				? this
-				: this._originalPortlet ?? (this._originalPortlet = await Portlet.GetAsync(this.OriginalPortletID, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false));
+				: this._originalPortlet ?? (this._originalPortlet = await Portlet.GetAsync(this.OriginalPortletID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false));
 
 		internal List<Portlet> GetMappingPortlets()
 			=> this._mappingPortlets ?? (this._mappingPortlets = Portlet.Find(Filters<Portlet>.Equals("OriginalPortletID", this.OriginalPortlet.ID), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex")));
@@ -175,13 +175,13 @@ namespace net.vieapps.Services.Portals
 			=> this._mappingPortlets ?? (this._mappingPortlets = await Portlet.FindAsync(Filters<Portlet>.Equals("OriginalPortletID", this.OriginalPortlet.ID), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex"), cancellationToken).ConfigureAwait(false));
 
 		internal static new List<Portlet> Find(IFilterBy<Portlet> filter, SortBy<Portlet> sort, string cacheKey)
-			=> Portlet.Find(filter, sort, !Utility.IsCacheDisabled, cacheKey);
+			=> Portlet.Find(filter, sort, Utility.IsCacheAvailable(), cacheKey);
 
 		internal static List<Portlet> Find(IFilterBy<Portlet> filter, SortBy<Portlet> sort)
 			=> Portlet.Find(filter, sort, null);
 
 		internal static new Task<List<Portlet>> FindAsync(IFilterBy<Portlet> filter, SortBy<Portlet> sort, string cacheKey, CancellationToken cancellationToken)
-			=> Portlet.FindAsync(filter, sort, !Utility.IsCacheDisabled, cacheKey, cancellationToken);
+			=> Portlet.FindAsync(filter, sort, Utility.IsCacheAvailable(), cacheKey, cancellationToken);
 
 		internal static Task<List<Portlet>> FindAsync(IFilterBy<Portlet> filter, SortBy<Portlet> sort, CancellationToken cancellationToken)
 			=> Portlet.FindAsync(filter, sort, null, cancellationToken);
