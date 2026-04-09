@@ -1153,13 +1153,13 @@ namespace net.vieapps.Services.Portals
 			await Utility.WriteLogAsync(correlationID, $"{urls.Count:###,###,##0} URLs of '{organization.Title}' were prepared to rebuild cache\r\n- Link URLs: {linkURLs.Count:###,###,##0}\r\n- Category URLs: {categoryURLs.Count:###,###,##0}\r\n- Content URLs: {contentURLs.Count:###,###,##0}\r\n- Item URLs: {itemURLs.Count:###,###,##0}", "Caches").ConfigureAwait(false);
 			sendStatus("Prepared");
 
-			var refreshLater = organization.GotCDN(true) && !Utility.CDNPurgeEverythingOnObject;
+			var refreshLater = organization.GotCDN(true) && Utility.CDNPurgeEverythingOnObject;
 			while (!cancellationToken.IsCancellationRequested)
 			{
 				if (cancellationToken.IsCancellationRequested)
 				{
 					if (writeLogs)
-						await Utility.WriteLogAsync(correlationID, $"Got signal to cancel the rebuild process [{organization.Title}]", "Caches").ConfigureAwait(false);
+						await Utility.WriteLogAsync(correlationID, $"Got signal to cancel the rebuild cache process of '{organization.Title}'", "Caches").ConfigureAwait(false);
 					break;
 				}
 
