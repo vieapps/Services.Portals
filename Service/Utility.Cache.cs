@@ -291,6 +291,7 @@ namespace net.vieapps.Services.Portals
 			bool doRefresh,
 			int delayBeforeRefresh,
 			bool waitForRefreshen,
+			Dictionary<string, string> refreshHeaders,
 			string correlationID,
 			bool writeLogs,
 			CancellationToken cancellationToken,
@@ -314,7 +315,7 @@ namespace net.vieapps.Services.Portals
 
 			writeLogs = writeLogs || Utility.IsPurgeCacheLogEnabled;
 			if (writeLogs)
-				await Utility.WriteLogAsync(correlationID, $"Prepare to purge CDN cache of '{organization.Title}'\r\nOrganization URLs [{orgURLs.Count:###,##0}]\r\n- {orgURLs.Join("\r\n- ")}\r\nSystem URLs [{systemURLs.Count:###,##0}]\r\n- {systemURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Prepare to purge CDN cache - {organization.Title}\r\nOrganization URLs [{orgURLs.Count:###,##0}]\r\n- {orgURLs.Join("\r\n- ")}\r\nSystem URLs [{systemURLs.Count:###,##0}]\r\n- {systemURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 
 			await Task.WhenAll
 			(
@@ -328,11 +329,19 @@ namespace net.vieapps.Services.Portals
 
 			if (doRefresh)
 			{
-				var refreshHeaders = new Dictionary<string, string>
+				if (refreshHeaders == null)
 				{
-					["x-cdn-provider"] = organization.GetCDNProvider() ?? "None",
-					["x-sliding-cache"] = "1"
-				};
+					refreshHeaders = new Dictionary<string, string>
+					{
+						["x-for-cdn-provider"] = organization.GetCDNProvider() ?? "None",
+						["x-sliding-cache"] = "1"
+					};
+					if (writeLogs)
+					{
+						refreshHeaders["x-header-logs"] = "1";
+						refreshHeaders["x-l1-cache-logs"] = "1";
+					}
+				}
 				delayBeforeRefresh = gotCDN ? delayBeforeRefresh > 0 ? delayBeforeRefresh : Utility.CDNDelaySeconds * 1234 : 0;
 				if (waitForRefreshen)
 					await organization.RefreshWebPagesAsync(urls, true, refreshHeaders, delayBeforeRefresh, true, correlationID, "Refresh when purge CDN cache", writeLogs, cancellationToken).ConfigureAwait(false);
@@ -342,6 +351,21 @@ namespace net.vieapps.Services.Portals
 
 			onCompleted?.Invoke(urls);
 		}
+
+		/// <summary>
+		/// Purges cache of this organization at CDN by specified URLs
+		/// </summary>
+		public static Task PurgeCDNCacheAsync(
+			this Organization organization,
+			IEnumerable<string> urls,
+			bool doRefresh,
+			int delayBeforeRefresh,
+			bool waitForRefreshen,
+			string correlationID,
+			bool writeLogs,
+			CancellationToken cancellationToken,
+			Action<IEnumerable<string>> onCompleted = null
+		) => organization.PurgeCDNCacheAsync(urls, doRefresh, delayBeforeRefresh, waitForRefreshen, null, correlationID, writeLogs, cancellationToken, onCompleted);
 
 		/// <summary>
 		/// Purges cache of this organization at CDN by specified URLs
@@ -413,7 +437,7 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				writeLogs
-				 ? Utility.WriteLogAsync(correlationID, $"{message ?? $"Refresh URLs of '{organization.Title}' [{refreshURLs.Count:###,##0}]"}\r\nURLs:\r\n- {refreshURLs.Join("\r\n- ")}", "Caches")
+				 ? Utility.WriteLogAsync(correlationID, $"{message ?? $"Refresh URLs - {organization.Title} [{refreshURLs.Count:###,##0}]"}\r\nURLs:\r\n- {refreshURLs.Join("\r\n- ")}", "Caches")
 				 : Task.CompletedTask,
 				refreshURLs.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(headers, delayEachItemByIndex ? index : 0, correlationID, writeLogs, cancellationtoken), cancellationToken, true, Utility.RunProcessorInParallelsMode)
 			).ConfigureAwait(false);
@@ -427,7 +451,7 @@ namespace net.vieapps.Services.Portals
 			var headers = force
 				? new Dictionary<string, string>
 				{
-					["x-force-cache"] = "1"
+					["x-no-cache"] = "1"
 				}
 				: new Dictionary<string, string>
 				{
@@ -523,7 +547,7 @@ namespace net.vieapps.Services.Portals
 		{
 			writeLogs = writeLogs || Utility.IsPurgeCacheLogEnabled;
 
-			// step-1: refresh to rebuild cache
+			// phase-1: refresh to rebuild cache
 			var siteURLBypassCDN = organization.GetURL(false, Utility.PortalsHttpURIBypassCDN, $"/~{organization.Alias}/");
 			var rebuildHeaders = new Dictionary<string, string>
 			{
@@ -531,30 +555,35 @@ namespace net.vieapps.Services.Portals
 				["x-dont-purge-cdn-cache"] = "1"
 			};
 			if (writeLogs)
-				rebuildHeaders["x-l1-cache-logs"] = "1";
-
-			await organization.RefreshWebPagesAsync(urls.Select(url => url.Replace("~/", siteURLBypassCDN)), false, rebuildHeaders, 0, true, correlationID, message, writeLogs, cancellationToken).ConfigureAwait(false);
-			onRebuilt?.Invoke(urls.Select(url => url.Replace("~/", siteURLBypassCDN)));
+				rebuildHeaders["x-header-logs"] = "1";
+			var workingURLs = urls.Select(url => url.Replace("~/", siteURLBypassCDN));
+			await organization.RefreshWebPagesAsync(workingURLs, false, rebuildHeaders, 0, true, correlationID, message, writeLogs, cancellationToken).ConfigureAwait(false);
+			onRebuilt?.Invoke(workingURLs);
 			if (writeLogs)
-				await Utility.WriteLogAsync(correlationID, $"Step-1 was completed: Rebuild caches with 'x-no-cache'\r\nURLs [{urls.Count():###,##0}]:\r\n- {urls.Select(url => url.Replace("~/", siteURLBypassCDN)).Join("\r\n- ")}\r\nHeaders: {rebuildHeaders.ToJson()}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Complete phase-1: Rebuild caches with 'x-no-cache'\r\nURLs [{workingURLs.Count():###,##0}]:\r\n- {workingURLs.Join("\r\n- ")}\r\nHeaders: {rebuildHeaders.ToJson()}", "Caches").ConfigureAwait(false);
 
-			// step-2: refresh to refill CDN
+			// phase-2: purge & refill CDN
 			var gotCDN = organization.GotCDN(true);
 			var siteURL = organization.GetURL(false, organization.DefaultSite, "/");
+			workingURLs = (urls.Any(url => url.IsEndsWith("/index.html")) ? new[] { siteURL } : []).Concat(urls.Select(url => url.Replace("~/", siteURL)));
 			if (gotCDN && !Utility.CDNPurgeEverythingOnObject)
 			{
 				var refreshHeaders = new Dictionary<string, string>
 				{
 					["x-for-cdn-provider"] = organization.GetCDNProvider() ?? "None"
 				};
-
-				var delaySeconds = Utility.CDNDelaySeconds * 1234;
-				await organization.PurgeCDNCacheAsync(urls.Select(url => url.Replace("~/", siteURL)), doRefresh, delaySeconds, waitForRefreshen, correlationID, writeLogs, cancellationToken, onRefreshen).ConfigureAwait(false);
 				if (writeLogs)
-					await Utility.WriteLogAsync(correlationID, $"Step-2 was completed: Purge CDN caches & refill\r\nURLs [{urls.Count():###,##0}]:\r\n- {urls.Select(url => url.Replace("~/", siteURL)).Join("\r\n- ")}\r\nHeaders: {refreshHeaders.ToJson()}", "Caches").ConfigureAwait(false);
+				{
+					refreshHeaders["x-header-logs"] = "1";
+					refreshHeaders["x-l1-cache-logs"] = "1";
+				}
+				var delaySeconds = Utility.CDNDelaySeconds * 1234;
+				await organization.PurgeCDNCacheAsync(workingURLs, doRefresh, delaySeconds, waitForRefreshen, refreshHeaders, correlationID, writeLogs, cancellationToken, onRefreshen).ConfigureAwait(false);
+				if (writeLogs)
+					await Utility.WriteLogAsync(correlationID, $"Complete phase-2: Purge CDN caches & refill\r\nURLs [{workingURLs.Count():###,##0}]:\r\n- {workingURLs.Join("\r\n- ")}\r\nHeaders: {refreshHeaders.ToJson()}", "Caches").ConfigureAwait(false);
 			}
 			else if (!gotCDN && writeLogs)
-				await Utility.WriteLogAsync(correlationID, $"Step-2 was bypass: No CDN to purge & refill\r\nURLs [{urls.Count():###,##0}]:\r\n- {urls.Select(url => url.Replace("~/", siteURL)).Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Bypass phase-2: No CDN to purge & refill\r\nURLs [{workingURLs.Count():###,##0}]:\r\n- {workingURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -564,7 +593,7 @@ namespace net.vieapps.Services.Portals
 		{
 			writeLogs = writeLogs || Utility.IsPurgeCacheLogEnabled;
 			if (writeLogs)
-				await Utility.WriteLogAsync(correlationID, $"[PRIORITY] Rebuild caches ({organization.Title}) [{priorityURLs.Count():###,##0}]\r\n- {priorityURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"[PRIORITY] Rebuild caches - {organization.Title} [{priorityURLs.Count():###,##0}]\r\n- {priorityURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 
 			var done = 0;
 			var workingURLs = priorityURLs.Skip(done).Take(Utility.RefreshBatchSize).ToList();
@@ -587,7 +616,7 @@ namespace net.vieapps.Services.Portals
 			if (otherURLs.Count() > 0)
 			{
 				if (writeLogs)
-					await Utility.WriteLogAsync(correlationID, $"[OTHER] Rebuild caches ({organization.Title}) [{otherURLs.Count():###,##0}]\r\n- {otherURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"[OTHER] Rebuild caches - {organization.Title} [{otherURLs.Count():###,##0}]\r\n- {otherURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 
 				done = 0;
 				workingURLs = otherURLs.Skip(done).Take(Utility.RefreshBatchSize).ToList();
@@ -617,6 +646,8 @@ namespace net.vieapps.Services.Portals
 			writeLogs = writeLogs || Utility.IsPurgeCacheLogEnabled;
 			if (@object.Organization is Organization organization)
 			{
+				var stopwatch = Stopwatch.StartNew();
+
 				var purgeURLs = new List<string>();
 				var priorityURLs = new[] { "~/" + (organization.AlwaysUseHtmlSuffix ? "index.html" : "") }.ToList();
 				var otherURLs = new[] { "~/rss", "~/rss.xml", "~/rss.json" }
@@ -718,18 +749,20 @@ namespace net.vieapps.Services.Portals
 				}
 
 				var (linkURLs, _, _, _) = await organization.GetRefreshingURLsAsync(true, false, false, false, 0, 0, null, null, null, correlationID, cancellationToken).ConfigureAwait(false);
-				otherURLs = otherURLs.Concat(linkURLs).Except(priorityURLs)
+				otherURLs = otherURLs.Concat(linkURLs).Except(priorityURLs.Concat(new[] { "~/", "~/index.html" }))
 					.Where(url => !string.IsNullOrWhiteSpace(url) && (url.StartsWith("~/") || url.Contains("://")))
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList();
 
 				if (writeLogs)
-					await Utility.WriteLogAsync(correlationID, $"Run the 2-steps process to rebuild related caches [{((IPortalObject)@object).Title}]\r\nPurge URLs [{purgeURLs.Count:###,##0}]:\r\n- {purgeURLs.Join("\r\n- ")}\r\nPriority URLs [{priorityURLs.Count:###,##0}]:\r\n- {priorityURLs.Join("\r\n- ")}\r\nOther URLs [{otherURLs.Count:###,##0}]:\r\n- {otherURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"Run the 2-phase process to rebuild related caches [{((IPortalObject)@object).Title}]\r\nPurge URLs [{purgeURLs.Count:###,##0}]:\r\n- {purgeURLs.Join("\r\n- ")}\r\nPriority URLs [{priorityURLs.Count:###,##0}]:\r\n- {priorityURLs.Join("\r\n- ")}\r\nOther URLs [{otherURLs.Count:###,##0}]:\r\n- {otherURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
 
 				if (purgeURLs.Count > 0)
 					await organization.PurgeCDNCacheAsync(purgeURLs, correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
 
-				await organization.RebuildCacheAsync(priorityURLs, otherURLs, doRefresh, true, correlationID, $"In the flows of rebuild caches ({((IPortalObject)@object).Title})", writeLogs, cancellationToken).ConfigureAwait(false);
+				await organization.RebuildCacheAsync(priorityURLs, otherURLs, doRefresh, true, correlationID, $"In the 2-phase process to rebuild caches [{((IPortalObject)@object).Title}]", writeLogs, cancellationToken).ConfigureAwait(false);
+				if (writeLogs)
+					await Utility.WriteLogAsync(correlationID, $"Rebuild cache by 2-phase process was completed [{((IPortalObject)@object).Title}] - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
 			}
 			onCompleted?.Invoke(@object);
 		}
