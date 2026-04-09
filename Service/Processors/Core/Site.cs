@@ -532,9 +532,10 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetSiteAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
 			// prepare
-			var isForceCache = requestInfo.IsForceCache();
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
-			var site = await (identity.IsValidUUID() ? identity.GetSiteByIDAsync(cancellationToken, isForceCache) : identity.GetSiteByDomainAsync(cancellationToken)).ConfigureAwait(false);
+			var site = await (identity.IsValidUUID()
+				? identity.GetSiteByIDAsync(cancellationToken, requestInfo.IsBypassCacheRequested())
+				: identity.GetSiteByDomainAsync(cancellationToken)).ConfigureAwait(false);
 			if (site == null)
 				throw new InformationNotFoundException();
 			else if (site.Organization == null)
@@ -546,7 +547,7 @@ namespace net.vieapps.Services.Portals
 				throw new AccessDeniedException();
 
 			// refresh (clear cached and reload)
-			var isRefresh = requestInfo.Session.User.IsAuthenticated && (isForceCache || "refresh".IsEquals(requestInfo.GetObjectIdentity()));
+			var isRefresh = requestInfo.IsRefreshRequested() || (requestInfo.Session.User.IsAuthenticated && "refresh".IsEquals(requestInfo.GetObjectIdentity()));
 			site = isRefresh
 				? await site.RefreshAsync(cancellationToken).ConfigureAwait(false)
 				: site;

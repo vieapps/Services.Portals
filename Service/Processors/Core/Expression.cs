@@ -56,10 +56,10 @@ namespace net.vieapps.Services.Portals
 				? null
 				: !force && ExpressionProcessor.Expressions.TryGetValue(id, out var expression)
 					? expression
-					: fetchRepository ? Expression.Get(id, !Utility.IsCacheDisabled)?.Prepare() : null;
+					: fetchRepository ? Expression.Get(id, Utility.IsCacheAvailable())?.Prepare() : null;
 
 		public static async Task<Expression> GetExpressionByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetExpressionByID(force, false) ?? (await Expression.GetAsync(id, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false))?.Prepare();
+			=> (id ?? "").GetExpressionByID(force, false) ?? (await Expression.GetAsync(id, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false))?.Prepare();
 
 		public static IFilterBy<Expression> GetExpressionsFilter(this string systemID, string repositoryID = null, string repositoryEntityID = null, string contentTypeDefinitionID = null)
 		{
@@ -79,7 +79,7 @@ namespace net.vieapps.Services.Portals
 				return [];
 			var filter = systemID.GetExpressionsFilter(repositoryID, repositoryEntityID, contentTypeDefinitionID);
 			var sort = Sorts<Expression>.Ascending("Title");
-			var expressions = Expression.Find(filter, sort, 0, 1, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, 0, 1));
+			var expressions = Expression.Find(filter, sort, 0, 1, Utility.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort, 0, 1));
 			expressions.ForEach(expression => expression.Set(updateCache));
 			return expressions;
 		}
@@ -90,7 +90,7 @@ namespace net.vieapps.Services.Portals
 				return [];
 			var filter = systemID.GetExpressionsFilter(repositoryID, repositoryEntityID, contentTypeDefinitionID);
 			var sort = Sorts<Expression>.Ascending("Title");
-			var expressions = await Expression.FindAsync(filter, sort, 0, 1, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
+			var expressions = await Expression.FindAsync(filter, sort, 0, 1, Utility.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
 			await expressions.ForEachAsync(async expression => await expression.SetAsync(updateCache, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 			return expressions;
 		}
@@ -199,7 +199,7 @@ namespace net.vieapps.Services.Portals
 			var totalRecords = pagination.Item1 > -1 ? pagination.Item1 : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Expression.CountAsync(filter, !Utility.IsCacheDisabled, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await Expression.CountAsync(filter, requestInfo.IsCacheAvailable(), Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Expression.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			var totalPages = new Tuple<long, int>(totalRecords, pageSize).GetTotalPages();
@@ -209,7 +209,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Expression.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await Expression.FindAsync(filter, sort, pageSize, pageNumber, requestInfo.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Expression.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: [];
 

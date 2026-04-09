@@ -72,10 +72,10 @@ namespace net.vieapps.Services.Portals
 				?  null
 				: !force  && ModuleProcessor.Modules.TryGetValue(id, out var module)
 					? module
-					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? Module.Get(id, !Utility.IsCacheDisabled)?.Set() : null;
+					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? Module.Get(id, Utility.IsCacheAvailable())?.Set() : null;
 
 		public static async Task<Module> GetModuleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetModuleByID(force, false) ?? (await Module.GetAsync(id, cancellationToken, !!Utility.IsCacheDisabled).ConfigureAwait(false))?.Set();
+			=> (id ?? "").GetModuleByID(force, false) ?? (await Module.GetAsync(id, cancellationToken, Utility.IsCacheAvailable()).ConfigureAwait(false))?.Set();
 
 		public static IFilterBy<Module> GetModulesFilter(string systemID, string definitionID = null)
 		{
@@ -213,7 +213,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query) && !Utility.IsCacheDisabled
+			var json = string.IsNullOrWhiteSpace(query) && requestInfo.IsCacheAvailable()
 				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 				: null;
 			if (!string.IsNullOrWhiteSpace(json))
@@ -223,7 +223,7 @@ namespace net.vieapps.Services.Portals
 			var totalRecords = pagination.TotalRecords > -1 ? pagination.TotalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Module.CountAsync(filter, !Utility.IsCacheDisabled, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await Module.CountAsync(filter, requestInfo.IsCacheAvailable(), Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Module.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			var totalPages = (totalRecords, pageSize).GetTotalPages();
@@ -233,7 +233,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Module.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await Module.FindAsync(filter, sort, pageSize, pageNumber, requestInfo.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Module.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: [];
 

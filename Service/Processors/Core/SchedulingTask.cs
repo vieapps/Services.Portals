@@ -59,7 +59,7 @@ namespace net.vieapps.Services.Portals
 				? null
 				: !force && SchedulingTaskProcessor.SchedulingTasks.TryGetValue(id, out var task)
 					? task
-					: fetchRepository ? (await SchedulingTask.GetAsync(id, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false))?.Set() : null;
+					: fetchRepository ? (await SchedulingTask.GetAsync(id, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false))?.Set() : null;
 
 		internal static SchedulingTask Normalize(this SchedulingTask schedulingTask, ExpandoObject data, Action<SchedulingTask> onCompleted = null)
 		{
@@ -125,13 +125,13 @@ namespace net.vieapps.Services.Portals
 			totalRecords = totalRecords > -1
 				? totalRecords
 				: string.IsNullOrWhiteSpace(query)
-					? await SchedulingTask.CountAsync(filter, !Utility.IsCacheDisabled, cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false)
+					? await SchedulingTask.CountAsync(filter, Utility.IsCacheAvailable(), cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false)
 					: await SchedulingTask.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			// search objects
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await SchedulingTask.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
+					? await SchedulingTask.FindAsync(filter, sort, pageSize, pageNumber, Utility.IsCacheAvailable(), cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
 					: await SchedulingTask.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: new List<SchedulingTask>();
 
@@ -173,7 +173,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// process cache
-			var json = string.IsNullOrWhiteSpace(query) && !Utility.IsCacheDisabled
+			var json = string.IsNullOrWhiteSpace(query) && Utility.IsCacheAvailable()
 				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 				: null;
 			if (!string.IsNullOrWhiteSpace(json))

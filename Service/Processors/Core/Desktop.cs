@@ -158,10 +158,10 @@ namespace net.vieapps.Services.Portals
 				? null
 				: !force && DesktopProcessor.Desktops.TryGetValue(id, out var desktop)
 					? desktop
-					: fetchRepository ? Desktop.Get(id, !Utility.IsCacheDisabled)?.Set() : null;
+					: fetchRepository ? Desktop.Get(id, Utility.IsCacheAvailable())?.Set() : null;
 
 		public static async Task<Desktop> GetDesktopByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetDesktopByID(force, false) ?? (await Desktop.GetAsync(id, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false))?.Set();
+			=> (id ?? "").GetDesktopByID(force, false) ?? (await Desktop.GetAsync(id, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false))?.Set();
 
 		public static Desktop GetDesktopByAlias(this string systemID, string alias, bool force = false, bool fetchRepository = true)
 		{
@@ -215,7 +215,7 @@ namespace net.vieapps.Services.Portals
 				return new List<Desktop>();
 			var filter = systemID.GetDesktopsFilter(parentID);
 			var sort = Sorts<Desktop>.Ascending("Title");
-			var desktops = Desktop.Find(filter, sort, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort));
+			var desktops = Desktop.Find(filter, sort, Utility.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort));
 			desktops.ForEach(desktop => desktop.Set(false, updateCache));
 			return desktops;
 		}
@@ -226,7 +226,7 @@ namespace net.vieapps.Services.Portals
 				return new List<Desktop>();
 			var filter = systemID.GetDesktopsFilter(parentID);
 			var sort = Sorts<Desktop>.Ascending("Title");
-			var desktops = await Desktop.FindAsync(filter, sort, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
+			var desktops = await Desktop.FindAsync(filter, sort, Utility.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
 			await desktops.ForEachAsync(async desktop => await desktop.SetAsync(false, updateCache, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 			return desktops;
 		}
@@ -329,7 +329,7 @@ namespace net.vieapps.Services.Portals
 
 			// process cache
 			var addChildren = "true".IsEquals(requestInfo.GetHeaderParameter("x-children"));
-			var cachedJson = string.IsNullOrWhiteSpace(query) && !addChildren && !Utility.IsCacheDisabled
+			var cachedJson = string.IsNullOrWhiteSpace(query) && !addChildren && requestInfo.IsCacheAvailable()
 				? await Utility.Cache.GetAsync<string>(Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 				: null;
 
@@ -340,7 +340,7 @@ namespace net.vieapps.Services.Portals
 			totalRecords = totalRecords > -1 ? totalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Desktop.CountAsync(filter, !Utility.IsCacheDisabled, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await Desktop.CountAsync(filter, requestInfo.IsCacheAvailable(), Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Desktop.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			totalPages = (totalRecords, pageSize).GetTotalPages();
@@ -350,7 +350,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Desktop.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await Desktop.FindAsync(filter, sort, pageSize, pageNumber, requestInfo.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Desktop.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: [];
 
@@ -510,9 +510,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> GetDesktopAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
-			var isForceCache = requestInfo.IsForceCache();
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
-			var desktop = await (identity.IsValidUUID() ? identity.GetDesktopByIDAsync(cancellationToken, isForceCache) : identity.GetDesktopByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
+			var desktop = await (identity.IsValidUUID() ? identity.GetDesktopByIDAsync(cancellationToken, requestInfo.IsBypassCacheRequested()) : identity.GetDesktopByAliasAsync(identity, cancellationToken)).ConfigureAwait(false);
 			if (desktop == null)
 				throw new InformationNotFoundException();
 			else if (desktop.Organization == null)
@@ -532,7 +531,7 @@ namespace net.vieapps.Services.Portals
 				};
 
 			// refresh (clear cached and reload)
-			var isRefresh = requestInfo.Session.User.IsAuthenticated && (isForceCache || "refresh".IsEquals(requestInfo.GetObjectIdentity()));
+			var isRefresh = requestInfo.IsRefreshRequested() || (requestInfo.Session.User.IsAuthenticated && "refresh".IsEquals(requestInfo.GetObjectIdentity()));
 			if (isRefresh || desktop._childrenIDs == null || desktop._portlets == null)
 			{
 				if (isRefresh)

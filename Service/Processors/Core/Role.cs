@@ -54,10 +54,10 @@ namespace net.vieapps.Services.Portals
 				? null
 				: !force && RoleProcessor.Roles.TryGetValue(id, out var role)
 					? role
-					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? Role.Get(id, !Utility.IsCacheDisabled)?.Set() : null;
+					: fetchRepository && !string.IsNullOrWhiteSpace(id) ? Role.Get(id, Utility.IsCacheAvailable())?.Set() : null;
 
 		public static async Task<Role> GetRoleByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetRoleByID(force, false) ?? (await Role.GetAsync(id, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false))?.Set();
+			=> (id ?? "").GetRoleByID(force, false) ?? (await Role.GetAsync(id, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false))?.Set();
 
 		public static IFilterBy<Role> GetRolesFilter(string systemID, string parentID = null)
 			=> Filters<Role>.And
@@ -72,7 +72,7 @@ namespace net.vieapps.Services.Portals
 				return [];
 			var filter = RoleProcessor.GetRolesFilter(systemID, parentID);
 			var sort = Sorts<Role>.Ascending("Title");
-			var roles = Role.Find(filter, sort, 0, 1, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, 0, 1));
+			var roles = Role.Find(filter, sort, 0, 1, Utility.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort, 0, 1));
 			roles.ForEach(role => role.Set(updateCache));
 			return roles;
 		}
@@ -83,7 +83,7 @@ namespace net.vieapps.Services.Portals
 				return [];
 			var filter = RoleProcessor.GetRolesFilter(systemID, parentID);
 			var sort = Sorts<Role>.Ascending("Title");
-			var roles = await Role.FindAsync(filter, sort, 0, 1, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
+			var roles = await Role.FindAsync(filter, sort, 0, 1, Utility.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort, 0, 1), cancellationToken).ConfigureAwait(false);
 			await roles.ForEachAsync(async role => await role.SetAsync(updateCache, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
 			return roles;
 		}
@@ -181,7 +181,7 @@ namespace net.vieapps.Services.Portals
 			totalRecords = totalRecords > -1 ? totalRecords : -1;
 			if (totalRecords < 0)
 				totalRecords = string.IsNullOrWhiteSpace(query)
-					? await Role.CountAsync(filter, !Utility.IsCacheDisabled, Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
+					? await Role.CountAsync(filter, requestInfo.IsCacheAvailable(), Extensions.GetCacheKeyOfTotalObjects(filter, sort), cancellationToken).ConfigureAwait(false)
 					: await Role.CountAsync(query, filter, cancellationToken).ConfigureAwait(false);
 
 			totalPages = (totalRecords, pageSize).GetTotalPages();
@@ -191,7 +191,7 @@ namespace net.vieapps.Services.Portals
 			// search
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Role.FindAsync(filter, sort, pageSize, pageNumber, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
+					? await Role.FindAsync(filter, sort, pageSize, pageNumber, requestInfo.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber), cancellationToken).ConfigureAwait(false)
 					: await Role.SearchAsync(query, filter, null, pageSize, pageNumber, cancellationToken).ConfigureAwait(false)
 				: [];
 

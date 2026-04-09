@@ -80,8 +80,6 @@ namespace net.vieapps.Services.Portals
 
 		bool CacheDesktopHtmls { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:Desktops:Htmls", "true"));
 
-		bool IsCacheDisabled => Utility.IsCacheDisabled;
-
 		int CacheMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge"), out var value) && value > 0 ? value : 720;
 
 		int CacheClientMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge:Client"), out var value) && value > 0 ? value : 13;
@@ -1656,7 +1654,7 @@ namespace net.vieapps.Services.Portals
 					: type.IsStartsWith("font") ? "fonts" : type;
 
 			var isCacheLogEnabled = requestInfo.IsWriteCacheLogs();
-			var isForceCacheRequested = requestInfo.IsForceCache();
+			var isBypassCacheRequested = requestInfo.IsBypassCacheRequested();
 			var cacheKey = (type.IsEquals("css") || type.IsEquals("js")) && (isThemeResource || (identity != null && identity.Length == 34 && identity.Right(32).IsValidUUID()))
 				? $"{type}#{identity}"
 				: requestURI.AbsolutePath.ToLower().GenerateUUID();
@@ -1665,7 +1663,9 @@ namespace net.vieapps.Services.Portals
 			stopwatch.Restart();
 
 			var eTag = $"vieapps#{cacheKey.GenerateUUID()}";
-			var lastModified = this.CacheDesktopResources && !isForceCacheRequested ? await Utility.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false) : null;
+			var lastModified = this.CacheDesktopResources && !isBypassCacheRequested && requestInfo.IsCacheAvailable()
+				? await Utility.Cache.GetAsync<string>($"{cacheKey}:time", cancellationToken).ConfigureAwait(false)
+				: null;
 
 			if (this.CacheDesktopResources && lastModified == null && (type.IsEquals("css") || type.IsEquals("js")))
 			{
@@ -1714,7 +1714,7 @@ namespace net.vieapps.Services.Portals
 			{
 				{ "ETag", eTag },
 				{ "Last-Modified", lastModified },
-				{ "Cache-Control", this.GetCacheControl(isForceCacheRequested) },
+				{ "Cache-Control", this.GetCacheControl(isBypassCacheRequested) },
 				{ "Expires", DateTime.Now.AddDays(366).ToHttpString() },
 				{ "X-Node", this.NodeID },
 				{ "X-Cache", "None" },
@@ -1749,7 +1749,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// get cached resource
-			var resources = this.CacheDesktopResources && !isForceCacheRequested
+			var resources = this.CacheDesktopResources && !isBypassCacheRequested && requestInfo.IsCacheAvailable()
 				? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false)
 				: null;
 
@@ -2069,19 +2069,39 @@ namespace net.vieapps.Services.Portals
 				};
 			}
 
-			// purge cache of CloudFlare
-			if (isForceCacheRequested && resources != null)
+			// invalidate L1-Cache/CDN
+			if (resources != null)
 			{
-				var urls = new[] { $"{requestURI.Scheme}://{requestURI.Host}{requestURI.AbsolutePath}" }.ToList();
-				var url = requestURI.ToString();
-				var pos = url.IndexOf("x-force-cache");
-				urls.Add(pos > 0 ? url.Left(pos - 1) : url);
-				urls = urls.Select(url => new[] { url, $"{Utility.PortalsHttpURI}{new Uri(url).PathAndQuery}" }).SelectMany(url => url).ToList();
+				var invalidatingURL = $"{requestURI.Scheme}://{requestURI.Host}{requestURI.AbsolutePath}".Replace("http://", "https://");
 				organization ??= (await requestURI.Host.ToArray(".").Skip(1).Join(".").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false))?.Organization;
-				if (organization != null)
-					await organization.PurgeCDNCacheAsync(urls, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
-				else if (!string.IsNullOrWhiteSpace(Utility.CDNZoneID) && !string.IsNullOrWhiteSpace(Utility.CDNApiToken))
-					await urls.PurgeCDNCacheAsync(Utility.CDNProvider, Utility.CDNZoneID, Utility.CDNApiToken, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
+
+				new CommunicateMessage("portals.http.cache")
+				{
+					Type = "Invalidate",
+					Data = new JObject
+					{
+						["Key"] = cacheKey,
+						["URL"] = invalidatingURL,
+						["PortalsHttpURI"] = organization?.FakePortalsHttpURI ?? Utility.PortalsHttpURI,
+						["X-Logs"] = isCacheLogEnabled || requestInfo.ContainsKey("x-l1-cache-logs"),
+						["X-Correlation-ID"] = requestInfo.CorrelationID
+					}
+				}.Send(Router.GotBackupRouter());
+
+				if (isBypassCacheRequested)
+				{
+					var urls = new[] { invalidatingURL }.ToList();
+					var url = requestURI.ToString().Replace("http://", "https://");
+					var pos = url.IndexOf("x-no-cache");
+					pos = pos < 0 ? url.IndexOf("x-bypass-cache") : pos;
+					pos = pos < 0 ? url.IndexOf("x-force-cache") : pos;
+					urls.Add(pos > 0 ? url.Left(pos - 1) : url);
+					urls = urls.Select(url => new[] { url, $"{Utility.PortalsHttpURI}{new Uri(url).PathAndQuery}" }).SelectMany(url => url).ToList();
+					if (organization != null)
+						await organization.PurgeCDNCacheAsync(urls, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
+					else if (!string.IsNullOrWhiteSpace(Utility.CDNZoneID) && !string.IsNullOrWhiteSpace(Utility.CDNApiToken))
+						await urls.PurgeCDNCacheAsync(Utility.CDNProvider, Utility.CDNZoneID, Utility.CDNApiToken, requestInfo.CorrelationID, true, cancellationToken).ConfigureAwait(false);
+				}
 			}
 
 			// response
@@ -2104,7 +2124,7 @@ namespace net.vieapps.Services.Portals
 			// prepare required information
 			var stopwatch = Stopwatch.StartNew();
 			var isWriteDesktopLogs = requestInfo.IsWriteDesktopLogs();
-			var isForceCacheRequested = requestInfo.IsForceCache();
+			var isBypassCacheRequested = requestInfo.IsBypassCacheRequested();
 
 			var identity = requestInfo.GetParameter("x-system");
 			if (string.IsNullOrWhiteSpace(identity))
@@ -2126,7 +2146,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var filter = Filters<Desktop>.And(Filters<Desktop>.Equals("SystemID", organization.ID), Filters<Desktop>.IsNull("ParentID"));
 				var sort = Sorts<Desktop>.Ascending("Title");
-				var desktops = await Desktop.FindAsync(filter, sort, !Utility.IsCacheDisabled, Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
+				var desktops = await Desktop.FindAsync(filter, sort, requestInfo.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
 				desktops.ForEach(desktop => desktop.Set(false, true));
 				if (isWriteDesktopLogs)
 					await requestInfo.WriteLogAsync($"Fetch the root desktops - Organization: {organization.Title}", "Process.Http.Request").ConfigureAwait(false);
@@ -2267,7 +2287,7 @@ namespace net.vieapps.Services.Portals
 			var cacheKey = desktop.GetDesktopCacheKey(isRewriteHttp404 ? new Uri($"https://{requestURI.Host}/{desktop.Alias}") : requestURI, site);
 			var cacheKeyOfLastModified = $"{cacheKey}:time";
 			var cacheKeyOfExpiration = $"{cacheKey}:expiration";
-			var processCache = this.CacheDesktopHtmls && !isForceCacheRequested;
+			var processCache = this.CacheDesktopHtmls && !isBypassCacheRequested;
 
 			var eTag = $"vieapps#{cacheKey.GenerateUUID()}";
 			var maxAge = this.CacheMaxAge * 60;
@@ -2720,7 +2740,7 @@ namespace net.vieapps.Services.Portals
 					{
 						["Last-Modified"] = lastModified,
 						["Expires"] = DateTime.Now.AddSeconds(maxAge).ToHttpString(),
-						["Cache-Control"] = this.GetCacheControl(isForceCacheRequested, this.CacheClientMaxAge * 60, maxAge, false)
+						["Cache-Control"] = this.GetCacheControl(isBypassCacheRequested, this.CacheClientMaxAge * 60, maxAge, false)
 					};
 
 					var items = new Dictionary<string, string>
@@ -2802,7 +2822,7 @@ namespace net.vieapps.Services.Portals
 					await requestInfo.WriteLogAsync($"HTML code of {desktopInfo} has been generated - Execution times: {stepwatch.GetElapsedTimes()}\r\nNormalized HTML:\r\n{html}", "Process.Http.Request").ConfigureAwait(false);
 
 				// purge CDN cache
-				if (isForceCacheRequested && !gotError && !requestInfo.ContainsKey("x-dont-purge-cdn-cache"))
+				if (isBypassCacheRequested && !gotError && !requestInfo.ContainsKey("x-dont-purge-cdn-cache"))
 				{
 					var correlationID = requestInfo.CorrelationID;
 					var delaySeconds = Utility.CDNDelaySeconds * 1234;
@@ -2819,7 +2839,7 @@ namespace net.vieapps.Services.Portals
 					Data = new JObject
 					{
 						["Key"] = cacheKey,
-						["URL"] = $"{(site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{site.Host}/{requestURI.AbsolutePath.ToArray("/", true).Skip(requestURI.AbsolutePath.StartsWith("/~") ? 1 : 0).Join("/")}",
+						["URL"] = $"{requestURI.Scheme}://{site.Host}/{requestURI.AbsolutePath.ToArray("/", true).Skip(requestURI.AbsolutePath.StartsWith("/~") ? 1 : 0).Join("/")}",
 						["PortalsHttpURI"] = organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI,
 						["X-Logs"] = isWriteDesktopLogs || requestInfo.ContainsKey("x-l1-cache-logs"),
 						["X-Correlation-ID"] = requestInfo.CorrelationID

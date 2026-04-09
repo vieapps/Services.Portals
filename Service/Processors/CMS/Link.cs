@@ -59,7 +59,7 @@ namespace net.vieapps.Services.Portals
 
 			if (Utility.IsDebugLogEnabled)
 				Utility.WriteLogAsync(UtilityService.NewUUID, $"Find links\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", "Link").Execute();
-			return Link.Find(filter, sort, !Utility.IsCacheDisabled, cacheKey);
+			return Link.Find(filter, sort, Utility.IsCacheAvailable(), cacheKey);
 		}
 
 		public static async Task<List<Link>> FindLinksAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default, bool processCache = true)
@@ -73,7 +73,7 @@ namespace net.vieapps.Services.Portals
 
 			if (Utility.IsDebugLogEnabled)
 				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Find links\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Cache key: {cacheKey}", "Link").ConfigureAwait(false);
-			return await Link.FindAsync(filter, sort, !Utility.IsCacheDisabled, cacheKey, cancellationToken).ConfigureAwait(false);
+			return await Link.FindAsync(filter, sort, Utility.IsCacheAvailable(), cacheKey, cancellationToken).ConfigureAwait(false);
 		}
 
 		internal static async Task<int> GetLastOrderIndexAsync(string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, CancellationToken cancellationToken = default)
@@ -101,7 +101,7 @@ namespace net.vieapps.Services.Portals
 		internal static Task ClearRelatedCacheAsync(this Link link, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = false, bool doRefresh = true)
 			=> link.ClearRelatedCacheAsync(false, cancellationToken, correlationID, clearHtmlCache, clearHtmlCache, doRefresh);
 
-		static async Task<(List<Link> Objects, long TotalRecords, JToken Thumbnails)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)
+		static async Task<(List<Link> Objects, long TotalRecords, JToken Thumbnails)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, bool processCache = true, CancellationToken cancellationToken = default, bool searchThumbnails = true)
 		{
 			// cache keys
 			var cacheKeyOfObjects = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKey(filter, sort, pageSize, pageNumber) : null;
@@ -112,13 +112,13 @@ namespace net.vieapps.Services.Portals
 			totalRecords = totalRecords > -1
 				? totalRecords
 				: string.IsNullOrWhiteSpace(query)
-					? await Link.CountAsync(filter, contentTypeID, !Utility.IsCacheDisabled, cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false)
+					? await Link.CountAsync(filter, contentTypeID, processCache, cacheKeyOfTotalObjects, cancellationToken).ConfigureAwait(false)
 					: await Link.CountAsync(query, filter, contentTypeID, cancellationToken).ConfigureAwait(false);
 
 			// search objects
 			var objects = totalRecords > 0
 				? string.IsNullOrWhiteSpace(query)
-					? await Link.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, !Utility.IsCacheDisabled, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
+					? await Link.FindAsync(filter, sort, pageSize, pageNumber, contentTypeID, processCache, cacheKeyOfObjects, cancellationToken).ConfigureAwait(false)
 					: await Link.SearchAsync(query, filter, null, pageSize, pageNumber, contentTypeID, cancellationToken).ConfigureAwait(false)
 				: [];
 
@@ -233,6 +233,11 @@ namespace net.vieapps.Services.Portals
 			var pageSize = pagination.PageSize;
 			var pageNumber = pagination.PageNumber;
 
+			// refresh/reload
+			var isRefresh = requestInfo.IsRefreshRequested();
+			if (contentType != null && isRefresh)
+				await contentType.RefreshAsync(cancellationToken).ConfigureAwait(false);
+
 			if (Utility.IsDebugLogEnabled)
 				await requestInfo.WriteLogAsync($"Search links\r\n- Filter: {filter.ToJson()}\r\n- Sort: {sort?.ToJson()}\r\n- Pagination: {pagination.GetPagination()}", "Link").ConfigureAwait(false);
 
@@ -241,7 +246,7 @@ namespace net.vieapps.Services.Portals
 			var cacheKeyOfObjectsJson = string.IsNullOrWhiteSpace(query) ? Extensions.GetCacheKeyOfObjectsJson(filter, sort, pageSize, pageNumber) : null;
 			if (cacheKeyOfObjectsJson != null && !addChildren)
 			{
-				var json = Utility.IsCacheDisabled ? null : await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsJson, Utility.CancellationToken).ConfigureAwait(false);
+				var json = requestInfo.IsCacheAvailable() ? await Utility.Cache.GetAsync<string>(cacheKeyOfObjectsJson, Utility.CancellationToken).ConfigureAwait(false) : null;
 				if (!string.IsNullOrWhiteSpace(json))
 				{
 					var result = JObject.Parse(json);
@@ -252,7 +257,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// search if has no cache
-			var (objects, totalRecords, thumbnails) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, cancellationToken).ConfigureAwait(false);
+			var (objects, totalRecords, thumbnails) = await requestInfo.SearchAsync(query, filter, sort, pageSize, pageNumber, contentType?.ID, pagination.TotalRecords > -1 ? pagination.TotalRecords : -1, requestInfo.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 
 			// build response
 			var totalPages = (totalRecords, pageSize).GetTotalPages();
@@ -262,12 +267,26 @@ namespace net.vieapps.Services.Portals
 			if (addChildren)
 				await objects.Where(link => link._childrenIDs == null).ForEachAsync(link => link.FindChildrenAsync(cancellationToken), true, false).ConfigureAwait(false);
 
+			var objectsJson = objects.Select(@object => @object.ToJson(addChildren, false, json => json["Thumbnails"] = thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])).ToJArray();
+
+			if (isRefresh && objects.Count > 0)
+			{
+				var objectName = objects.First().GetObjectName();
+				objectsJson.ForEach(json => new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*",
+					ExcludedDeviceID = requestInfo.Session.DeviceID
+				}.Send());
+			}
+
 			var response = new JObject
 			{
-				{ "FilterBy", filter.ToClientJson(query) },
-				{ "SortBy", sort?.ToClientJson() },
-				{ "Pagination", (totalRecords, totalPages, pageSize, pageNumber).GetPagination() },
-				{ "Objects", objects.Select(@object => @object.ToJson(addChildren, false, json => json["Thumbnails"] = thumbnails == null ? null : objects.Count == 1 ? thumbnails : thumbnails[@object.ID])).ToJArray() }
+				["FilterBy"] = filter.ToClientJson(query),
+				["SortBy"] = sort?.ToClientJson(),
+				["Pagination"] = (totalRecords, totalPages, pageSize, pageNumber).GetPagination(),
+				["Objects"] = objectsJson
 			};
 
 			// update cache & response
@@ -417,7 +436,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// prepare
 			var identity = requestInfo.GetObjectIdentity(true, true) ?? "";
-			var link = await Link.GetAsync(identity ?? "", !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			var link = await Link.GetAsync(identity ?? "", Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 			if (link.Organization == null || link.Module == null || link.ContentType == null)
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
@@ -464,7 +483,7 @@ namespace net.vieapps.Services.Portals
 			Utility.Cache.AddSetMemberAsync(link.ContentType.ObjectCacheKeys, link.GetCacheKey(), Utility.CancellationToken).Execute();
 
 			// response
-			var versions = await link.FindVersionsAsync(!Utility.IsCacheDisabled, cancellationToken, false).ConfigureAwait(false);
+			var versions = await link.FindVersionsAsync(Utility.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
@@ -496,7 +515,7 @@ namespace net.vieapps.Services.Portals
 				await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 				await Utility.Cache.SetAsync(parentLink, Utility.CancellationToken).ConfigureAwait(false);
 
-				var versions = await parentLink.FindVersionsAsync(!Utility.IsCacheDisabled, cancellationToken, false).ConfigureAwait(false);
+				var versions = await parentLink.FindVersionsAsync(Utility.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);
 				var json = parentLink.ToJson(true, false);
 				new UpdateMessage
 				{
@@ -514,7 +533,7 @@ namespace net.vieapps.Services.Portals
 			}
 			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(link.ParentID))
 			{
-				parentLink = await Link.GetAsync(oldParentID, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
+				parentLink = await Link.GetAsync(oldParentID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 				if (parentLink != null)
 				{
 					parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).Execute();
@@ -523,7 +542,7 @@ namespace net.vieapps.Services.Portals
 					await parentLink.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
 					await Utility.Cache.SetAsync(parentLink, Utility.CancellationToken).ConfigureAwait(false);
 
-					var versions = await parentLink.FindVersionsAsync(!Utility.IsCacheDisabled, cancellationToken, false).ConfigureAwait(false);
+					var versions = await parentLink.FindVersionsAsync(Utility.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);
 					var json = parentLink.ToJson(true, false);
 					new UpdateMessage
 					{
@@ -544,7 +563,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> UpdateAsync(this Link link, RequestInfo requestInfo, ApprovalStatus oldStatus, string oldParentID, CancellationToken cancellationToken, string @event = null)
 		{
 			// update
-			await Link.UpdateAsync(link, requestInfo.Session.User.ID, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
+			await Link.UpdateAsync(link, requestInfo.Session.User.ID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 
 			// update cache & send notification
 			Task.WhenAll
@@ -562,7 +581,7 @@ namespace net.vieapps.Services.Portals
 			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(link.ParentID))
 			{
 				response["OldParentID"] = oldParentID;
-				var oldParent = await Link.GetAsync(oldParentID, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
+				var oldParent = await Link.GetAsync(oldParentID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 				if (oldParent != null)
 				{
 					oldParent.ChildrenIDs.Remove(link.ID);
@@ -587,7 +606,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 				var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-				var versionsTask = link.FindVersionsAsync(!Utility.IsCacheDisabled, cancellationToken, false);
+				var versionsTask = link.FindVersionsAsync(Utility.IsCacheAvailable(), cancellationToken, false);
 				await Task.WhenAll(thumbnailsTask, attachmentsTask, versionsTask).ConfigureAwait(false);
 				response.UpdateVersions(versionsTask.Result);
 				response["Thumbnails"] = thumbnailsTask.Result;
@@ -606,7 +625,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> UpdateLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
-			var link = await Link.GetAsync(requestInfo.GetObjectIdentity() ?? "", !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			var link = await Link.GetAsync(requestInfo.GetObjectIdentity() ?? "", Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 			if (link.Organization == null || link.Module == null || link.ContentType == null)
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
@@ -658,7 +677,7 @@ namespace net.vieapps.Services.Portals
 			// prepare
 			var request = requestInfo.GetBodyJson();
 
-			var link = await Link.GetAsync(request.Get<string>("LinkID") ?? requestInfo.GetParameter("x-link-id") ?? "", !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
+			var link = await Link.GetAsync(request.Get<string>("LinkID") ?? requestInfo.GetParameter("x-link-id") ?? "", Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 			var organization = link != null
 				? link.Organization
 				: await (request.Get<string>("SystemID") ?? requestInfo.GetParameter("x-system-id") ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
@@ -703,11 +722,11 @@ namespace net.vieapps.Services.Portals
 					item.LastModified = DateTime.Now;
 					item.LastModifiedID = requestInfo.Session.User.ID;
 
-					await Link.UpdateAsync(item, requestInfo.Session.User.ID, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
+					await Link.UpdateAsync(item, requestInfo.Session.User.ID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 					item.SendNotification("Update", item.ContentType.Notifications, item.Status, item.Status, requestInfo);
 
 					var json = item.ToJson(true, false);
-					var versions = await item.FindVersionsAsync(!Utility.IsCacheDisabled, cancellationToken, false).ConfigureAwait(false);
+					var versions = await item.FindVersionsAsync(Utility.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);
 					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -734,7 +753,7 @@ namespace net.vieapps.Services.Portals
 				await Utility.Cache.SetAsync(link, Utility.CancellationToken).ConfigureAwait(false);
 
 				var json = link.ToJson(true, false);
-				var versions = await link.FindVersionsAsync(!Utility.IsCacheDisabled, cancellationToken, false).ConfigureAwait(false);
+				var versions = await link.FindVersionsAsync(Utility.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);
 				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
@@ -758,7 +777,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> DeleteLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
-			var link = await Link.GetAsync(requestInfo.GetObjectIdentity() ?? "", !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			var link = await Link.GetAsync(requestInfo.GetObjectIdentity() ?? "", Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 			if (link.Organization == null || link.Module == null || link.ContentType == null)
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
@@ -834,7 +853,7 @@ namespace net.vieapps.Services.Portals
 				@event = "Update";
 
 			var data = requestInfo.GetBodyExpando();
-			var link = await Link.GetAsync(data.Get<string>("ID"), !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
+			var link = await Link.GetAsync(data.Get<string>("ID"), Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 			var oldStatus = link != null ? link.Status : ApprovalStatus.Pending;
 			var oldParentID = link?.ParentID;
 
@@ -847,7 +866,7 @@ namespace net.vieapps.Services.Portals
 					await Link.CreateAsync(link, cancellationToken).ConfigureAwait(false);
 				}
 				else
-					await Link.UpdateAsync(link.Update(data), dontCreateNewVersion, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
+					await Link.UpdateAsync(link.Update(data), dontCreateNewVersion, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 			}
 			else if (link != null)
 				await Link.DeleteAsync(link.ID, link.LastModifiedID, cancellationToken).ConfigureAwait(false);
@@ -900,7 +919,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> RollbackLinkAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
 		{
 			// prepare
-			var link = await Link.GetAsync(requestInfo.GetObjectIdentity() ?? "", !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
+			var link = await Link.GetAsync(requestInfo.GetObjectIdentity() ?? "", Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false) ?? throw new InformationNotFoundException();
 			if (link.Organization == null || link.Module == null || link.ContentType == null)
 				throw new InformationInvalidException("The organization/module/content-type is invalid");
 
@@ -925,7 +944,7 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			var versionsTask = link.FindVersionsAsync(!Utility.IsCacheDisabled, cancellationToken, false);
+			var versionsTask = link.FindVersionsAsync(Utility.IsCacheAvailable(), cancellationToken, false);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask, versionsTask).ConfigureAwait(false);
 			var response = link.ToJson(true, false, json =>
 			{
@@ -1045,12 +1064,10 @@ namespace net.vieapps.Services.Portals
 			var thumbnailsHeight = options.Get("ThumbnailsHeight", options.Get("ThumbnailHeight", 0));
 			var showAttachments = options.Get("ShowAttachments", true);
 
+			string data = null;
 			var level = options.Get("Level", 1);
 			var maxLevel = options.Get("MaxLevel", 0);
 			var addChildren = options.Get("ShowChildrens", options.Get("ShowChildren", options.Get("AddChildrens", options.Get("AddChildren", false))));
-
-			var forceCache = requestInfo.IsForceCache();
-			string data = null;
 
 			var requestedURL = requestInfo.GetParameter("x-url") ?? requestInfo.GetParameter("x-uri");
 			var requestedURI = new Uri(requestedURL);
@@ -1070,11 +1087,11 @@ namespace net.vieapps.Services.Portals
 				? parentFilter.Value as string
 				: null;
 
-			if (!string.IsNullOrWhiteSpace(parentIdentity))
-				requestInfo.RemoveCache([parentIdentity.GetCacheKey<Link>()]);
+			if (!string.IsNullOrWhiteSpace(parentIdentity) && (requestInfo.IsRefreshRequested() || requestInfo.IsBypassCacheRequested()))
+				await Utility.Cache.RemoveAsync(parentIdentity.GetCacheKey<Link>(), cancellationToken).ConfigureAwait(false);
 
 			var parent = !string.IsNullOrWhiteSpace(parentIdentity)
-				? await Link.GetAsync(parentIdentity, !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false)
+				? await Link.GetAsync(parentIdentity, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false)
 				: null;
 
 			// as lookup
@@ -1082,10 +1099,7 @@ namespace net.vieapps.Services.Portals
 			{
 				// prepare cache
 				var cacheKey = $"{parent.GetCacheKey()}:xml:o#{optionsJson.ToString(Formatting.None).GenerateUUID()}:p#{paginationJson.ToString(Formatting.None).GenerateUUID()}";
-				requestInfo.RemoveCache([cacheKey]);
-
-				// get cache
-				data = Utility.IsCacheDisabled ? null : await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
+				data = Utility.IsCacheAvailable() ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 
 				// process if has no cache
 				if (string.IsNullOrWhiteSpace(data))
@@ -1199,16 +1213,13 @@ namespace net.vieapps.Services.Portals
 			{
 				// prepare cache
 				var cacheKey = Extensions.GetCacheKeyOfObjectsXml(filter, sort, pageSize, pageNumber, $":o#{optionsJson.ToString(Formatting.None).GenerateUUID()}");
-				requestInfo.RemoveCache([cacheKey, Extensions.GetCacheKeyOfTotalObjects(filter, sort), Extensions.GetCacheKey(filter, sort, pageSize, pageNumber)]);
-
-				// get cache
-				data = Utility.IsCacheDisabled ? null : await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
+				data = Utility.IsCacheAvailable() ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 
 				// process if has no cache
 				if (string.IsNullOrWhiteSpace(data))
 				{
 					// search
-					var (objects, totalRecords, thumbnails) = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, cancellationToken).ConfigureAwait(false);
+					var (objects, totalRecords, thumbnails) = await requestInfo.SearchAsync(null, filter, sort, pageSize, pageNumber, contentTypeID, -1, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 
 					// prepare pagination
 					var totalPages = (totalRecords, pageSize).GetTotalPages();
@@ -1330,7 +1341,7 @@ namespace net.vieapps.Services.Portals
 				{
 					try
 					{
-						var clink = await Link.GetAsync(json.Get<string>("ID"), !Utility.IsCacheDisabled, cancellationToken).ConfigureAwait(false);
+						var clink = await Link.GetAsync(json.Get<string>("ID"), Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 						if (clink != null)
 						{
 							var thumbnails = await requestInfo.GetThumbnailsAsync(clink.ID, clink.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
