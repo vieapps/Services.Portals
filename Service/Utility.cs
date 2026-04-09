@@ -45,7 +45,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static bool IsCacheLogEnabled => Utility.IsWriteCacheLogs(null);
 
-		internal static bool IsPurgeCacheLogEnabled => Utility.IsCacheLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Cache:Portals:PurgeLogs", "false"));
+		internal static bool IsPurgeCacheLogEnabled => Utility.IsCacheLogEnabled || "true".IsEquals(UtilityService.GetAppSetting("Cache:Portals:PurgeLogs"));
 
 		internal static bool IsWriteDesktopLogs(this RequestInfo requestInfo) => Utility.IsWriteDebugLogs(requestInfo, "Desktops");
 

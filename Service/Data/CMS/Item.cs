@@ -1,5 +1,6 @@
 ﻿#region Related components
 using System;
+using System.Dynamic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -131,6 +132,14 @@ namespace net.vieapps.Services.Portals
 						: this.ContentType.SubTitleFormula.Format(this.ContentType.SubTitleFormula.PrepareDoubleBracesParameters(json.ToExpandoObject()));
 				onCompleted?.Invoke(json);
 			});
+
+		internal Item ReUpdate(ExpandoObject data = null)
+		{
+			this._workingPrivileges = null;
+			if (data != null)
+				this.Update(data);
+			return this;
+		}
 
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)
 		{

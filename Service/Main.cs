@@ -2300,7 +2300,7 @@ namespace net.vieapps.Services.Portals
 					{
 						["Last-Modified"] = lastModified,
 						["Cache-Control"] = this.GetCacheControl(false, this.CacheClientMaxAge * 60, maxAge, false),
-						["Server-Timing"] = $"ngxCache;dur=${stepwatch.ElapsedMilliseconds}",
+						["Server-Timing"] = $"ngxFetchCache;dur=${stepwatch.ElapsedMilliseconds}",
 						["X-Cache"] = "SVC-304"
 					};
 					response = new JObject
@@ -2379,7 +2379,7 @@ namespace net.vieapps.Services.Portals
 					["Last-Modified"] = lastModified,
 					["Cache-Control"] = this.GetCacheControl(false, this.CacheClientMaxAge * 60, maxAge, false),
 					["Expires"] = expiresAt,
-					["Server-Timing"] = $"ngxCache;dur={stepwatch.ElapsedMilliseconds}",
+					["Server-Timing"] = $"ngxFetchCache;dur={stepwatch.ElapsedMilliseconds}",
 					["X-Cache"] = "SVC-200"
 				};
 				response = new JObject
@@ -2733,33 +2733,38 @@ namespace net.vieapps.Services.Portals
 
 					Task.WhenAll
 					(
+						Utility.Cache.SetAsync(items, null, DateTime.Now.AddMinutes(expirationTime > 0 ? expirationTime : Utility.Cache.ExpirationTime), Utility.CancellationToken),
 						expirationTime > 0
 							? Task.CompletedTask
 							: Utility.Cache.RemoveAsync(cacheKeyOfExpiration, Utility.CancellationToken),
-						expirationTime > 0
-							? Utility.Cache.SetAsync(items, null, DateTime.Now.AddMinutes(expirationTime), Utility.CancellationToken)
-							: Utility.Cache.SetAsync(items, null, expirationTime, Utility.CancellationToken)
-					).Execute();
+						isWriteDesktopLogs
+							? Utility.WriteLogAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", "Caches")
+							: Task.CompletedTask
+					).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while updating cache after processing => {ex.Message}", "Caches", requestInfo.CorrelationID));
 
 					var category = categoryContentType != null && !string.IsNullOrWhiteSpace(parentIdentity)
 						? await categoryContentType.ID.GetCategoryByAliasAsync(parentIdentity, cancellationToken).ConfigureAwait(false)
 						: null;
 
 					var cacheKeys = new[] { cacheKey, cacheKeyOfLastModified, cacheKeyOfExpiration };
+					var path = desktop.ID.IsEquals((site?.HomeDesktop ?? organization.HomeDesktop)?.ID)
+						? "-default"
+						: requestURI.AbsolutePath.GetRequestedPath(organization.Alias, desktop.Alias);
+
 					Task.WhenAll
 					(
 						Utility.Cache.AddSetMembersAsync(desktop.GetSetCacheKey(), cacheKeys, Utility.CancellationToken),
-						Utility.Cache.AddSetMemberAsync(desktop.GetSetCacheKey("Paths"), desktop.GetPath(requestURI, site), Utility.CancellationToken),
+						Utility.Cache.AddSetMemberAsync(desktop.GetSetCacheKey("Paths"), path, Utility.CancellationToken),
 						category != null
 							? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey("HTMLs"), cacheKeys, Utility.CancellationToken)
 							: Task.CompletedTask,
 						isWriteDesktopLogs
-							? this.WriteLogsAsync(requestInfo.CorrelationID, $"Update HTML cache of {desktopInfo} ({requestURL}) => Key: {cacheKey} / Last-modified: {lastModified}", null, this.ServiceName, "Caches")
+							? Utility.WriteLogAsync(requestInfo.CorrelationID, $"Update meta of {desktopInfo} into cache successful", "Caches")
 							: Task.CompletedTask
-					).Execute();
+					).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while updating meta into cache after processing => {ex.Message}", "Caches", requestInfo.CorrelationID));
 
 					watch.Stop();
-					serverTiming += (serverTiming != "" ? ", " : "") + $"ngxCache;dur={watch.ElapsedMilliseconds}";
+					serverTiming += (serverTiming != "" ? ", " : "") + $"ngxSetCache;dur={watch.ElapsedMilliseconds}";
 				}
 
 				// remove when got error or this request was made by an authenticated user
@@ -2806,6 +2811,20 @@ namespace net.vieapps.Services.Portals
 						.SelectMany(url => url);
 					organization.PurgeCDNCacheAsync(urls, true, delaySeconds, false, correlationID, isWriteDesktopLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
 				}
+
+				// send message to invalidate meta info of L1-Cache
+				new CommunicateMessage("portals.http.cache")
+				{
+					Type = "Invalidate",
+					Data = new JObject
+					{
+						["Key"] = cacheKey,
+						["URL"] = $"{(site.AlwaysUseHTTPs || site.AlwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{site.Host}/{requestURI.AbsolutePath.ToArray("/", true).Skip(requestURI.AbsolutePath.StartsWith("/~") ? 1 : 0).Join("/")}",
+						["PortalsHttpURI"] = organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI,
+						["X-Logs"] = isWriteDesktopLogs || requestInfo.ContainsKey("x-l1-cache-logs"),
+						["X-Correlation-ID"] = requestInfo.CorrelationID
+					}
+				}.Send(Router.GotBackupRouter());
 			}
 			catch (Exception ex)
 			{
@@ -6018,7 +6037,7 @@ namespace net.vieapps.Services.Portals
 
 			else if (message.Type.IsEquals("Cache#Purge") && this.IsRequester)
 			{
-				var correlationID = UtilityService.NewUUID;
+				var correlationID = message.Data.Get<string>("Correlation-ID", UtilityService.NewUUID);
 				var serviceName = message.Data.Get<string>("ServiceName");
 				var objectName = message.Data.Get<string>("ObjectName");
 				var systemID = message.Data.Get<string>("SystemID");

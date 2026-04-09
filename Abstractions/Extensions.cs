@@ -292,8 +292,6 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Refreshs the collection of black/harmful IPs
 		/// </summary>
-		/// <param name="message"></param>
-		/// <returns></returns>
 		public static (ConcurrentDictionary<string, (int Counter, DateTime LastAccess)> BlackIPs, ConcurrentDictionary<string, (int Counter, DateTime LastAccess)> HarmfulIPs) RefreshIPs(this CommunicateMessage message)
 		{
 			var lastAccess = DateTime.Now.AddMinutes(-45);
@@ -332,15 +330,50 @@ namespace net.vieapps.Services.Portals
 		/// <summary>
 		/// Fetch the IPs
 		/// </summary>
-		/// <param name="requestInfo"></param>
-		/// <returns></returns>
 		public static JObject FetchIPs(this RequestInfo requestInfo)
 			=> "FETCH".IsEquals(requestInfo.Verb)
-			? new JObject
+				? new JObject
+				{
+					["BlackIPs"] = BlackIPs.OrderBy(kvp => kvp.Key).Select(kvp => kvp.Key).ToJArray(),
+					["HarmfulIPs"] = HarmfulIPs.OrderBy(kvp => kvp.Key).Select(kvp => $"{kvp.Key}({kvp.Value.Counter})").ToJArray()
+				}
+				: null;
+
+		/// <summary>
+		/// Get the requested path (from URI) to make a cache-key that associates with a request to a desktop in the portal 
+		/// </summary>
+		public static string GetRequestedPath(this string requestPath, string organizationAlias, string desktopAlias)
+		{
+			var path = requestPath.ToLower();
+			while (path.EndsWith("/") || path.EndsWith("."))
+				path = path.Left(path.Length - 1).Trim();
+
+			path = path.IsStartsWith($"/~{organizationAlias}")
+				? path.Right(path.Length - organizationAlias.Length - 2)
+				: path;
+
+			path = path.IsEndsWith("/default.aspx")
+				? path.Left(path.Length - 13)
+				: path;
+
+			path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx")
+				? path.Left(path.Length - 5)
+				: path.IsEndsWith(".php")
+					? path.Left(path.Length - 4)
+					: path;
+
+			if (path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default"))
+				path = "-default";
+
+			else
 			{
-				["BlackIPs"] = BlackIPs.OrderBy(kvp => kvp.Key).Select(kvp => kvp.Key).ToJArray(),
-				["HarmfulIPs"] = HarmfulIPs.OrderBy(kvp => kvp.Key).Select(kvp => $"{kvp.Key}({kvp.Value.Counter})").ToJArray()
+				path = $"/{desktopAlias}/{path.ToArray("/", true).Skip(1).Join("/")}";
+				while (path.EndsWith('/'))
+					path = path.Left(path.Length - 1);
 			}
-			: null;
+
+			return path;
+		}	
+
 	}
 }
