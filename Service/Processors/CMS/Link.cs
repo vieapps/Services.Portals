@@ -82,7 +82,7 @@ namespace net.vieapps.Services.Portals
 			return links != null && links.Count > 0 ? links.Last().OrderIndex : -1;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Link link, bool writeLogs, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Link link, bool writeLogs, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = false, bool doRefresh = true)
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await link.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			var cacheKeys = (clearDataCache ? dataCacheKeys : []).Concat(clearHtmlCache ? htmlCacheKeys : []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -91,14 +91,14 @@ namespace net.vieapps.Services.Portals
 			(
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				writeLogs
-					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS.Link [{link.Title} - ID: {link.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS.Link [{link.Title} - ID: {link.ID}]\n\rTotal: {cacheKeys.Count:###,###,##0} - Data-keys: {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count():###,###,##0}  - Html-keys:  {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count():###,###,##0}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (link?.Organization != null && (link.Organization.ExamineURLs == null || link.Organization.ExamineURLs.Count < 1))
 				link.RebuildCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred rebuild cache of '{link.FullTitle}' [ID: {link.ID}] => {ex.Message}", "Caches", correlationID));
 		}
 
-		internal static Task ClearRelatedCacheAsync(this Link link, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
+		internal static Task ClearRelatedCacheAsync(this Link link, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = false, bool doRefresh = true)
 			=> link.ClearRelatedCacheAsync(false, cancellationToken, correlationID, clearHtmlCache, clearHtmlCache, doRefresh);
 
 		static async Task<(List<Link> Objects, long TotalRecords, JToken Thumbnails)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Link> filter, SortBy<Link> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, CancellationToken cancellationToken = default, bool searchThumbnails = true)

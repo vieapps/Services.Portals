@@ -230,7 +230,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<List<SchedulingTask>> GetRefreshingTasksAsync(this Organization organization, bool others = true, List<string> otherURLs = null)
 		{
 			var refreshURLs = organization.GetRefreshingURLs().ToList();
-			var schedulingTasks = new[] { new SchedulingTask(3)
+			var schedulingTasks = new[] { new SchedulingTask(13)
 			{
 				ID = $"{organization.ID}:URLs:Home".GenerateUUID(),
 				SystemID = organization.ID,
@@ -243,7 +243,7 @@ namespace net.vieapps.Services.Portals
 			{
 				refreshURLs = otherURLs ?? await organization.GetRefreshingURLsAsync().ConfigureAwait(false) ?? [];
 				if (refreshURLs.Count > 0)
-					schedulingTasks.Add(new SchedulingTask(organization.RefreshURLs != null && organization.RefreshURLs.Interval > 0 ? organization.RefreshURLs.Interval : 30)
+					schedulingTasks.Add(new SchedulingTask(organization.RefreshURLs != null && organization.RefreshURLs.Interval > 0 ? organization.RefreshURLs.Interval : 90)
 					{
 						ID = $"{organization.ID}:URLs:Other".GenerateUUID(),
 						SystemID = organization.ID,
@@ -1137,13 +1137,22 @@ namespace net.vieapps.Services.Portals
 			sendStatus("Started");
 			await Utility.WriteLogAsync(correlationID, $"Start to rebuild caches of '{organization.Title}'\r\n- Number of Links' content-types: {organization.ContentTypesOfLink.Count}\r\n- Number of Categorys' content-types: {organization.ContentTypesOfCategory.Count}\r\n- Number of Contents' content-types: {organization.ContentTypesOfContent.Count}", "Caches").ConfigureAwait(false);
 
-			var domains = new HashSet<string>((organization.Sites ?? []).Select(site => site.Host));
 			var (linkURLs, categoryURLs, contentURLs, itemURLs) = await organization.GetRefreshingURLsAsync(true, true, true, true, maxPage, 0, minTime, null, null, correlationID, cancellationToken).ConfigureAwait(false);
-			urls = urls.Concat(linkURLs).Concat(categoryURLs).Concat(contentURLs).Concat(itemURLs).Where(url => url.IsStartsWith("~/") || domains.Contains(new Uri(url).Host)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			var homeURL = organization.HomeDesktop?.GetURL();
+			var domains = new HashSet<string>((organization.Sites ?? []).Select(site => site.Host));
+			urls = urls.Concat(linkURLs).Concat(categoryURLs).Concat(contentURLs).Concat(itemURLs)
+				.Where(url => url.StartsWith("~/") || domains.Contains(new Uri(url).Host))
+				.Where(url => !url.EndsWith("/") && !url.EndsWith("/index.html") && !url.IsEquals(homeURL))
+				.ToList();
+			urls = new[] { "~/" + (organization.AlwaysUseHtmlSuffix ? "index.html" : "") }
+				.Concat(urls)
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
 
 			await Utility.WriteLogAsync(correlationID, $"{urls.Count:###,###,##0} URLs of '{organization.Title}' were prepared to rebuild cache\r\n- Link URLs: {linkURLs.Count:###,###,##0}\r\n- Category URLs: {categoryURLs.Count:###,###,##0}\r\n- Content URLs: {contentURLs.Count:###,###,##0}\r\n- Item URLs: {itemURLs.Count:###,###,##0}", "Caches").ConfigureAwait(false);
 			sendStatus("Prepared");
 
+			var refreshLater = organization.GotCDN(true) && !Utility.CDNPurgeEverythingOnObject;
 			while (!cancellationToken.IsCancellationRequested)
 			{
 				if (cancellationToken.IsCancellationRequested)
@@ -1157,7 +1166,7 @@ namespace net.vieapps.Services.Portals
 				if (workingURLs.Count < 1)
 					break;
 
-				await organization.RebuildCacheAsync(workingURLs, [], true, false, correlationID, $"Rebuild cache of '{organization.Title}'", false, cancellationToken).ConfigureAwait(false);
+				await organization.RebuildCacheAsync(workingURLs, [], refreshLater ? done < Utility.RefreshBatchSize : true, false, correlationID, $"Rebuild cache of '{organization.Title}'", false, cancellationToken).ConfigureAwait(false);
 
 				if (!cancellationToken.IsCancellationRequested)
 				{
@@ -1169,6 +1178,9 @@ namespace net.vieapps.Services.Portals
 				if ((writeLogs && done % 20 == 0) || (done % 100 == 0))
 					await Utility.WriteLogAsync(correlationID, $"{done:###,###,##0}/{urls.Count:###,###,##0} URLs of '{organization.Title}' were rebuilt", "Caches").ConfigureAwait(false);
 			}
+
+			if (refreshLater && !cancellationToken.IsCancellationRequested)
+				organization.RefreshWebPagesAsync(urls.Skip(Utility.RefreshBatchSize), false, correlationID, $"Refresh to refill CDN cache of '{organization.Title}'", Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while refreshing (when purge CDN cache) => {ex.Message}", "Caches", correlationID));
 
 			stopwatch.Stop();
 			await Utility.WriteLogAsync(correlationID, $"Complete rebuild {done:###,###,##0} caches of '{organization.Title}' - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);

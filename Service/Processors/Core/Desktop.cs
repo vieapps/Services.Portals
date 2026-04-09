@@ -274,7 +274,7 @@ namespace net.vieapps.Services.Portals
 				Task.WhenAll
 				(
 					desktop.Organization.PurgeCDNCacheAsync(urls, true, 0, false, correlationID, false, Utility.CancellationToken),
-					desktop.PurgeDesktopURLCachesAsync(correlationID, Utility.CancellationToken)
+					desktop.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
 				).Execute();
 			}
 		}

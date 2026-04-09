@@ -159,26 +159,6 @@ namespace net.vieapps.Services.Portals
 			return filter;
 		}
 
-		internal static async Task<Category> RefreshAsync(this Category category, CancellationToken cancellationToken, bool reloadChildren = true, bool sendCommunicatingMessage = true)
-		{
-			await Utility.Cache.RemoveAsync(reloadChildren ? category.ReUpdate() : category, cancellationToken).ConfigureAwait(false);
-			category = await category.Remove().ID.GetCategoryByIDAsync(cancellationToken, true).ConfigureAwait(false);
-			if (reloadChildren || category._childrenIDs == null)
-			{
-				category._childrenIDs = null;
-				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-			}
-			await category.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-			if (sendCommunicatingMessage)
-				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
-				{
-					Type = $"{category.GetObjectName()}#Update",
-					Data = category.ToJson(),
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
-			return category;
-		}
-
 		public static List<Category> FindCategories(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool updateCache = false)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
@@ -220,7 +200,29 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateCategory().Remove();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Category category, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
+		internal static async Task<Category> RefreshAsync(this Category category, CancellationToken cancellationToken, bool reloadChildren = true, bool sendCommunicatingMessage = true, bool reloadWebpages = false, bool writeLogs = false, string correlationID = null, string message = null)
+		{
+			await Utility.Cache.RemoveAsync(reloadChildren ? category.ReUpdate() : category, cancellationToken).ConfigureAwait(false);
+			category = await category.Remove().ID.GetCategoryByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			if (reloadChildren || category._childrenIDs == null)
+			{
+				category._childrenIDs = null;
+				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			}
+			await category.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+			if (sendCommunicatingMessage)
+				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
+				{
+					Type = $"{category.GetObjectName()}#Update",
+					Data = category.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			if (reloadWebpages)
+				category.RebuildCacheAsync(true, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while rebuilding cache of '{category.Title}' [ID: {category.ID}] => {ex.Message}", "Caches", correlationID));
+			return category;
+		}
+
+		internal static async Task ClearRelatedCacheAsync(this Category category, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = false, bool doRefresh = true)
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await category.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			var cacheKeys = (clearDataCache ? dataCacheKeys : []).Concat(clearHtmlCache ? htmlCacheKeys : []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -229,7 +231,7 @@ namespace net.vieapps.Services.Portals
 			(
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				writeLogs
-					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS.Category [{category.Title} - ID: {category.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
+					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS.Category [{category.Title} - ID: {category.ID}]\n\rTotal: {cacheKeys.Count:###,###,##0} - Data-keys: {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count():###,###,##0} - Html-keys: {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count():###,###,##0}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			if (category?.Organization != null && (category.Organization.ExamineURLs == null || category.Organization.ExamineURLs.Count < 1))
@@ -617,7 +619,7 @@ namespace net.vieapps.Services.Portals
 					await category.Module.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
 					await category.Organization.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
 				}
-				await category.RefreshAsync(cancellationToken).ConfigureAwait(false);
+				category = await category.RefreshAsync(cancellationToken, true, true, isRefresh, true, requestInfo.CorrelationID).ConfigureAwait(false);
 			}
 
 			// store object cache key to clear related cached
