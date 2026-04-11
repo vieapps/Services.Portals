@@ -86,6 +86,8 @@ namespace net.vieapps.Services.Portals
 
 		bool Monitor { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Monitor"));
 
+		DateTime MonitorLastTime { get; set; } = DateTime.Now;
+
 		string MonitorLogPath { get; set; }
 
 		string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
@@ -7176,18 +7178,22 @@ namespace net.vieapps.Services.Portals
 		{
 			ThreadPool.GetMaxThreads(out var maxWorker, out var maxIO);
 			ThreadPool.GetMinThreads(out var minWorker, out var minIO);
-			this.Logger.LogInformation($"ThreadPool:\r\n\t- Max: {maxWorker:###,##0} / {maxIO:###,##0}\r\n\t- Min: {minWorker:###,##0} / {minIO:###,##0}");
+			this.Logger.LogInformation($"ThreadPool - Workers: {minWorker:###,##0} / {maxWorker:###,##0} - Async IO: {minIO:###,##0} / {maxIO:###,##0}");
 
 			if (this.Monitor && !string.IsNullOrWhiteSpace(logPath))
 			{
 				this.MonitorLogPath = Path.Combine(logPath, this.ServiceName.ToLower());
 				this.Logger.LogInformation($"Start to monitor threadpool/cache - Log path => {this.MonitorLogPath}...txt");
 
-				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:Interval"), out var interval) || interval < 0)
-					interval = 10000;
-				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:Warn"), out var warnQS) || warnQS < 0)
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Interval"), out var interval) || interval < 0)
+					interval = 5;
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:Ping:Warn"), out var warnPing) || warnPing < 0)
+					warnPing = 5;
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:Ping:Critical"), out var criticalPing) || criticalPing < 0)
+					criticalPing = 10;
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:QueueSize:Warn"), out var warnQS) || warnQS < 0)
 					warnQS = 1000;
-				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:Critical"), out var criticalQS) || criticalQS < 0)
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:QueueSize:Critical"), out var criticalQS) || criticalQS < 0)
 					criticalQS = 5000;
 
 				Utility.Cache.StartMonitor(
@@ -7195,7 +7201,7 @@ namespace net.vieapps.Services.Portals
 					(msg, _, ex) => this.OnMonitor(msg, ("", 0, 0, 0), ex),
 					(msg, _) => this.OnMonitor(msg, ("", 0, 0, 0)),
 					(msg, _, ex) => this.OnMonitor(msg, ("", 0, 0, 0), ex),
-					interval, warnQS, criticalQS, this.CancellationToken);
+					interval * 1000, warnPing, criticalPing, warnQS, criticalQS, this.CancellationToken);
 			}
 		}
 
@@ -7206,14 +7212,24 @@ namespace net.vieapps.Services.Portals
 		{
 			ThreadPool.GetAvailableThreads(out var workers, out var io);
 			var now = DateTime.Now;
+			var elapsedSeconds = (now - this.MonitorLastTime).TotalSeconds;
 			var pid = Environment.ProcessId.ToString();
-			var logs = "PID: " + pid + " @ " + now.ToString("HH:mm:ss") + " -----\r\n";
+			var logs = $"{now:HH:mm:ss} - PID: {pid} - {this.ServiceName} @ {this.NodeID} -----\r\n";
 			if (string.IsNullOrWhiteSpace(details.Level))
+			{
 				logs += message;
+				if (ex != null)
+					logs += "\r\n" + ex.Message + " [" + ex.GetTypeName(true) + "]" + "\r\n" + "Stack: " + ex.GetStack(false);
+			}
 			else
-				logs += "Available threads - Workers: " + workers.ToString("###,##0") + " / Async IO: " + io.ToString("###,##0") + "\r\nCaching: " + message;
-			if (ex != null)
-				logs += "\r\n" + ex.Message + " [" + ex.GetTypeName(true) + "]\r\nStack: " + ex.StackTrace;
+			{
+				ThreadPool.GetAvailableThreads(out var availableWorkers, out var availableIO);
+				ThreadPool.GetMaxThreads(out var maxWorkers, out var maxIO);
+				var currentWorkers = maxWorkers - availableWorkers;
+				var currentIO = maxIO - availableIO;
+				logs += $"ThreadPool - Workers: {currentWorkers:###,##0} / {maxWorkers:###,##0} | Async IO: {currentIO:###,##0} / {maxIO:###,##0}" + "\r\n"
+					+ $"Cache ({Utility.Cache.Provider}) Status - {message}";
+			}
 			logs += "\r\n\r\n";
 			if (!this.CancellationTokenSource.IsCancellationRequested)
 				File.AppendAllTextAsync(this.MonitorLogPath + "-" + now.ToString("yyyyMMddHH") + "-monitor.txt", logs, this.CancellationToken).Execute();

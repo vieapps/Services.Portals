@@ -1034,7 +1034,10 @@ namespace net.vieapps.Services.Portals
 				{
 					var cacheKeys = Extensions.GetRelatedCacheKeys(@object.GetCacheKey()).Concat(await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? []);
 					if (@object is Content content)
+					{
 						cacheKeys = cacheKeys.Concat([content.GetCacheKeyOfAlias()]);
+						//content.Category.FindDesktopsAsync
+					}
 					else if (@object is Item item)
 						cacheKeys = cacheKeys.Concat([item.GetCacheKeyOfAlias()]);
 					else if (@object is Link link)
@@ -1161,10 +1164,36 @@ namespace net.vieapps.Services.Portals
 		}
 
 		internal static Task<List<Portlet>> FindPortletsAsync(this ContentType contentType, CancellationToken cancellationToken)
-			=> Portlet.FindAsync(Filters<Portlet>.And(Filters<Portlet>.Equals("RepositoryEntityID", contentType.ID), Filters<Portlet>.IsNull("OriginalPortletID")), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex"), cancellationToken);
+		{
+			var filter = Filters<Portlet>.And
+			(
+				Filters<Portlet>.Equals("RepositoryEntityID", contentType.ID),
+				Filters<Portlet>.IsNull("OriginalPortletID")
+			);
+			var sort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
+			return Portlet.FindAsync(filter, sort, cancellationToken);
+		}
+
+		internal static Task<List<Expression>> FindExpressionsAsync(this ContentType contentType, CancellationToken cancellationToken)
+		{
+			var filter = Filters<Expression>.And
+			(
+				Filters<Expression>.Equals("RepositoryEntityID", contentType.ID)
+			);
+			var sort = Sorts<Expression>.Ascending("Title");
+			return Expression.FindAsync(filter, sort, 0, 1, Utility.IsCacheAvailable(), null, cancellationToken);
+		}
 
 		internal static Task<List<Portlet>> FindPortletsAsync(this Expression expression, CancellationToken cancellationToken)
-			=> Portlet.FindAsync(Filters<Portlet>.And(Filters<Portlet>.Equals("ExpressionID", expression.ID), Filters<Portlet>.IsNull("OriginalPortletID")), Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex"), cancellationToken);
+		{
+			var filter = Filters<Portlet>.And
+			(
+				Filters<Portlet>.Equals("ExpressionID", expression.ID),
+				Filters<Portlet>.IsNull("OriginalPortletID")
+			);
+			var sort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
+			return Portlet.FindAsync(filter, sort, cancellationToken);
+		}
 
 		internal static async Task<(List<Category> Objects, string CacheKeyOfObjects)> FindCategoriesAsync(this ContentType contentType, CancellationToken cancellationToken)
 		{

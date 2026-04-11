@@ -40,9 +40,30 @@ namespace net.vieapps.Services.Portals
 					).ConfigureAwait(false);
 				else
 				{
-					await context.ProcessAPIsRequestAsync().ConfigureAwait(false);
-					if (Global.IsVisitLogEnabled)
-						await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+					var ticket = await Global.RpcGate.TryEnterAsync(context.RequestAborted).ConfigureAwait(false);
+					if (ticket == null)
+					{
+						Global.Statistics.RpcRejected();
+						throw new SystemBusyException();
+					}
+					Global.Statistics.RpcEntered();
+					using (ticket.Value)
+					{
+						try
+						{
+							await context.ProcessAPIsRequestAsync().ConfigureAwait(false);
+							if (Global.IsVisitLogEnabled)
+								await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+						}
+						catch (Exception ex)
+						{
+							context.WriteError(Global.Logger, ex);
+						}
+						finally
+						{
+							Global.Statistics.RpcCompleted();
+						}
+					}
 				}
 			}
 		}
@@ -61,10 +82,10 @@ namespace net.vieapps.Services.Portals
 		public static async Task ProcessAPIsRequestAsync(this HttpContext context, string[] requestSegments = null)
 		{
 			var stopwatch = Stopwatch.StartNew();
-			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 			var isDebugLogEnabled = Global.IsDebugLogEnabled || context.ContainsKey("x-logs");
-			requestSegments ??= context.GetRequestPathSegments().Skip(1).ToArray();
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
 
+			requestSegments ??= context.GetRequestPathSegments().Skip(1).ToArray();
 			var query = context.Request.QueryString.ToDictionary(queryString =>
 			{
 				if (queryString.TryGetValue("x-params", out var xparams))
@@ -242,6 +263,7 @@ namespace net.vieapps.Services.Portals
 				, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 
 			// process the request
+			RouterRpcGate.Releaser? ticket = null;
 			try
 			{
 				// send communicate message
@@ -299,29 +321,40 @@ namespace net.vieapps.Services.Portals
 				// call a service
 				else
 				{
-					var requestInfo = new RequestInfo(session, serviceName, objectName, verb, query, header, body?.ToString(Formatting.None), extra, correlationID);
-					if ("discovery".IsEquals(requestInfo.ServiceName) && "definitions".IsEquals(requestInfo.ObjectName))
+					ticket = await Global.RpcGate.TryEnterAsync(Global.CancellationToken).ConfigureAwait(false);
+					if (ticket == null)
 					{
-						requestInfo.ServiceName = requestInfo.Query["service-name"] = requestInfo.Query["x-service-name"].GetANSIUri(true, true).GetCapitalizedFirstLetter();
-						requestInfo.Query["object-identity"] = requestInfo.Query["x-object-name"];
-						requestInfo.Query["mode"] = requestInfo.Query.TryGetValue("x-object-identity", out var mode) ? mode : "";
-						requestInfo.Verb = "GET";
+						Global.Statistics.RpcRejected();
+						throw new SystemBusyException();
 					}
 
-					var response = new JObject
+					Global.Statistics.RpcEntered();
+					using (ticket.Value)
 					{
-						["Data"] = await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false),
-						["Type"] = $"{requestInfo.ServiceName}#{requestInfo.ObjectName}#{verb.GetCapitalizedFirstLetter()}",
-						["CorrelationID"] = correlationID
-					};
-					if (!string.IsNullOrWhiteSpace(requestID))
-						response["ID"] = requestID;
+						var requestInfo = new RequestInfo(session, serviceName, objectName, verb, query, header, body?.ToString(Formatting.None), extra, correlationID);
+						if ("discovery".IsEquals(requestInfo.ServiceName) && "definitions".IsEquals(requestInfo.ObjectName))
+						{
+							requestInfo.ServiceName = requestInfo.Query["service-name"] = requestInfo.Query["x-service-name"].GetANSIUri(true, true).GetCapitalizedFirstLetter();
+							requestInfo.Query["object-identity"] = requestInfo.Query["x-object-name"];
+							requestInfo.Query["mode"] = requestInfo.Query.TryGetValue("x-object-identity", out var mode) ? mode : "";
+							requestInfo.Verb = "GET";
+						}
 
-					await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
-					requestInfo.TrackStatistics();
+						var response = new JObject
+						{
+							["Data"] = await Global.CallServiceAsync(requestInfo, Global.CancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false),
+							["Type"] = $"{requestInfo.ServiceName}#{requestInfo.ObjectName}#{verb.GetCapitalizedFirstLetter()}",
+							["CorrelationID"] = correlationID
+						};
+						if (!string.IsNullOrWhiteSpace(requestID))
+							response["ID"] = requestID;
 
-					if (isDebugLogEnabled)
-						await Global.WriteLogsAsync(Global.Logger, objectName, $"Process a request successful\r\nRequest: {requestInfo.ToString()}\r\nResponse: {response}", null, serviceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+						await websocket.SendAsync(response, Global.CancellationToken).ConfigureAwait(false);
+						requestInfo.TrackStatistics();
+
+						if (isDebugLogEnabled)
+							await Global.WriteLogsAsync(Global.Logger, objectName, $"Process a request successful\r\nRequest: {requestInfo.ToString()}\r\nResponse: {response}", null, serviceName, LogLevel.Information, correlationID).ConfigureAwait(false);
+					}
 				}
 			}
 			catch (Exception ex)
@@ -370,6 +403,11 @@ namespace net.vieapps.Services.Portals
 					await Global.WriteLogsAsync(Global.Logger, "APIs", $"Cannot send an error to client via WebSocket => {exception.Message}", exception, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
 				}
 				await Global.WriteLogsAsync(Global.Logger, "APIs", message, ex, Global.ServiceName, LogLevel.Error, correlationID).ConfigureAwait(false);
+			}
+			finally
+			{
+				if (ticket != null)
+					Global.Statistics.RpcCompleted();
 			}
 
 			if (Global.IsVisitLogEnabled || isDebugLogEnabled)

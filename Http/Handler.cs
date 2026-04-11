@@ -29,7 +29,7 @@ namespace net.vieapps.Services.Portals
 
 		public async Task Invoke(HttpContext context)
 		{
-			if (!context.Request.Method.IsEquals("OPTIONS"))
+			if (!context.Request.Method.IsEquals("OPTIONS") && !context.Request.Method.IsEquals("HEAD"))
 			{
 				await this.ProcessRequestAsync(context).ConfigureAwait(false);
 				if (!context.WebSockets.IsWebSocketRequest && Global.IsVisitLogEnabled)
@@ -86,7 +86,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static string RefresherURL { get; } = UtilityService.GetAppSetting("Portals:RefresherURL", "https://vieapps.net/~url.refresher");
 
-		internal static int ExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("Authenticator:TokenExpiresAfter", "0"), out var expiresAfter) && expiresAfter > -1 ? expiresAfter : 0;
+		internal static int ExpiresAfter { get; } = Int32.TryParse(UtilityService.GetAppSetting("Authenticator:TokenExpiresAfter", "0"), out var value) && value > -1 ? value : 0;
 
 		internal static List<string> LegacyParameters { get; } = UtilityService.GetAppSetting("Portals:LegacyParameters", "desktop;catName;contId;page").ToList(";");
 
@@ -103,31 +103,37 @@ namespace net.vieapps.Services.Portals
 		internal static string FilesHttpURI { get; } = UtilityService.GetAppSetting("HttpUri:Files", "https://fs.vieapps.net");
 		#endregion
 
-		Task ProcessRequestAsync(HttpContext context)
+		async Task ProcessRequestAsync(HttpContext context)
 		{
 			// WebSocket
 			if (context.WebSockets.IsWebSocketRequest)
-				return Task.WhenAll
+				await Task.WhenAll
 				(
 					Global.IsVisitLogEnabled ? context.WriteLogsAsync(Global.Logger, "APIs", $"Wrap a WebSocket connection successful\r\n- Endpoint: {context.GetRemoteIPAddress()}:{context.Connection.RemotePort}\r\n- URI: {context.GetRequestUri()}{(Global.IsDebugLogEnabled ? $"\r\n- Headers:\r\n\t{context.Request.Headers.Select(kvp => $"{kvp.Key}: {kvp.Value}").Join("\r\n\t")}" : "")}") : Task.CompletedTask,
 					APIsHandler.WebSocket.WrapAsync(context)
-				);
+				).ConfigureAwait(false);
 
-			// load balancer
-			if (context.Request.Path.Value.IsEquals(Handler.LoadBalancerHealthCheckURL))
-				return context.WriteAsync("OK", "text/plain", null, 0, "private, no-cache, no-store", TimeSpan.Zero, null, Global.CancellationToken);
+			// Load Balancer
+			else if (context.Request.Path.Value.IsEquals(Handler.LoadBalancerHealthCheckURL))
+				await context.WriteAsync("OK", "text/plain", null, 0, "private, no-cache, no-store", TimeSpan.Zero, null, context.RequestAborted).ConfigureAwait(false);
 
-			// HTTP
-			var requestURI = context.GetRequestUri();
-			var requestSegments = requestURI.GetRequestPathSegments();
-			var requestPath = requestSegments.First().ToLower();
-			return requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(Handler.PortalsHttpHost)
-				? context.ProcessFavouritesIconFileRequestAsync()
-				: Global.StaticSegments.Contains(requestPath)
-					? context.ProcessStaticFileRequestAsync()
-					: ".well-known".IsEquals(requestPath)
-						? context.ProcessAPIsRequestAsync(requestSegments)
-						: this.ProcessPortalRequestAsync(context);
+			// HTTP Portals
+			else
+			{
+				Global.Statistics.IncreaseRequest();
+				var requestURI = context.GetRequestUri();
+				var requestSegments = requestURI.GetRequestPathSegments();
+				var requestPath = requestSegments.First().ToLower();
+				if (requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(Handler.PortalsHttpHost))
+					await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
+				else if (Global.StaticSegments.Contains(requestPath))
+					await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
+				else if (".well-known".IsEquals(requestPath))
+					await context.ProcessAPIsRequestAsync(requestSegments).ConfigureAwait(false);
+				else
+					await this.ProcessPortalRequestAsync(context).ConfigureAwait(false);
+				Global.Statistics.DecreaseRequest();
+			}
 		}
 
 		async Task ProcessPortalRequestAsync(HttpContext context)
@@ -703,6 +709,7 @@ namespace net.vieapps.Services.Portals
 								if (noExamination)
 									context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
 
+								Global.Statistics.L2Hit304();
 								if (isVisitLogEnabled)
 									await context.WriteLogsAsync("Caches", $"Process the CMS Portals service cache was done => NOT MODIFIED ({eTag}/{lastModified}) - Execution times: {stepwatch.GetElapsedTimes()} of {stopwatch.GetElapsedTimes()}").ConfigureAwait(false);
 								return;
@@ -817,91 +824,108 @@ namespace net.vieapps.Services.Portals
 							{
 								context.UpdateServerTiming("ngxCache", stepwatch.ElapsedMilliseconds);
 								await context.WriteAsync(body, headers, context.RequestAborted).ConfigureAwait(false);
+								Global.Statistics.L2Hit200();
 								return;
 							}
 						}
 					}
 
 					// call CMS Portals service to process the request
-					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+					Global.Statistics.L2Miss();
 					stepwatch.Restart();
 
-					try
+					using var cts = CancellationTokenSource.CreateLinkedTokenSource(Global.CancellationToken, context.RequestAborted);
+					var ticket = await Global.RpcGate.TryEnterAsync(cts.Token).ConfigureAwait(false);
+					if (ticket == null)
 					{
-						requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
-						if (isDebugLogEnabled)
-							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
-
-						var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-
-						var statusCode = response.Get("StatusCode", (int)HttpStatusCode.OK);
-
-						var responseBody = response.Get<string>("Body");
-						var body = responseBody != null ? responseBody.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")) : null;
-						
-						headers = response.Get("Headers", new Dictionary<string, string>());
-						if (headers.TryGetValue("X-Node", out var nodeID))
-							headers["X-Service-Node"] = nodeID;
-
-						var isHtml = headers.TryGetValue("Content-Type", out var contentType) && contentType.IsStartsWith("text/html");
-						if (headers.TryGetValue("Expires", out var expires) && DateTime.TryParse(expires, out var expiresAt))
-							maxAge = (int)expiresAt.GetTotalSecondsToNow();
-
-						var isPrivate = isBypassCacheRequested || context.IsAuthenticated();
-						if (!headers.TryGetValue("Cache-Control", out var cacheControl) || isPrivate)
-							cacheControl = isHtml
-								? context.GetHttpCacheControl(isPrivate, Handler.CacheClientMaxAge * 60, maxAge - (15 * 60), false)
-								: context.GetHttpCacheControl();
-
-						if (Handler.Cache.UseL1Cache && noExamination && !context.IsAuthenticated() && !cacheControl.IsContains("private"))
-						{
-							var filesHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
-							var portalsHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("PortalsHttpURI") ?? Handler.PortalsHttpURI);
-							var organizationAlias = systemIdentityJson.Get<string>("Alias");
-							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
-							var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
-							var desktopAlias = query.TryGetValue("x-desktop", out var xdesktopAlias) ? xdesktopAlias.ToLower() : null;
-							var path = homeDesktopAlias.IsEquals(desktopAlias) || homeDesktopAliases.IsContains(desktopAlias) || "-default".IsEquals(desktopAlias)
-								? "-default"
-								: requestURI.AbsolutePath.GetRequestedPath(organizationAlias, desktopAlias);
-							var cacheKey = systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID();
-							context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
-						}
-
-						headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-						{
-							["Cache-Control"] = cacheControl,
-							["X-Correlation-ID"] = correlationID,
-							["X-Node"]  = Global.NodeID
-						};
-
-						if (headers.TryGetValue("Server-Timing", out var serverTiming))
-							context.UpdateServerTiming(serverTiming, () => headers.Remove("Server-Timing"));
-						context.UpdateServerTiming("ngxServe", stepwatch.ElapsedMilliseconds);
-
-						// response
-						context.SetResponseHeaders(statusCode, headers);
-						if (body != null)
-						{
-							if (isHtml && Handler.TrackByJavascript)
-							{
-								var html = body.GetString();
-								html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=svc&k=" + requestURI.AbsoluteUri.GenerateUUID() + "\"></script>");
-								body = html.ToBytes();
-							}
-							await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
-						}
-
-						stepwatch.Stop();
-						if (isDebugLogEnabled)
-							await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request was successed - Execution times: {stepwatch.GetElapsedTimes()}\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Response: {response.ToJson()}").ConfigureAwait(false);
+						Global.Statistics.RpcRejected();
+						throw new SystemBusyException();
 					}
-					catch (Exception)
+
+					Global.Statistics.RpcEntered();
+					using (ticket.Value)
 					{
-						if ("~indicators".IsEquals(systemIdentity) && query.TryGetValue("x-indicator", out var indicator) && "favicon.ico".IsEquals(indicator))
-							await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
-						else
-							throw;
+						try
+						{
+							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
+							if (isDebugLogEnabled)
+								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
+
+							var response = (await context.CallServiceAsync(requestInfo, cts.Token, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+
+							var statusCode = response.Get("StatusCode", (int)HttpStatusCode.OK);
+
+							var responseBody = response.Get<string>("Body");
+							var body = responseBody != null ? responseBody.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")) : null;
+
+							headers = response.Get("Headers", new Dictionary<string, string>());
+							if (headers.TryGetValue("X-Node", out var nodeID))
+								headers["X-Service-Node"] = nodeID;
+
+							var isHtml = headers.TryGetValue("Content-Type", out var contentType) && contentType.IsStartsWith("text/html");
+							if (headers.TryGetValue("Expires", out var expires) && DateTime.TryParse(expires, out var expiresAt))
+								maxAge = (int)expiresAt.GetTotalSecondsToNow();
+
+							var isPrivate = isBypassCacheRequested || context.IsAuthenticated();
+							if (!headers.TryGetValue("Cache-Control", out var cacheControl) || isPrivate)
+								cacheControl = isHtml
+									? context.GetHttpCacheControl(isPrivate, Handler.CacheClientMaxAge * 60, maxAge - (15 * 60), false)
+									: context.GetHttpCacheControl();
+
+							if (Handler.Cache.UseL1Cache && noExamination && !context.IsAuthenticated() && !cacheControl.IsContains("private"))
+							{
+								var filesHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
+								var portalsHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("PortalsHttpURI") ?? Handler.PortalsHttpURI);
+								var organizationAlias = systemIdentityJson.Get<string>("Alias");
+								var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
+								var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
+								var desktopAlias = query.TryGetValue("x-desktop", out var xdesktopAlias) ? xdesktopAlias.ToLower() : null;
+								var path = homeDesktopAlias.IsEquals(desktopAlias) || homeDesktopAliases.IsContains(desktopAlias) || "-default".IsEquals(desktopAlias)
+									? "-default"
+									: requestURI.AbsolutePath.GetRequestedPath(organizationAlias, desktopAlias);
+								var cacheKey = systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID();
+								context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
+							}
+
+							headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+							{
+								["Cache-Control"] = cacheControl,
+								["X-Correlation-ID"] = correlationID,
+								["X-Node"] = Global.NodeID
+							};
+
+							if (headers.TryGetValue("Server-Timing", out var serverTiming))
+								context.UpdateServerTiming(serverTiming, () => headers.Remove("Server-Timing"));
+							context.UpdateServerTiming("ngxServe", stepwatch.ElapsedMilliseconds);
+
+							// response
+							context.SetResponseHeaders(statusCode, headers);
+							if (body != null)
+							{
+								if (isHtml && Handler.TrackByJavascript)
+								{
+									var html = body.GetString();
+									html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=svc&k=" + requestURI.AbsoluteUri.GenerateUUID() + "\"></script>");
+									body = html.ToBytes();
+								}
+								await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
+							}
+
+							stepwatch.Stop();
+							if (isDebugLogEnabled)
+								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request was successed - Execution times: {stepwatch.GetElapsedTimes()}\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Response: {response.ToJson()}").ConfigureAwait(false);
+						}
+						catch (Exception)
+						{
+							if ("~indicators".IsEquals(systemIdentity) && query.TryGetValue("x-indicator", out var indicator) && "favicon.ico".IsEquals(indicator))
+								await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
+							else
+								throw;
+						}
+						finally
+						{
+							Global.Statistics.RpcCompleted();
+						}
 					}
 				}
 				catch (TaskCanceledException) { }
@@ -982,50 +1006,64 @@ namespace net.vieapps.Services.Portals
 							break;
 
 						case "feed":
-							try
+							var ticket = await Global.RpcGate.TryEnterAsync(context.RequestAborted).ConfigureAwait(false);
+							if (ticket == null)
 							{
-								stepwatch.Restart();
-								systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, context.RequestAborted).ConfigureAwait(false);
-
-								requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
-								requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
-								if (isDebugLogEnabled)
-									await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
-
-								var response = (await context.CallServiceAsync(requestInfo, context.RequestAborted, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
-
-								var responseBody = response.Get<string>("Body");
-								var body = responseBody != null ? responseBody.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")) : null;
-
-								headers = response.Get("Headers", new Dictionary<string, string>());
-								if (headers.TryGetValue("X-Node", out var nodeID))
-									headers["X-Service-Node"] = nodeID;
-								headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
-								{
-									["Server-Timing"] = $"ngxPrepare;dur={stepwatch.ElapsedMilliseconds}",
-									["Cache-Control"] = context.GetHttpCacheControl(false, Handler.CacheClientMaxAge * 60, (Handler.CacheMaxAge - 15) * 60, false),
-									["X-Correlation-ID"] = correlationID,
-									["X-Node"] = Global.NodeID
-								};
-
-								context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
-								if (body != null)
-									await context.WriteAsync(body, context.RequestAborted).ConfigureAwait(false);
-
-								requestInfo.SendSessionState(systemIdentityJson, Global.ServiceName + $".HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
+								Global.Statistics.RpcRejected();
+								throw new SystemBusyException();
 							}
-							catch (TaskCanceledException) { }
-							catch (OperationCanceledException) { }
-							catch (Exception ex)
+							Global.Statistics.RpcEntered();
+							using (ticket.Value)
 							{
-								if (ex is WampException wampException)
+								try
 								{
-									var wampDetails = wampException.GetDetails(requestInfo);
-									context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
+									stepwatch.Restart();
+									systemIdentityJson ??= await context.IdentifySystemAsync(requestInfo, context.RequestAborted).ConfigureAwait(false);
+
+									requestInfo = new RequestInfo(requestInfo) { ObjectName = "Generate.Feed" };
+									requestInfo.Query["x-system"] = systemIdentityJson.Get<string>("Alias");
+									if (isDebugLogEnabled)
+										await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to generate feeds\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
+
+									var response = (await context.CallServiceAsync(requestInfo, context.RequestAborted, Global.Logger, "Http.Process.Requests").ConfigureAwait(false)).ToExpandoObject();
+
+									var responseBody = response.Get<string>("Body");
+									var body = responseBody != null ? responseBody.Base64ToBytes().Decompress(response.Get("BodyEncoding", "zstd")) : null;
+
+									headers = response.Get("Headers", new Dictionary<string, string>());
+									if (headers.TryGetValue("X-Node", out var nodeID))
+										headers["X-Service-Node"] = nodeID;
+									headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+									{
+										["Server-Timing"] = $"ngxPrepare;dur={stepwatch.ElapsedMilliseconds}",
+										["Cache-Control"] = context.GetHttpCacheControl(false, Handler.CacheClientMaxAge * 60, (Handler.CacheMaxAge - 15) * 60, false),
+										["X-Correlation-ID"] = correlationID,
+										["X-Node"] = Global.NodeID
+									};
+
+									context.SetResponseHeaders(response.Get("StatusCode", (int)HttpStatusCode.OK), headers);
+									if (body != null)
+										await context.WriteAsync(body, context.RequestAborted).ConfigureAwait(false);
+
+									requestInfo.SendSessionState(systemIdentityJson, Global.ServiceName + $".HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
 								}
-								else
-									context.ShowError(ex, isDebugLogEnabled);
-								await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing feeds => {ex.Message}", ex).ConfigureAwait(false);
+								catch (TaskCanceledException) { }
+								catch (OperationCanceledException) { }
+								catch (Exception ex)
+								{
+									if (ex is WampException wampException)
+									{
+										var wampDetails = wampException.GetDetails(requestInfo);
+										context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
+									}
+									else
+										context.ShowError(ex, isDebugLogEnabled);
+									await context.WriteLogsAsync("Http.Process.Requests", $"Error occurred while processing feeds => {ex.Message}", ex).ConfigureAwait(false);
+								}
+								finally
+								{
+									Global.Statistics.RpcCompleted();
+								}
 							}
 							break;
 
@@ -1849,33 +1887,28 @@ namespace net.vieapps.Services.Portals
 		{
 			ThreadPool.GetMaxThreads(out var maxWorker, out var maxIO);
 			ThreadPool.GetMinThreads(out var minWorker, out var minIO);
-			Global.Logger.LogInformation($"ThreadPool:\r\n\t- Max: {maxWorker:###,##0} / {maxIO:###,##0}\r\n\t- Min: {minWorker:###,##0} / {minIO:###,##0}");
+			Global.Logger.LogInformation($"ThreadPool - Workers: {minWorker:###,##0} / {maxWorker:###,##0} - Async IO: {minIO:###,##0} / {maxIO:###,##0}");
 
 			if (Global.Monitor && !string.IsNullOrWhiteSpace(logPath))
 			{
 				Handler.MonitorLogPath = Path.Combine(logPath, $"{Global.ServiceName.ToLower()}.http.{Environment.ProcessId}");
 				Global.Logger.LogInformation($"Start to monitor threadpool/cache - Log path => {Handler.MonitorLogPath}");
 
-				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Monitor:Cache:Interval"), out var interval) || interval < 0)
-					interval = 15000;
-				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Monitor:Cache:Warn"), out var warnQS) || warnQS < 0)
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{Global.ServiceName}:Monitor:Cache:Ping:Warn"), out var warnPing) || warnPing < 0)
+					warnPing = 5;
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{Global.ServiceName}:Monitor:Cache:Ping:Critical"), out var criticalPing) || criticalPing < 0)
+					criticalPing = 10;
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{Global.ServiceName}:Monitor:Cache:QueueSize:Warn"), out var warnQS) || warnQS < 0)
 					warnQS = 1000;
-				if (!Int32.TryParse(UtilityService.GetAppSetting("Portals:Monitor:Cache:Critical"), out var criticalQS) || criticalQS < 0)
+				if (!Int32.TryParse(UtilityService.GetAppSetting($"{Global.ServiceName}:Monitor:Cache:QueueSize:Critical"), out var criticalQS) || criticalQS < 0)
 					criticalQS = 5000;
 
-				Global.Cache.StartMonitor(
-					(msg, details) => Handler.OnMonitor("HTTP", msg, details),
-					(msg, _, ex) => Handler.OnMonitor("HTTP", msg, ("", 0, 0, 0), ex),
-					(msg, _) => Handler.OnMonitor("HTTP", msg, ("", 0, 0, 0)),
-					(msg, _, ex) => Handler.OnMonitor("HTTP", msg, ("", 0, 0, 0), ex),
-					interval, warnQS, criticalQS, Global.CancellationToken);
-
 				Handler.Cache.StartMonitor(
-					(msg, details) => Handler.OnMonitor("Service", msg, details),
-					(msg, _, ex) => Handler.OnMonitor("Service", msg, ("", 0, 0, 0), ex),
-					(msg, _) => Handler.OnMonitor("Service", msg, ("", 0, 0, 0)),
-					(msg, _, ex) => Handler.OnMonitor("Service", msg, ("", 0, 0, 0), ex),
-					interval, warnQS, criticalQS, Global.CancellationToken);
+					(msg, details) => Handler.OnMonitor(msg, details),
+					(msg, _, ex) => Handler.OnMonitor(msg, ("", 0, 0, 0), ex),
+					(msg, _) => Handler.OnMonitor(msg, ("", 0, 0, 0)),
+					(msg, _, ex) => Handler.OnMonitor(msg, ("", 0, 0, 0), ex),
+					Global.MonitorInterval * 1000, warnPing, criticalPing, warnQS, criticalQS, Global.CancellationToken);
 			}
 		}
 
@@ -1889,19 +1922,36 @@ namespace net.vieapps.Services.Portals
 			catch { }
 		}
 
-		internal static void OnMonitor(string prefix, string message, (string Level, long Total, long Interactive, long PingMiliseconds) details, Exception ex = null)
+		internal static void OnMonitor(string message, (string Level, long Total, long Interactive, long PingMiliseconds) details, Exception ex = null)
 		{
-			ThreadPool.GetAvailableThreads(out var workers, out var io);
 			var now = DateTime.Now;
+			var elapsedSeconds = (now - Global.MonitorLastTime).TotalSeconds;
 			var pid = Environment.ProcessId.ToString();
-			var logs = "PID: " + pid + " @ " + now.ToString("HH:mm:ss") + " -----\r\n";
+			var logs = $"{now:HH:mm:ss} - PID: {pid} - HTTP {Global.ServiceName} @ {Global.NodeID} -----\r\n";
 			if (string.IsNullOrWhiteSpace(details.Level))
+			{
 				logs += message;
+				if (ex != null)
+					logs += "\r\n" + ex.Message + " [" + ex.GetTypeName(true) + "]" + "\r\n" + "Stack: " + ex.GetStack(false);
+			}
 			else
-				logs += "Available threads - Workers: " + workers.ToString("###,##0") + " / Async IO: " + io.ToString("###,##0")	+ "\r\n" + prefix + " Caching: " + message;
-			if (ex != null)
-				logs += "\r\n" + ex.Message + " [" + ex.GetTypeName(true) + "]\r\nStack: " + ex.StackTrace;
+			{
+				ThreadPool.GetAvailableThreads(out var availableWorkers, out var availableIO);
+				ThreadPool.GetMaxThreads(out var maxWorkers, out var maxIO);
+				var currentWorkers = maxWorkers - availableWorkers;
+				var currentIO = maxIO - availableIO;
+				logs += $"ThreadPool - Workers: {currentWorkers:###,##0} / {maxWorkers:###,##0} | Async IO: {currentIO:###,##0} / {maxIO:###,##0}" + "\r\n"
+					+ $"Requests - Rate: {Global.Statistics.GetRequestsRate(elapsedSeconds):0.00}/s | InFlight: {Global.Statistics.RequestsInFlight:###,###,###,##0} | Total: {Global.Statistics.RequestsTotal:###,###,###,##0}" + "\r\n"
+					+ $"Cache ({Handler.Cache.Provider})" + "\r\n" + $"  Status - {message}" + "\r\n";
+				if (Handler.Cache.UseL1Cache)
+					logs += $"  L1 - Hit Rate: {Global.Statistics.GetL1HitRate():0.##}% | Miss: {Global.Statistics.L1MissCount:###,###,###,##0} | 200: {Global.Statistics.L1Hit200Count:###,###,###,##0} | 304: {Global.Statistics.L1Hit304Count:###,###,###,##0} | Total: {Handler.Cache.GetL1CacheCount():###,###,###,##0}" + "\r\n";
+				logs += "  " + (Handler.Cache.UseL1Cache ? "L2" : "Stats") + $" - Hit Rate: {Global.Statistics.GetL2HitRate(Handler.Cache.UseL1Cache):0.##}% | Miss: {Global.Statistics.L2MissCount:###,###,###,##0} | 200: {Global.Statistics.L2Hit200Count:###,###,###,##0} | 304: {Global.Statistics.L2Hit304Count:###,###,###,##0}" + "\r\n"
+					+ "RPC" + "\r\n"
+					+ $"  Gate - Usage: {(Global.RpcGate.Usage * 100):0.00}% | Current: {Global.RpcGate.Current:###,##0} | Available: {Global.RpcGate.Available:###,##0} | Max: {Global.RpcGate.Max:###,##0}" + "\r\n"
+					+ $"  Call - Rate: {Global.Statistics.GetRpcRate(elapsedSeconds):0.00}/s | InFlight: {Global.Statistics.RpcInFlightCount:###,###,###,##0} | Rejected: {Global.Statistics.RpcRejectedCount:###,###,###,##0} | Entered: {Global.Statistics.RpcEnteredCount:###,###,###,##0}";
+			}
 			logs += "\r\n\r\n";
+			Global.MonitorLastTime = now;
 			if (!Global.CancellationTokenSource.IsCancellationRequested)
 				File.AppendAllTextAsync(Handler.MonitorLogPath + "-" + now.ToString("yyyyMMddHH") + "-monitor.txt", logs, Global.CancellationToken).Execute();
 		}
@@ -1945,7 +1995,7 @@ namespace net.vieapps.Services.Portals
 				}
 
 				// visit logs
-				else
+				else if (!context.Request.Method.IsEquals("HEAD"))
 				{
 					context.SetItem("PipelineStopwatch", Stopwatch.StartNew());
 					if (Global.IsVisitLogEnabled && !context.GetRequestUri().AbsolutePath.IsStartsWith("/~hits"))
@@ -2186,6 +2236,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no info) [{context.GetL1CacheKey()} => {url}]").ConfigureAwait(false);
+				Global.Statistics.L1Miss();
 				return false;
 			}
 
@@ -2196,6 +2247,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no required info) [{context.GetL1CacheKey()} => {contentType} @ {eTag}]").ConfigureAwait(false);
+				Global.Statistics.L1Miss();
 				return context.RemoveL1Cache(info.BodyCacheKey);
 			}
 
@@ -2203,6 +2255,7 @@ namespace net.vieapps.Services.Portals
 			{
 				if (isDebugLogEnabled)
 					await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (expired) [{context.GetL1CacheKey()} => {expiresAt.FromHttpDateTime().ToIsoString()}]").ConfigureAwait(false);
+				Global.Statistics.L1Miss();
 				return context.RemoveL1Cache(info.BodyCacheKey);
 			}
 
@@ -2263,6 +2316,7 @@ namespace net.vieapps.Services.Portals
 				{
 					if (isDebugLogEnabled)
 						await context.WriteLogsAsync("Http.Process.Requests", $"Stop process L1-Cache (no body) [{context.GetL1CacheKey()} => {url}]").ConfigureAwait(false);
+					Global.Statistics.L1Miss();
 					return context.RemoveL1Cache(info.BodyCacheKey);
 				}
 
@@ -2319,6 +2373,8 @@ namespace net.vieapps.Services.Portals
 				context.SendSessionStateAsync(true, Handler.TrackPortalStatistics),
 				context.WriteLogsAsync("Http.Process.Requests", $"Process L1-Cache was done - Execution times: {stopwatch.GetElapsedTimes()}{(isDebugLogEnabled ? $"\r\n[{context.GetL1CacheKey()}] => {url}\r\nInfo: {info.ToJson()}" : "")}")
 			).Execute();
+
+			Global.Statistics.L1Hit(body == null);
 			return true;
 		}
 
