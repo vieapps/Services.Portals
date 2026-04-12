@@ -100,6 +100,18 @@ namespace net.vieapps.Services.Portals
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await content.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			var cacheKeys = (clearDataCache ? dataCacheKeys : []).Concat(clearHtmlCache ? htmlCacheKeys : []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			await new[] { content.CategoryID }.Concat(content.OtherCategories ?? []).ForEachAsync(async (categoryID, cancellationtoken) =>
+			{
+				var category = await categoryID.GetCategoryByIDAsync(cancellationtoken).ConfigureAwait(false);
+				if (category.ParentCategory == null)
+				{
+					var desktops = await category.FindDesktopsAsync(cancellationtoken).ConfigureAwait(false);
+					await desktops.ForEachAsync(async desktop =>
+					{
+						cacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationtoken).ConfigureAwait(false) ?? []);
+					}, true, false).ConfigureAwait(false);
+				}
+			}, cancellationToken, true, false).ConfigureAwait(false);
 			var writeLogs = isWriteLogs || Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(
@@ -1174,8 +1186,10 @@ namespace net.vieapps.Services.Portals
 					// get data
 					data = dataXml.CleanInvalidCharacters().ToString(SaveOptions.DisableFormatting);
 
-					// update cache
+					// object graph
 					var cacheKeys = objects.Select(@object => @object.GetCacheKeyOfAlias()).Concat([cacheKeyOfObjectsXml, cacheKeyOfObjects, cacheKeyOfTotalObjects, cacheKeyOfPageSize]);
+					var portlet = await Portlet.GetAsync(requestJson.Get("ID", ""), Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
+					var expression = category != null ? await expressionJson.Get("ID", "").GetExpressionByIDAsync(cancellationToken).ConfigureAwait(false) : null;
 					Task.WhenAll
 					(
 						expiresAt != null
@@ -1187,7 +1201,14 @@ namespace net.vieapps.Services.Portals
 							? Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, Utility.CancellationToken)
 							: Task.CompletedTask,
 						category != null
-							? Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey(), cacheKeys, Utility.CancellationToken)
+							? Task.WhenAll
+							(
+								Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey(), cacheKeys, Utility.CancellationToken),
+								Utility.Cache.AddSetMemberAsync(category.GetSetCacheKey("Portlets"), portlet.ID, Utility.CancellationToken),
+								expression != null
+									? Utility.Cache.AddSetMemberAsync(category.GetSetCacheKey("Expressions"), expression.ID, Utility.CancellationToken)
+									: Task.CompletedTask
+							)
 							: Task.CompletedTask,
 						isCacheLogEnabled
 							? requestInfo.WriteLogAsync($"Update related keys into set (Content-Type and Categoory) when generate collection of CMS.Content [{contentType?.Title} - ID: {contentType?.ID} - Set: {contentType?.GetSetCacheKey()} / {category?.GetSetCacheKey()}]", "Caches")

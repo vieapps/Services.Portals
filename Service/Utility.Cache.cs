@@ -1125,6 +1125,18 @@ namespace net.vieapps.Services.Portals
 			return desktops;
 		}
 
+		internal static async Task<List<Desktop>> FindDesktopsAsync(this Category category, CancellationToken cancellationToken)
+		{
+			var desktops = new List<Desktop>();
+			var portletIDs = await Utility.Cache.GetSetMembersAsync(category.GetSetCacheKey("Portlets"), cancellationToken).ConfigureAwait(false) ?? [];
+			await portletIDs.ForEachAsync(async (portletID, cancellationtoken) =>
+			{
+				var portlet = await Portlet.GetAsync(portletID, Utility.IsCacheAvailable(), cancellationtoken).ConfigureAwait(false);
+				desktops.Add(portlet.OriginalPortlet.Desktop);
+			}, cancellationToken, true, false).ConfigureAwait(false);
+			return desktops;
+		}
+
 		internal static async Task<List<Desktop>> FindDesktopsAsync(this IBusinessObject @object, CancellationToken cancellationToken)
 		{
 			var desktops = new List<Desktop>();
@@ -1174,16 +1186,6 @@ namespace net.vieapps.Services.Portals
 			return Portlet.FindAsync(filter, sort, cancellationToken);
 		}
 
-		internal static Task<List<Expression>> FindExpressionsAsync(this ContentType contentType, CancellationToken cancellationToken)
-		{
-			var filter = Filters<Expression>.And
-			(
-				Filters<Expression>.Equals("RepositoryEntityID", contentType.ID)
-			);
-			var sort = Sorts<Expression>.Ascending("Title");
-			return Expression.FindAsync(filter, sort, 0, 1, Utility.IsCacheAvailable(), null, cancellationToken);
-		}
-
 		internal static Task<List<Portlet>> FindPortletsAsync(this Expression expression, CancellationToken cancellationToken)
 		{
 			var filter = Filters<Portlet>.And
@@ -1193,6 +1195,16 @@ namespace net.vieapps.Services.Portals
 			);
 			var sort = Sorts<Portlet>.Ascending("DesktopID").ThenByAscending("Zone").ThenByAscending("OrderIndex");
 			return Portlet.FindAsync(filter, sort, cancellationToken);
+		}
+
+		internal static Task<List<Expression>> FindExpressionsAsync(this ContentType contentType, CancellationToken cancellationToken)
+		{
+			var filter = Filters<Expression>.And
+			(
+				Filters<Expression>.Equals("RepositoryEntityID", contentType.ID)
+			);
+			var sort = Sorts<Expression>.Ascending("Title");
+			return Expression.FindAsync(filter, sort, 0, 1, Utility.IsCacheAvailable(), null, cancellationToken);
 		}
 
 		internal static async Task<(List<Category> Objects, string CacheKeyOfObjects)> FindCategoriesAsync(this ContentType contentType, CancellationToken cancellationToken)
@@ -1224,6 +1236,18 @@ namespace net.vieapps.Services.Portals
 			return (objects.Where(@object => @object != null).ToList(), cacheKeyOfObjects);
 		}
 
+		internal static  async Task<List<Link>> FindLinksAsync(this Category category, CancellationToken cancellationToken)
+		{
+			var filter = Filters<Link>.And
+			(
+				Filters<Link>.Equals("SystemID", category.SystemID),
+				Filters<Link>.Equals("LookupRepositoryID", category.RepositoryID)
+			);
+			var sort = Sorts<Link>.Ascending("ParentID").ThenByAscending("OrderIndex");
+			var objects = await Link.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false) ?? [];
+			return objects.Where(@object => @object != null).ToList();
+		}
+
 		internal static async Task<List<Item>> FindItemsAsync(this ContentType contentType, int pageSize, int pageNumber, CancellationToken cancellationToken)
 		{
 			var filter = ItemProcessor.GetItemsFilter(contentType.SystemID, contentType.RepositoryID, contentType.ID);
@@ -1235,18 +1259,6 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.AddSetMembersAsync(contentType.ObjectCacheKeys, objects.Select(@object => @object?.GetCacheKey()), cancellationToken),
 				Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), objects.Select(@object => @object?.GetCacheKeyOfAlias()).Concat([cacheKeyOfObjects, Extensions.GetCacheKeyOfTotalObjects(filter, sort), Utility.GetCacheKeyOfPageSize(filter, sort)]), cancellationToken)
 			).ConfigureAwait(false);
-			return objects.Where(@object => @object != null).ToList();
-		}
-
-		internal static  async Task<List<Link>> FindLinksAsync(this Category category, CancellationToken cancellationToken)
-		{
-			var filter = Filters<Link>.And
-			(
-				Filters<Link>.Equals("SystemID", category.SystemID),
-				Filters<Link>.Equals("LookupRepositoryID", category.RepositoryID)
-			);
-			var sort = Sorts<Link>.Ascending("ParentID").ThenByAscending("OrderIndex");
-			var objects = await Link.FindAsync(filter, sort, 0, 1, null, cancellationToken).ConfigureAwait(false) ?? [];
 			return objects.Where(@object => @object != null).ToList();
 		}
 

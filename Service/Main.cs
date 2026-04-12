@@ -84,12 +84,6 @@ namespace net.vieapps.Services.Portals
 
 		int CacheClientMaxAge { get; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Cache:MaxAge:Client"), out var value) && value > 0 ? value : 13;
 
-		bool Monitor { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Monitor"));
-
-		DateTime MonitorLastTime { get; set; } = DateTime.Now;
-
-		string MonitorLogPath { get; set; }
-
 		string CrossOrigin { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:CrossOrigin")) ? "use-credentials" : "anonymous";
 
 		bool AllowSrcResourceFiles { get; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Desktops:Resources:AllowSrcFiles", "true"));
@@ -220,7 +214,7 @@ namespace net.vieapps.Services.Portals
 			}, onError);
 
 		public override Task StartAsync(string[] args = null, bool initializeRepository = true, Action<IService> next = null)
-			=> this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), initializeRepository, _ =>
+			=> this.StartAsync(args, (_, _) => this.RegisterCacheCommunicator(), initializeRepository, Utility.Cache, _ =>
 			{
 				this.UpdateDefinition(this.GetDefinition());
 				this.Logger?.LogDebug($"Portals' data files directory: {Utility.DataFilesDirectory ?? "None"}");
@@ -332,11 +326,6 @@ namespace net.vieapps.Services.Portals
 						})).ConfigureAwait(false);
 					}
 				}, 5 * 60);
-
-				// monitor
-				var logPath = this.Monitor ? UtilityService.GetAppSetting("Path:Logs") : null;
-				if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
-					this.StartMonitor(logPath);
 
 				// last action
 				next?.Invoke(this);
@@ -6102,12 +6091,8 @@ namespace net.vieapps.Services.Portals
 
 			else if (message.Type.IsEquals("Monitor#Enable") || message.Type.IsEquals("Monitor#Start") || message.Type.IsEquals($"{this.ServiceName}#Monitor#Start"))
 			{
-				var logPath = UtilityService.GetAppSetting("Path:Logs");
-				if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
-				{
-					this.Monitor = true;
-					this.StartMonitor(logPath);
-				}
+				this.Monitor = true;
+				this.StartMonitor();
 			}
 
 			else if (message.Type.IsEquals("Monitor#Disable") || message.Type.IsEquals("Monitor#Stop") || message.Type.IsEquals($"{this.ServiceName}#Monitor#Stop"))
@@ -7173,48 +7158,20 @@ namespace net.vieapps.Services.Portals
 		}
 		#endregion
 
-		#region Monitor threadpool/cache
-		void StartMonitor(string logPath)
-		{
-			ThreadPool.GetMaxThreads(out var maxWorker, out var maxIO);
-			ThreadPool.GetMinThreads(out var minWorker, out var minIO);
-			this.Logger.LogInformation($"ThreadPool - Workers: {minWorker:###,##0} / {maxWorker:###,##0} - Async IO: {minIO:###,##0} / {maxIO:###,##0}");
+		#region Monitors
+		void StartMonitor()
+			=> this.StartMonitor(Utility.Cache, UtilityService.GetAppSetting("Path:Logs"));
 
-			if (this.Monitor && !string.IsNullOrWhiteSpace(logPath))
-			{
-				this.MonitorLogPath = Path.Combine(logPath, this.ServiceName.ToLower());
-				this.Logger.LogInformation($"Start to monitor threadpool/cache - Log path => {this.MonitorLogPath}...txt");
+		public virtual void StopMonitor()
+			=> this.StopMonitor(Utility.Cache);
 
-				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Interval"), out var interval) || interval < 0)
-					interval = 5;
-				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:Ping:Warn"), out var warnPing) || warnPing < 0)
-					warnPing = 5;
-				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:Ping:Critical"), out var criticalPing) || criticalPing < 0)
-					criticalPing = 10;
-				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:QueueSize:Warn"), out var warnQS) || warnQS < 0)
-					warnQS = 1000;
-				if (!Int32.TryParse(UtilityService.GetAppSetting($"{this.ServiceName}:Monitor:Cache:QueueSize:Critical"), out var criticalQS) || criticalQS < 0)
-					criticalQS = 5000;
-
-				Utility.Cache.StartMonitor(
-					(msg, details) => this.OnMonitor(msg, details),
-					(msg, _, ex) => this.OnMonitor(msg, ("", 0, 0, 0), ex),
-					(msg, _) => this.OnMonitor(msg, ("", 0, 0, 0)),
-					(msg, _, ex) => this.OnMonitor(msg, ("", 0, 0, 0), ex),
-					interval * 1000, warnPing, criticalPing, warnQS, criticalQS, this.CancellationToken);
-			}
-		}
-
-		void StopMonitor()
-			=> Utility.Cache.StopMonitor();
-
-		void OnMonitor(string message, (string Level, long Total, long Interactive, long PingMiliseconds) details, Exception ex = null)
+		public override void OnMonitor(string message, (string Level, long Total, long Interactive, long PingMiliseconds) details, Exception ex = null)
 		{
 			ThreadPool.GetAvailableThreads(out var workers, out var io);
 			var now = DateTime.Now;
 			var elapsedSeconds = (now - this.MonitorLastTime).TotalSeconds;
 			var pid = Environment.ProcessId.ToString();
-			var logs = $"{now:HH:mm:ss} - PID: {pid} - {this.ServiceName} @ {this.NodeID} -----\r\n";
+			var logs = $"{this.ServiceName} @ {this.NodeID} - PID: {pid} - {now:HH:mm:ss} -----\r\n";
 			if (string.IsNullOrWhiteSpace(details.Level))
 			{
 				logs += message;
@@ -7232,7 +7189,7 @@ namespace net.vieapps.Services.Portals
 			}
 			logs += "\r\n\r\n";
 			if (!this.CancellationTokenSource.IsCancellationRequested)
-				File.AppendAllTextAsync(this.MonitorLogPath + "-" + now.ToString("yyyyMMddHH") + "-monitor.txt", logs, this.CancellationToken).Execute();
+				File.AppendAllTextAsync(this.MonitorLogFilePath + "-" + now.ToString("yyyyMMddHH") + "-monitor.txt", logs, this.CancellationToken).Execute();
 		}
 		#endregion
 
