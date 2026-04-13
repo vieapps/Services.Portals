@@ -47,6 +47,7 @@ namespace net.vieapps.Services.Portals
 						throw new SystemBusyException();
 					}
 					Global.Statistics.RpcEntered();
+					var stopwatch = Stopwatch.StartNew();
 					using (ticket.Value)
 					{
 						try
@@ -61,7 +62,7 @@ namespace net.vieapps.Services.Portals
 						}
 						finally
 						{
-							Global.Statistics.RpcCompleted();
+							Global.Statistics.RpcCompleted(stopwatch);
 						}
 					}
 				}
@@ -264,6 +265,7 @@ namespace net.vieapps.Services.Portals
 
 			// process the request
 			RouterRpcGate.Releaser? ticket = null;
+			var stepwatch = Stopwatch.StartNew();
 			try
 			{
 				// send communicate message
@@ -407,7 +409,7 @@ namespace net.vieapps.Services.Portals
 			finally
 			{
 				if (ticket != null)
-					Global.Statistics.RpcCompleted();
+					Global.Statistics.RpcCompleted(stepwatch);
 			}
 
 			if (Global.IsVisitLogEnabled || isDebugLogEnabled)
