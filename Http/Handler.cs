@@ -511,12 +511,23 @@ namespace net.vieapps.Services.Portals
 						requestInfo.SendSessionState(systemIdentityJson, Global.ServiceName + ".HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
 
 					// examinations
-					var examinations = isRefresher || "~resources".IsEquals(systemIdentity) || "~indicators".IsEquals(systemIdentity) || (context.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx")) ? null : systemIdentityJson?.Get<JArray>("CacheExaminations")?.Select(exam => exam as JObject).Where(exam => exam != null).Select(exam => exam?.Copy<Settings.ExamineURLs>()).Where(exam => exam != null).ToList();
-					if (examinations != null && examinations.Count > 0)
+					var now = DateTime.Now;
+					var examinations = systemIdentityJson?.Get<JArray>("CacheExaminations")?.Select(exam => exam as JObject)
+						.Where(exam => exam != null)
+						.Select(exam => exam?.Copy<Settings.ExamineURLs>())
+						.Where(exam => exam != null)
+						.ToList();
+
+					var gotExamination = examinations != null && examinations.Any(exam => now >= exam.Start && now <= exam.End);
+					var canBypassExaminations = isRefresher || "~resources".IsEquals(systemIdentity) || "~indicators".IsEquals(systemIdentity) || (context.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx"));
+					if (isDebugLogEnabled)
+						await context.WriteLogsAsync("Http.Process.Examinations", $"Examinations [{gotExamination}/{canBypassExaminations}]{examinations?.ToJson()}").ConfigureAwait(false);
+
+					if (gotExamination && !canBypassExaminations)
 					{
 						var path = requestURI.AbsolutePath.ToLower();
 						var pathWithoutExtention = path.Replace("/default.aspx", "").Replace(".aspx", "").Replace(".php", "").Replace(".html", "");
-						var examination = examinations.FirstOrDefault(exam => exam.Start <= DateTime.Now && exam.End >= DateTime.Now && ((exam.URLs.Any(url => url.IsStartsWith("s:/") ? path.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? path.IsContains(url.Right(url.Length - 2)) : path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/") ? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? pathWithoutExtention.IsContains(url.Right(url.Length - 2)) : pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*"))));
+						var examination = examinations.FirstOrDefault(exam => exam.Start <= now && exam.End >= now && ((exam.URLs.Any(url => url.IsStartsWith("s:/") ? path.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? path.IsContains(url.Right(url.Length - 2)) : path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/") ? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? pathWithoutExtention.IsContains(url.Right(url.Length - 2)) : pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*"))));
 						if (examination != null)
 						{
 							var seconds = UtilityService.GetRandomNumber(examination.WaitSecondsMin, examination.WaitSecondsMax);
@@ -531,14 +542,13 @@ namespace net.vieapps.Services.Portals
 					}
 
 					// process with cache
-					var noExamination = examinations == null || !examinations.Any(exam => exam.Start >= DateTime.Now && exam.End <= DateTime.Now);
 					var maxAge = Handler.CacheMaxAge * 60;
-					if (Handler.AllowCache && !isBypassCacheRequested && !context.IsAuthenticated())
+					if (Handler.AllowCache && !gotExamination && !isBypassCacheRequested && !context.IsAuthenticated())
 					{
 						var cacheKey = "";
 						var eTag = "";
 						var contentType = "text/html";
-						var expires = DateTime.Now.AddMinutes(Handler.CacheMaxAge);
+						var expires = now.AddMinutes(Handler.CacheMaxAge);
 						var baseURL = "";
 						var rootURL = "/";
 						var filesHttpURI = this.RemoveURITrail(systemIdentityJson?.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
@@ -546,7 +556,7 @@ namespace net.vieapps.Services.Portals
 
 						if ("~resources".IsEquals(systemIdentity))
 						{
-							expires = DateTime.Now.AddDays(366);
+							expires = now.AddDays(366);
 							string identity = null;
 							var isThemeResource = false;
 							var path = requestInfo.GetParameter("x-path");
@@ -706,7 +716,7 @@ namespace net.vieapps.Services.Portals
 								context.SetResponseHeaders((int)HttpStatusCode.NotModified, headers);
 
 								// update L1-cache
-								if (noExamination)
+								if (!gotExamination)
 									context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
 
 								Global.Statistics.L2Hit304();
@@ -719,13 +729,13 @@ namespace net.vieapps.Services.Portals
 							stepwatch.Restart();
 							var isCacheLogEnabled = !isBase64 && (isDebugLogEnabled || context.ContainsKey("x-cache-logs"));
 							var cached = await Handler.Cache.GetAsync(cacheKey, context.RequestAborted).ConfigureAwait(false);
-							lastModified ??= (cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, context.RequestAborted).ConfigureAwait(false) : null) ?? DateTime.Now.ToHttpString();
+							lastModified ??= (cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfLastModified, context.RequestAborted).ConfigureAwait(false) : null) ?? now.ToHttpString();
 							
 							var expirationTime = Handler.Cache.ExpirationTime;
 							var expiresAt = !isBase64 && isHtml && cached != null ? await Handler.Cache.GetAsync<string>(cacheKeyOfExpiration, context.RequestAborted).ConfigureAwait(false) : null;
 							if (expiresAt != null && DateTime.TryParse(expiresAt, out var expiresAtTime))
 							{
-								expirationTime = (expiresAtTime - DateTime.Now).TotalMinutes.As<int>();
+								expirationTime = (expiresAtTime - now).TotalMinutes.As<int>();
 								expires = expiresAtTime;
 								maxAge = (int)expires.GetTotalSecondsToNow();
 							}
@@ -746,13 +756,13 @@ namespace net.vieapps.Services.Portals
 								if (expiresAt != null)
 									items[cacheKeyOfExpiration] = expires.ToIsoString(true);
 
-								Handler.Cache.SetAsync(items, null, DateTime.Now.AddMinutes(expirationTime), Global.CancellationToken).Execute();
+								Handler.Cache.SetAsync(items, null, now.AddMinutes(expirationTime), Global.CancellationToken).Execute();
 								if (isCacheLogEnabled)
 									await context.WriteLogsAsync("Caches", $"Reupdate with sliding cache successful ({cacheKey} => {expirationTime} minutes)").ConfigureAwait(false);
 							}
 
 							// L1-Cache
-							if (cached != null && Handler.Cache.UseL1Cache && noExamination)
+							if (cached != null && Handler.Cache.UseL1Cache && !gotExamination)
 								context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
 
 							// normalize
@@ -776,7 +786,7 @@ namespace net.vieapps.Services.Portals
 								body = isBase64 ? cachedBody.Base64ToBytes() : cachedBody.ToBytes();
 
 								// update L2-cache
-								if (Handler.AllowBytesL2Cache && noExamination && baseURL == "")
+								if (Handler.AllowBytesL2Cache && !gotExamination && baseURL == "")
 								{
 									await Handler.Cache.SetAsync(cacheKey, body, context.RequestAborted).ConfigureAwait(false);
 									if (isCacheLogEnabled)
@@ -872,7 +882,7 @@ namespace net.vieapps.Services.Portals
 									? context.GetHttpCacheControl(isPrivate, Handler.CacheClientMaxAge * 60, maxAge - (15 * 60), false)
 									: context.GetHttpCacheControl();
 
-							if (Handler.Cache.UseL1Cache && noExamination && !context.IsAuthenticated() && !cacheControl.IsContains("private"))
+							if (Handler.Cache.UseL1Cache)
 							{
 								var filesHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
 								var portalsHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("PortalsHttpURI") ?? Handler.PortalsHttpURI);
@@ -884,7 +894,10 @@ namespace net.vieapps.Services.Portals
 									? "-default"
 									: requestURI.AbsolutePath.GetRequestedPath(organizationAlias, desktopAlias);
 								var cacheKey = systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID();
-								context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
+								if (!gotExamination && !context.IsAuthenticated() && !cacheControl.IsContains("private"))
+									context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
+								else
+									context.RemoveL1Cache(cacheKey);
 							}
 
 							headers = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
@@ -2459,6 +2472,7 @@ namespace net.vieapps.Services.Portals
 			else
 			{
 				var uri = new Uri(message.Data.Get<string>("URL"));
+				Handler.Cache.RemoveL1CacheItem(uri.Host.Replace("www.", ""));
 				if (uri.IsL1CacheAvailable(message.Data.Get<string>("PortalsHttpURI")))
 				{
 					var key = uri.GetL1CacheKey();
@@ -2617,9 +2631,35 @@ namespace net.vieapps.Services.Portals
 			var requestHost = requestURI.Host.Replace("www.", "");
 			var useL1Cache = Handler.Cache.UseL1Cache && context.IsL1CacheAvailable();
 			var systemIdentityJson = useL1Cache ? Handler.Cache.GetL1CacheItem<JObject>(requestHost) : null;
+
 			if (systemIdentityJson == null)
 			{
-				systemIdentityJson = await context.CallServiceAsync(requestInfo, cancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+				RouterRpcGate.Releaser? ticket = null;
+				var stopwatch = Stopwatch.StartNew();
+				try
+				{
+					ticket = await Global.RpcGate.TryEnterAsync(context.RequestAborted).ConfigureAwait(false);
+					if (ticket == null)
+					{
+						Global.Statistics.RpcRejected();
+						throw new SystemBusyException();
+					}
+					Global.Statistics.RpcEntered();
+					using (ticket.Value)
+					{
+						systemIdentityJson = await context.CallServiceAsync(requestInfo, cancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
+					}
+				}
+				catch (Exception)
+				{
+					throw;
+				}
+				finally
+				{
+					if (ticket != null)
+					Global.Statistics.RpcCompleted(stopwatch);
+				}
+
 				if (systemIdentityJson != null && useL1Cache)
 				{
 					var updateL1Cache = true;
@@ -2641,6 +2681,7 @@ namespace net.vieapps.Services.Portals
 					}
 				}
 			}
+
 			return systemIdentityJson;
 		}
 
