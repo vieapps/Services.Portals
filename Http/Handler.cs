@@ -511,37 +511,27 @@ namespace net.vieapps.Services.Portals
 						requestInfo.SendSessionState(systemIdentityJson, Global.ServiceName + ".HTTP", $"{requestMethod} {requestURI.AbsoluteUri}", Handler.TrackPortalStatistics);
 
 					// examinations
-					var now = DateTime.Now;
-					var examinations = systemIdentityJson?.Get<JArray>("CacheExaminations")?.Select(exam => exam as JObject)
-						.Where(exam => exam != null)
-						.Select(exam => exam?.Copy<Settings.ExamineURLs>())
-						.Where(exam => exam != null)
-						.ToList();
-
-					var gotExamination = examinations != null && examinations.Any(exam => now >= exam.Start && now <= exam.End);
+					var examinations = requestURI.GetExaminations(systemIdentityJson);
+					var gotExamination = examinations != null && examinations.Any();
 					var canBypassExaminations = isRefresher || "~resources".IsEquals(systemIdentity) || "~indicators".IsEquals(systemIdentity) || (context.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx"));
 					if (isDebugLogEnabled)
-						await context.WriteLogsAsync("Http.Process.Examinations", $"Examinations [{gotExamination}/{canBypassExaminations}]{examinations?.ToJson()}").ConfigureAwait(false);
+						await context.WriteLogsAsync("Http.Process.Requests", $"Examinations [{gotExamination}/{canBypassExaminations}]{examinations?.ToJson()}").ConfigureAwait(false);
 
 					if (gotExamination && !canBypassExaminations)
 					{
-						var path = requestURI.AbsolutePath.ToLower();
-						var pathWithoutExtention = path.Replace("/default.aspx", "").Replace(".aspx", "").Replace(".php", "").Replace(".html", "");
-						var examination = examinations.FirstOrDefault(exam => exam.Start <= now && exam.End >= now && ((exam.URLs.Any(url => url.IsStartsWith("s:/") ? path.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? path.IsContains(url.Right(url.Length - 2)) : path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/") ? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? pathWithoutExtention.IsContains(url.Right(url.Length - 2)) : pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*"))));
-						if (examination != null)
+						var examination = examinations.FirstOrDefault();
+						var seconds = UtilityService.GetRandomNumber(examination.WaitSecondsMin, examination.WaitSecondsMax);
+						await context.WriteLogsAsync("Http.Process.Requests", $"Do the examination in {seconds} seconds => {requestURI}{("Continue".IsEquals(examination.ResponseMode) ? "" : $" [{examination.ResponseCode}: {examination.ResponseType} - {examination.ResponseMessage}]")}").ConfigureAwait(false);
+						await Task.Delay(seconds * 1000, context.RequestAborted).ConfigureAwait(false);
+						if (!"Continue".IsEquals(examination.ResponseMode))
 						{
-							var seconds = UtilityService.GetRandomNumber(examination.WaitSecondsMin, examination.WaitSecondsMax);
-							await context.WriteLogsAsync("Http.Process.Examinations", $"Do the examination in {seconds} seconds => {requestURI}{("Continue".IsEquals(examination.ResponseMode) ? "" : $" [{examination.ResponseCode}: {examination.ResponseType} - {examination.ResponseMessage}]")}").ConfigureAwait(false);
-							await Task.Delay(seconds * 1000, context.RequestAborted).ConfigureAwait(false);
-							if (!"Continue".IsEquals(examination.ResponseMode))
-							{
-								context.ShowError(examination.ResponseCode, examination.ResponseMessage, examination.ResponseType, correlationID);
-								return;
-							}
+							context.ShowError(examination.ResponseCode, examination.ResponseMessage, examination.ResponseType, correlationID);
+							return;
 						}
 					}
 
 					// process with cache
+					var now = DateTime.Now;
 					var maxAge = Handler.CacheMaxAge * 60;
 					if (Handler.AllowCache && !gotExamination && !isBypassCacheRequested && !context.IsAuthenticated())
 					{
@@ -1955,8 +1945,8 @@ namespace net.vieapps.Services.Portals
 				var currentWorkers = maxWorkers - availableWorkers;
 				var currentIO = maxIO - availableIO;
 				var requestsRate = Global.Statistics.GetRequestsRate(elapsedSeconds);
-				var l1HitRatio = Global.Statistics.GetL1HitRatio();
-				var l2HitRatio = Global.Statistics.GetL2HitRatio(Handler.Cache.UseL1Cache);
+				var cacheL1HitRatio = Global.Statistics.GetCacheL1HitRatio();
+				var cacheL2HitRatio = Global.Statistics.GetCacheL2HitRatio(Handler.Cache.UseL1Cache);
 				var rpcEnteredRate = Global.Statistics.GetRpcEnteredRate(elapsedSeconds);
 				var rpcCompletedRate = Global.Statistics.GetRpcCompletedRate(elapsedSeconds);
 
@@ -1981,14 +1971,14 @@ namespace net.vieapps.Services.Portals
 						CacheTotalQueue = state.Total,
 						CacheInteractiveQueue = state.Interactive,
 						CachePingMilliseconds = state.PingMilliseconds,
-						L1Hit304 = Global.Statistics.L1Hit304Count,
-						L1Hit200 = Global.Statistics.L1Hit200Count,
-						L1Miss = Global.Statistics.L1MissCount,
-						L1HitRatio = l1HitRatio,
-						L2Hit304 = Global.Statistics.L2Hit304Count,
-						L2Hit200 = Global.Statistics.L2Hit200Count,
-						L2Miss = Global.Statistics.L2MissCount,
-						L2HitRatio = l2HitRatio,
+						CacheL1Hit304 = Global.Statistics.CacheL1Hit304Count,
+						CacheL1Hit200 = Global.Statistics.CacheL1Hit200Count,
+						CacheL1Miss = Global.Statistics.CacheL1MissCount,
+						CacheL1HitRatio = cacheL1HitRatio,
+						CacheL2Hit304 = Global.Statistics.CacheL2Hit304Count,
+						CacheL2Hit200 = Global.Statistics.CacheL2Hit200Count,
+						CacheL2Miss = Global.Statistics.CacheL2MissCount,
+						CacheL2HitRatio = cacheL2HitRatio,
 						RpcGateMax = Global.RpcGate.Max,
 						RpcGateCurrent = Global.RpcGate.Current,
 						RpcGateAvailable = Global.RpcGate.Available,
@@ -1998,7 +1988,7 @@ namespace net.vieapps.Services.Portals
 						RpcCompletedRate = rpcCompletedRate,
 						RpcInFlight = Global.Statistics.RpcInFlightCount,
 						RpcRejected = Global.Statistics.RpcRejectedCount,
-						RpcAvgLatency = Global.Statistics.RpcAvgLatency,
+						RpcAverageLatency = Global.Statistics.RpcAverageLatency,
 						RpcMaxLatency = Global.Statistics.RpcMaxLatency
 					}.ToJson()
 				}.Send();
@@ -2007,12 +1997,12 @@ namespace net.vieapps.Services.Portals
 					+ $"Requests - Rate: {requestsRate:0.00}/s | InFlight: {Global.Statistics.RequestsInFlight:###,###,###,##0} | Total: {Global.Statistics.RequestsTotal:###,###,###,##0}" + "\r\n"
 					+ $"Cache ({Handler.Cache.Provider})" + "\r\n" + $"  Status - {message}" + "\r\n";
 				if (Handler.Cache.UseL1Cache)
-					logs += $"  L1 - Hit Ratio: {l1HitRatio:0.##}% | Miss: {Global.Statistics.L1MissCount:###,###,###,##0} | 200: {Global.Statistics.L1Hit200Count:###,###,###,##0} | 304: {Global.Statistics.L1Hit304Count:###,###,###,##0} | Total: {Global.Cache.GetL1CacheCount():###,###,###,##0}" + "\r\n";
-				logs += "  " + (Handler.Cache.UseL1Cache ? "L2" : "Stats") + $" - Hit Ratio: {l2HitRatio:0.##}% | Miss: {Global.Statistics.L2MissCount:###,###,###,##0} | 200: {Global.Statistics.L2Hit200Count:###,###,###,##0} | 304: {Global.Statistics.L2Hit304Count:###,###,###,##0}" + "\r\n"
+					logs += $"  L1 - Hit Ratio: {cacheL1HitRatio:0.##}% | Miss: {Global.Statistics.CacheL1MissCount:###,###,###,##0} | 200: {Global.Statistics.CacheL1Hit200Count:###,###,###,##0} | 304: {Global.Statistics.CacheL1Hit304Count:###,###,###,##0} | Total: {Handler.Cache.GetL1CacheCount():###,###,###,##0}" + "\r\n";
+				logs += "  " + (Handler.Cache.UseL1Cache ? "L2" : "Stats") + $" - Hit Ratio: {cacheL2HitRatio:0.##}% | Miss: {Global.Statistics.CacheL2MissCount:###,###,###,##0} | 200: {Global.Statistics.CacheL2Hit200Count:###,###,###,##0} | 304: {Global.Statistics.CacheL2Hit304Count:###,###,###,##0}" + "\r\n"
 					+ "RPC" + "\r\n"
 					+ $"  Gate - Usage: {(Global.RpcGate.Usage * 100):0.00}% | Current: {Global.RpcGate.Current:###,##0} | Available: {Global.RpcGate.Available:###,##0} | Max: {Global.RpcGate.Max:###,##0}" + "\r\n"
 					+ $"  Call - In: {rpcEnteredRate:0.00}/s | Out: {rpcCompletedRate:0.00}/s | InFlight: {Global.Statistics.RpcInFlightCount:###,###,###,##0} | Rejected: {Global.Statistics.RpcRejectedCount:###,###,###,##0} | Completed: {Global.Statistics.RpcCompletedCount:###,###,###,##0} | Entered: {Global.Statistics.RpcEnteredCount:###,###,###,##0}" + "\r\n"
-					+ $"  Latency - Avg: {Global.Statistics.RpcAvgLatency:###,##0}ms | Max: {Global.Statistics.RpcMaxLatency:###,##0}ms";
+					+ $"  Latency - Avg: {Global.Statistics.RpcAverageLatency:###,##0}ms | Max: {Global.Statistics.RpcMaxLatency:###,##0}ms";
 			}
 			logs += "\r\n\r\n";
 
@@ -2227,6 +2217,28 @@ namespace net.vieapps.Services.Portals
 
 	internal static class HandlerExtentions
 	{
+		public static IEnumerable<Settings.ExamineURLs> GetExaminations(this Uri requestURI, JObject systemIdentityJson)
+		{
+			var examinations = systemIdentityJson?.Get<JArray>("CacheExaminations")?.Select(exam => exam as JObject).Where(exam => exam != null).Select(exam => exam?.Copy<Settings.ExamineURLs>()).Where(exam => exam != null);
+			if (examinations != null && examinations.Count() > 0)
+			{
+				var now = DateTime.Now;
+				var path = requestURI.AbsolutePath.ToLower();
+				var pathWithoutExtention = path.Replace("/default.aspx", "").Replace(".aspx", "").Replace(".php", "").Replace(".html", "");
+				examinations = examinations.Where(exam => exam.Start <= now && exam.End >= now && ((exam.URLs.Any(url => url.IsStartsWith("s:/")
+					? path.IsStartsWith(url.Right(url.Length - 2))
+					: url.IsStartsWith("c:/")
+						? path.IsContains(url.Right(url.Length - 2))
+						: path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/")
+							? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2))
+							: url.IsStartsWith("c:/")
+								? pathWithoutExtention.IsContains(url.Right(url.Length - 2))
+								: pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*")))
+				);				
+			}
+			return examinations;
+		}
+
 		public static string GetBaseURL(this Uri requestURI, string systemIdentity, bool alwaysUseHTTPs = false)
 			=> requestURI.AbsolutePath.IsStartsWith($"/~{systemIdentity}") ? $"{(alwaysUseHTTPs ? "https" : requestURI.Scheme)}://{requestURI.Host}/~{systemIdentity}/" : "";
 
