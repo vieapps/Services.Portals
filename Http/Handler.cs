@@ -1898,13 +1898,13 @@ namespace net.vieapps.Services.Portals
 				Global.Logger.LogInformation($"Start to monitor threadpool/cache - Log path => {Handler.MonitorLogPath}");
 
 				if (!Int32.TryParse(UtilityService.GetAppSetting($"{Global.ServiceName}:Monitor:Cache:Ping:Warn"), out var warnPing) || warnPing < 0)
-					warnPing = 5;
+					warnPing = 0;
 				if (!Int32.TryParse(UtilityService.GetAppSetting($"{Global.ServiceName}:Monitor:Cache:Ping:Critical"), out var criticalPing) || criticalPing < 0)
-					criticalPing = 10;
+					criticalPing = 0;
 				if (!Int32.TryParse(UtilityService.GetAppSetting($"{Global.ServiceName}:Monitor:Cache:QueueSize:Warn"), out var warnQS) || warnQS < 0)
-					warnQS = 1000;
+					warnQS = 0;
 				if (!Int32.TryParse(UtilityService.GetAppSetting($"{Global.ServiceName}:Monitor:Cache:QueueSize:Critical"), out var criticalQS) || criticalQS < 0)
-					criticalQS = 5000;
+					criticalQS = 0;
 
 				Handler.Cache.StartMonitor(
 					(msg, details) => Handler.OnMonitor(msg, details),
