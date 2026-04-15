@@ -29,6 +29,7 @@ namespace net.vieapps.Services.Portals
 		{
 			if (!context.Request.Method.IsEquals("OPTIONS"))
 			{
+				Global.Statistics.IncreaseRequest(false);
 				try
 				{
 					await context.ProcessMcpRequestAsync().ConfigureAwait(false);
@@ -37,6 +38,7 @@ namespace net.vieapps.Services.Portals
 				{
 					await context.ShowErrorAsync(ex, context.GetItem<JObject>("RequestBody")?.Get<string>("id"), Global.CancellationToken).ConfigureAwait(false);
 				}
+				Global.Statistics.DecreaseRequest(false);
 				if (Global.IsVisitLogEnabled)
 					await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 			}
@@ -1022,7 +1024,33 @@ namespace net.vieapps.Services.Portals
 			);
 		}
 
-		static Task<JToken> ProcessRequestAsync(this RequestInfo requestInfo, CancellationToken cancellationToken)
-			=> Router.GetService(requestInfo.ServiceName).ProcessMcpRequestAsync(requestInfo, cancellationToken);
+		static async Task<JToken> ProcessRequestAsync(this RequestInfo requestInfo, CancellationToken cancellationToken)
+		{
+			RouterRpcGate.Releaser? ticket = null;
+			var stopwatch = Stopwatch.StartNew();
+			try
+			{
+				ticket = await Global.RpcGate.TryEnterAsync(cancellationToken).ConfigureAwait(false);
+				if (ticket == null)
+				{
+					Global.Statistics.RpcRejected();
+					throw new SystemBusyException();
+				}
+				Global.Statistics.RpcEntered();
+				using (ticket.Value)
+				{
+					return await Router.GetService(requestInfo.ServiceName).ProcessMcpRequestAsync(requestInfo, cancellationToken).ConfigureAwait(false);
+				}
+			}
+			catch (Exception)
+			{
+				throw;
+			}
+			finally
+			{
+				if (ticket != null)
+					Global.Statistics.RpcCompleted(stopwatch);
+			}
+		}
 	}
 }

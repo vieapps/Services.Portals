@@ -40,30 +40,34 @@ namespace net.vieapps.Services.Portals
 					).ConfigureAwait(false);
 				else
 				{
-					var ticket = await Global.RpcGate.TryEnterAsync(context.RequestAborted).ConfigureAwait(false);
-					if (ticket == null)
-					{
-						Global.Statistics.RpcRejected();
-						throw new SystemBusyException();
-					}
-					Global.Statistics.RpcEntered();
+					Global.Statistics.IncreaseRequest(false);
+					RouterRpcGate.Releaser? ticket = null;
 					var stopwatch = Stopwatch.StartNew();
-					using (ticket.Value)
+					try
 					{
-						try
+						ticket = await Global.RpcGate.TryEnterAsync(context.RequestAborted).ConfigureAwait(false);
+						if (ticket == null)
+						{
+							Global.Statistics.RpcRejected();
+							throw new SystemBusyException();
+						}
+						Global.Statistics.RpcEntered();
+						using (ticket.Value)
 						{
 							await context.ProcessAPIsRequestAsync().ConfigureAwait(false);
 							if (Global.IsVisitLogEnabled)
 								await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
 						}
-						catch (Exception ex)
-						{
-							context.WriteError(Global.Logger, ex);
-						}
-						finally
-						{
+					}
+					catch (Exception ex)
+					{
+						context.WriteError(Global.Logger, ex);
+					}
+					finally
+					{
+						Global.Statistics.DecreaseRequest(false);
+						if (ticket != null)
 							Global.Statistics.RpcCompleted(stopwatch);
-						}
 					}
 				}
 			}
@@ -264,8 +268,8 @@ namespace net.vieapps.Services.Portals
 				, null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 
 			// process the request
+			Global.Statistics.IncreaseRequest(false);
 			RouterRpcGate.Releaser? ticket = null;
-			var stepwatch = Stopwatch.StartNew();
 			try
 			{
 				// send communicate message
@@ -408,8 +412,9 @@ namespace net.vieapps.Services.Portals
 			}
 			finally
 			{
+				Global.Statistics.DecreaseRequest(false);
 				if (ticket != null)
-					Global.Statistics.RpcCompleted(stepwatch);
+					Global.Statistics.RpcCompleted(stopwatch);
 			}
 
 			if (Global.IsVisitLogEnabled || isDebugLogEnabled)

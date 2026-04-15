@@ -2673,7 +2673,7 @@ namespace net.vieapps.Services.Portals
 				finally
 				{
 					if (ticket != null)
-					Global.Statistics.RpcCompleted(stopwatch);
+						Global.Statistics.RpcCompleted(stopwatch);
 				}
 
 				if (systemIdentityJson != null && useL1Cache)
