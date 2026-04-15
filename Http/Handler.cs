@@ -1927,9 +1927,10 @@ namespace net.vieapps.Services.Portals
 
 		internal static void OnMonitor(string message, (string Status, long Total, long Interactive, long PingMilliseconds) state, Exception ex = null)
 		{
-			var now = DateTime.Now;
+			var now = DateTime.UtcNow;
+			var nowLocal = now.ToLocalTime();
 			var elapsedSeconds = (now - Global.MonitorLastTime).TotalSeconds;
-			var pid = Environment.ProcessId.ToString();
+			var (pid, cpuUsage, memoryUsage) = Process.GetCurrentProcess().GetRuntimeEnviromentInfo();
 
 			var logs = $"{now:HH:mm:ss} - PID: {pid} - HTTP {Global.ServiceName} @ {Global.NodeID} -----\r\n";
 			if (string.IsNullOrWhiteSpace(state.Status))
@@ -1958,9 +1959,11 @@ namespace net.vieapps.Services.Portals
 					Data = new StatisticMessage
 					{
 						UseL1Cache = Handler.Cache.UseL1Cache,
-						Time = now,
+						Time = nowLocal,
 						ServiceName = Global.ServiceName,
 						NodeID = Global.NodeID,
+						CpuUsage = cpuUsage,
+						MemoryUsage = memoryUsage,
 						ThreadPoolWorkers = currentWorkers,
 						ThreadPoolAsyncIO = currentIO,
 						ThreadPoolMaxWorkers = maxWorkers,
@@ -1997,7 +2000,7 @@ namespace net.vieapps.Services.Portals
 					}.ToJson()
 				}.Send();
 
-				logs += $"ThreadPool - Workers: {currentWorkers:###,##0} / {maxWorkers:###,##0} | Async IO: {currentIO:###,##0} / {maxIO:###,##0}" + "\r\n"
+				logs += $"Environment Info - CPU: {cpuUsage:0.00}% | RAM: {memoryUsage:###,###,###,##0}MB | Workers: {currentWorkers:###,##0} / {maxWorkers:###,##0} | Async IO: {currentIO:###,##0} / {maxIO:###,##0}" + "\r\n"
 					+ $"Requests - Rate: {requestsRate:0.00}/s | InFlight: {Global.Statistics.RequestsInFlight:###,###,###,##0} | Total: {Global.Statistics.RequestsTotal:###,###,###,##0}" + "\r\n"
 					+ $"Cache ({Handler.Cache.Provider})" + "\r\n" + $"  Status - {message}" + "\r\n";
 				if (Handler.Cache.UseL1Cache)
@@ -2010,9 +2013,8 @@ namespace net.vieapps.Services.Portals
 			}
 			logs += "\r\n\r\n";
 
-			Global.MonitorLastTime = now;
 			if (!Global.CancellationTokenSource.IsCancellationRequested)
-				File.AppendAllTextAsync(Handler.MonitorLogPath + "-" + now.ToString("yyyyMMddHH") + "-monitor.txt", logs, Global.CancellationToken).Execute();
+				File.AppendAllTextAsync(Handler.MonitorLogPath + $".{pid}-{nowLocal:yyyyMMddHH}-monitor.txt", logs, Global.CancellationToken).Execute();
 		}
 	}
 
