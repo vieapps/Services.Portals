@@ -90,7 +90,8 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<ContentType> RefreshAsync(this ContentType contentType, CancellationToken cancellationToken, bool sendCommunicatingMessage = true)
 		{
 			await Utility.Cache.RemoveAsync(contentType, cancellationToken).ConfigureAwait(false);
-			contentType = await contentType.Remove().ID.GetContentTypeByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			contentType = await (contentType.Remove() ?? contentType).ID.GetContentTypeByIDAsync(cancellationToken, true).ConfigureAwait(false);
+
 			if (sendCommunicatingMessage)
 				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 				{
@@ -98,7 +99,8 @@ namespace net.vieapps.Services.Portals
 					Data = contentType.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
-			return contentType;
+
+			return contentType.Set(false);
 		}
 
 		public static List<ContentType> FindContentTypes(this string systemID, string repositoryID = null, string definitionID = null, bool updateCache = true)
@@ -153,17 +155,15 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a content-type [{contentType.Title} - ID: {contentType.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
-					: Task.CompletedTask,
-				doRefresh && (contentType.Organization.ExamineURLs == null || contentType.Organization.ExamineURLs.Count < 1)
-					? contentType.Organization.PurgeCDNCacheAsync([contentType.Organization.GetURL()], true, 0, false, correlationID, false, cancellationToken)
 					: Task.CompletedTask
 			).ConfigureAwait(false);
+			contentType.PurgeCDNCacheAsync(doRefresh, correlationID, false, Utility.CancellationToken).Execute();
 		}
 
-		internal static Task ClearCacheAsync(this ContentType contentType, CancellationToken cancellationToken = default, string correlationID = null, bool clearObjectsCache = true, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
+		internal static Task ClearCacheAsync(this ContentType contentType, CancellationToken cancellationToken = default, string correlationID = null, bool clearObjectsCache = true, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
 			=> Task.WhenAll
 			(
-				contentType.ClearRelatedCacheAsync(clearObjectsCache, clearRelatedDataCache, clearRelatedHtmlCache, doRefresh, correlationID, cancellationToken),
+				contentType.ClearRelatedCacheAsync(clearObjectsCache, clearDataCache, clearHtmlCache, doRefresh, correlationID, cancellationToken),
 				Utility.Cache.RemoveAsync(contentType.Remove(), cancellationToken),
 				new CommunicateMessage(Utility.ServiceName)
 				{

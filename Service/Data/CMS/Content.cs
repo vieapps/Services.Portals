@@ -224,10 +224,10 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			var cacheKey = contentType.GetCacheKeyOfAlias(category, alias);
-			var contentID = Utility.Cache.Get<string>(cacheKey);
+			var contentID = Utility.IsCacheAvailable() ? Utility.Cache.Get<string>(cacheKey) : null;
 
 			var content = !string.IsNullOrWhiteSpace(contentID) && contentID.IsValidUUID()
-				? Content.Get(contentID)
+				? Content.Get(contentID, Utility.IsCacheAvailable())
 				: Content.Get(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID);
 
 			if (content != null)
@@ -259,10 +259,10 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			var cacheKey = contentType.GetCacheKeyOfAlias(category, alias);
-			var contentID = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
+			var contentID = Utility.IsCacheAvailable() ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 
 			var content = !string.IsNullOrWhiteSpace(contentID) && contentID.IsValidUUID()
-				? await Content.GetAsync(contentID, cancellationToken).ConfigureAwait(false)
+				? await Content.GetAsync(contentID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false)
 				: await Content.GetAsync(contentType.GetContentByAliasFilter(category, alias), null, contentType.ID, cancellationToken).ConfigureAwait(false);
 
 			if (content != null)

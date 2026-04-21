@@ -88,13 +88,14 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<Module> RefreshAsync(this Module module, CancellationToken cancellationToken, bool reloadContentTypes = true, bool sendCommunicatingMessage = true)
 		{
 			await Utility.Cache.RemoveAsync(module, cancellationToken).ConfigureAwait(false);
-			module = await module.Remove().ID.GetModuleByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			module = await (module.Remove() ?? module).ID.GetModuleByIDAsync(cancellationToken, true).ConfigureAwait(false);
+
 			if (reloadContentTypes || module._contentTypeIDs == null)
 			{
 				module._contentTypeIDs = null;
 				await module.FindContentTypesAsync(cancellationToken).ConfigureAwait(false);
 			}
-			await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
+
 			if (sendCommunicatingMessage)
 				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 				{
@@ -102,7 +103,8 @@ namespace net.vieapps.Services.Portals
 					Data = module.ToJson(true, false),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
-			return module;
+
+			return module.Set(true);
 		}
 
 		public static List<Module> FindModules(this string systemID, string definitionID = null, bool updateCache = true)
@@ -160,11 +162,9 @@ namespace net.vieapps.Services.Portals
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
 				Utility.IsCacheLogEnabled
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a module [{module.Title} - ID: {module.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
-					: Task.CompletedTask,
-				doRefresh && (module.Organization.ExamineURLs == null || module.Organization.ExamineURLs.Count < 1)
-					? module.Organization.PurgeCDNCacheAsync([module.Organization.GetURL()], true, 0, false, correlationID, false, cancellationToken)
 					: Task.CompletedTask
 			).ConfigureAwait(false);
+			module.PurgeCDNCacheAsync(doRefresh, correlationID, false, Utility.CancellationToken).Execute();
 		}
 
 		internal static Task ClearCacheAsync(this Module module, CancellationToken cancellationToken, string correlationID = null, bool clearObjectsCache = true, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)

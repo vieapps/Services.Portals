@@ -133,15 +133,12 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of an expression [{expression.Title} - ID: {expression.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			if (doRefresh && (expression.Organization.ExamineURLs == null || expression.Organization.ExamineURLs.Count < 1))
-			{
-				var desktops = await expression.FindDesktopsAsync(cancellationToken).ConfigureAwait(false);
-				Task.WhenAll
-				(
-					expression.Organization.PurgeCDNCacheAsync([expression.Organization.GetURL()], true, 0, false, correlationID, false, Utility.CancellationToken),
-					desktops.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
-				).Execute();
-			}
+			var desktops = await expression.FindDesktopsAsync(cancellationToken).ConfigureAwait(false);
+			Task.WhenAll
+			(
+				expression.PurgeCDNCacheAsync(doRefresh, correlationID, false, Utility.CancellationToken),
+				desktops.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
+			).Execute();
 		}
 
 		internal static Task ClearCacheAsync(this Expression expression, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
@@ -273,10 +270,8 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
 
-			// send notification
-			await expression.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
+			// send notification & response
+			expression.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo, Utility.CancellationToken).Execute();
 			return response;
 		}
 

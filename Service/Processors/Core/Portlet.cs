@@ -135,15 +135,12 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			if (doRefresh && portlet?.Organization != null && (portlet.Organization.ExamineURLs == null || portlet.Organization.ExamineURLs.Count < 1))
-			{
-				var desktops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
-				Task.WhenAll
-				(
-					portlet.Organization.PurgeCDNCacheAsync([portlet.Organization.GetURL()], true, 0, false, correlationID, false, Utility.CancellationToken),
-					desktops.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
-				).Execute();
-			}
+			var desktops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
+			Task.WhenAll
+			(
+				portlet.PurgeCDNCacheAsync(doRefresh, correlationID, false, Utility.CancellationToken),
+				desktops.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
+			).Execute();
 		}
 
 		internal static Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
@@ -258,18 +255,23 @@ namespace net.vieapps.Services.Portals
 			await Portlet.CreateAsync(portlet, cancellationToken).ConfigureAwait(false);
 			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
+			// send messages
 			var response = portlet.ToJson();
 			var objectName = portlet.GetObjectName();
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>
+
+			new UpdateMessage
 			{
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Create",
-					Data = response,
-					ExcludedNodeID = Utility.NodeID
-				}
-			};
+				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
+				Data = response,
+				DeviceID = "*"
+			}.Send();
+
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Create",
+				Data = response,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
 
 			// update desktop
 			var desktop = portlet.Desktop;
@@ -282,7 +284,7 @@ namespace net.vieapps.Services.Portals
 			// create mapping portlets
 			if (string.IsNullOrWhiteSpace(portlet.OriginalPortletID))
 			{
-				var otherDesktops = request.Get<List<string>>("OtherDesktops")?.Except(new[] { portlet.DesktopID }).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
+				var otherDesktops = request.Get<List<string>>("OtherDesktops")?.Except([portlet.DesktopID]).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
 				await otherDesktops.ForEachAsync(async desktopID =>
 				{
 					// create new
@@ -304,12 +306,12 @@ namespace net.vieapps.Services.Portals
 					await Portlet.CreateAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
 
 					var json = mappingPortlet.ToJson();
-					updateMessages.Add(new UpdateMessage
+					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Create",
 						Data = json,
 						DeviceID = "*"
-					});
+					}.Send();
 
 					// update desktop
 					desktop = mappingPortlet.Desktop;
@@ -317,12 +319,12 @@ namespace net.vieapps.Services.Portals
 					{
 						desktop._portlets.Add(mappingPortlet);
 						await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-						communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+						new CommunicateMessage(requestInfo.ServiceName)
 						{
 							Type = $"{objectName}#Create",
 							Data = json,
 							ExcludedNodeID = Utility.NodeID
-						});
+						}.Send();
 					}
 				}, true, false).ConfigureAwait(false);
 
@@ -336,16 +338,6 @@ namespace net.vieapps.Services.Portals
 				portlet._originalPortlet = await Portlet.GetAsync(portlet.OriginalPortletID, cancellationToken).ConfigureAwait(false);
 				await Utility.Cache.SetAsync(portlet, cancellationToken).ConfigureAwait(false);
 			}
-
-			// send update messages
-			updateMessages.Add(new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
-				Data = response,
-				DeviceID = "*"
-			});
-			updateMessages.Send();
-			communicateMessages.Send();
 
 			// response
 			return response;
@@ -698,25 +690,19 @@ namespace net.vieapps.Services.Portals
 			var json = sendUpdatingMessages ? portlet.ToJson() : null;
 			var objectName = portlet.GetObjectName();
 
-			var updateMessages = sendUpdatingMessages ? new List<UpdateMessage>
+			new UpdateMessage
 			{
-				new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
-					Data = json,
-					DeviceID = "*"
-				}
-			} : null;
+				Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
+				Data = json,
+				DeviceID = "*"
+			}.Send();
 
-			var communicateMessages = sendUpdatingMessages ? new List<CommunicateMessage>
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Delete",
-					Data = json,
-					ExcludedNodeID = Utility.NodeID
-				}
-			} : null;
+				Type = $"{objectName}#Delete",
+				Data = json,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
 
 			// update desktop
 			var desktop = updateCache ? portlet.Desktop : null;
@@ -740,12 +726,12 @@ namespace net.vieapps.Services.Portals
 					await Portlet.DeleteAsync(mappingPortlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 					var json = sendUpdatingMessages ? mappingPortlet.ToJson() : null;
 					if (sendUpdatingMessages)
-						updateMessages.Add(new UpdateMessage
+						new UpdateMessage
 						{
 							Type = $"{requestInfo.ServiceName}#{objectName}#Delete",
 							Data = json,
 							DeviceID = "*"
-						});
+						}.Send();
 
 					// update desktop
 					desktop = mappingPortlet.Desktop;
@@ -759,12 +745,12 @@ namespace net.vieapps.Services.Portals
 						}
 					}
 					if (sendUpdatingMessages)
-						communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+						new CommunicateMessage(requestInfo.ServiceName)
 						{
 							Type = $"{objectName}#Delete",
 							Data = json,
 							ExcludedNodeID = Utility.NodeID
-						});
+						}.Send();
 				}).ConfigureAwait(false);
 			}
 			else
@@ -782,23 +768,21 @@ namespace net.vieapps.Services.Portals
 							var mappingPortlets = await originalPortlet.FindPortletsAsync(cancellationToken).ConfigureAwait(false) ?? [];
 							originalPortletJson["OtherDesktops"] = mappingPortlets.Where(mappingPortlet => mappingPortlet != null).Select(mappingPortlet => mappingPortlet.DesktopID).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToJArray();
 						});
-						updateMessages.Add(new UpdateMessage
+						new UpdateMessage
 						{
 							Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 							Data = originalJson,
 							DeviceID = "*"
-						});
-						communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+						}.Send();
+						new CommunicateMessage(requestInfo.ServiceName)
 						{
 							Type = $"{objectName}#Update",
 							Data = originalJson
-						});
+						}.Send();
 					}
 				}
 			}
 
-			updateMessages?.Send();
-			communicateMessages?.Send();
 			await portlet.SendNotificationAsync("Delete", portlet.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
 			return json;
 		}

@@ -283,10 +283,23 @@ namespace net.vieapps.Services.Portals
 				}
 			}, true, false).ConfigureAwait(false);
 
-			// update parent
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
+			// send messages
 			var objectName = role.GetObjectName();
+			var response = role.ToJson();
+
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
+				Data = response,
+				DeviceID = "*"
+			}.Send();
+
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Create",
+				Data = response,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
 
 			if (role.ParentRole != null)
 			{
@@ -296,48 +309,24 @@ namespace net.vieapps.Services.Portals
 
 				// message to update to all connected clients
 				var json = role.ParentRole.ToJson(true, false);
-				updateMessages.Add(new UpdateMessage
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
-				});
+				}.Send();
 
 				// message to update to all service instances (on all other nodes)
-				communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
-				});
+				}.Send();
 			}
 
-			// message to update to all other connected clients
-			var response = role.ToJson();
-			if (role.ParentRole == null)
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
-					Data = response,
-					DeviceID = "*"
-				});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Create",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			});
-
-			// send the messages
-			updateMessages.Send();
-			communicateMessages.Send();
-
-			// send notification
-			await role.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
+			// send notification & response
+			role.SendNotificationAsync("Create", organization.Notifications, ApprovalStatus.Draft, ApprovalStatus.Published, requestInfo, Utility.CancellationToken).Execute();
 			return response;
 		}
 
@@ -483,10 +472,24 @@ namespace net.vieapps.Services.Portals
 				}
 			}, true, false).ConfigureAwait(false);
 
-			// update parent
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
+			// send messages
 			var objectName = role.GetObjectName();
+			var response = role.ToJson(true, false);
+			var versions = await role.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = response.UpdateVersions(versions),
+				DeviceID = "*"
+			}.Send();
+
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Update",
+				Data = response,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
 
 			if (role.ParentRole != null && !role.ParentID.IsEquals(oldParentID))
 			{
@@ -495,22 +498,18 @@ namespace net.vieapps.Services.Portals
 				await role.ParentRole.SetAsync(true, cancellationToken).ConfigureAwait(false);
 
 				var json = role.ParentRole.ToJson(true, false);
-
-				// message to update to all connected clients
-				updateMessages.Add(new UpdateMessage
+				new UpdateMessage
 				{
 					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 					Data = json,
 					DeviceID = "*"
-				});
-
-				// message to update to all service instances (on all other nodes)
-				communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
 				{
 					Type = $"{objectName}#Update",
 					Data = json,
 					ExcludedNodeID = Utility.NodeID
-				});
+				}.Send();
 			}
 
 			// update old parent
@@ -524,51 +523,23 @@ namespace net.vieapps.Services.Portals
 					await parentRole.SetAsync(true, cancellationToken).ConfigureAwait(false);
 
 					var json = parentRole.ToJson(true, false);
-
-					// message to update to all connected clients
-					updateMessages.Add(new UpdateMessage
+					new UpdateMessage
 					{
 						Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 						Data = json,
 						DeviceID = "*"
-					});
-
-					// message to update to all service instances (on all other nodes)
-					communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+					}.Send();
+					new CommunicateMessage(requestInfo.ServiceName)
 					{
 						Type = $"{objectName}#Update",
 						Data = json,
 						ExcludedNodeID = Utility.NodeID
-					});
+					}.Send();
 				}
 			}
 
-			// message to update to all other connected clients
-			var response = role.ToJson(true, false);
-			var versions = await role.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
-			updateMessages.Add(new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response.UpdateVersions(versions),
-				DeviceID = "*"
-			});
-
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Update",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			});
-
-			// send update messages
-			updateMessages.Send();
-			communicateMessages.Send();
-
-			// send notification
-			await role.SendNotificationAsync("Update", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
+			// send notification & response
+			role.SendNotificationAsync("Update", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, Utility.CancellationToken).Execute();
 			return response;
 		}
 
@@ -698,7 +669,7 @@ namespace net.vieapps.Services.Portals
 			}
 
 			role.Remove();
-			await role.SendNotificationAsync("Delete", role.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
+			role.SendNotificationAsync("Delete", role.Organization?.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, Utility.CancellationToken).Execute();
 			return json;
 		}
 

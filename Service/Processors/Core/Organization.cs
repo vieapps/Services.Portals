@@ -133,7 +133,7 @@ namespace net.vieapps.Services.Portals
 		{
 			// reload organization
 			await Utility.Cache.RemoveAsync(organization, cancellationToken).ConfigureAwait(false);
-			organization = await organization.Remove().ID.GetOrganizationByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			organization = await (organization.Remove() ?? organization).ID.GetOrganizationByIDAsync(cancellationToken, true).ConfigureAwait(false);
 
 			// reload sites & modules
 			if (organization._siteIDs == null || organization._moduleIDs == null)
@@ -144,9 +144,6 @@ namespace net.vieapps.Services.Portals
 			if (reloadContentTypes)
 				modules.ForEach(module => module._contentTypeIDs = null);
 			await modules.ForEachAsync(module => module._contentTypeIDs == null ? module.FindContentTypesAsync(cancellationToken) : Task.CompletedTask, true, false).ConfigureAwait(false);
-
-			// update cache
-			await organization.SetAsync(false, updateCache, cancellationToken).ConfigureAwait(false);
 
 			// send messages
 			var json = sendCommunicatingMessage || sendUpdatingMessage ? organization.ToJson() : null;
@@ -165,7 +162,7 @@ namespace net.vieapps.Services.Portals
 					DeviceID = "*"
 				}.Send();
 
-			return organization;
+			return organization.Set(false, updateCache);
 		}
 
 		internal static async Task<List<string>> GetRefreshingURLsAsync(this Organization organization, IEnumerable<string> addresses, bool onlyDetailsOfCategories = false)
@@ -1082,7 +1079,7 @@ namespace net.vieapps.Services.Portals
 		internal static async Task<JObject> RebuildCacheAsync(this RequestInfo requestInfo)
 		{
 			var organizations = (await Organization.FindAllAsync(false, Utility.CancellationToken).ConfigureAwait(false)).Where(organization => organization.Status == ApprovalStatus.Approved || organization.Status == ApprovalStatus.Published).ToList();
-			await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Start to rebuild cache of all organizations ({organizations.Count()})", "Caches").ConfigureAwait(false);
+			await Utility.WriteLogAsync(requestInfo.CorrelationID, $"Start to rebuild cache of all organizations ({organizations.Count()})", "Rebuilds").ConfigureAwait(false);
 			organizations.ForEach(organization => Router.GetService(Utility.ServiceName).ProcessRequestAsync(new RequestInfo(requestInfo.Session, Utility.ServiceName, "Cache")
 			{
 				Header = new Dictionary<string, string>(requestInfo.Header)
@@ -1136,7 +1133,7 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 
 			sendStatus("Started");
-			await Utility.WriteLogAsync(correlationID, $"Start to rebuild caches of '{organization.Title}'\r\n- Number of Links' content-types: {organization.ContentTypesOfLink.Count}\r\n- Number of Categorys' content-types: {organization.ContentTypesOfCategory.Count}\r\n- Number of Contents' content-types: {organization.ContentTypesOfContent.Count}", "Caches").ConfigureAwait(false);
+			await Utility.WriteLogAsync(correlationID, $"Start to rebuild caches of '{organization.Title}'\r\n- Number of Links' content-types: {organization.ContentTypesOfLink.Count}\r\n- Number of Categorys' content-types: {organization.ContentTypesOfCategory.Count}\r\n- Number of Contents' content-types: {organization.ContentTypesOfContent.Count}", "Rebuilds").ConfigureAwait(false);
 
 			var (linkURLs, categoryURLs, contentURLs, itemURLs) = await organization.GetRefreshingURLsAsync(true, true, true, true, maxPage, 0, minTime, null, null, correlationID, cancellationToken).ConfigureAwait(false);
 			var homeURL = organization.HomeDesktop?.GetURL();
@@ -1150,7 +1147,7 @@ namespace net.vieapps.Services.Portals
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
 
-			await Utility.WriteLogAsync(correlationID, $"{urls.Count:###,###,##0} URLs of '{organization.Title}' were prepared to rebuild cache\r\n- Link URLs: {linkURLs.Count:###,###,##0}\r\n- Category URLs: {categoryURLs.Count:###,###,##0}\r\n- Content URLs: {contentURLs.Count:###,###,##0}\r\n- Item URLs: {itemURLs.Count:###,###,##0}", "Caches").ConfigureAwait(false);
+			await Utility.WriteLogAsync(correlationID, $"{urls.Count:###,###,##0} URLs of '{organization.Title}' were prepared to rebuild cache\r\n- Link URLs: {linkURLs.Count:###,###,##0}\r\n- Category URLs: {categoryURLs.Count:###,###,##0}\r\n- Content URLs: {contentURLs.Count:###,###,##0}\r\n- Item URLs: {itemURLs.Count:###,###,##0}", "Rebuilds").ConfigureAwait(false);
 			sendStatus("Prepared");
 
 			var refreshLater = organization.GotCDN(true) && Utility.CDNPurgeEverythingOnObject;
@@ -1159,7 +1156,7 @@ namespace net.vieapps.Services.Portals
 				if (cancellationToken.IsCancellationRequested)
 				{
 					if (writeLogs)
-						await Utility.WriteLogAsync(correlationID, $"Got signal to cancel the rebuild cache process of '{organization.Title}'", "Caches").ConfigureAwait(false);
+						await Utility.WriteLogAsync(correlationID, $"Got signal to cancel the rebuild cache process of '{organization.Title}'", "Rebuilds").ConfigureAwait(false);
 					break;
 				}
 
@@ -1177,14 +1174,14 @@ namespace net.vieapps.Services.Portals
 				}
 
 				if ((writeLogs && done % 20 == 0) || (done % 100 == 0))
-					await Utility.WriteLogAsync(correlationID, $"{done:###,###,##0}/{urls.Count:###,###,##0} URLs of '{organization.Title}' were rebuilt", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"{done:###,###,##0}/{urls.Count:###,###,##0} URLs of '{organization.Title}' were rebuilt", "Rebuilds").ConfigureAwait(false);
 			}
 
 			if (refreshLater && !cancellationToken.IsCancellationRequested)
 				organization.RefreshWebPagesAsync(urls.Skip(Utility.RefreshBatchSize), false, correlationID, $"Refresh to refill CDN cache of '{organization.Title}'", Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while refreshing (when purge CDN cache) => {ex.Message}", "Caches", correlationID));
 
 			stopwatch.Stop();
-			await Utility.WriteLogAsync(correlationID, $"Complete rebuild {done:###,###,##0} caches of '{organization.Title}' - Execution times: {stopwatch.GetElapsedTimes()}", "Caches").ConfigureAwait(false);
+			await Utility.WriteLogAsync(correlationID, $"Complete rebuild {done:###,###,##0} caches of '{organization.Title}' - Execution times: {stopwatch.GetElapsedTimes()}", "Rebuilds").ConfigureAwait(false);
 			sendStatus(cancellationToken.IsCancellationRequested ? "Canceled" : "Completed");
 		}
 	}

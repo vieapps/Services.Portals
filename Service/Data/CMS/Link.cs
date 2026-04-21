@@ -184,23 +184,27 @@ namespace net.vieapps.Services.Portals
 				if (this._childrenIDs == null)
 				{
 					this._children = links ?? (this.SystemID ?? "").FindLinks(this.RepositoryID, this.RepositoryEntityID, this.ID);
-					this._childrenIDs = this._children?.Where(link => link != null).Select(link => link.ID).ToList() ?? new List<string>();
-					Utility.Cache.AddSetMembers(this.ContentType.ObjectCacheKeys, this._children?.Where(link => link != null).Select(link => link.GetCacheKey()));
+					this._childrenIDs = this._children?.Where(link => link != null).Select(link => link.ID).ToList() ?? [];
+					Task.WhenAll
+					(
+						Utility.Cache.SetAsync(this, Utility.CancellationToken),
+						Utility.Cache.AddSetMembersAsync(this.ContentType.ObjectCacheKeys, (this._children?.Where(link => link != null).Select(link => link.GetCacheKey()) ?? []).Concat([this.GetCacheKey()]), Utility.CancellationToken)
+					).Execute();
 					if (notifyPropertyChanged)
 						this.NotifyPropertyChanged("Childrens");
 				}
-				return this._children ?? (this._children = this._childrenIDs?.Select(id => Link.Get(id)).Where(link => link != null).ToList() ?? new List<Link>());
+				return this._children ?? (this._children = this._childrenIDs?.Select(id => Link.Get(id, Utility.IsCacheAvailable())).Where(link => link != null).ToList() ?? []);
 			}
 			else
-				return this._children ?? new List<Link>();
+				return this._children ?? [];
 		}
 
 		internal async Task<List<Link>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this.ChildrenMode.Equals(ChildrenMode.Normal)
 				? this._childrenIDs == null
-					? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindLinksAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, cancellationToken).ConfigureAwait(false))
-					: this._children ?? (this._children = this._childrenIDs?.Select(id => Link.Get(id)).Where(link => link != null).ToList() ?? new List<Link>())
-				: this._children ?? new List<Link>();
+					? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindLinksAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, true, cancellationToken).ConfigureAwait(false))
+					: this._children ?? (this._children = this._childrenIDs?.Select(id => Link.Get(id, Utility.IsCacheAvailable())).Where(link => link != null).ToList() ?? [])
+				: this._children ?? [];
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public List<Link> Children => this.FindChildren();

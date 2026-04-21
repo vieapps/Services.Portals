@@ -105,10 +105,10 @@ namespace net.vieapps.Services.Portals
 				? null
 				: !force && CategoryProcessor.Categories.TryGetValue(id, out var category)
 					? category
-					: fetchRepository ? Category.Get(id, Utility.IsCacheAvailable())?.Set() : null;
+					: fetchRepository ? Category.Get(id, !force && Utility.IsCacheAvailable())?.Set() : null;
 
 		public static async Task<Category> GetCategoryByIDAsync(this string id, CancellationToken cancellationToken = default, bool force = false)
-			=> (id ?? "").GetCategoryByID(force, false) ?? (await Category.GetAsync(id, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false))?.Set();
+			=> (id ?? "").GetCategoryByID(force, false) ?? (await Category.GetAsync(id, !force && Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false))?.Set();
 
 		public static Category GetCategoryByAlias(this string repositoryEntityID, string alias, bool fetchRepository = true)
 		{
@@ -173,10 +173,12 @@ namespace net.vieapps.Services.Portals
 		public static async Task<List<Category>> FindCategoriesAsync(this string systemID, string repositoryID = null, string repositoryEntityID = null, string parentID = null, bool processCache = true, CancellationToken cancellationToken = default, bool updateCache = false)
 		{
 			if (string.IsNullOrWhiteSpace(systemID))
-				return new List<Category>();
+				return [];
+
 			var filter = CategoryProcessor.GetCategoriesFilter(systemID, repositoryID, repositoryEntityID, parentID);
 			var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
-			var categories = await Category.FindAsync(filter, sort, processCache, Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
+			var categories = await Category.FindAsync(filter, sort, processCache && Utility.IsCacheAvailable(), Extensions.GetCacheKey(filter, sort), cancellationToken).ConfigureAwait(false);
+
 			categories.ForEach(category => category.Set(false, updateCache));
 			return categories;
 		}
@@ -200,16 +202,24 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateCategory().Remove();
 		}
 
-		internal static async Task<Category> RefreshAsync(this Category category, CancellationToken cancellationToken, bool reloadChildren = true, bool sendCommunicatingMessage = true, bool reloadWebpages = false, bool writeLogs = false, string correlationID = null, string message = null)
+		internal static async Task<Category> RefreshAsync(this Category category, bool force, CancellationToken cancellationToken, bool reloadChildren = true, bool sendCommunicatingMessage = true, bool reloadWebpages = false, bool writeLogs = false, string correlationID = null, string message = null)
 		{
-			await Utility.Cache.RemoveAsync(reloadChildren ? category.ReUpdate() : category, cancellationToken).ConfigureAwait(false);
-			category = await category.Remove().ID.GetCategoryByIDAsync(cancellationToken, true).ConfigureAwait(false);
-			if (reloadChildren || category._childrenIDs == null)
+			if (force)
+			{
+				await category.ContentType.ReUpdate().RefreshAsync(cancellationToken).ConfigureAwait(false);
+				await category.Module.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
+				await category.Organization.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
+				await Utility.Cache.RemoveAsync(reloadChildren ? category.ReUpdate() : category, cancellationToken).ConfigureAwait(false);
+				category = await (category.Remove() ?? category).ID.GetCategoryByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			}
+
+			var doMore = force || reloadChildren || category._childrenIDs == null;
+			if (doMore)
 			{
 				category._childrenIDs = null;
-				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				category.FindChildren(false, await category.SystemID.FindCategoriesAsync(category.RepositoryID, category.RepositoryEntityID, category.ID, false, cancellationToken, doMore).ConfigureAwait(false) ?? []);
 			}
-			await category.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+
 			if (sendCommunicatingMessage)
 				new CommunicateMessage(ServiceBase.ServiceComponent.ServiceName)
 				{
@@ -217,16 +227,16 @@ namespace net.vieapps.Services.Portals
 					Data = category.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
-			if (reloadWebpages)
-				category.RebuildCacheAsync(true, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while rebuilding cache of '{category.Title}' [ID: {category.ID}] => {ex.Message}", "Caches", correlationID));
-			return category;
+
+			category.RebuildCacheAsync(reloadWebpages, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while rebuilding cache of '{category.Title}' [ID: {category.ID}] => {ex.Message}", "Caches", correlationID));
+			return category.Set(false, doMore);
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Category category, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = false, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Category category, CancellationToken cancellationToken = default, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true, bool writeLogs = false)
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await category.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			var cacheKeys = (clearDataCache ? dataCacheKeys : []).Concat(clearHtmlCache ? htmlCacheKeys : []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			var writeLogs = Utility.IsCacheLogEnabled;
+			writeLogs = writeLogs || Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
@@ -234,8 +244,7 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a CMS.Category [{category.Title} - ID: {category.ID}]\n\rTotal: {cacheKeys.Count:###,###,##0} - Data-keys: {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count():###,###,##0} - Html-keys: {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count():###,###,##0}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			if (category?.Organization != null && (category.Organization.ExamineURLs == null || category.Organization.ExamineURLs.Count < 1))
-				category.RebuildCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred rebuild cache of '{category.FullTitle}' [ID: {category.ID}] => {ex.Message}", "Caches", correlationID));
+			await category.RefreshAsync(false, cancellationToken, false, false, doRefresh, writeLogs, correlationID).ConfigureAwait(false);
 		}
 
 		static async Task<(List<Category> Objects, long TotalRecords, JToken Thumbnails)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Category> filter, SortBy<Category> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, bool processCache = true, CancellationToken cancellationToken = default, bool searchThumbnails = false)
@@ -268,17 +277,15 @@ namespace net.vieapps.Services.Portals
 				try
 				{
 					if (requestInfo.IsRefreshRequested())
-						objects.ForEach(@object => new CommunicateMessage("Files")
-						{
-							Type = "ClearCache",
-							Data = new JObject
-							{
-								{ "ObjectID", @object.ID },
-								{ "CorrelationID", requestInfo.CorrelationID }
-							}
-						}.Send());
+						objects.ForEach(@object => @object.SendClearFilesCacheRequest(requestInfo.CorrelationID));
 
 					requestInfo.Header["x-thumbnails-as-attachments"] = "true";
+					if (!processCache)
+					{
+						requestInfo.Header["x-no-cache"] = "1";
+						requestInfo.Header["x-force-cache"] = "1";
+					}
+
 					thumbnails = objects.Count == 1
 						? await requestInfo.GetThumbnailsAsync(objects[0].ID, objects[0].Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetThumbnailsAsync(objects.Select(@object => @object.ID).Join(","), objects.ToJObject("ID", @object => new JValue(@object.Title.Url64Encode())).ToString(Formatting.None), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
@@ -453,7 +460,7 @@ namespace net.vieapps.Services.Portals
 					}
 				}).ConfigureAwait(false);
 
-			// update cache & response
+			// response
 			var response = new JObject
 			{
 				{ "FilterBy", filter.ToClientJson(query) },
@@ -468,7 +475,7 @@ namespace net.vieapps.Services.Portals
 					Utility.Cache.SetAsync(cacheKeyOfObjectsJson, response.ToString(Formatting.None), Utility.CancellationToken),
 					Utility.Cache.AddSetMemberAsync(contentType.GetSetCacheKey(), cacheKeyOfObjectsJson, Utility.CancellationToken),
 					Utility.IsCacheLogEnabled
-						? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS categories\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}", "Caches")
+						? Utility.WriteLogAsync(requestInfo, $"Update cache when search CMS.Category\r\n- Cache key of JSON: {cacheKeyOfObjectsJson}\r\n- Cache key of Content-Type's set: {contentType.GetSetCacheKey()}", "Caches")
 						: Task.CompletedTask
 				).Execute();
 
@@ -531,69 +538,61 @@ namespace net.vieapps.Services.Portals
 
 			// create new
 			await Category.CreateAsync(category, cancellationToken).ConfigureAwait(false);
-			category.Set();
-			Utility.NotRecognizedAliases.Remove(category.ContentType.ID.GetCategoryAliasKey(category.Alias));
+			Utility.NotRecognizedAliases.Remove(category.Set().ContentType.ID.GetCategoryAliasKey(category.Alias));
 
-			var updateMessages = new List<UpdateMessage>();
-			var communicateMessages = new List<CommunicateMessage>();
+			// send messages
 			var objectName = category.GetObjectName();
-
-			// update parent
-			var parentCategory = category.ParentCategory;
-			if (parentCategory != null)
-			{
-				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
-				await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				parentCategory._children = null;
-				if (parentCategory._childrenIDs.IndexOf(category.ID) < 0)
-					parentCategory._childrenIDs.Add(category.ID);
-
-				var json = parentCategory.Set(false, true).ToJson(true, false);
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-					Data = json,
-					DeviceID = "*"
-				});
-				communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{objectName}#Update",
-					Data = json,
-					ExcludedNodeID = Utility.NodeID
-				});
-			}
-
-			// message to update to all other connected clients
 			var response = category.ToJson(true, false);
 
-			if (category.ParentCategory == null)
-				updateMessages.Add(new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
-					DeviceID = "*",
-					Data = response
-				});
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
+				DeviceID = "*",
+				Data = response
+			}.Send();
 
-			// message to update to all service instances (on all other nodes)
-			communicateMessages.Add(new CommunicateMessage(requestInfo.ServiceName)
+			new CommunicateMessage(requestInfo.ServiceName)
 			{
 				Type = $"{objectName}#Create",
 				Data = response,
 				ExcludedNodeID = Utility.NodeID
-			});
+			}.Send();
 
-			// send update messages, store object cache key to clear related cached & send notification
-			updateMessages.Send();
-			communicateMessages.Send();
+			var parentCategory = category.ParentCategory;
+			if (parentCategory != null)
+			{
+				parentCategory.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false, requestInfo.IsWriteCacheLogs()).Execute();
+				parentCategory = await parentCategory.RefreshAsync(false, cancellationToken, true, false, false, requestInfo.IsWriteCacheLogs(), requestInfo.CorrelationID).ConfigureAwait(false);
+				if (parentCategory._childrenIDs.IndexOf(category.ID) < 0)
+				{
+					parentCategory._childrenIDs.Add(category.ID);
+					parentCategory.Set(false, true);
+				}
+
+				var json = parentCategory.ToJson(true, false);
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+					Data = json,
+					DeviceID = "*"
+				}.Send();
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = json,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
+
+			// response
 			Task.WhenAll
 			(
-				category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, category.Status.Equals(ApprovalStatus.Published), requestInfo.IsWriteCacheLogs()),
 				category.SendNotificationAsync("Create", category.ContentType.Notifications, ApprovalStatus.Draft, category.Status, requestInfo, Utility.CancellationToken),
 				category.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
 			).Execute();
 
-			// response
 			return response;
 		}
 
@@ -612,46 +611,53 @@ namespace net.vieapps.Services.Portals
 			if (!gotRights)
 				throw new AccessDeniedException();
 
-			// clear cache
-			var isClearCache = requestInfo.Session.User.IsAuthenticated && ("cache".IsEquals(requestInfo.GetObjectIdentity()) || ("refresh".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.ContainsKey("x-clear-cache")));
+			// special actions: clear cache / refresh
+			var writeLogs = requestInfo.IsWriteCacheLogs();
+			var isClearCache = requestInfo.IsAuthenticated() && "cache".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.ContainsKey("x-clear-cache");
+			var isRefresh = requestInfo.IsRefreshRequested() || (requestInfo.IsAuthenticated() && ("refresh".IsEquals(requestInfo.GetObjectIdentity()) || category._childrenIDs == null));
+
 			if (isClearCache)
-				await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false);
+				await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, isRefresh, writeLogs);
 
-			// refresh (or reload if got no information of children)
-			var isRefresh = isClearCache || ("refresh".IsEquals(requestInfo.GetObjectIdentity()) && requestInfo.Session.User.IsAuthenticated);
-			if (isRefresh || category._childrenIDs == null)
+			if (isRefresh)
 			{
-				if (isRefresh)
-				{
-					new CommunicateMessage("Files")
-					{
-						Type = "ClearCache",
-						Data = new JObject
-						{
-							{ "ObjectID", category.ID },
-							{ "CorrelationID", requestInfo.CorrelationID }
-						}
-					}.Send();
-					await category.ContentType.ReUpdate().RefreshAsync(cancellationToken).ConfigureAwait(false);
-					await category.Module.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
-					await category.Organization.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
-				}
-				category = await category.RefreshAsync(cancellationToken, true, true, isRefresh, true, requestInfo.CorrelationID).ConfigureAwait(false);
-			}
+				if (requestInfo.ContainsKey("x-clear-cache"))
+					await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false, writeLogs);
 
-			// store object cache key to clear related cached
-			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).Execute();
+				category = await category.RefreshAsync(true, cancellationToken, true, true, !isClearCache, writeLogs, requestInfo.CorrelationID).ConfigureAwait(false);
+				category.SendClearFilesCacheRequest(requestInfo.CorrelationID);
+				Utility.NotRecognizedAliases.Remove(category.ContentType.ID.GetCategoryAliasKey(category.Alias));
+
+				var privileges = category.WorkingPrivileges;
+				var parentPrivileges = category.ParentCategory?.WorkingPrivileges;
+				var isAdministrator = requestInfo.Session.User.IsAdministrator(privileges, parentPrivileges, category.Organization, false);
+				var isModerator = requestInfo.Session.User.IsModerator(privileges, parentPrivileges, category.Organization, false);
+				var isEditor = requestInfo.Session.User.IsEditor(privileges, parentPrivileges, category.Organization, false);
+				var isContributor = requestInfo.Session.User.IsContributor(privileges, parentPrivileges, category.Organization, false);
+				var isViewer = requestInfo.Session.User.IsViewer(privileges, parentPrivileges, category.Organization, false);
+				await requestInfo.WriteLogAsync($"Refresh an individual CMS.Category [{category.Title}]" + "\r\n\r\n"
+					+ $"- Working privileges: System Administrator => {isSystemAdministrator} - Administrator => {isAdministrator} - Moderator => {isModerator} - Editor => {isEditor} - Contributor => {isContributor} - Viewer => {isViewer}" + "\r\n\r\n"
+					+ $"- Category: {category.ToJson(false, false)}" + "\r\n\r\n"
+					+ $"- Content-Type: {category.ContentType?.ToJson()}" + "\r\n\r\n"
+					+ $"- Module: {category.Module?.ToJson(false, false)}" + "\r\n\r\n"
+					+ $"- Organization: {category.Organization?.ToJson(false, false)}"
+				, "Refreshs").ConfigureAwait(false);
+			}
+			else if (category._childrenIDs == null)
+				category = await category.RefreshAsync(false, cancellationToken, true, true, false, writeLogs, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			// response
-			var versions = await category.FindVersionsAsync(requestInfo.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);
-			var response = category.ToJson(true, false);
+			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).Execute();
+			var response = category.ToJson(true, false).UpdateVersions(await category.FindVersionsAsync(requestInfo.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false));
+
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{category.GetObjectName()}#Update",
-				Data = response.UpdateVersions(versions),
+				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
+
 			return response;
 		}
 
@@ -662,13 +668,15 @@ namespace net.vieapps.Services.Portals
 			var parentCategory = category.ParentCategory;
 			if (parentCategory != null && !category.ParentID.IsEquals(oldParentID))
 			{
-				await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
-				await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				parentCategory._children = null;
+				parentCategory.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false, requestInfo.IsWriteCacheLogs()).Execute();
+				parentCategory = await parentCategory.RefreshAsync(false, cancellationToken, true, false, false, requestInfo.IsWriteCacheLogs(), requestInfo.CorrelationID).ConfigureAwait(false);
 				if (parentCategory._childrenIDs.IndexOf(category.ID) < 0)
+				{
 					parentCategory._childrenIDs.Add(category.ID);
+					parentCategory.Set(false, true);
+				}
 
-				var json = parentCategory.Set(false, true).ToJson(true, false);
+				var json = parentCategory.ToJson(true, false);
 				var versions = await parentCategory.FindVersionsAsync(requestInfo.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);
 				new UpdateMessage
 				{
@@ -690,10 +698,10 @@ namespace net.vieapps.Services.Portals
 				parentCategory = await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (parentCategory != null)
 				{
-					await Utility.Cache.RemoveAsync(Extensions.GetRelatedCacheKeys(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, parentCategory.ID), Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title")), cancellationToken).ConfigureAwait(false);
-					await parentCategory.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-					parentCategory._children = null;
+					parentCategory.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false, requestInfo.IsWriteCacheLogs()).Execute();
+					parentCategory = await parentCategory.RefreshAsync(false, cancellationToken, true, false, false, requestInfo.IsWriteCacheLogs(), requestInfo.CorrelationID).ConfigureAwait(false);
 					parentCategory._childrenIDs.Remove(category.ID);
+					parentCategory._children = null;
 
 					var versions = await parentCategory.FindVersionsAsync(requestInfo.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);
 					var json = parentCategory.Set(false, true).ToJson(true, false);
@@ -753,18 +761,17 @@ namespace net.vieapps.Services.Portals
 			if (category.ParentCategory != null && !category.ParentID.IsEquals(oldParentID))
 			{
 				category.OrderIndex = (await CategoryProcessor.GetLastOrderIndexAsync(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID, cancellationToken).ConfigureAwait(false)) + 1;
-				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+				category = await category.RefreshAsync(false, cancellationToken, true, false, false, requestInfo.IsWriteCacheLogs(), requestInfo.CorrelationID).ConfigureAwait(false);
 			}
 
 			// update
 			await Category.UpdateAsync(category, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			category.Set(false, false, oldAlias);
-			Utility.NotRecognizedAliases.Remove(category.ContentType.ID.GetCategoryAliasKey(category.Alias));
+			Utility.NotRecognizedAliases.Remove(category.Set(false, false, oldAlias).ContentType.ID.GetCategoryAliasKey(category.Alias));
 
 			// update cache & send notification
 			Task.WhenAll
 			(
-				category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+				category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, true, requestInfo.IsWriteCacheLogs()),
 				category.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
 				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, Utility.CancellationToken),
 				category.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
@@ -774,23 +781,6 @@ namespace net.vieapps.Services.Portals
 			// send update messages
 			var objectName = category.GetObjectName();
 			var response = category.ToJson(true, false);
-
-			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(category.ParentID))
-			{
-				response["OldParentID"] = oldParentID;
-				var oldParent = await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (oldParent != null)
-				{
-					oldParent.ChildrenIDs.Remove(category.ID);
-					await oldParent.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
-					new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{objectName}#Update",
-						Data = oldParent.ToJson(true, false),
-						ExcludedNodeID = Utility.NodeID
-					}.Send();
-				}
-			}
 
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
@@ -808,6 +798,23 @@ namespace net.vieapps.Services.Portals
 					Data = response.UpdateVersions(versions),
 					DeviceID = "*"
 				}.Send();
+			}
+
+			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(category.ParentID))
+			{
+				response["OldParentID"] = oldParentID;
+				var oldParent = await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (oldParent != null)
+				{
+					oldParent.ChildrenIDs.Remove(category.ID);
+					oldParent._children = null;
+					new CommunicateMessage(requestInfo.ServiceName)
+					{
+						Type = $"{objectName}#Update",
+						Data = oldParent.Set(false, true).ToJson(true, false),
+						ExcludedNodeID = Utility.NodeID
+					}.Send();
+				}
 			}
 
 			return response;
@@ -885,11 +892,8 @@ namespace net.vieapps.Services.Portals
 
 			if (category != null)
 			{
-				await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-				category._childrenIDs = null;
-				category._children = null;
-				await category.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				await category.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				await category.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false, requestInfo.IsWriteCacheLogs()).ConfigureAwait(false);
+				category = await category.RefreshAsync(false, cancellationToken, true, false, true, requestInfo.IsWriteCacheLogs(), requestInfo.CorrelationID).ConfigureAwait(false);
 
 				var json = category.ToJson(true, false);
 				var versions = await category.FindVersionsAsync(requestInfo.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);
@@ -907,9 +911,9 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 			else if (first != null)
-				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID).Execute();
+				first.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, true, requestInfo.IsWriteCacheLogs()).Execute();
 
-			await organization.SendRefreshingTasksAsync().ConfigureAwait(false);
+			category.Organization.GetSchedulingTasksAsync(Utility.CancellationToken).Execute();
 			return new JObject();
 		}
 
@@ -977,7 +981,7 @@ namespace net.vieapps.Services.Portals
 				Task.WhenAll
 				(
 					category.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
-					category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID),
+					category.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, true, requestInfo.IsWriteCacheLogs()),
 					Utility.Cache.RemoveSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
 				).Execute();
 

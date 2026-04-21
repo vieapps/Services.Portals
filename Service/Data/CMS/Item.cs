@@ -166,10 +166,10 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			var cacheKey = contentType.ID.GetCacheKeyOfAlias(alias);
-			var itemID = Utility.Cache.Get<string>(cacheKey);
+			var itemID = Utility.IsCacheAvailable() ? Utility.Cache.Get<string>(cacheKey) : null;
 
 			var item = !string.IsNullOrWhiteSpace(itemID) && itemID.IsValidUUID()
-				? Item.Get(itemID)
+				? Item.Get(itemID, Utility.IsCacheAvailable())
 				: Item.Get(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, contentType.ID);
 
 			if (item != null)
@@ -199,10 +199,10 @@ namespace net.vieapps.Services.Portals
 				return null;
 
 			var cacheKey = contentType.ID.GetCacheKeyOfAlias(alias);
-			var itemID = await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false);
+			var itemID = Utility.IsCacheAvailable() ? await Utility.Cache.GetAsync<string>(cacheKey, cancellationToken).ConfigureAwait(false) : null;
 
 			var item = !string.IsNullOrWhiteSpace(itemID) && itemID.IsValidUUID()
-				? await Item.GetAsync(itemID, cancellationToken).ConfigureAwait(false)
+				? await Item.GetAsync(itemID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false)
 				: await Item.GetAsync(Filters<Item>.And(Filters<Item>.Equals("RepositoryEntityID", contentType.ID), Filters<Item>.Equals("Alias", alias.NormalizeAlias())), null, contentType.ID, cancellationToken).ConfigureAwait(false);
 
 			if (item != null)

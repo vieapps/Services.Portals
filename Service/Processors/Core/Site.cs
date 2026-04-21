@@ -287,14 +287,9 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<Site> RefreshAsync(this Site site, CancellationToken cancellationToken, bool updateCache = true, bool sendCommunicatingMessage = true, bool sendUpdatingMessage = false)
 		{
-			// refresh (remove cache and reload)
 			await Utility.Cache.RemoveAsync(site, cancellationToken).ConfigureAwait(false);
-			site = await site.Remove().ID.GetSiteByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			site = await (site.Remove() ?? site).ID.GetSiteByIDAsync(cancellationToken, true).ConfigureAwait(false);
 
-			// update cache
-			await site.SetAsync(false, updateCache, cancellationToken).ConfigureAwait(false);
-
-			// send messages
 			if (sendCommunicatingMessage)
 				new CommunicateMessage(Utility.ServiceName)
 				{
@@ -302,6 +297,7 @@ namespace net.vieapps.Services.Portals
 					Data = site.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.Send();
+
 			if (sendUpdatingMessage)
 				new UpdateMessage
 				{
@@ -310,7 +306,7 @@ namespace net.vieapps.Services.Portals
 					DeviceID = "*"
 				}.Send();
 
-			return site;
+			return site.Set(false, updateCache);
 		}
 
 		internal static Task ProcessInterCommunicateMessageOfSiteAsync(this CommunicateMessage message, CancellationToken cancellationToken = default)
@@ -337,20 +333,17 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			if (doRefresh && (site.Organization.ExamineURLs == null || site.Organization.ExamineURLs.Count < 1))
-			{
-				var urls = new[] {
-					site.Organization.GetURL(),
-					site.Organization.GetURL(false, site),
-					site.Organization.GetURL(false, site, "/"),
-					site.Organization.GetURL(false, site, "/favicon.ico"),
-					site.Organization.GetURL(false, site.Organization.FakePortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
-					site.Organization.GetURL(false, site.Organization.FakePortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}"),
-					site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
-					site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}")
-				};
-				site.Organization.PurgeCDNCacheAsync(urls, true, 0, false, correlationID, false, Utility.CancellationToken).Execute();
-			}
+			var urls = new[] {
+				site.Organization.GetURL(),
+				site.Organization.GetURL(false, site),
+				site.Organization.GetURL(false, site, "/"),
+				site.Organization.GetURL(false, site, "/favicon.ico"),
+				site.Organization.GetURL(false, site.Organization.FakePortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
+				site.Organization.GetURL(false, site.Organization.FakePortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}"),
+				site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
+				site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}")
+			};
+			site.PurgeCDNCacheAsync(urls, doRefresh, correlationID, false, Utility.CancellationToken).Execute();
 		}
 
 		internal static Task ClearCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)

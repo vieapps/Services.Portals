@@ -250,6 +250,37 @@ namespace net.vieapps.Services.Portals
 				message.Data.ToExpandoObject().CreateDesktop().Remove();
 		}
 
+		internal static async Task<Desktop> RefreshAsync(this Desktop desktop, bool force, CancellationToken cancellationToken, bool reloadChildren = true, bool sendCommunicatingMessage = true, string correlationID = null)
+		{
+			if (force)
+			{
+				await desktop.Organization.ReUpdate().RefreshAsync(cancellationToken, false).ConfigureAwait(false);
+				await Utility.Cache.RemoveAsync(desktop, cancellationToken).ConfigureAwait(false);
+				desktop = await (desktop.Remove() ?? desktop).ID.GetDesktopByIDAsync(cancellationToken, true).ConfigureAwait(false);
+			}
+
+			if (force || reloadChildren)
+			{
+				desktop._childrenIDs = null;
+				desktop._portlets = null;
+			}
+
+			if (desktop._childrenIDs == null)
+				await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
+			if (desktop._portlets == null)
+				await desktop.FindPortletsAsync(cancellationToken, false).ConfigureAwait(false);
+
+			if (sendCommunicatingMessage)
+				new CommunicateMessage(Utility.ServiceName)
+				{
+					Type = $"{desktop.GetObjectName()}#Update",
+					Data = desktop.ToJson(),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+
+			return desktop.Set(false, true);
+		}
+
 		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await desktop.GetCacheKeysAsync(oldParentID, clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
@@ -261,22 +292,19 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a desktop [{desktop.Title} - ID: {desktop.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			if (doRefresh && (desktop.Organization.ExamineURLs == null || desktop.Organization.ExamineURLs.Count < 1))
-			{
-				var urls = new[] {
-					desktop.GetURL(),
-					desktop.ID.Equals(desktop.Organization.HomeDesktop?.ID) ? desktop.Organization.GetURL() : null,
-					desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
-					desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}"),
-					desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
-					desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}")
-				};
-				Task.WhenAll
-				(
-					desktop.Organization.PurgeCDNCacheAsync(urls, true, 0, false, correlationID, false, Utility.CancellationToken),
-					desktop.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
-				).Execute();
-			}
+			var urls = new[] {
+				desktop.GetURL(),
+				desktop.ID.Equals(desktop.Organization.HomeDesktop?.ID) ? desktop.Organization.GetURL() : null,
+				desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
+				desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}"),
+				desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
+				desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}")
+			};
+			Task.WhenAll
+			(
+				desktop.PurgeCDNCacheAsync(urls, doRefresh, correlationID, false, Utility.CancellationToken),
+				desktop.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
+			).Execute();
 		}
 
 		internal static Task ClearCacheAsync(this Desktop desktop, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool clearChildrenCache = false, bool doRefresh = false)
@@ -290,8 +318,12 @@ namespace net.vieapps.Services.Portals
 					Data = desktop.ToJson(),
 					ExcludedNodeID = Utility.NodeID
 				}.SendAsync(),
-				Utility.IsCacheLogEnabled ? Utility.WriteLogAsync(correlationID, $"Clear cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", "Caches") : Task.CompletedTask,
-				clearChildrenCache ? Task.WhenAll((desktop.Children ?? []).Select(webdesktop => webdesktop.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, clearChildrenCache, doRefresh))) : Task.CompletedTask
+				Utility.IsCacheLogEnabled
+					? Utility.WriteLogAsync(correlationID, $"Clear cache of a desktop [{desktop.Title} - ID: {desktop.ID}]", "Caches")
+					: Task.CompletedTask,
+				clearChildrenCache
+					? Task.WhenAll((desktop.Children ?? []).Select(desktopObj => desktopObj.ClearCacheAsync(cancellationToken, correlationID, clearRelatedDataCache, clearRelatedHtmlCache, clearChildrenCache, doRefresh)))
+					: Task.CompletedTask
 			}));
 
 		internal static async Task<JObject> SearchDesktopsAsync(this RequestInfo requestInfo, bool isSystemAdministrator, CancellationToken cancellationToken)
@@ -439,9 +471,9 @@ namespace net.vieapps.Services.Portals
 			// copy portlets
 			if (source != null)
 			{
-				desktop._portlets = new List<Portlet>();
+				desktop._portlets = [];
 				var excluded = "ID,DesktopID,Created,CreatedID,LastModified,LastModifiedID".ToHashSet();
-				await (source.Portlets ?? new List<Portlet>()).ForEachAsync(async originalPortlet =>
+				await (source.Portlets ?? []).ForEachAsync(async (originalPortlet, cancellationtoken) =>
 				{
 					var copiedPortlet = originalPortlet.Copy(excluded, obj =>
 					{
@@ -450,15 +482,30 @@ namespace net.vieapps.Services.Portals
 						obj.CreatedID = obj.LastModifiedID = requestInfo.Session.User.ID;
 						obj.DesktopID = desktop.ID;
 					});
-					await Portlet.CreateAsync(copiedPortlet, cancellationToken).ConfigureAwait(false);
+					await Portlet.CreateAsync(copiedPortlet, cancellationtoken).ConfigureAwait(false);
 					desktop._portlets.Add(copiedPortlet);
-				}, true, false).ConfigureAwait(false);
+				}, cancellationToken, true, false).ConfigureAwait(false);
 				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
 			}
 
+			// send messages
 			var objectName = desktop.GetObjectName();
+			var response = desktop.ToJson();
 
-			// update parent
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Create",
+				DeviceID = "*",
+				Data = response
+			}.Send();
+
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Create",
+				Data = response,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+
 			var parentDesktop = desktop.ParentDesktop;
 			if (parentDesktop != null)
 			{
@@ -482,28 +529,8 @@ namespace net.vieapps.Services.Portals
 				}.Send();
 			}
 
-			// message to update to all other connected clients
-			var response = desktop.ToJson();
-			if (desktop.ParentDesktop == null)
-				new UpdateMessage
-				{
-					Type = $"{requestInfo.ServiceName}#{objectName}#Create",
-					DeviceID = "*",
-					Data = response
-				}.Send();
-
-			// message to update to all service instances (on all other nodes)
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Create",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-
-			// send notification
-			await desktop.SendNotificationAsync("Create", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, cancellationToken).ConfigureAwait(false);
-
-			// response
+			// send notification & response
+			desktop.SendNotificationAsync("Create", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, Utility.CancellationToken).Execute();
 			return response;
 		}
 
@@ -532,25 +559,17 @@ namespace net.vieapps.Services.Portals
 
 			// refresh (clear cached and reload)
 			var isRefresh = requestInfo.IsRefreshRequested() || (requestInfo.Session.User.IsAuthenticated && "refresh".IsEquals(requestInfo.GetObjectIdentity()));
-			if (isRefresh || desktop._childrenIDs == null || desktop._portlets == null)
+			if (isRefresh)
 			{
-				if (isRefresh)
-				{
-					await desktop.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, true, false).ConfigureAwait(false);
-					await Utility.Cache.RemoveAsync(desktop, cancellationToken).ConfigureAwait(false);
-					desktop = await desktop.Remove().ID.GetDesktopByIDAsync(cancellationToken, true).ConfigureAwait(false);
-					desktop._childrenIDs = null;
-					desktop._portlets = null;
-				}
-				if (desktop._childrenIDs == null)
-					await desktop.FindChildrenAsync(cancellationToken, false).ConfigureAwait(false);
-				if (desktop._portlets == null)
-					await desktop.FindPortletsAsync(cancellationToken, false).ConfigureAwait(false);
-				await desktop.SetAsync(false, true, cancellationToken).ConfigureAwait(false);
+				await desktop.ClearRelatedCacheAsync(null, cancellationToken, requestInfo.CorrelationID, true, false).ConfigureAwait(false);
+				await desktop.RefreshAsync(true, cancellationToken).ConfigureAwait(false);
 			}
+			else if (desktop._childrenIDs == null || desktop._portlets == null)
+				await desktop.RefreshAsync(false, cancellationToken).ConfigureAwait(false);
 
 			// response
 			var response = desktop.ToJson(true, false).UpdateVersions(await desktop.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false));
+
 			new UpdateMessage
 			{
 				Type = $"{requestInfo.ServiceName}#{desktop.GetObjectName()}#Update",
@@ -558,13 +577,7 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
 			}.Send();
-			if (isRefresh)
-				new CommunicateMessage(requestInfo.ServiceName)
-				{
-					Type = $"{desktop.GetObjectName()}#Update",
-					Data = desktop.ToJson(),
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
+
 			return response;
 		}
 
