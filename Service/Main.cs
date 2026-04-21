@@ -2065,19 +2065,7 @@ namespace net.vieapps.Services.Portals
 			{
 				var invalidatingURL = $"{requestURI.Scheme}://{requestURI.Host}{requestURI.AbsolutePath}".Replace("http://", "https://");
 				organization ??= (await requestURI.Host.ToArray(".").Skip(1).Join(".").GetSiteByDomainAsync(cancellationToken).ConfigureAwait(false))?.Organization;
-
-				new CommunicateMessage("portals.http.cache")
-				{
-					Type = "Invalidate",
-					Data = new JObject
-					{
-						["Key"] = cacheKey,
-						["URL"] = invalidatingURL,
-						["PortalsHttpURI"] = organization?.FakePortalsHttpURI ?? Utility.PortalsHttpURI,
-						["X-Logs"] = isCacheLogEnabled || requestInfo.ContainsKey("x-l1-cache-logs"),
-						["X-Correlation-ID"] = requestInfo.CorrelationID
-					}
-				}.Send(Router.GotBackupRouter());
+				invalidatingURL.SendInvalidateL1CacheMessage(cacheKey, organization?.FakePortalsHttpURI ?? Utility.PortalsHttpURI, isCacheLogEnabled || requestInfo.ContainsKey("x-l1-cache-logs"), requestInfo.CorrelationID);
 
 				if (isBypassCacheRequested)
 				{
@@ -5949,7 +5937,6 @@ namespace net.vieapps.Services.Portals
 			// check
 			if (message?.Type == null || message?.Data == null)
 				return;
-			var stopwatch = Stopwatch.StartNew();
 
 			// messages of an organization
 			if (message.Type.IsStartsWith("Organization#"))
@@ -6024,10 +6011,6 @@ namespace net.vieapps.Services.Portals
 					await Utility.Cache.RemoveAsync("Rebuild.Cache", cancellationToken).ConfigureAwait(false);
 				}
 			}
-
-			stopwatch.Stop();
-			if (Utility.IsWriteMessageLogs(null))
-				await Utility.WriteLogAsync(UtilityService.NewUUID, $"Process an inter-communicate message successful - Execution times: {stopwatch.GetElapsedTimes()}\r\n{message?.ToJson()}", "Updates").ConfigureAwait(false);
 		}
 
 		protected override async Task ProcessGatewayCommunicateMessageAsync(CommunicateMessage message, CancellationToken cancellationToken = default)
@@ -6092,12 +6075,12 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsEquals("Monitor#Enable") || message.Type.IsEquals("Monitor#Start") || message.Type.IsEquals($"{this.ServiceName}#Monitor#Start"))
 			{
 				this.Monitor = true;
-				this.StartMonitor();
+				this.StartMonitor(Utility.Cache, UtilityService.GetAppSetting("Path:Logs"));
 			}
 
 			else if (message.Type.IsEquals("Monitor#Disable") || message.Type.IsEquals("Monitor#Stop") || message.Type.IsEquals($"{this.ServiceName}#Monitor#Stop"))
 			{
-				this.StopMonitor();
+				this.StopMonitor(Utility.Cache);
 				if (message.Type.IsEquals("Monitor#Disable"))
 					this.Monitor = false;
 			}
@@ -6370,7 +6353,7 @@ namespace net.vieapps.Services.Portals
 			else if (@object is Module module)
 			{
 				await module.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
-				module = await Module.GetAsync(module.ID, cancellationToken).ConfigureAwait(false);
+				module = await Module.GetAsync(module.ID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 				await module.FindContentTypesAsync(cancellationToken, false).ConfigureAwait(false);
 				await module.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
@@ -6378,14 +6361,14 @@ namespace net.vieapps.Services.Portals
 			else if (@object is ContentType contentType)
 			{
 				await contentType.ClearCacheAsync(cancellationToken, correlationID, true, true, true, false).ConfigureAwait(false);
-				contentType = await ContentType.GetAsync(contentType.ID, cancellationToken).ConfigureAwait(false);
+				contentType = await ContentType.GetAsync(contentType.ID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 				await contentType.SetAsync(true, cancellationToken).ConfigureAwait(false);
 			}
 
 			else if (@object is Site site)
 			{
 				await site.ClearCacheAsync(cancellationToken, correlationID, true, true, false).ConfigureAwait(false);
-				site = await Site.GetAsync(site.ID, cancellationToken).ConfigureAwait(false);
+				site = await Site.GetAsync(site.ID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 				var desktop = await Desktop.GetAsync(site.HomeDesktopID ?? site.Organization?.HomeDesktopID, cancellationToken).ConfigureAwait(false);
 				if (desktop != null)
 					await Task.WhenAll
@@ -6403,8 +6386,8 @@ namespace net.vieapps.Services.Portals
 
 			else if (@object is Desktop desktop)
 			{
-				await desktop.ClearCacheAsync(cancellationToken, correlationID, true, true, true).ConfigureAwait(false);
-				desktop = await Desktop.GetAsync(desktop.ID, cancellationToken).ConfigureAwait(false);
+				await desktop.ClearCacheAsync(cancellationToken, correlationID, true, true, false).ConfigureAwait(false);
+				desktop = await Desktop.GetAsync(desktop.ID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
 				await Task.WhenAll
 				(
 					desktop.FindChildrenAsync(cancellationToken, false),
@@ -6416,7 +6399,7 @@ namespace net.vieapps.Services.Portals
 			else if (@object is Portlet portlet)
 			{
 				await portlet.ClearCacheAsync(cancellationToken, correlationID).ConfigureAwait(false);
-				await (await portlet.GetMappingPortletsAsync(cancellationToken).ConfigureAwait(false)).Select(p => p.Desktop).Concat([portlet.OriginalDesktop]).DistinctBy(d => d.ID).ForEachAsync(d => this.ClearCacheAsync(d, correlationID, cancellationToken), true, false).ConfigureAwait(false);
+				await (await portlet.GetMappingPortletsAsync(cancellationToken).ConfigureAwait(false)).Select(portletObj => portletObj.Desktop).Concat([portlet.OriginalDesktop]).DistinctBy(desktopObj => desktopObj.ID).ForEachAsync(desktopObj => this.ClearCacheAsync(desktopObj, correlationID, cancellationToken), true, false).ConfigureAwait(false);
 			}
 
 			else if (@object is Expression expression)
@@ -7155,41 +7138,6 @@ namespace net.vieapps.Services.Portals
 			{
 				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process MCP request completed - Execution times: {stopwatch.GetElapsedTimes()}" + (isDebugResultsEnabled ? $"\r\n\r\n- Request: {requestInfo?.ToString(this.JsonFormat)}\r\n\r\n- Response: {response?.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "MCP").ConfigureAwait(false);
 			}
-		}
-		#endregion
-
-		#region Monitors
-		void StartMonitor()
-			=> this.StartMonitor(Utility.Cache, UtilityService.GetAppSetting("Path:Logs"));
-
-		public virtual void StopMonitor()
-			=> this.StopMonitor(Utility.Cache);
-
-		public override void OnMonitor(string message, (string Level, long Total, long Interactive, long PingMiliseconds) details, Exception ex = null)
-		{
-			ThreadPool.GetAvailableThreads(out var workers, out var io);
-			var now = DateTime.Now;
-			var elapsedSeconds = (now - this.MonitorLastTime).TotalSeconds;
-			var pid = Environment.ProcessId.ToString();
-			var logs = $"{this.ServiceName} @ {this.NodeID} - PID: {pid} - {now:HH:mm:ss} -----\r\n";
-			if (string.IsNullOrWhiteSpace(details.Level))
-			{
-				logs += message;
-				if (ex != null)
-					logs += "\r\n" + ex.Message + " [" + ex.GetTypeName(true) + "]" + "\r\n" + "Stack: " + ex.GetStack(false);
-			}
-			else
-			{
-				ThreadPool.GetAvailableThreads(out var availableWorkers, out var availableIO);
-				ThreadPool.GetMaxThreads(out var maxWorkers, out var maxIO);
-				var currentWorkers = maxWorkers - availableWorkers;
-				var currentIO = maxIO - availableIO;
-				logs += $"ThreadPool - Workers: {currentWorkers:###,##0} / {maxWorkers:###,##0} | Async IO: {currentIO:###,##0} / {maxIO:###,##0}" + "\r\n"
-					+ $"Cache ({Utility.Cache.Provider}) Status - {message}";
-			}
-			logs += "\r\n\r\n";
-			if (!this.CancellationTokenSource.IsCancellationRequested)
-				File.AppendAllTextAsync(this.MonitorLogFilePath + "-" + now.ToString("yyyyMMddHH") + "-monitor.txt", logs, this.CancellationToken).Execute();
 		}
 		#endregion
 

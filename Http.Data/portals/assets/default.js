@@ -319,10 +319,10 @@ __vieapps.session = {
 					__vieapps.session.update(data);
 					__vieapps.session.close("login", __vieapps.session.events && typeof __vieapps.session.events.in === "function");
 					console.log("The session was logged in (" + __vieapps.session.token.uid + ")");
-					if (__onSessionLogIn === "function") {
+					if (typeof __onSessionLogIn === "function") {
 						__onSessionLogIn(__vieapps.session);
 					}
-					else if (!!__vieapps.session.events && typeof __vieapps.session.events.in === "function") {
+					if (!!__vieapps.session.events && typeof __vieapps.session.events.in === "function") {
 						__vieapps.session.events.in(__vieapps.session);
 					}
 				}
@@ -365,10 +365,10 @@ __vieapps.session = {
 				__vieapps.session.update(data);
 				__vieapps.session.close("otp", __vieapps.session.events && typeof __vieapps.session.events.in === "function");
 				console.log("The OTP session was logged in (" + __vieapps.session.token.uid + ")");
-				if (__onSessionLogIn === "function") {
+				if (typeof __onSessionLogIn === "function") {
 					__onSessionLogIn(__vieapps.session);
 				}
-				else if (!!__vieapps.session.events && typeof __vieapps.session.events.in === "function") {
+				if (!!__vieapps.session.events && typeof __vieapps.session.events.in === "function") {
 					__vieapps.session.events.in(__vieapps.session);
 				}
 			},
@@ -489,10 +489,10 @@ __vieapps.session = {
 			data => {
 				__vieapps.session.update(data);
 				console.log("The session was logged out");
-				if (__onSessionLogOut === "function") {
+				if (typeof __onSessionLogOut === "function") {
 					__onSessionLogOut(__vieapps.session);
 				}
-				else if (!!__vieapps.session.events && typeof __vieapps.session.events.out === "function") {
+				if (!!__vieapps.session.events && typeof __vieapps.session.events.out === "function") {
 					__vieapps.session.events.out(__vieapps.session);
 				}
 			},

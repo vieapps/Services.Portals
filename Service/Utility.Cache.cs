@@ -33,6 +33,17 @@ namespace net.vieapps.Services.Portals
 		internal static bool IsBypassCacheRequested(this RequestInfo requestInfo)
 			=> requestInfo.ContainsKey("x-bypass-cache") || requestInfo.ContainsKey("x-no-cache") || requestInfo.ContainsKey("x-force-cache") || requestInfo.IsRefreshRequested();
 
+		internal static void SendClearFilesCacheRequest(this IPortalObject @object, string correlationID)
+			=> new CommunicateMessage("Files")
+			{
+				Type = "ClearCache",
+				Data = new JObject
+				{
+					{ "ObjectID", @object.ID },
+					{ "CorrelationID", correlationID }
+				}
+			}.Send();
+
 		internal static string CDNProvider { get; set; } = UtilityService.GetAppSetting("Portals:CDN:Provider", "Cloudflare");
 
 		internal static string CDNZoneID { get; set; } = UtilityService.GetAppSetting("Portals:CDN:ZoneID") ?? UtilityService.GetAppSetting("Portals:CloudFlare:ZoneID");
@@ -182,6 +193,28 @@ namespace net.vieapps.Services.Portals
 		}
 
 		/// <summary>
+		/// Sends a message to invalidate L1-cache by a specified URL
+		/// </summary>
+		public static void SendInvalidateL1CacheMessage(this string url, string cacheKey, string portalsHttpURI = null, bool writeLogs = false, string correlationID = null)
+		{
+			var data = new JObject
+			{
+				["Key"] = cacheKey,
+				["URL"] = url,
+				["PortalsHttpURI"] = portalsHttpURI ?? Utility.PortalsHttpURI
+			};
+			if (writeLogs)
+				data["X-Logs"] = true;
+			if (!string.IsNullOrWhiteSpace(correlationID))
+				data["X-Correlation-ID"] = correlationID;
+			new CommunicateMessage("portals.http.cache")
+			{
+				Type = "Invalidate",
+				Data = data
+			}.Send(Router.GotBackupRouter());
+		}
+
+		/// <summary>
 		/// Purgs the cache (HTML and CDN) of this collection of desktop
 		/// </summary>
 		public static async Task PurgeDesktopCacheByURLsAsync(this IEnumerable<Desktop> desktops, string correlationID, CancellationToken cancellationToken)
@@ -190,22 +223,36 @@ namespace net.vieapps.Services.Portals
 			if (organization == null)
 				return;
 
-			var keys = new List<string>();
-			var urls = new List<string>();
-
+			var data = new List<(string Key, string URL)>();
 			var suffix = organization.AlwaysUseHtmlSuffix ? ".html" : "";
 			await desktops.ForEachAsync(async (desktop, cancellationtoken) =>
 			{
 				var paths = (await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey("Paths"), cancellationToken).ConfigureAwait(false) ?? []).Where(path => path.StartsWith("/"));
-				keys.AddRange(paths.Select(path => $"{organization.ID}:{path.GenerateUUID()}"));
-				urls.AddRange(paths.Select(path => $"~{path}{suffix}"));
+				paths.ForEach(path => data.Add(($"{organization.ID}:{path.GenerateUUID()}", $"~{path}{suffix}")));
 			}, cancellationToken, true, false).ConfigureAwait(false);
+
+			var cacheKeys = data.Select(info => info.Key)
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.Select(cacheKey => new[] { cacheKey, $"{cacheKey}:time", $"{cacheKey}:expiration" })
+				.SelectMany(cacheKey => cacheKey)
+				.Concat(desktops.Select(desktop =>
+				{
+					var cacheKey = desktop.GetDesktopCacheKey(organization.GetURL(false, desktop.Alias + suffix));
+					return new[] { cacheKey, $"{cacheKey}:time", $"{cacheKey}:expiration" };
+				}).SelectMany(cacheKey => cacheKey));
+			var urls = data.Select(info => info.URL)
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.Concat(desktops.Select(desktop => organization.GetURL(false, desktop.Alias + suffix)));
 
 			await Task.WhenAll
 			(
-				Utility.Cache.RemoveAsync(keys.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), cancellationToken),
-				organization.PurgeCDNCacheAsync(urls.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), false, 0, false, correlationID, false, cancellationToken)
+				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
+				organization.PurgeCDNCacheAsync(urls, false, 0, false, correlationID, false, cancellationToken)
 			).ConfigureAwait(false);
+
+			var siteURL = organization.GetURL(false, organization.DefaultSite, "/");
+			var portalsHttpURI = organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI;
+			data.ForEach(info => info.URL.Replace("~/", siteURL).SendInvalidateL1CacheMessage(info.Key, portalsHttpURI, false, correlationID));
 		}
 
 		/// <summary>
@@ -259,7 +306,7 @@ namespace net.vieapps.Services.Portals
 					pageNumber++;
 				}
 				if (writeLogs)
-					await Utility.WriteLogAsync(correlationID, $"Purge CloudFlare cache successful [{total:###,##0}]\r\nURLs:\r\n- {urls.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"Purge CloudFlare cache successful [{total:###,##0}]\r\nURLs:\r\n{urls.Join("\r\n")}", "Caches").ConfigureAwait(false);
 			}
 			else
 			{
@@ -315,7 +362,7 @@ namespace net.vieapps.Services.Portals
 
 			writeLogs = writeLogs || Utility.IsPurgeCacheLogEnabled;
 			if (writeLogs)
-				await Utility.WriteLogAsync(correlationID, $"Prepare to purge CDN cache - {organization.Title}\r\nOrganization URLs [{orgURLs.Count:###,##0}]\r\n- {orgURLs.Join("\r\n- ")}\r\nSystem URLs [{systemURLs.Count:###,##0}]\r\n- {systemURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Prepare to purge CDN cache - {organization.Title}\r\nOrganization URLs [{orgURLs.Count:###,##0}]\r\n{orgURLs.Join("\r\n")}\r\nSystem URLs [{systemURLs.Count:###,##0}]\r\n{systemURLs.Join("\r\n")}", "Caches").ConfigureAwait(false);
 
 			await Task.WhenAll
 			(
@@ -372,6 +419,36 @@ namespace net.vieapps.Services.Portals
 			var siteURL = organization.GetURL(false, organization.DefaultSite, "/");
 			return organization.PurgeCDNCacheAsync(urls?.Select(url => url?.Replace("~/", siteURL)), false, 0, false, correlationID, writeLogs, cancellationToken, urls => onCompleted?.Invoke(urls));
 		}
+
+		/// <summary>
+		/// Purges cache at CDN by specified URLs
+		/// </summary>
+		public static async Task PurgeCDNCacheAsync(
+			this IPortalObject @object,
+			IEnumerable<string> urls,
+			bool doRefresh,
+			string correlationID,
+			bool writeLogs,
+			CancellationToken cancellationToken,
+			Action<IEnumerable<string>> onCompleted = null
+		)
+		{
+			var organization = await @object.OrganizationID.GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false);
+			if (organization != null)
+				await organization.PurgeCDNCacheAsync(new[] { organization.GetURL() }.Concat(urls ?? []), doRefresh && (organization.ExamineURLs == null || organization.ExamineURLs.Count < 1), 0, false, correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
+		}
+
+		/// <summary>
+		/// Purges cache at CDN by specified URLs
+		/// </summary>
+		public static Task PurgeCDNCacheAsync(
+			this IPortalObject @object,
+			bool doRefresh,
+			string correlationID,
+			bool writeLogs,
+			CancellationToken cancellationToken,
+			Action<IEnumerable<string>> onCompleted = null
+		) => @object.PurgeCDNCacheAsync([], doRefresh, correlationID, writeLogs, cancellationToken, onCompleted);
 
 		internal static bool GotCDN(this Organization organization, bool checkCDNForAll = false)
 			=> (organization != null && !string.IsNullOrWhiteSpace(organization.CDNZoneID) && !string.IsNullOrWhiteSpace(organization.CDNApiToken)) || (checkCDNForAll && Utility.CDNForAll);
@@ -434,8 +511,8 @@ namespace net.vieapps.Services.Portals
 			await Task.WhenAll
 			(
 				writeLogs
-				 ? Utility.WriteLogAsync(correlationID, $"{message ?? $"Refresh URLs - {organization.Title} [{refreshURLs.Count:###,##0}]"}\r\nURLs:\r\n- {refreshURLs.Join("\r\n- ")}", "Caches")
-				 : Task.CompletedTask,
+					? Utility.WriteLogAsync(correlationID, $"{message ?? $"Refresh URLs - {organization.Title} [{refreshURLs.Count:###,##0}]"}\r\nURLs:\r\n{refreshURLs.Join("\r\n")}", "Caches")
+					: Task.CompletedTask,
 				refreshURLs.ForEachAsync((url, index, cancellationtoken) => url.RefreshWebPageAsync(headers, delayEachItemByIndex ? index : 0, correlationID, writeLogs, cancellationtoken), cancellationToken, true, Utility.RunProcessorInParallelsMode)
 			).ConfigureAwait(false);
 		}
@@ -447,13 +524,13 @@ namespace net.vieapps.Services.Portals
 		{
 			var headers = force
 				? new Dictionary<string, string>
-				{
-					["x-no-cache"] = "1"
-				}
+					{
+						["x-no-cache"] = "1"
+					}
 				: new Dictionary<string, string>
-				{
-					["x-sliding-cache"] = "1"
-				};
+					{
+						["x-sliding-cache"] = "1"
+					};
 			return organization.RefreshWebPagesAsync(urls, true, headers, 0, false, correlationID, message, false, cancellationToken);
 		}
 
@@ -555,7 +632,7 @@ namespace net.vieapps.Services.Portals
 			await organization.RefreshWebPagesAsync(workingURLs, false, rebuildHeaders, 0, true, correlationID, message, writeLogs, cancellationToken).ConfigureAwait(false);
 			onRebuilt?.Invoke(workingURLs);
 			if (writeLogs)
-				await Utility.WriteLogAsync(correlationID, $"Complete phase-1: Rebuild caches with 'x-no-cache'\r\nURLs [{workingURLs.Count():###,##0}]:\r\n- {workingURLs.Join("\r\n- ")}\r\nHeaders: {rebuildHeaders.ToJson()}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Complete phase-1: Rebuild caches with 'x-no-cache'\r\nURLs [{workingURLs.Count():###,##0}]:\r\n{workingURLs.Join("\r\n")}\r\nHeaders: {rebuildHeaders.ToJson()}", "Caches").ConfigureAwait(false);
 
 			// phase-2: purge CDN & refill
 			var gotCDN = organization.GotCDN(true);
@@ -572,10 +649,10 @@ namespace net.vieapps.Services.Portals
 				var delaySeconds = Utility.CDNDelaySeconds * 1234;
 				await organization.PurgeCDNCacheAsync(workingURLs, doRefresh, delaySeconds, waitForRefreshen, refreshHeaders, correlationID, writeLogs, cancellationToken, onRefreshen).ConfigureAwait(false);
 				if (writeLogs)
-					await Utility.WriteLogAsync(correlationID, $"Complete phase-2: Purge CDN caches & refill\r\nURLs [{workingURLs.Count():###,##0}]:\r\n- {workingURLs.Join("\r\n- ")}\r\nHeaders: {refreshHeaders.ToJson()}", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"Complete phase-2: Purge CDN caches & refill\r\nURLs [{workingURLs.Count():###,##0}]:\r\n{workingURLs.Join("\r\n")}\r\nHeaders: {refreshHeaders.ToJson()}", "Caches").ConfigureAwait(false);
 			}
 			else if (!gotCDN && writeLogs)
-				await Utility.WriteLogAsync(correlationID, $"Bypass phase-2: No CDN to purge & refill\r\nURLs [{workingURLs.Count():###,##0}]:\r\n- {workingURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Bypass phase-2: No CDN to purge & refill\r\nURLs [{workingURLs.Count():###,##0}]:\r\n{workingURLs.Join("\r\n")}", "Caches").ConfigureAwait(false);
 		}
 
 		/// <summary>
@@ -585,7 +662,7 @@ namespace net.vieapps.Services.Portals
 		{
 			writeLogs = writeLogs || Utility.IsPurgeCacheLogEnabled;
 			if (writeLogs)
-				await Utility.WriteLogAsync(correlationID, $"[PRIORITY] Rebuild caches - {organization.Title} [{priorityURLs.Count():###,##0}]\r\n- {priorityURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"[PRIORITY] Rebuild caches - {organization.Title} [{priorityURLs.Count():###,##0}]\r\n{priorityURLs.Join("\r\n")}", "Caches").ConfigureAwait(false);
 
 			var done = 0;
 			var workingURLs = priorityURLs.Skip(done).Take(Utility.RefreshBatchSize).ToList();
@@ -602,13 +679,13 @@ namespace net.vieapps.Services.Portals
 				await organization.PurgeCDNCacheAsync([], correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
 				await organization.RefreshWebPagesAsync(priorityURLs, true, null, Utility.CDNDelaySeconds * 1234, true, correlationID, message, writeLogs, cancellationToken).ConfigureAwait(false);
 				if (writeLogs)
-					await Utility.WriteLogAsync(correlationID, $"[PRIORITY] Purge everything & refill CDN\r\nURLs [{priorityURLs.Count():###,##0}]:\r\n- {priorityURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"[PRIORITY] Purge everything & refill CDN\r\nURLs [{priorityURLs.Count():###,##0}]:\r\n{priorityURLs.Join("\r\n")}", "Caches").ConfigureAwait(false);
 			}
 
 			if (otherURLs.Count() > 0)
 			{
 				if (writeLogs)
-					await Utility.WriteLogAsync(correlationID, $"[OTHER] Rebuild caches - {organization.Title} [{otherURLs.Count():###,##0}]\r\n- {otherURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"[OTHER] Rebuild caches - {organization.Title} [{otherURLs.Count():###,##0}]\r\n{otherURLs.Join("\r\n")}", "Caches").ConfigureAwait(false);
 
 				done = 0;
 				workingURLs = otherURLs.Skip(done).Take(Utility.RefreshBatchSize).ToList();
@@ -623,7 +700,7 @@ namespace net.vieapps.Services.Portals
 					Task.WhenAll
 					(
 						writeLogs
-							? Utility.WriteLogAsync(correlationID, $"[OTHER] Update queue to refill CDN\r\nURLs [{otherURLs.Count():###,##0}]:\r\n- {otherURLs.Join("\r\n- ")}", "Caches")
+							? Utility.WriteLogAsync(correlationID, $"[OTHER] Update queue to refill CDN\r\nURLs [{otherURLs.Count():###,##0}]:\r\n{otherURLs.Join("\r\n")}", "Caches")
 							: Task.CompletedTask,
 						organization.RefreshWebPagesAsync(otherURLs, true, null, 0, true, correlationID, message, writeLogs, Utility.CancellationToken)
 					).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while refreshing (when purge CDN cache) => {ex.Message}", "Caches", correlationID));
@@ -646,9 +723,32 @@ namespace net.vieapps.Services.Portals
 					.Concat((organization.Sites ?? []).Where(site => (site.Status == ApprovalStatus.Approved || site.Status == ApprovalStatus.Published) && site.ID != organization.DefaultSite?.ID).Select(site => organization.GetURL(false, site)))
 					.ToList();
 
+				var canPublish = @object.Status == ApprovalStatus.Published;
+				if (canPublish)
+				{					
+					var examinations = organization.ExamineURLs?.Where(exam => exam != null);
+					if (examinations != null && examinations.Count() > 0)
+					{
+						var now = DateTime.Now;
+						var path = @object.GetURL().Replace("~/", "/");
+						var pathWithoutExtention = path.Replace("/default.aspx", "").Replace(".aspx", "").Replace(".php", "").Replace(".html", "");
+						examinations = examinations.Where(exam => exam.Start <= now && exam.End >= now && ((exam.URLs.Any(url => url.IsStartsWith("s:/")
+							? path.IsStartsWith(url.Right(url.Length - 2))
+							: url.IsStartsWith("c:/")
+								? path.IsContains(url.Right(url.Length - 2))
+								: path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/")
+									? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2))
+									: url.IsStartsWith("c:/")
+										? pathWithoutExtention.IsContains(url.Right(url.Length - 2))
+										: pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*")))
+						);
+						canPublish = examinations != null && examinations.Any();
+					}
+				}
+
 				if (@object is Category category)
 				{
-					if (category.Status == ApprovalStatus.Published)
+					if (canPublish)
 					{
 						priorityURLs.Add(category.GetURL());
 						otherURLs.Add(category.GetURL(true));
@@ -687,7 +787,7 @@ namespace net.vieapps.Services.Portals
 							purgeURLs.Add(category.GetURL(true));
 					});
 
-					if (content.Status == ApprovalStatus.Published)
+					if (canPublish)
 						priorityURLs.Add(content.GetURL());
 					else
 						purgeURLs.Add(content.GetURL());
@@ -701,6 +801,10 @@ namespace net.vieapps.Services.Portals
 					}
 					otherURLs.AddRange(categories.Select(category => category?.GetURL(true)));
 
+					var relateds = new List<Content>();
+					await (content.Relateds ?? []).ForEachAsync(async id => relateds.Add(await Content.GetAsync(id, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false)), true, false).ConfigureAwait(false);
+					otherURLs.AddRange(relateds.Where(contentObj => contentObj != null && contentObj.Status == ApprovalStatus.Published).Select(contentObj => contentObj.GetURL()));
+
 					await categories.ForEachAsync(async (category, cancellationtoken) =>
 					{
 						var (contents, _) = await content.ContentType.FindContentsAsync(category.ID, -1, 20, 1, cancellationtoken).ConfigureAwait(false);
@@ -710,7 +814,7 @@ namespace net.vieapps.Services.Portals
 
 				else if (@object is Item item)
 				{
-					if (item.Status == ApprovalStatus.Published)
+					if (canPublish)
 						priorityURLs.Add(item.GetURL());
 					else
 						purgeURLs.Add(item.GetURL());
@@ -724,7 +828,7 @@ namespace net.vieapps.Services.Portals
 
 				else if (@object is Link link)
 				{
-					if (link.Status == ApprovalStatus.Published)
+					if (canPublish)
 						priorityURLs.Add(link.URL);
 					else
 						purgeURLs.Add(link.URL);
@@ -747,10 +851,14 @@ namespace net.vieapps.Services.Portals
 					.ToList();
 
 				if (writeLogs)
-					await Utility.WriteLogAsync(correlationID, $"Run the 2-phase process to rebuild caches [{((IPortalObject)@object).Title}]\r\nPurge URLs [{purgeURLs.Count:###,##0}]:\r\n- {purgeURLs.Join("\r\n- ")}\r\nPriority URLs [{priorityURLs.Count:###,##0}]:\r\n- {priorityURLs.Join("\r\n- ")}\r\nOther URLs [{otherURLs.Count:###,##0}]:\r\n- {otherURLs.Join("\r\n- ")}", "Caches").ConfigureAwait(false);
+					await Utility.WriteLogAsync(correlationID, $"Run the 2-phase process to rebuild caches [{((IPortalObject)@object).Title}]\r\nPriority URLs [{priorityURLs.Count:###,##0}]:\r\n{priorityURLs.Join("\r\n")}\r\nOther URLs [{otherURLs.Count:###,##0}]:\r\n{otherURLs.Join("\r\n")}", "Caches").ConfigureAwait(false);
 
 				if (purgeURLs.Count > 0)
+				{
 					await organization.PurgeCDNCacheAsync(purgeURLs, correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
+					if (writeLogs)
+						await Utility.WriteLogAsync(correlationID, $"Pre-step of 2-phase process to rebuild caches [{((IPortalObject)@object).Title}]\r\nPurge URLs [{purgeURLs.Count:###,##0}]:\r\n{purgeURLs.Join("\r\n")}", "Caches").ConfigureAwait(false);
+				}
 
 				await organization.RebuildCacheAsync(priorityURLs, otherURLs, doRefresh, true, correlationID, $"In the 2-phase process to rebuild caches [{((IPortalObject)@object).Title}]", writeLogs, cancellationToken).ConfigureAwait(false);
 				if (writeLogs)
@@ -961,15 +1069,18 @@ namespace net.vieapps.Services.Portals
 			var dataCacheKeys = new List<string>();
 			if (getDataCacheKeys)
 			{
+				dataCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(category.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? []);
+
 				var sort = Sorts<Category>.Ascending("OrderIndex").ThenByAscending("Title");
-				var cacheKey = category.GetSetCacheKey();
 				IEnumerable<string> cacheKeys = await Utility.Cache.GetSetMembersAsync(category.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? [];
 				cacheKeys = cacheKeys.Concat([Extensions.GetCacheKey(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ID), sort, 0, 1)]);
-				if (!string.IsNullOrWhiteSpace(category.ParentID))
-					cacheKeys = cacheKeys.Concat([Extensions.GetCacheKey(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, category.ParentID), sort, 0, 1)]);
+				var parentCategory = category.ParentCategory;
+				while (parentCategory != null)
+				{
+					cacheKeys = cacheKeys.Concat([Extensions.GetCacheKey(CategoryProcessor.GetCategoriesFilter(category.SystemID, category.RepositoryID, category.RepositoryEntityID, parentCategory.ID), sort, 0, 1)]);
+					parentCategory = parentCategory.ParentCategory;
+				}
 				dataCacheKeys.AddRange(cacheKeys);
-
-				dataCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(category.ContentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? []);
 
 				await childrenContentTypes.ForEachAsync(async (contentType, cancellationtoken) =>
 				{
@@ -1030,29 +1141,49 @@ namespace net.vieapps.Services.Portals
 
 			if (@object.ContentType is ContentType contentType)
 			{
+				var (_, _, contentTypeDataCacheKeys, contentTypeHtmlCacheKeys) = await contentType.GetCacheKeysAsync(true, true, true, cancellationToken).ConfigureAwait(false);
 				if (getDataCacheKeys)
 				{
-					var cacheKeys = Extensions.GetRelatedCacheKeys(@object.GetCacheKey()).Concat(await Utility.Cache.GetSetMembersAsync(contentType.GetSetCacheKey(), cancellationToken).ConfigureAwait(false) ?? []);
+					var cacheKeys = Extensions.GetRelatedCacheKeys(@object.GetCacheKey()).Concat(contentTypeDataCacheKeys);
+
 					if (@object is Content content)
 					{
 						cacheKeys = cacheKeys.Concat([content.GetCacheKeyOfAlias()]);
-						//content.Category.FindDesktopsAsync
+						await new[] { content.CategoryID }.Concat(content.OtherCategories ?? []).ForEachAsync(async (categoryID, cancellationtoken) =>
+						{
+							var category = await categoryID.GetCategoryByIDAsync(cancellationtoken).ConfigureAwait(false);
+							dataCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(category.GetSetCacheKey(), cancellationtoken).ConfigureAwait(false) ?? []);
+							if (category.ParentCategory == null)
+							{
+								var desktops = await category.FindDesktopsAsync(cancellationtoken).ConfigureAwait(false);
+								await desktops.ForEachAsync(async desktop =>
+								{
+									dataCacheKeys.AddRange(await Utility.Cache.GetSetMembersAsync(desktop.GetSetCacheKey(), cancellationtoken).ConfigureAwait(false) ?? []);
+								}, true, false).ConfigureAwait(false);
+							}
+						}, cancellationToken, true, false).ConfigureAwait(false);
 					}
+
 					else if (@object is Item item)
 						cacheKeys = cacheKeys.Concat([item.GetCacheKeyOfAlias()]);
+
 					else if (@object is Link link)
 					{
 						var sort = Sorts<Link>.Ascending("OrderIndex").ThenByAscending("Title");
 						cacheKeys = cacheKeys.Concat([Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ID), sort, 0, 1)]);
-						if (!string.IsNullOrWhiteSpace(link.ParentID))
-							cacheKeys = cacheKeys.Concat([Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID), sort, 0, 1)]);
+						var parentLink = link.ParentLink;
+						while (parentLink != null)
+						{
+							cacheKeys = cacheKeys.Concat([Extensions.GetCacheKey(LinkProcessor.GetLinksFilter(link.SystemID, link.RepositoryID, link.RepositoryEntityID, parentLink.ID), sort, 0, 1)]);
+							parentLink = parentLink.ParentLink;
+						}
 					}
+
 					dataCacheKeys.AddRange(cacheKeys);
 				}
 
 				if (getHtmlCacheKeys)
 				{
-					var (_, _, _, contentTypeHtmlCacheKeys) = await contentType.GetCacheKeysAsync(false, false, true, cancellationToken).ConfigureAwait(false);
 					htmlCacheKeys.AddRange(contentTypeHtmlCacheKeys);
 
 					var desktops = await @object.FindDesktopsAsync(cancellationToken).ConfigureAwait(false);
@@ -1320,16 +1451,21 @@ namespace net.vieapps.Services.Portals
 								{
 									pageNumber++;
 									var (contents, cacheKeyOfObjects) = await contentType.FindContentsAsync(category.ID, totalRecords, pageSize, pageNumber, cancellationtoken).ConfigureAwait(false);
+									var relateds = new List<Content>();
+									await contents.Select(content => content.Relateds ?? []).SelectMany(id => id).Distinct(StringComparer.OrdinalIgnoreCase).ForEachAsync(async id =>
+									{
+										relateds.Add(await Content.GetAsync(id, Utility.IsCacheAvailable(), cancellationtoken).ConfigureAwait(false));
+									}, true, false).ConfigureAwait(false);
 									var cacheKeys = contents.Select(content => content.GetCacheKeyOfAlias()).Concat([cacheKeyOfObjects]);
 									await Task.WhenAll
 									(
-										Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys, cancellationtoken),
+										Utility.Cache.AddSetMembersAsync(contentType.GetSetCacheKey(), cacheKeys.Concat(relateds.Where(content => content != null).Select(content => content.GetCacheKeyOfAlias())), cancellationtoken),
 										Utility.Cache.AddSetMembersAsync(category.GetSetCacheKey(), cacheKeys, cancellationtoken)
 									).ConfigureAwait(false);
 									contents = contents.Where(content => content.Status == ApprovalStatus.Published).ToList();
 									if (contents.Count > 0)
 									{
-										contentURLs.AddRange(contents.Where(content => minPublishedTime != null ? minPublishedTime.Value > content.PublishedTime.Value : true).Select(content => content.GetURL()));
+										contentURLs.AddRange(contents.Where(content => minPublishedTime != null ? minPublishedTime.Value > content.PublishedTime.Value : true).Concat(relateds.Where(content => content != null && content.Status == ApprovalStatus.Published)).Select(content => content.GetURL()));
 										if (minPublishedTime != null && minPublishedTime.Value > contents.Last().PublishedTime.Value)
 											break;
 									}
