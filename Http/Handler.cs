@@ -474,6 +474,7 @@ namespace net.vieapps.Services.Portals
 
 						if (!string.IsNullOrWhiteSpace(legacyHandler))
 						{
+							Global.Statistics.L2Bypass();
 							var filesHttpURI = this.RemoveURITrail(systemIdentityJson?.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
 							context.SetResponseHeaders((int)HttpStatusCode.MovedPermanently, new Dictionary<string, string>
 							{
@@ -487,6 +488,7 @@ namespace net.vieapps.Services.Portals
 					}
 					else
 					{
+						Global.Statistics.L2Bypass();
 						var redirectURL = systemIdentityJson?.Get<string>("RedirectTo");
 						if (!string.IsNullOrWhiteSpace(redirectURL))
 						{
@@ -497,8 +499,6 @@ namespace net.vieapps.Services.Portals
 								["X-Correlation-ID"] = correlationID,
 								["X-Redirector"] = "VIEApps NGX HTTP CMS Portals"
 							});
-							if (isVisitLogEnabled)
-								await context.WriteLogsAsync("Http.Process.Requests", $"Redirect for matching with the settings [{requestURI} => {redirectURL}]").ConfigureAwait(false);
 							return;
 						}
 					}
@@ -525,6 +525,7 @@ namespace net.vieapps.Services.Portals
 						await Task.Delay(seconds * 1000, context.RequestAborted).ConfigureAwait(false);
 						if (!"Continue".IsEquals(examination.ResponseMode))
 						{
+							Global.Statistics.L2Bypass();
 							context.ShowError(examination.ResponseCode, examination.ResponseMessage, examination.ResponseType, correlationID);
 							return;
 						}
@@ -653,6 +654,7 @@ namespace net.vieapps.Services.Portals
 							// redirect (HTTPS or None-WWW)
 							if (isHtml && ((alwaysUseHTTPs && !requestURI.Scheme.IsEquals("https")) || (redirectToNoneWWW && requestURI.Host.IsStartsWith("www."))))
 							{
+								Global.Statistics.L2Bypass();
 								var redirectURL = $"{(alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme)}://{(redirectToNoneWWW && requestURI.Host.IsStartsWith("www.") ? requestURI.Host.Replace("www.", "") : requestURI.Host)}{requestURI.PathAndQuery}{requestURI.Fragment}";
 								context.SetResponseHeaders((int)HttpStatusCode.Redirect, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 								{
@@ -661,8 +663,6 @@ namespace net.vieapps.Services.Portals
 									["X-Correlation-ID"] = correlationID,
 									["X-Redirector"] = "VIEApps NGX HTTP CMS Portals"
 								});
-								if (isDebugLogEnabled || Global.IsVisitLogEnabled)
-									await context.WriteLogsAsync("Http.Process.Requests", $"Redirect for matching with the settings [{requestURI} => {redirectURL}]").ConfigureAwait(false);
 								return;
 							}
 
@@ -835,7 +835,7 @@ namespace net.vieapps.Services.Portals
 
 					// call CMS Portals service to process the request
 					stepwatch.Restart();
-					if (isBypassCacheRequested)
+					if (isBypassCacheRequested || context.IsAuthenticated())
 						Global.Statistics.L2Bypass();
 					else
 						Global.Statistics.L2Miss();
@@ -2774,17 +2774,8 @@ namespace net.vieapps.Services.Portals
 
 				if (systemIdentityJson != null && useL1Cache)
 				{
-					var updateL1Cache = true;
-					var examinations = systemIdentityJson.Get<JArray>("CacheExaminations")?.Select(examination => examination as JObject)
-						.Select(examination => examination?.Copy<Settings.ExamineURLs>())
-						.Where(examination => examination != null)
-						.ToList();
-					if (examinations != null && examinations.Count > 0)
-					{
-						var path = requestURI.AbsolutePath.ToLower();
-						var pathWithoutExtention = path.Replace("/default.aspx", "").Replace(".aspx", "").Replace(".php", "").Replace(".html", "");
-						updateL1Cache = examinations.FirstOrDefault(exam => exam.Start <= DateTime.Now && exam.End >= DateTime.Now && ((exam.URLs.Any(url => url.IsStartsWith("s:/") ? path.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? path.IsContains(url.Right(url.Length - 2)) : path.IsEndsWith(url)) || exam.URLs.Any(url => url.IsStartsWith("s:/") ? pathWithoutExtention.IsStartsWith(url.Right(url.Length - 2)) : url.IsStartsWith("c:/") ? pathWithoutExtention.IsContains(url.Right(url.Length - 2)) : pathWithoutExtention.IsEndsWith(url)) || exam.URLs.Any(url => url == "*")))) == null;
-					}
+					var examinations = requestURI.GetExaminations(systemIdentityJson);
+					var updateL1Cache = examinations == null || !examinations.Any();
 					if (updateL1Cache)
 					{
 						Handler.Cache.SetL1CacheItem(requestHost, systemIdentityJson, TimeSpan.FromMinutes(3));
