@@ -2798,6 +2798,6 @@ namespace net.vieapps.Services.Portals
 		}
 
 		public static Task WriteAsync(this HttpContext context, JToken json, Formatting format, Dictionary<string, string> headers, CancellationToken cancellationToken)
-			=> context.WriteAsync(json.ToString(format), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
+			=> context.WriteAsync(json.AsString(format), "application/json", new Dictionary<string, string>(headers ?? []) { ["Cache-Control"] = context.GetHttpCacheControl(true) }, cancellationToken);
 	}
 }
