@@ -24,7 +24,7 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.AspNetCore.StaticFiles" Version="2.3.9" />
 		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
-		<PackageReference Include="VIEApps.Components.Utility.Excel" Version="10.10.2604.24" />
+		<PackageReference Include="VIEApps.Components.Utility.Excel" Version="10.10.2605.1" />
 	</ItemGroup>
 
 	<ItemGroup>

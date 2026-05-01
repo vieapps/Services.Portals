@@ -1319,7 +1319,7 @@ namespace net.vieapps.Services.Portals
 				session.IP = context.Connection.RemoteIpAddress.ToString();
 
 				// perform sign-in
-				var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, session.User.Roles, session.User.Privileges, CookieAuthenticationDefaults.AuthenticationScheme));
+				var userPrincipal = new UserPrincipal(new UserIdentity(session.User.ID, session.SessionID, session.DeviceID, session.User.Roles, session.User.Privileges, CookieAuthenticationDefaults.AuthenticationScheme));
 				await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, userPrincipal, new AuthenticationProperties { IsPersistent = false }).ConfigureAwait(false);
 
 				await context.RegisterSessionAsync(session).ConfigureAwait(false);
@@ -1710,7 +1710,7 @@ namespace net.vieapps.Services.Portals
 				}
 				else
 				{
-					session.User = new User("", "", [SystemRole.All.ToString()], new())
+					session.User = new User("", "", session.DeviceID, [SystemRole.All.ToString()], new())
 					{
 						SessionID = session.SessionID = UtilityService.NewUUID
 					};
