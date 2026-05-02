@@ -6255,6 +6255,10 @@ namespace net.vieapps.Services.Portals
 					this.RebuildCacheCTS.Dispose();
 					this.RebuildCacheCTS = null;
 				}
+				new CommunicateMessage("APIGateway")
+				{
+					Type = "Statistics#Reset"
+				}.Send();
 			}
 
 			if (logs.Count > 0)
