@@ -1363,20 +1363,31 @@ namespace net.vieapps.Services.Portals
 			if (requestInfo.ContainsKey("x-force-refresh"))
 				await organization.RefreshAsync(cancellationToken).ConfigureAwait(false);
 
-			var homeDesktopAlias = (site?.HomeDesktop ?? organization.HomeDesktop ?? organization.DefaultDesktop)?.Alias ?? "-default";
-			var homeDesktopAliases = (site?.HomeDesktop ?? organization.HomeDesktop ?? organization.DefaultDesktop)?.Aliases;
+			var organizationHomeDesktop = organization.HomeDesktop ?? organization.DefaultDesktop;
+			var homeDesktopAlias = organizationHomeDesktop?.Alias ?? "-default";
+			var homeDesktopAliases = organizationHomeDesktop?.Aliases;
+
+			var siteHomeDesktop = (site ?? organization.DefaultSite)?.HomeDesktop ?? organization.DefaultDesktop;
+			var siteHomeDesktopAlias = siteHomeDesktop?.Alias ?? "-default";
+			var siteHomeDesktopAliases = siteHomeDesktop?.Aliases;
+
+			var isDefaultSite = site?.ID == organization.DefaultSite?.ID;
 
 			var identityJson = new JObject
 			{
-				{ "ID", organization.ID },
-				{ "Alias", organization.Alias },
-				{ "Title", organization.Title },
-				{ "HomeDesktopAlias", homeDesktopAlias },
-				{ "HomeDesktopAliases", $"{homeDesktopAlias}{(string.IsNullOrWhiteSpace(homeDesktopAliases) ? "" : $";{homeDesktopAliases}")}" },
-				{ "SiteID", site?.ID },
-				{ "SiteDomain", site?.Host },
-				{ "SiteDomains", site != null ? $"{site.SubDomain}.{site.PrimaryDomain}{(string.IsNullOrWhiteSpace(site.OtherDomains) ? "" : $";{site.OtherDomains}")}" : null },
-				{ "SiteHost", site != null ? host : null }
+				["ID"] = organization.ID,
+				["Alias"] = organization.Alias,
+				["Title"] = organization.Title,
+				["HomeDesktopAlias"] = homeDesktopAlias,
+				["HomeDesktopAliases"] = $"{homeDesktopAlias}{(string.IsNullOrWhiteSpace(homeDesktopAliases) ? "" : $";{homeDesktopAliases}")}",
+				["SiteID"] = site?.ID,
+				["SiteDomain"] = site?.Host,
+				["SiteDomains"] = site != null ? $"{site.SubDomain}.{site.PrimaryDomain}{(string.IsNullOrWhiteSpace(site.OtherDomains) ? "" : $";{site.OtherDomains}")}" : null,
+				["SiteHost"] = site != null ? host : null,
+				["SiteTitle"] = site?.Title,
+				["SiteDefault"] = isDefaultSite,
+				["SiteHomeDesktopAlias"] = siteHomeDesktopAlias,
+				["SiteHomeDesktopAliases"] = $"{siteHomeDesktopAlias}{(string.IsNullOrWhiteSpace(siteHomeDesktopAliases) ? "" : $";{siteHomeDesktopAliases}")}",
 			};
 
 			if (!requestInfo.ContainsKey("x-brief") && (!string.IsNullOrWhiteSpace(requestInfo.Session.DeviceID) || (requestInfo.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx"))))
@@ -1391,8 +1402,7 @@ namespace net.vieapps.Services.Portals
 				identityJson["AlwaysReturnHTTPs"] = site != null && site.AlwaysReturnHTTPs;
 				identityJson["RedirectToNoneWWW"] = site != null && site.RedirectToNoneWWW;
 				identityJson["Language"] = requestInfo.GetParameter("Language") ?? site?.Language ?? "en-US";
-				identityJson["CacheKeyPrefix"] = organization.ID + (site == null || string.IsNullOrWhiteSpace(site.ID) || site.ID.IsEquals(organization.DefaultSite?.ID) ? "" : ":" + site.ID);
-				identityJson["CacheExaminations"] = organization.ExamineURLs?.ToJsonArray();
+				identityJson["Examinations"] = organization.ExamineURLs?.ToJsonArray();
 			}
 
 			if (!requestInfo.TryGetQueryParameter("x-resource", out var resource) || string.IsNullOrWhiteSpace(resource))
@@ -2777,6 +2787,52 @@ namespace net.vieapps.Services.Portals
 							? this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove HTML cache of {desktopInfo} ({requestURL}) => {cacheKey}", null, this.ServiceName, "Caches")
 							: Task.CompletedTask
 					).ConfigureAwait(false);
+				}
+
+				// CSS & JS of all sites
+				if (organization.Sites.Count > 0 && requestURL.IsContains($"/~{organization.Alias}"))
+				{
+					var allSiteStylesheets = "";
+					var allSiteScripts = "";
+					var version = this.CrossOrigin.IsEquals("use-credentials") ? "{{host-uuid}}&r=" : "";
+					organization.Sites.ForEach(siteObj =>
+					{
+						allSiteStylesheets += string.IsNullOrWhiteSpace(siteObj.Stylesheets) ? "" : $"<link rel=\"stylesheet\" crossorigin=\"{this.CrossOrigin}\" href=\"~#/_css/s_{siteObj.ID}.css?v={version}{siteObj.LastModified.ToUnixTimestamp()}\"/>";
+						allSiteScripts += string.IsNullOrWhiteSpace(siteObj.Scripts) ? "" : $"<script crossorigin=\"{this.CrossOrigin}\" href=\"~#/_js/s_{siteObj.ID}.js?v={version}{siteObj.LastModified.ToUnixTimestamp()}\"></script>";
+					});
+
+					if (allSiteStylesheets != "")
+					{
+						var start = html.PositionOf("/_css/s_");
+						if (start < 0)
+						{
+							var next = html.PositionOf("/_themes/");
+							if (next > 0)
+								while (next > 0)
+								{
+									start = html.PositionOf(">", next) + 1;
+									next = html.PositionOf("/_themes/", next);
+								}
+							else
+								start = html.PositionOf("</head>");
+						}
+						else
+							start = html.PositionOf(">", start) + 1;
+						html = html.Insert(start, additionalStylesheets);
+					}
+
+					if (allSiteScripts != "")
+					{
+						var start = html.PositionOf("/_js/s_");
+						if (start < 0)
+						{
+							start = html.PositionOf("/_js/o_");
+							start = start > 0 ? html.PositionOf(">", start) + 1 : html.PositionOf("</body>");
+						}
+						else
+							start = html.PositionOf(">", start) + 1;
+						html = html.Insert(start, allSiteScripts);
+					}
 				}
 
 				// normalize

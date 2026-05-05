@@ -609,8 +609,6 @@ namespace net.vieapps.Services.Portals
 							
 							var siteURI = $"//{systemIdentityJson.Get<string>("SiteHost")}";
 							var organizationAlias = systemIdentityJson.Get<string>("Alias");
-							var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
-							var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
 
 							alwaysUseHTTPs = systemIdentityJson.Get("AlwaysUseHTTPs", false);
 							alwaysReturnHTTPs = systemIdentityJson.Get("AlwaysReturnHTTPs", false);
@@ -618,28 +616,13 @@ namespace net.vieapps.Services.Portals
 							
 							baseURL = requestURI.GetBaseURL(organizationAlias, alwaysUseHTTPs || alwaysReturnHTTPs);
 							rootURL = requestURI.GetRootURL(organizationAlias, Handler.UseShortURLs, alwaysUseHTTPs || alwaysReturnHTTPs);
-
-							var desktopAlias = query["x-desktop"].ToLower();
-							var path = homeDesktopAlias.IsEquals(desktopAlias) || homeDesktopAliases.IsContains(desktopAlias) || "-default".IsEquals(desktopAlias) ? "-default" : null;
-							if (path == null)
-							{
-								path = requestURI.AbsolutePath.ToLower();
-								while (path.EndsWith("/") || path.EndsWith("."))
-									path = path.Left(path.Length - 1).Trim();
-								if (path.IsStartsWith($"/~{organizationAlias}"))
-									path = path.Right(path.Length - organizationAlias.Length - 2);
-								path = path.IsEndsWith("/default.aspx") ? path.Left(path.Length - 13) : path;
-								path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
-								path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? "-default" : path;
-							}
-							
 							if (baseURL == "" && (portalsHttpURI.IsEndsWith(siteURI) || Handler.PortalsHttpURI.IsEndsWith(siteURI)))
 							{
 								baseURL = (alwaysUseHTTPs || alwaysReturnHTTPs ? "https" : requestURI.Scheme) + "://" + requestURI.Host + "/~" + organizationAlias + "/";
 								rootURL = "";
 							}
 
-							cacheKey = systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID();
+							cacheKey = requestURI.GetDesktopCacheKey(query["x-desktop"].ToLower(), systemIdentityJson);
 							eTag = $"vieapps#{cacheKey.GenerateUUID()}";
 						}
 
@@ -882,14 +865,8 @@ namespace net.vieapps.Services.Portals
 							{
 								var filesHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("FilesHttpURI") ?? Handler.FilesHttpURI);
 								var portalsHttpURI = this.RemoveURITrail(systemIdentityJson.Get<string>("PortalsHttpURI") ?? Handler.PortalsHttpURI);
-								var organizationAlias = systemIdentityJson.Get<string>("Alias");
-								var homeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
-								var homeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
 								var desktopAlias = query.TryGetValue("x-desktop", out var xdesktopAlias) ? xdesktopAlias.ToLower() : null;
-								var path = homeDesktopAlias.IsEquals(desktopAlias) || homeDesktopAliases.IsContains(desktopAlias) || "-default".IsEquals(desktopAlias)
-									? "-default"
-									: requestURI.AbsolutePath.GetRequestedPath(organizationAlias, desktopAlias);
-								var cacheKey = systemIdentityJson.Get<string>("CacheKeyPrefix") + ":" + path.GenerateUUID();
+								var cacheKey = requestURI.GetDesktopCacheKey(desktopAlias, systemIdentityJson);
 								if (!gotExamination && !context.IsAuthenticated() && !cacheControl.IsContains("private"))
 									context.SetL1Cache(alwaysUseHTTPs, alwaysReturnHTTPs, portalsHttpURI, filesHttpURI, headers, cacheKey);
 								else
@@ -2346,7 +2323,7 @@ namespace net.vieapps.Services.Portals
 	{
 		public static IEnumerable<Settings.ExamineURLs> GetExaminations(this Uri requestURI, JObject systemIdentityJson)
 		{
-			var examinations = systemIdentityJson?.Get<JArray>("CacheExaminations")?.Select(exam => exam as JObject).Where(exam => exam != null).Select(exam => exam?.Copy<Settings.ExamineURLs>()).Where(exam => exam != null);
+			var examinations = systemIdentityJson?.Get<JArray>("Examinations")?.Select(exam => exam as JObject).Where(exam => exam != null).Select(exam => exam?.Copy<Settings.ExamineURLs>()).Where(exam => exam != null);
 			if (examinations != null && examinations.Count() > 0)
 			{
 				var now = DateTime.Now;
@@ -2404,6 +2381,36 @@ namespace net.vieapps.Services.Portals
 			}
 			catch { }
 			return systemID;
+		}
+
+		public static string GetDesktopCacheKey(this Uri requestURI, string desktopAlias, JObject systemIdentityJson)
+		{
+			var organizationID = systemIdentityJson.Get<string>("ID");
+			var organizationAlias = systemIdentityJson.Get<string>("Alias");
+
+			var organizationHomeDesktopAlias = systemIdentityJson.Get<string>("HomeDesktopAlias");
+			var organizationHomeDesktopAliases = systemIdentityJson.Get<string>("HomeDesktopAliases");
+			var siteHomeDesktopAlias = systemIdentityJson.Get<string>("SiteHomeDesktopAlias");
+			var siteHomeDesktopAliases = systemIdentityJson.Get<string>("SiteHomeDesktopAliases");
+
+			var siteID = systemIdentityJson.Get<string>("SiteID");
+			var isDefaultSite = systemIdentityJson.Get("SiteDefault", false);
+			var isHomeDesktop = "-default".IsEquals(desktopAlias) || organizationHomeDesktopAlias.IsEquals(desktopAlias) || organizationHomeDesktopAliases.IsContains(";" + desktopAlias) || siteHomeDesktopAlias.IsEquals(desktopAlias) || siteHomeDesktopAliases.IsContains(";" + desktopAlias);
+
+			var path = isHomeDesktop ? "-default" : null;
+			if (path == null)
+			{
+				path = requestURI.AbsolutePath.ToLower();
+				while (path.EndsWith("/") || path.EndsWith("."))
+					path = path.Left(path.Length - 1).Trim();
+				if (path.IsStartsWith($"/~{organizationAlias}"))
+					path = path.Right(path.Length - organizationAlias.Length - 2);
+				path = path.IsEndsWith("/default.aspx") ? path.Left(path.Length - 13) : path;
+				path = path.IsEndsWith(".html") || path.IsEndsWith(".aspx") ? path.Left(path.Length - 5) : path.IsEndsWith(".php") ? path.Left(path.Length - 4) : path;
+				path = path.Equals("") || path.Equals("/") || path.Equals("/index") || path.Equals("/default") ? "-default" : path;
+			}
+
+			return organizationID + (isHomeDesktop && !isDefaultSite ? ":" + siteID : "") + ":" + path.GenerateUUID();
 		}
 
 		public static bool IsL1CacheAvailable(this Uri requestURI, string portalsHttpURI = null)
