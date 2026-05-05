@@ -59,6 +59,10 @@ namespace net.vieapps.Services.Portals
 
 		[Ignore, BsonIgnore]
 		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
+		public bool AlwaysRebuildOnCDN { get; set; } = false;
+
+		[Ignore, BsonIgnore]
+		[FormControl(Segment = "basic", Label = "{{portals.sites.controls.[name].label}}", PlaceHolder = "{{portals.sites.controls.[name].placeholder}}", Description = "{{portals.sites.controls.[name].description}}")]
 		public bool IsDefault { get; set; } = false;
 
 		[Property(MaxLength = 5)]
@@ -225,7 +229,7 @@ namespace net.vieapps.Services.Portals
 			this.SEOInfo = this.SEOInfo?.Normalize();
 			this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 			SiteProcessor.ExtraProperties.ForEach(name => this._json[name] = this.GetProperty(name)?.ToJson());
-			this._extras = this._json.ToString(Formatting.None);
+			this._extras = this._json.AsString();
 		}
 
 		public override void ProcessPropertyChanged(string name)
@@ -235,6 +239,7 @@ namespace net.vieapps.Services.Portals
 				this._json = this._json ?? JObject.Parse(string.IsNullOrWhiteSpace(this.Extras) ? "{}" : this.Extras);
 				this.AlwaysUseHTTPs = this._json["AlwaysUseHTTPs"] != null && this._json["AlwaysUseHTTPs"].As<bool>();
 				this.AlwaysReturnHTTPs = this._json["AlwaysReturnHTTPs"] != null && this._json["AlwaysReturnHTTPs"].As<bool>();
+				this.AlwaysRebuildOnCDN = this._json["AlwaysRebuildOnCDN"] != null && this._json["AlwaysRebuildOnCDN"].As<bool>();
 				this.IsDefault = this._json["IsDefault"] != null && this._json["IsDefault"].As<bool>();
 				this.UISettings = this._json["UISettings"]?.As<Settings.UI>();
 				this.IconURI = this._json["IconURI"]?.As<string>();
