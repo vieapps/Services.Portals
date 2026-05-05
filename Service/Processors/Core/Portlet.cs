@@ -124,27 +124,28 @@ namespace net.vieapps.Services.Portals
 			return new[] { originalPortlet.Desktop }.Concat(mappingPortlets.Select(mappingPortlet => mappingPortlet.Desktop)).ToList();
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID, bool clearDataCache, bool clearHtmlCache, bool clearAllHtmlCache, bool doRefresh)
+		internal static async Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID, bool clearDataCache, bool clearHtmlCache, bool clearAllHtmlCache, bool doRefresh, bool writeLogs = false)
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await portlet.GetCacheKeysAsync(clearDataCache, clearHtmlCache, clearAllHtmlCache, cancellationToken).ConfigureAwait(false);
 			var cacheKeys = (clearDataCache ? dataCacheKeys : []).Concat(clearHtmlCache ? htmlCacheKeys : []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			writeLogs = writeLogs || Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
-				Utility.IsCacheLogEnabled
+				writeLogs
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a portlet [{portlet.Title} - ID: {portlet.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			var desktops = await portlet.GetDesktopsAsync(cancellationToken).ConfigureAwait(false);
 			Task.WhenAll
 			(
-				portlet.PurgeCDNCacheAsync(doRefresh, correlationID, false, Utility.CancellationToken),
+				portlet.PurgeCDNCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken),
 				desktops.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
 			).Execute();
 		}
 
-		internal static Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
-			=> portlet.ClearRelatedCacheAsync(cancellationToken, correlationID, clearDataCache, clearHtmlCache, false, doRefresh);
+		internal static Task ClearRelatedCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false, bool writeLogs = false)
+			=> portlet.ClearRelatedCacheAsync(cancellationToken, correlationID, clearDataCache, clearHtmlCache, false, doRefresh, writeLogs);
 
 		internal static Task ClearCacheAsync(this Portlet portlet, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = false)
 			=> Task.WhenAll
@@ -401,7 +402,7 @@ namespace net.vieapps.Services.Portals
 			return response.UpdateVersions(versions);
 		}
 
-		static async Task UpdateRelatedOnUpdatedAsync(this Portlet portlet, RequestInfo requestInfo, string oldDesktopID, List<string> otherDesktops, CancellationToken cancellationToken)
+		static async Task UpdateRelatedOnUpdatedAsync(this Portlet portlet, RequestInfo requestInfo, string oldDesktopID, List<string> otherDesktops, bool writeLogs, CancellationToken cancellationToken)
 		{
 			var json = portlet.ToJson();
 			var objectName = portlet.GetObjectName();
@@ -474,7 +475,7 @@ namespace net.vieapps.Services.Portals
 				// create portlet
 				mappingPortlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(mappingPortlet.DesktopID, mappingPortlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
 				await Portlet.CreateAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
-				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
+				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false, true, false, writeLogs).ConfigureAwait(false);
 
 				var mappingJson = mappingPortlet.ToJson();
 				new UpdateMessage
@@ -508,7 +509,7 @@ namespace net.vieapps.Services.Portals
 			{
 				// delete portlet
 				await Portlet.DeleteAsync(mappingPortlet.ID, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
+				await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false, true, false, writeLogs).ConfigureAwait(false);
 
 				var mappingJson = mappingPortlet.ToJson();
 				new UpdateMessage
@@ -557,7 +558,7 @@ namespace net.vieapps.Services.Portals
 					mappingPortlet.LastModified = DateTime.Now;
 					mappingPortlet.LastModifiedID = requestInfo.Session.User.ID;
 					await Portlet.UpdateAsync(mappingPortlet, requestInfo.Session.User.ID, requestInfo.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
-					await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false).ConfigureAwait(false);
+					await mappingPortlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, false, true, false, writeLogs).ConfigureAwait(false);
 				}
 				else
 					await Utility.Cache.SetAsync(mappingPortlet, cancellationToken).ConfigureAwait(false);
@@ -640,10 +641,13 @@ namespace net.vieapps.Services.Portals
 				portlet.OrderIndex = await PortletProcessor.GetLastOrderIndexAsync(portlet.DesktopID, portlet.Zone, cancellationToken).ConfigureAwait(false) + 1;
 
 			await Portlet.UpdateAsync(portlet, requestInfo.Session.User.ID, requestInfo.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
-			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
+			var writeLogs = requestInfo.IsWriteCacheLogs();
+			if (writeLogs)
+				await requestInfo.WriteLogAsync($"Update successful [{portlet.Title} - ID: {portlet.ID}]", "Caches").ConfigureAwait(false);
+			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, true, false, writeLogs).ConfigureAwait(false);
 
-			var otherDesktops = request.Get<List<string>>("OtherDesktops").Except([portlet.DesktopID]).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? new List<string>();
-			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, otherDesktops, cancellationToken).ConfigureAwait(false);
+			var otherDesktops = request.Get<List<string>>("OtherDesktops").Except([portlet.DesktopID]).Distinct(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
+			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, otherDesktops, writeLogs, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
 			var versions = await portlet.FindVersionsAsync(requestInfo.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);
@@ -821,7 +825,7 @@ namespace net.vieapps.Services.Portals
 				await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
 
 			if (!@event.IsEquals("Delete"))
-				await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, null, cancellationToken).ConfigureAwait(false);
+				await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, null, true, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
 			var json = portlet.ToJson();
@@ -866,7 +870,7 @@ namespace net.vieapps.Services.Portals
 			var oldDesktopID = portlet.DesktopID;
 			portlet = await RepositoryMediator.RollbackAsync<Portlet>(requestInfo.GetParameter("x-version-id") ?? "", requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
 			await portlet.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, null, cancellationToken).ConfigureAwait(false);
+			await portlet.UpdateRelatedOnUpdatedAsync(requestInfo, oldDesktopID, null, true, cancellationToken).ConfigureAwait(false);
 
 			// send update messages
 			var versions = await portlet.FindVersionsAsync(requestInfo.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false);

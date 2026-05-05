@@ -21,7 +21,7 @@ namespace net.vieapps.Services.Portals
 
 		internal static ConcurrentDictionary<AliasKey, Site> SitesByDomain { get; } = new ConcurrentDictionary<AliasKey, Site>();
 
-		internal static HashSet<string> ExtraProperties { get; } = "IsDefault,AlwaysUseHTTPs,AlwaysReturnHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,UseInlineStylesheets,UseInlineScripts,CanonicalHost,SEOInfo".ToHashSet();
+		internal static HashSet<string> ExtraProperties { get; } = "IsDefault,AlwaysRebuildOnCDN,AlwaysUseHTTPs,AlwaysReturnHTTPs,UISettings,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,RedirectToNoneWWW,UseInlineStylesheets,UseInlineScripts,CanonicalHost,SEOInfo".ToHashSet();
 
 		internal static List<string> MustUpdatedProperties { get; } = "HomeDesktopID,SearchDesktopID,IconURI,CoverURI,MetaTags,Stylesheets,ScriptLibraries,Scripts,CanonicalHost".ToList();
 
@@ -322,14 +322,15 @@ namespace net.vieapps.Services.Portals
 			return Task.CompletedTask;
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true)
+		internal static async Task ClearRelatedCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = true, bool writeLogs = false)
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await site.GetCacheKeysAsync(clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			var cacheKeys = (clearDataCache ? dataCacheKeys : []).Concat(clearHtmlCache ? htmlCacheKeys : []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			writeLogs = writeLogs || Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
-				Utility.IsCacheLogEnabled
+				writeLogs
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a site [{site.Title} - ID: {site.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
@@ -343,7 +344,7 @@ namespace net.vieapps.Services.Portals
 				site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
 				site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}")
 			};
-			site.PurgeCDNCacheAsync(urls, doRefresh, correlationID, false, Utility.CancellationToken).Execute();
+			site.PurgeCDNCacheAsync(urls, doRefresh, correlationID, writeLogs, Utility.CancellationToken).Execute();
 		}
 
 		internal static Task ClearCacheAsync(this Site site, CancellationToken cancellationToken, string correlationID = null, bool clearRelatedDataCache = true, bool clearRelatedHtmlCache = true, bool doRefresh = true)
@@ -579,11 +580,15 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
 
+			var writeLogs = requestInfo.IsWriteCacheLogs();
+			if (writeLogs)
+				await requestInfo.WriteLogAsync($"Update successful [{site.Title} - ID: {site.ID}]", "Caches").ConfigureAwait(false);
+
 			// update refreshing task, clear cache & send notification
 			Task.WhenAll
 			(
 				site.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
-				site.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, false),
+				site.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, true, writeLogs),
 				site.SendNotificationAsync(@event ?? "Update", site.Organization.Notifications, oldStatus, site.Status, requestInfo, Utility.CancellationToken)
 			).Execute();
 			return response;

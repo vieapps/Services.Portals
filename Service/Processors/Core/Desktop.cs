@@ -281,14 +281,15 @@ namespace net.vieapps.Services.Portals
 			return desktop.Set(false, true);
 		}
 
-		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false)
+		internal static async Task ClearRelatedCacheAsync(this Desktop desktop, string oldParentID, CancellationToken cancellationToken, string correlationID = null, bool clearDataCache = true, bool clearHtmlCache = true, bool doRefresh = false, bool writeLogs = false)
 		{
 			var (dataCacheKeys, htmlCacheKeys) = await desktop.GetCacheKeysAsync(oldParentID, clearDataCache, clearHtmlCache, cancellationToken).ConfigureAwait(false);
 			var cacheKeys = (clearDataCache ? dataCacheKeys : []).Concat(clearHtmlCache ? htmlCacheKeys : []).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			writeLogs = writeLogs || Utility.IsCacheLogEnabled;
 			await Task.WhenAll
 			(
 				Utility.Cache.RemoveAsync(cacheKeys, cancellationToken),
-				Utility.IsCacheLogEnabled
+				writeLogs
 					? Utility.WriteLogAsync(correlationID, $"Clear related cache of a desktop [{desktop.Title} - ID: {desktop.ID} - Total: {cacheKeys.Count():###,###,##0}]", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
@@ -302,7 +303,7 @@ namespace net.vieapps.Services.Portals
 			};
 			Task.WhenAll
 			(
-				desktop.PurgeCDNCacheAsync(urls, doRefresh, correlationID, false, Utility.CancellationToken),
+				desktop.PurgeCDNCacheAsync(urls, doRefresh, correlationID, writeLogs, Utility.CancellationToken),
 				desktop.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
 			).Execute();
 		}
@@ -622,9 +623,7 @@ namespace net.vieapps.Services.Portals
 			});
 
 			await Desktop.UpdateAsync(desktop, requestInfo.Session.User.ID, cancellationToken).ConfigureAwait(false);
-			await desktop.Set(existing != null, false, oldAliases).ClearRelatedCacheAsync(oldParentID, cancellationToken, requestInfo.CorrelationID).ConfigureAwait(false);
-
-			var objectName = desktop.GetObjectName();
+			var objectName = desktop.Set(existing != null, false, oldAliases).GetObjectName();
 
 			// update parent
 			var parentDesktop = desktop.ParentDesktop;
@@ -697,9 +696,14 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
 
-			// send notification
+			var writeLogs = requestInfo.IsWriteCacheLogs();
+			if (writeLogs)
+				await requestInfo.WriteLogAsync($"Update successful [{desktop.Title} - ID: {desktop.ID}]", "Caches").ConfigureAwait(false);
+
+			// update cache & response
 			Task.WhenAll
 			(
+				desktop.ClearRelatedCacheAsync(oldParentID, Utility.CancellationToken, requestInfo.CorrelationID, true, true, true, writeLogs),
 				desktop.SendNotificationAsync("Update", desktop.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, Utility.CancellationToken),
 				desktop.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
 			).Execute();
