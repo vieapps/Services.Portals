@@ -140,7 +140,7 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				portlet.PurgeCDNCacheAsync(doRefresh, correlationID, writeLogs, Utility.CancellationToken),
-				desktops.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
+				desktops.PurgeDesktopCacheByURLsAsync(correlationID, writeLogs, Utility.CancellationToken)
 			).Execute();
 		}
 

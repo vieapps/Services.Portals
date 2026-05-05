@@ -137,7 +137,7 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				expression.PurgeCDNCacheAsync(doRefresh, correlationID, false, Utility.CancellationToken),
-				desktops.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
+				desktops.PurgeDesktopCacheByURLsAsync(correlationID, false, Utility.CancellationToken)
 			).Execute();
 		}
 

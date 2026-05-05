@@ -339,8 +339,8 @@ namespace net.vieapps.Services.Portals
 				site.Organization.GetURL(false, site),
 				site.Organization.GetURL(false, site, "/"),
 				site.Organization.GetURL(false, site, "/favicon.ico"),
-				site.Organization.GetURL(false, site.Organization.FakePortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
-				site.Organization.GetURL(false, site.Organization.FakePortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}"),
+				site.Organization.GetURL(false, site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
+				site.Organization.GetURL(false, site.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}"),
 				site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/s_{site.ID}.js?v={site.LastModified.ToUnixTimestamp()}"),
 				site.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/s_{site.ID}.css?v={site.LastModified.ToUnixTimestamp()}")
 			};

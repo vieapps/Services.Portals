@@ -419,7 +419,7 @@ namespace net.vieapps.Services.Portals
 				var urls = new[] {
 					organization.GetURL(),
 					organization.GetURL(false, organization.DefaultSite, "/favicon.ico"),
-					organization.GetURL(false, organization.FakePortalsHttpURI, $"/_js/o_{organization.ID}.js?v={organization.LastModified.ToUnixTimestamp()}"),
+					organization.GetURL(false, organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI, $"/_js/o_{organization.ID}.js?v={organization.LastModified.ToUnixTimestamp()}"),
 					organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/o_{organization.ID}.js?v={organization.LastModified.ToUnixTimestamp()}")
 				};
 				organization.PurgeCDNCacheAsync(urls, true, 0, false, correlationID, false, Utility.CancellationToken).Execute();

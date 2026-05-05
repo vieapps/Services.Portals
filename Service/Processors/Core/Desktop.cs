@@ -296,15 +296,15 @@ namespace net.vieapps.Services.Portals
 			var urls = new[] {
 				desktop.GetURL(),
 				desktop.ID.Equals(desktop.Organization.HomeDesktop?.ID) ? desktop.Organization.GetURL() : null,
-				desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
-				desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}"),
+				desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
+				desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}"),
 				desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
 				desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}")
 			};
 			Task.WhenAll
 			(
 				desktop.PurgeCDNCacheAsync(urls, doRefresh, correlationID, writeLogs, Utility.CancellationToken),
-				desktop.PurgeDesktopCacheByURLsAsync(correlationID, Utility.CancellationToken)
+				desktop.PurgeDesktopCacheByURLsAsync(correlationID, writeLogs, Utility.CancellationToken)
 			).Execute();
 		}
 
