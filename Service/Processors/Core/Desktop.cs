@@ -295,7 +295,7 @@ namespace net.vieapps.Services.Portals
 			).ConfigureAwait(false);
 			var urls = new[] {
 				desktop.GetURL(),
-				desktop.ID.Equals(desktop.Organization.HomeDesktop?.ID) ? desktop.Organization.GetURL() : null,
+				desktop.ID.Equals(desktop.Organization.HomeDesktop?.ID) ? desktop.Organization.GetURL(false, desktop.Organization.DefaultSite) : null,
 				desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),
 				desktop.Organization.GetURL(false, desktop.Organization.FakePortalsHttpURI ?? Utility.PortalsHttpURI, $"/_css/d_{desktop.ID}.css?v={desktop.LastModified.ToUnixTimestamp()}"),
 				desktop.Organization.GetURL(false, Utility.PortalsHttpURI, $"/_js/d_{desktop.ID}.js?v={desktop.LastModified.ToUnixTimestamp()}"),

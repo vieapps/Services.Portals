@@ -335,7 +335,6 @@ namespace net.vieapps.Services.Portals
 					: Task.CompletedTask
 			).ConfigureAwait(false);
 			var urls = new[] {
-				site.Organization.GetURL(),
 				site.Organization.GetURL(false, site),
 				site.Organization.GetURL(false, site, "/"),
 				site.Organization.GetURL(false, site, "/favicon.ico"),

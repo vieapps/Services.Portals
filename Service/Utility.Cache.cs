@@ -58,6 +58,8 @@ namespace net.vieapps.Services.Portals
 
 		public static int CDNDelaySeconds { get; internal set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:CDN:DelaySeconds"), out var value) && value > 0 ? value : 3;
 
+		internal static bool CDNOnDefaultSiteOnly { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:CDN:DefaultSiteOnly"));
+
 		internal static string RefresherURL { get; set; } = UtilityService.GetAppSetting("Portals:Refresh:ReferURL", "https://vieapps.net/~url.refresher");
 
 		public static int RefreshBatchSize { get; internal set; } = Int32.TryParse(UtilityService.GetAppSetting("Portals:Refresh:BatchSize"), out var value) && value > 0 ? value : 10;
@@ -195,10 +197,12 @@ namespace net.vieapps.Services.Portals
 
 		static IEnumerable<string> GetURLs(this Organization organization, bool defaultSiteOnly = false, bool defaultSiteExcluded = false, bool cndSitesOnly = false, bool nocdnSitesOnly = false, bool allStatuses = false)
 		{
-			var defaultSite = organization.DefaultSite;
-			var sites = defaultSiteOnly
+			defaultSiteOnly = defaultSiteOnly || Utility.CDNOnDefaultSiteOnly;
+			var sites = (organization.Sites ?? []).Where(site => site != null);
+			var defaultSite = sites.FirstOrDefault(site => site.AlwaysRebuildOnCDN) ?? organization.DefaultSite;
+			sites = defaultSiteOnly
 				? [defaultSite]
-				: (organization.Sites ?? []).Where(site => site != null).Where(site => site.ID != defaultSite?.ID).Where(site => cndSitesOnly ? site.AlwaysRebuildOnCDN : true).Where(site => nocdnSitesOnly ? !site.AlwaysRebuildOnCDN : true).Concat(defaultSiteExcluded ? [] : [defaultSite]);
+				: sites.Where(site => site.ID != defaultSite?.ID).Where(site => cndSitesOnly ? site.AlwaysRebuildOnCDN : true).Where(site => nocdnSitesOnly ? !site.AlwaysRebuildOnCDN : true).Concat(defaultSiteExcluded ? [] : [defaultSite]);
 			return sites.Where(site => site != null && (allStatuses || site.Status == ApprovalStatus.Approved || site.Status == ApprovalStatus.Published))
 				.Select(site => organization.GetURL(false, site, "/"))
 				.Where(url => !string.IsNullOrWhiteSpace(url) && url.Contains("://"))
@@ -733,7 +737,7 @@ namespace net.vieapps.Services.Portals
 
 				var purgeURLs = new List<string>();
 				var priorityURLs = new[] { "~/" + (organization.AlwaysUseHtmlSuffix ? "index.html" : "") }.ToList();
-				var otherURLs = new[] { "~/rss", "~/rss.xml", "~/rss.json" }.Concat(organization.GetURLs(false, true, false, true)).ToList();
+				var otherURLs = organization.GetURLs(false, true, false, true).ToList();
 
 				var canPublish = @object.Status == ApprovalStatus.Published;
 				if (canPublish)
