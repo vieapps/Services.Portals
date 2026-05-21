@@ -118,19 +118,30 @@ namespace net.vieapps.Services.Portals
 			// HTTP Portals
 			else
 			{
-				Global.Statistics.IncreaseRequest();
 				var requestURI = context.GetRequestUri();
 				var requestSegments = requestURI.GetRequestPathSegments();
 				var requestPath = requestSegments.First().ToLower();
+
+				// favicon.ico
 				if (requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(Handler.PortalsHttpHost))
 					await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
-				else if (Global.StaticSegments.Contains(requestPath))
-					await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
-				else if (".well-known".IsEquals(requestPath))
-					await context.ProcessAPIsRequestAsync(requestSegments).ConfigureAwait(false);
+
+				// robots.txt
+				else if (requestURI.AbsoluteUri.IsContains($"://{Handler.PortalsHttpHost}/robots.txt"))
+					await context.WriteAsync("User-agent: *\r\nDisallow: *", "text/plain", null, 0, "public", TimeSpan.Zero, null, context.RequestAborted).ConfigureAwait(false);
+
+				// portals
 				else
-					await this.ProcessPortalRequestAsync(context).ConfigureAwait(false);
-				Global.Statistics.DecreaseRequest();
+				{
+					Global.Statistics.IncreaseRequest();
+					if (Global.StaticSegments.Contains(requestPath))
+						await context.ProcessStaticFileRequestAsync().ConfigureAwait(false);
+					else if (".well-known".IsEquals(requestPath))
+						await context.ProcessAPIsRequestAsync(requestSegments).ConfigureAwait(false);
+					else
+						await this.ProcessPortalRequestAsync(context).ConfigureAwait(false);
+					Global.Statistics.DecreaseRequest();
+				}
 			}
 		}
 
@@ -1944,22 +1955,8 @@ namespace net.vieapps.Services.Portals
 			else if (message.Type.IsStartsWith("McpServer#"))
 				await message.ProcessGatewayMessageAsync().ConfigureAwait(false);
 
-			else if (message.Type.IsEquals("Monitor#Enable") || message.Type.IsEquals("Monitor#Start"))
-			{
-				var logPath = UtilityService.GetAppSetting("Path:Logs");
-				if (!string.IsNullOrWhiteSpace(logPath) && Directory.Exists(logPath))
-				{
-					Global.Monitor = true;
-					Handler.StartMonitor(logPath);
-				}
-			}
-
-			else if (message.Type.IsEquals("Monitor#Disable") || message.Type.IsEquals("Monitor#Stop"))
-			{
-				Handler.StopMonitor();
-				if (message.Type.IsEquals("Monitor#Disable"))
-					Global.Monitor = false;
-			}
+			else if (message.Type.IsStartsWith("Monitor#"))
+				message.UpdateMonitoringConfig(logPath => Handler.StartMonitor(logPath), () => Handler.StopMonitor());
 		}
 
 		internal static void StartMonitor(string logPath)
