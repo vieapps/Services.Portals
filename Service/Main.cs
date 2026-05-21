@@ -308,11 +308,11 @@ namespace net.vieapps.Services.Portals
 						await this.ReloadOrganizationsAsync(this.IsRequester).ConfigureAwait(false);
 
 					// re-build to warm-up L1/L2 cache (5 AM)
-					if (this.IsRequester && DateTime.Now.Hour == 5 && DateTime.Now.Minute >= 10 && DateTime.Now.Minute < 15)
+					if (this.IsRequester && Utility.IsDailyRebuildCacheEnabled && DateTime.Now.Hour == 5 && DateTime.Now.Minute >= 10 && DateTime.Now.Minute < 15)
 					{
 						this.CacheRebuildStatus = new();
 						this.CacheRebuildMonitor = this.StartTimer(this.MonitorCacheRebuildAsync, 2 * 60);
-						await Utility.Cache.RemoveAsync("Rebuild.Cache", Utility.CancellationToken).ConfigureAwait(false);
+						await Utility.Cache.RemoveAsync("Rebuild.Cache", this.CancellationToken).ConfigureAwait(false);
 						await this.RebuildOrganizationsCacheAsync(this.BuildRequestInfo(requestInfo =>
 						{
 							requestInfo.ServiceName = this.ServiceName;

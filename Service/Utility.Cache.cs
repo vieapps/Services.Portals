@@ -81,6 +81,8 @@ namespace net.vieapps.Services.Portals
 			["User-Agent"] = $"{UtilityService.DesktopUserAgent} NGX-Refresher/{typeof(DesktopProcessor).Assembly.GetVersion(false)}"
 		};
 
+		internal static bool IsDailyRebuildCacheEnabled { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:DailyRebuild"));
+
 		/// <summary>
 		/// Gets the key for storing a set of keys that belong to an organization
 		/// </summary>
@@ -196,6 +198,7 @@ namespace net.vieapps.Services.Portals
 		}
 
 		static Site GetSite(this Organization organization)
+			//=> Utility.CDNOnDefaultSiteOnly ? organization.DefaultSite : (organization.Sites ?? []).Where(siteObj => siteObj != null).FirstOrDefault(siteObj => siteObj.AlwaysRebuildOnCDN) ?? organization.DefaultSite;
 			=> (organization.Sites ?? []).Where(siteObj => siteObj != null).FirstOrDefault(siteObj => siteObj.AlwaysRebuildOnCDN) ?? organization.DefaultSite;
 
 		static string GetSiteURL(this Organization organization)
