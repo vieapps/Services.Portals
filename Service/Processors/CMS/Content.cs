@@ -1153,6 +1153,7 @@ namespace net.vieapps.Services.Portals
 						categoryThumbnails = await requestInfo.GetThumbnailsAsync(category.ID, category.Title.Url64Encode(), Utility.ValidationKey, cancellationToken).ConfigureAwait(false);
 						dataXml.Add(new XElement(
 							"Parent",
+							new XElement("ID", category.ID),
 							new XElement("Title", category.Title),
 							new XElement("Description", category.Description?.RemoveTags().NormalizeHTMLBreaks() ?? ""),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),
@@ -1453,6 +1454,7 @@ namespace net.vieapps.Services.Portals
 						var thumbnailURL = categoryThumbnails?.GetThumbnailURL(category.ID, thumbnailsWidth, thumbnailsHeight, pngThumbnails);
 						dataXml.Add(new XElement(
 							"Parent",
+							new XElement("ID", category.ID),
 							new XElement("Title", category.Title),
 							new XElement("Description", category.Description?.RemoveTags().NormalizeHTMLBreaks() ?? ""),
 							new XElement("Notes", category.Notes?.NormalizeHTMLBreaks() ?? ""),

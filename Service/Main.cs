@@ -3230,6 +3230,7 @@ namespace net.vieapps.Services.Portals
 								["Portlet"] = new JObject
 								{
 									{ "ID", portlet.ID },
+									{ "Action", isList ? "List" : "View" },
 									{ "Title", portlet.Title },
 									{ "URL", portlet.CommonSettings?.TitleURL ?? "" },
 									{ "Zone", portlet.Zone },

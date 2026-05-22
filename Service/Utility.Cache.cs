@@ -198,8 +198,8 @@ namespace net.vieapps.Services.Portals
 		}
 
 		static Site GetSite(this Organization organization)
-			//=> Utility.CDNOnDefaultSiteOnly ? organization.DefaultSite : (organization.Sites ?? []).Where(siteObj => siteObj != null).FirstOrDefault(siteObj => siteObj.AlwaysRebuildOnCDN) ?? organization.DefaultSite;
-			=> (organization.Sites ?? []).Where(siteObj => siteObj != null).FirstOrDefault(siteObj => siteObj.AlwaysRebuildOnCDN) ?? organization.DefaultSite;
+			=> Utility.CDNOnDefaultSiteOnly ? organization.DefaultSite : (organization.Sites ?? []).Where(siteObj => siteObj != null).FirstOrDefault(siteObj => siteObj.AlwaysRebuildOnCDN) ?? organization.DefaultSite;
+			//=> (organization.Sites ?? []).Where(siteObj => siteObj != null).FirstOrDefault(siteObj => siteObj.AlwaysRebuildOnCDN) ?? organization.DefaultSite;
 
 		static string GetSiteURL(this Organization organization)
 			=> organization.GetURL(false, organization.GetSite(), "/");
