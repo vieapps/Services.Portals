@@ -2860,11 +2860,16 @@ namespace net.vieapps.Services.Portals
 				if (isBypassCacheRequested && !gotError && !requestInfo.ContainsKey("x-dont-purge-cdn-cache"))
 				{
 					var correlationID = requestInfo.CorrelationID;
-					var delaySeconds = Utility.CDNDelaySeconds * 1234;
-					var urls = new[] { canonicalURL, organization.GetURL(false, site, "") + new Uri(canonicalURL).AbsolutePath }
+					var delayMilliseconds = (Utility.CDNDelaySeconds * 1234) + UtilityService.GetRandomNumber(13, 31);
+					var url = new Uri(canonicalURL).AbsolutePath;
+					var urls = new[] { canonicalURL, organization.GetURL(false, site, url) }
+						.Concat((organization.Sites ?? []).Where(siteObj => siteObj != null && siteObj.ID != site.ID && (siteObj.Status == ApprovalStatus.Approved || siteObj.Status == ApprovalStatus.Published)).Select(siteObj => organization.GetURL(false, siteObj, url)))
 						.Select(url => new[] { url, url.EndsWith("/index.html") ? url.Replace("/index.html", "/") : null })
-						.SelectMany(url => url);
-					organization.PurgeCDNCacheAsync(urls, true, delaySeconds, false, correlationID, isWriteDesktopLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
+						.SelectMany(url => url)
+						.Where(url => !string.IsNullOrWhiteSpace(url))
+						.Distinct(StringComparer.OrdinalIgnoreCase)
+						.ToList();
+					organization.PurgeCDNCacheAsync(urls, true, delayMilliseconds, false, correlationID, isWriteDesktopLogs, Utility.CancellationToken).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while purging cache of '{organization.Title}' => {ex.Message}", "Caches", correlationID));
 				}
 
 				// send message to invalidate meta info of L1-Cache

@@ -304,7 +304,7 @@ namespace net.vieapps.Services.Portals
 			Task.WhenAll
 			(
 				desktop.PurgeCDNCacheAsync(urls, doRefresh, correlationID, writeLogs, Utility.CancellationToken),
-				desktop.PurgeDesktopCacheByURLsAsync(correlationID, writeLogs, Utility.CancellationToken)
+				new[] { desktop }.PurgeDesktopCacheByURLsAsync(correlationID, writeLogs, Utility.CancellationToken)
 			).Execute();
 		}
 
