@@ -2031,8 +2031,12 @@ namespace net.vieapps.Services.Portals
 				var cacheL2HitRatio = Global.Statistics.GetCacheL2HitRatio();
 				var cacheL2MissRatio = Global.Statistics.GetCacheL2MissRatio();
 				var cacheL2BypassRatio = Global.Statistics.GetCacheL2BypassRatio();
+				var rpcRejectedRate = Global.Statistics.GetRpcRejectedRate(elapsedSeconds);
 				var rpcEnteredRate = Global.Statistics.GetRpcEnteredRate(elapsedSeconds);
 				var rpcCompletedRate = Global.Statistics.GetRpcCompletedRate(elapsedSeconds);
+				var rpcRejectedTotalRate = Global.Statistics.GetRpcRejectedTotalRate(elapsedSeconds);
+				var rpcEnteredTotalRate = Global.Statistics.GetRpcEnteredTotalRate(elapsedSeconds);
+				var rpcCompletedTotalRate = Global.Statistics.GetRpcCompletedTotalRate(elapsedSeconds);
 
 				new CommunicateMessage("APIGateway")
 				{
@@ -2074,14 +2078,23 @@ namespace net.vieapps.Services.Portals
 						RpcGateMax = Global.RpcGate.Max,
 						RpcGateCurrent = Global.RpcGate.Current,
 						RpcGateAvailable = Global.RpcGate.Available,
+						RpcInFlight = Global.Statistics.RpcInFlightCount,
+						RpcRejected = Global.Statistics.RpcRejectedCount,
+						RpcRejectedRate = rpcRejectedRate,
 						RpcEntered = Global.Statistics.RpcEnteredCount,
 						RpcEnteredRate = rpcEnteredRate,
 						RpcCompleted = Global.Statistics.RpcCompletedCount,
 						RpcCompletedRate = rpcCompletedRate,
-						RpcInFlight = Global.Statistics.RpcInFlightCount,
-						RpcRejected = Global.Statistics.RpcRejectedCount,
 						RpcAverageLatency = Global.Statistics.RpcAverageLatency,
-						RpcMaxLatency = Global.Statistics.RpcMaxLatency
+						RpcMaxLatency = Global.Statistics.RpcMaxLatency,
+						RpcEnteredTotal = Global.Statistics.RpcEnteredTotalCount,
+						RpcEnteredTotalRate = rpcEnteredTotalRate,
+						RpcCompletedTotal = Global.Statistics.RpcCompletedTotalCount,
+						RpcCompletedTotalRate = rpcCompletedTotalRate,
+						RpcRejectedTotal = Global.Statistics.RpcRejectedTotalCount,
+						RpcRejectedTotalRate = rpcRejectedTotalRate,
+						RpcAverageLatencyTotal = Global.Statistics.RpcAverageLatencyTotal,
+						RpcMaxLatencyTotal = Global.Statistics.RpcMaxLatencyTotal
 					}.ToJson()
 				}.Send();
 
@@ -2099,7 +2112,7 @@ namespace net.vieapps.Services.Portals
 					}
 
 					logs += "RPC" + "\r\n"
-						+ $"  Gate - Usage: {(Global.RpcGate.Usage * 100):0.00}% | Current: {Global.RpcGate.Current:###,##0} | Available: {Global.RpcGate.Available:###,##0} | Max: {Global.RpcGate.Max:###,##0}" + "\r\n"
+						+ $"  Slot - Usage: {(Global.RpcGate.Usage * 100):0.00}% | Current: {Global.RpcGate.Current:###,##0} | Available: {Global.RpcGate.Available:###,##0} | Max: {Global.RpcGate.Max:###,##0}" + "\r\n"
 						+ $"  Call - In: {rpcEnteredRate:0.00}/s | Out: {rpcCompletedRate:0.00}/s | InFlight: {Global.Statistics.RpcInFlightCount:###,###,###,##0} | Rejected: {Global.Statistics.RpcRejectedCount:###,###,###,##0} | Completed: {Global.Statistics.RpcCompletedCount:###,###,###,##0} | Entered: {Global.Statistics.RpcEnteredCount:###,###,###,##0}" + "\r\n"
 						+ $"  Latency - Avg: {Global.Statistics.RpcAverageLatency:###,##0}ms | Max: {Global.Statistics.RpcMaxLatency:###,##0}ms";
 				}
