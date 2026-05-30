@@ -843,15 +843,10 @@ namespace net.vieapps.Services.Portals
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList();
 
-				if (writeLogs)
-					await Utility.WriteLogAsync(correlationID, $"Run the 2-phase process to rebuild caches [{((IPortalObject)@object).Title}]\r\nPriority URLs [{priorityURLs.Count:###,##0}]:\r\n{priorityURLs.Join("\r\n")}\r\nOther URLs [{otherURLs.Count:###,##0}]:\r\n{otherURLs.Join("\r\n")}", "Caches").ConfigureAwait(false);
+				await Utility.WriteLogAsync(correlationID, $"Run the 2-phase process to rebuild caches [{((IPortalObject)@object).Title}]{(purgeURLs.Count > 0 ? $"\r\nPurge URLs [{purgeURLs.Count:###,##0}]:\r\n{purgeURLs.Join("\r\n")}" : "")}\r\nPriority URLs [{priorityURLs.Count:###,##0}]:\r\n{priorityURLs.Join("\r\n")}\r\nOther URLs [{otherURLs.Count:###,##0}]:\r\n{otherURLs.Join("\r\n")}", "Caches").ConfigureAwait(false);
 
 				if (purgeURLs.Count > 0)
-				{
 					await organization.PurgeCDNCacheAsync(purgeURLs, correlationID, writeLogs, cancellationToken).ConfigureAwait(false);
-					if (writeLogs)
-						await Utility.WriteLogAsync(correlationID, $"Pre-step of 2-phase process to rebuild caches [{((IPortalObject)@object).Title}]\r\nPurge URLs [{purgeURLs.Count:###,##0}]:\r\n{purgeURLs.Join("\r\n")}", "Caches").ConfigureAwait(false);
-				}
 
 				await organization.RebuildCacheAsync(priorityURLs, otherURLs, doRefresh, true, correlationID, $"In the 2-phase process to rebuild caches [{((IPortalObject)@object).Title}]", writeLogs, cancellationToken).ConfigureAwait(false);
 				if (writeLogs)
