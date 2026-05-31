@@ -308,7 +308,7 @@ namespace net.vieapps.Services.Portals
 						await this.ReloadOrganizationsAsync(this.IsRequester).ConfigureAwait(false);
 
 					// re-build to warm-up L1/L2 cache (5 AM)
-					if (this.IsRequester && Utility.IsDailyRebuildCacheEnabled && DateTime.Now.Hour == 5 && DateTime.Now.Minute >= 10 && DateTime.Now.Minute < 15)
+					if (this.IsRequester && Utility.IsDailyRebuildCacheEnabled && DateTime.Now.Hour == 5 && DateTime.Now.Minute >= 5 && DateTime.Now.Minute < 10)
 					{
 						this.CacheRebuildStatus = new();
 						this.CacheRebuildMonitor = this.StartTimer(this.MonitorCacheRebuildAsync, 2 * 60);
@@ -6317,10 +6317,11 @@ namespace net.vieapps.Services.Portals
 					this.RebuildCacheCTS.Dispose();
 					this.RebuildCacheCTS = null;
 				}
-				new CommunicateMessage("APIGateway")
-				{
-					Type = "Statistics#Reset"
-				}.Send();
+				if (Utility.IsResetStatisticsOnDailyRebuildCacheEnabled)
+					new CommunicateMessage("APIGateway")
+					{
+						Type = "Statistics#Reset"
+					}.Send();
 			}
 
 			if (logs.Count > 0)

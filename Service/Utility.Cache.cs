@@ -79,7 +79,9 @@ namespace net.vieapps.Services.Portals
 			["User-Agent"] = $"{UtilityService.DesktopUserAgent} NGX-Refresher/{typeof(DesktopProcessor).Assembly.GetVersion(false)}"
 		};
 
-		internal static bool IsDailyRebuildCacheEnabled { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:DailyRebuild"));
+		internal static bool IsDailyRebuildCacheEnabled { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:DailyRebuild", "true"));
+
+		internal static bool IsResetStatisticsOnDailyRebuildCacheEnabled { get; set; } = "true".IsEquals(UtilityService.GetAppSetting("Portals:Cache:ResetStatisticsOnDailyRebuild"));
 
 		/// <summary>
 		/// Gets the key for storing a set of keys that belong to an organization
