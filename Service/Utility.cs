@@ -875,18 +875,17 @@ namespace net.vieapps.Services.Portals
 		public static bool IsPortalsHttpURI(this Uri baseURI)
 			=> baseURI != null && (baseURI.AbsoluteUri.IsStartsWith(Utility.PortalsHttpURI) || baseURI.AbsoluteUri.Replace("http://", "https://").IsStartsWith(Utility.PortalsHttpURI) || baseURI.AbsoluteUri.Replace("https://", "http://").IsStartsWith(Utility.PortalsHttpURI));
 
-		/// <summary>
-		/// Gets the base URL for working with an organizations' resources
-		/// </summary>
-		public static string GetBaseURL(this Uri baseURI, string systemIdentity, string baseHost = null, bool alwaysUseHTTPs = false)
-			=> baseURI.AbsolutePath.IsStartsWith($"/~{systemIdentity}")	? $"{(alwaysUseHTTPs ? "https" : baseURI.Scheme)}://{baseHost ?? baseURI.Host}/~{systemIdentity}/" : "";
+		internal static bool IsRequestOfPortalsHttpURI(this Uri requestURI, string systemIdentity)
+			=> requestURI.AbsolutePath.IsStartsWith($"/~{systemIdentity}");
 
 		/// <summary>
 		/// Gets the root URL for working with an organizations' resources
 		/// </summary>
 		public static string GetRootURL(this Uri baseURI, string systemIdentity, bool useShortURLs = true, string baseHost = null, bool alwaysUseHTTPs = false)
 		{
-			var baseURL = baseURI.GetBaseURL(systemIdentity, baseHost, alwaysUseHTTPs);
+			var baseURL = baseURI.IsRequestOfPortalsHttpURI(systemIdentity)
+				? $"{(alwaysUseHTTPs ? "https" : baseURI.Scheme)}://{baseHost ?? baseURI.Host}/~{systemIdentity}/"
+				: "";
 			return useShortURLs ? baseURL != "" ? "" : "/" : baseURL;
 		}
 
@@ -946,11 +945,10 @@ namespace net.vieapps.Services.Portals
 				: requestURI.GetRootURL(systemIdentity, useShortURLs, baseHost, alwaysUseHTTPs);
 			html = html.NormalizeURLs(rootURL, forDisplaying, filesHttpURI, portalsHttpURI);
 
-			if (forDisplaying && useShortURLs)
+			if (forDisplaying && useShortURLs && requestURI.IsRequestOfPortalsHttpURI(systemIdentity))
 			{
-				var baseURL = requestURI.GetBaseURL(systemIdentity, baseHost, alwaysUseHTTPs);
-				if (baseURL != "")
-					html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
+				var baseURL = $"{(alwaysUseHTTPs ? "https" : requestURI.Scheme)}://{baseHost ?? requestURI.Host}/~{systemIdentity}/";
+				html = html.Insert(html.PositionOf(">", html.PositionOf("<head")) + 1, $"<base href=\"{baseURL}\"/>");
 			}
 
 			return html;

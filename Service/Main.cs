@@ -226,6 +226,7 @@ namespace net.vieapps.Services.Portals
 				Utility.PortalsWebSocketURI = this.GetHttpURI("WebSockets", Utility.PortalsHttpURI).RemoveURITrail().Replace("http://", "ws://").Replace("https://", "wss://");
 				Utility.PortalsCMSAppURI = this.GetHttpURI("CMSPortals", "https://cms.vieapps.net").RemoveURITrail();
 				Utility.NotRecognizedAliases.Add(new Uri(Utility.PortalsHttpURI).Host.GetSiteAliasKey());
+				Utility.NotRecognizedAliases.Add(new Uri(Utility.PortalsHttpURIBypassCDN).Host.GetSiteAliasKey());
 
 				Utility.Logger = this.Logger;
 				Utility.EncryptionKey = this.EncryptionKey;
@@ -499,11 +500,16 @@ namespace net.vieapps.Services.Portals
 		{
 			var stopwatch = Stopwatch.StartNew();
 			this.Statistics.RpcEntered();
+
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
+			if (this.CancelAfter > 0)
+				cts.CancelAfter(this.CancelAfter);
+
 			try
 			{
 				JToken json = null;
-				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
+
 				switch (requestInfo.ObjectName.ToLower())
 				{
 
@@ -1392,7 +1398,7 @@ namespace net.vieapps.Services.Portals
 				["SiteTitle"] = site?.Title,
 				["SiteDefault"] = isDefaultSite,
 				["SiteHomeDesktopAlias"] = siteHomeDesktopAlias,
-				["SiteHomeDesktopAliases"] = $"{siteHomeDesktopAlias}{(string.IsNullOrWhiteSpace(siteHomeDesktopAliases) ? "" : $";{siteHomeDesktopAliases}")}",
+				["SiteHomeDesktopAliases"] = $"{siteHomeDesktopAlias}{(string.IsNullOrWhiteSpace(siteHomeDesktopAliases) ? "" : $";{siteHomeDesktopAliases}")}"
 			};
 
 			if (!requestInfo.ContainsKey("x-brief") && (!string.IsNullOrWhiteSpace(requestInfo.Session.DeviceID) || (requestInfo.TryGetParameter("x-requester", out var requester) && requester.IsStartsWith("vieapps-ngx"))))
@@ -2708,6 +2714,43 @@ namespace net.vieapps.Services.Portals
 				if (isWriteDesktopLogs)
 					await this.WriteLogsAsync(requestInfo.CorrelationID, $"Update canonical URL of {desktopInfo} ({requestURL} => {canonicalURL})", null, this.ServiceName, "Process.Http.Request").ConfigureAwait(false);
 
+				// CSS & JS of all sites
+				if (organization.Sites.Count > 0 && requestURI.IsRequestOfPortalsHttpURI(organization.Alias))
+				{
+					var allSiteStylesheets = "";
+					var allSiteScripts = "";
+					var version = this.CrossOrigin.IsEquals("use-credentials") ? "{{host-uuid}}&r=" : "";
+					organization.Sites.ForEach(siteObj =>
+					{
+						allSiteStylesheets += string.IsNullOrWhiteSpace(siteObj.Stylesheets) || html.IsContains($"/_css/s_{siteObj.ID}.css") ? "" : $"<link rel=\"stylesheet\" crossorigin=\"{this.CrossOrigin}\" href=\"~#/_css/s_{siteObj.ID}.css?v={version}{siteObj.LastModified.ToUnixTimestamp()}\"/>";
+						allSiteScripts += string.IsNullOrWhiteSpace(siteObj.Scripts) || html.IsContains($"/_js/s_{siteObj.ID}.js") ? "" : $"<script crossorigin=\"{this.CrossOrigin}\" href=\"~#/_js/s_{siteObj.ID}.js?v={version}{siteObj.LastModified.ToUnixTimestamp()}\"></script>";
+					});
+					if (isWriteDesktopLogs)
+						this.WriteLogsAsync(requestInfo.CorrelationID, $"Add CSS & JS of all sites [{allSiteStylesheets != ""}/{allSiteScripts != ""}]", null, this.ServiceName, "Caches").Execute();
+
+					if (allSiteStylesheets != "")
+					{
+						var start = html.PositionOf("/_css/s_");
+						if (start < 0)
+							start = html.PositionOf("/_themes/default/css/");
+						start = start < 0 ? html.PositionOf("</head>") : html.PositionOf(">", start) + 1;
+						html = html.Insert(start, allSiteStylesheets);
+					}
+
+					if (allSiteScripts != "")
+					{
+						var start = html.PositionOf("/_js/s_");
+						if (start < 0)
+						{
+							start = html.PositionOf("/_js/o_");
+							start = start > 0 ? html.PositionOf(">", start) + 1 : html.PositionOf("</body>");
+						}
+						else
+							start = html.PositionOf(">", start) + 1;
+						html = html.Insert(start, allSiteScripts);
+					}
+				}
+
 				// prepare caching - for anonymous request only
 				headers["Last-Modified"] = DateTime.Now.ToHttpString();
 				var gotError = gotErrorOnGenerateDesktop || portletHtmls.Values.Any(data => data.GotError);
@@ -2792,52 +2835,6 @@ namespace net.vieapps.Services.Portals
 							? this.WriteLogsAsync(requestInfo.CorrelationID, $"Remove HTML cache of {desktopInfo} ({requestURL}) => {cacheKey}", null, this.ServiceName, "Caches")
 							: Task.CompletedTask
 					).ConfigureAwait(false);
-				}
-
-				// CSS & JS of all sites
-				if (organization.Sites.Count > 0 && requestURL.IsContains($"/~{organization.Alias}"))
-				{
-					var allSiteStylesheets = "";
-					var allSiteScripts = "";
-					var version = this.CrossOrigin.IsEquals("use-credentials") ? "{{host-uuid}}&r=" : "";
-					organization.Sites.ForEach(siteObj =>
-					{
-						allSiteStylesheets += string.IsNullOrWhiteSpace(siteObj.Stylesheets) ? "" : $"<link rel=\"stylesheet\" crossorigin=\"{this.CrossOrigin}\" href=\"~#/_css/s_{siteObj.ID}.css?v={version}{siteObj.LastModified.ToUnixTimestamp()}\"/>";
-						allSiteScripts += string.IsNullOrWhiteSpace(siteObj.Scripts) ? "" : $"<script crossorigin=\"{this.CrossOrigin}\" href=\"~#/_js/s_{siteObj.ID}.js?v={version}{siteObj.LastModified.ToUnixTimestamp()}\"></script>";
-					});
-
-					if (allSiteStylesheets != "")
-					{
-						var start = html.PositionOf("/_css/s_");
-						if (start < 0)
-						{
-							var next = html.PositionOf("/_themes/");
-							if (next > 0)
-								while (next > 0)
-								{
-									start = html.PositionOf(">", next) + 1;
-									next = html.PositionOf("/_themes/", next);
-								}
-							else
-								start = html.PositionOf("</head>");
-						}
-						else
-							start = html.PositionOf(">", start) + 1;
-						html = html.Insert(start, additionalStylesheets);
-					}
-
-					if (allSiteScripts != "")
-					{
-						var start = html.PositionOf("/_js/s_");
-						if (start < 0)
-						{
-							start = html.PositionOf("/_js/o_");
-							start = start > 0 ? html.PositionOf(">", start) + 1 : html.PositionOf("</body>");
-						}
-						else
-							start = html.PositionOf(">", start) + 1;
-						html = html.Insert(start, allSiteScripts);
-					}
 				}
 
 				// normalize
