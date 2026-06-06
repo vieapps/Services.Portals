@@ -222,7 +222,7 @@ namespace net.vieapps.Services.Portals
 			=> this.GetURL(useRelativeURL, null as string, suffix);
 
 		public string GetURL(bool useRelativeURL = true, Site site = null, string suffix = null)
-			=> this.GetURL(useRelativeURL, site?.GetURL(), suffix);
+			=> this.GetURL(useRelativeURL, site?.GetURL(site?.CanonicalHost), suffix);
 
 		internal List<Site> FindSites(List<Site> sites = null, bool notifyPropertyChanged = true)
 		{

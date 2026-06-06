@@ -200,8 +200,8 @@ namespace net.vieapps.Services.Portals
 		static Site GetSite(this Organization organization)
 			=> (organization.Sites ?? []).Where(siteObj => siteObj != null).FirstOrDefault(siteObj => siteObj.AlwaysRebuildOnCDN) ?? organization.DefaultSite;
 
-		static string GetSiteURL(this Organization organization)
-			=> organization.GetURL(false, organization.GetSite(), "/");
+		static string GetSiteURL(this Organization organization, Site site = null, string suffix = null)
+			=> organization.GetURL(false, site ?? organization.GetSite(), suffix ?? "/");
 
 		/// <summary>
 		/// Sends a message to invalidate L1-cache by a specified URL

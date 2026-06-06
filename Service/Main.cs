@@ -2679,6 +2679,10 @@ namespace net.vieapps.Services.Portals
 				html = this.RemoveDesktopHtmlWhitespaces ? html.MinifyHtml() : html;
 
 				// canonical & prev/next URL
+				var siteAlwaysRebuildOnCDN = (organization.Sites ?? []).Where(siteObj => siteObj != null).FirstOrDefault(siteObj => siteObj.AlwaysRebuildOnCDN);
+				var siteURL = siteAlwaysRebuildOnCDN != null && siteAlwaysRebuildOnCDN.ID != site.ID
+					? siteAlwaysRebuildOnCDN.GetURL(siteAlwaysRebuildOnCDN.CanonicalHost)
+					: site.GetURL(site.CanonicalHost);
 				var seoInfo = mainPortlet?.Get<JObject>("SEOInfo");
 				var canonicalURL = isRewriteHttp404 || isHomeDesktop
 					? $"/index{(organization.AlwaysUseHtmlSuffix ? ".html" : "")}"
@@ -2693,7 +2697,7 @@ namespace net.vieapps.Services.Portals
 						canonicalURL = canonicalURL.Left(canonicalURL.Length - 1);
 					canonicalURL += organization.AlwaysUseHtmlSuffix && !canonicalURL.IsEndsWith(".html") ? ".html" : "";
 				}
-				canonicalURL = site.GetURL(string.IsNullOrWhiteSpace(site.CanonicalHost) ? site.Host : site.CanonicalHost) + canonicalURL;
+				canonicalURL = siteURL + canonicalURL;
 
 				var pos = html.IndexOf("<link rel=");
 				if (pos < 0)
