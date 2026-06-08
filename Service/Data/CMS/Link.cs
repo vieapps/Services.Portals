@@ -177,7 +177,7 @@ namespace net.vieapps.Services.Portals
 			set => this._childrenIDs = value;
 		}
 
-		internal List<Link> FindChildren(bool notifyPropertyChanged = true, List<Link> links = null)
+		internal List<Link> FindChildren(bool notifyPropertyChanged = false, List<Link> links = null)
 		{
 			if (this.ChildrenMode.Equals(ChildrenMode.Normal))
 			{
@@ -199,7 +199,7 @@ namespace net.vieapps.Services.Portals
 				return this._children ?? [];
 		}
 
-		internal async Task<List<Link>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+		internal async Task<List<Link>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = false)
 			=> this.ChildrenMode.Equals(ChildrenMode.Normal)
 				? this._childrenIDs == null
 					? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindLinksAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, true, cancellationToken).ConfigureAwait(false))

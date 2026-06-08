@@ -192,12 +192,12 @@ namespace net.vieapps.Services.Portals
 			set => this._childrenIDs = value;
 		}
 
-		internal List<Category> FindChildren(bool notifyPropertyChanged = true, List<Category> categories = null)
+		internal List<Category> FindChildren(bool notifyPropertyChanged = false, List<Category> categories = null)
 		{
 			if (this._childrenIDs == null)
 			{
 				this._children = categories ?? (this.SystemID ?? "").FindCategories(this.RepositoryID, this.RepositoryEntityID, this.ID, Utility.IsCacheAvailable());
-				this._childrenIDs = this._children?.Where(category => category != null).Select(category => category.ID).ToList() ?? new List<string>();
+				this._childrenIDs = this._children?.Where(category => category != null).Select(category => category.ID).ToList() ?? [];
 				Task.WhenAll
 				(
 					Utility.Cache.SetAsync(this, Utility.CancellationToken),
@@ -209,7 +209,7 @@ namespace net.vieapps.Services.Portals
 			return this._children ?? (this._children = this._childrenIDs?.Select(id => id.GetCategoryByID()).Where(category => category != null).ToList() ?? []);
 		}
 
-		internal async Task<List<Category>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
+		internal async Task<List<Category>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = false)
 			=> this._childrenIDs == null
 				? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindCategoriesAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false))
 				: this._children ?? (this._children = this._childrenIDs?.Select(id => id.GetCategoryByID()).Where(category => category != null).ToList() ?? []);

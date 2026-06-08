@@ -575,6 +575,8 @@ namespace net.vieapps.Services.Portals
 		{
 			// update
 			await Link.UpdateAsync(link, requestInfo.Session.User.ID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
+			if (requestInfo.IsWriteCacheLogs())
+				await requestInfo.WriteLogAsync($"Update successful [{link.Title} - ID: {link.ID} - ParentID: {link.ParentID}]", "Caches").ConfigureAwait(false);
 
 			// update cache & send notification
 			Task.WhenAll
@@ -661,13 +663,12 @@ namespace net.vieapps.Services.Portals
 				link.LookupRepositoryID = link.LookupRepositoryEntityID = link.LookupRepositoryObjectID = null;
 			}
 
-			var parentLink = link.ParentLink;
-			if (parentLink != null && !link.ParentID.IsEquals(oldParentID))
-			{
-				await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false, requestInfo.IsWriteCacheLogs()).ConfigureAwait(false);
+			var parentLink = await Link.GetAsync(link.ParentID ?? "", cancellationToken).ConfigureAwait(false);
+			if ((parentLink != null && !parentLink.ID.IsEquals(oldParentID)) || (oldParentID != null && !oldParentID.IsEquals(link.ParentID)))
 				link.OrderIndex = 1 + await LinkProcessor.GetLastOrderIndexAsync(link.SystemID, link.RepositoryID, link.RepositoryEntityID, link.ParentID, cancellationToken).ConfigureAwait(false);
-				link = await link.RefreshAsync(false, cancellationToken, true, false, true , requestInfo.CorrelationID).ConfigureAwait(false);
-			}
+
+			if (parentLink != null && !parentLink.ID.IsEquals(oldParentID))
+				await parentLink.ClearRelatedCacheAsync(cancellationToken, requestInfo.CorrelationID, true, false, false, requestInfo.IsWriteCacheLogs()).ConfigureAwait(false);
 
 			var dateString = request.Get<string>("StartDate");
 			link.StartDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out var date)
