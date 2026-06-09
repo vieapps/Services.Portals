@@ -85,7 +85,7 @@ namespace net.vieapps.Services.Portals
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public Role ParentRole => (this.ParentID ?? "").GetRoleByID();
+		public Role ParentRole => string.IsNullOrWhiteSpace(this.ParentID) || this.ParentID.IsEquals(this.ID) ? null : this.ParentID.GetRoleByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.ParentRole ?? this.Organization as RepositoryBase;

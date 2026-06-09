@@ -150,7 +150,7 @@ namespace net.vieapps.Services.Portals
 		public Organization Organization => (this.OrganizationID ?? "").GetOrganizationByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public Desktop ParentDesktop => (this.ParentID ?? "").GetDesktopByID();
+		public Desktop ParentDesktop => string.IsNullOrWhiteSpace(this.ParentID) || this.ParentID.IsEquals(this.ID) ? null : this.ParentID.GetDesktopByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.ParentDesktop ?? this.Organization as RepositoryBase;

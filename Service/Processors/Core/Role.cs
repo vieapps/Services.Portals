@@ -474,23 +474,8 @@ namespace net.vieapps.Services.Portals
 
 			// send messages
 			var objectName = role.GetObjectName();
-			var response = role.ToJson(true, false);
-			var versions = await role.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false);
+			var response = role.ToJson(true, false).UpdateVersions(await role.FindVersionsAsync(cancellationToken, false).ConfigureAwait(false));
 			
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response.UpdateVersions(versions),
-				DeviceID = "*"
-			}.Send();
-
-			new CommunicateMessage(requestInfo.ServiceName)
-			{
-				Type = $"{objectName}#Update",
-				Data = response,
-				ExcludedNodeID = Utility.NodeID
-			}.Send();
-
 			if (role.ParentRole != null && !role.ParentID.IsEquals(oldParentID))
 			{
 				await role.ParentRole.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
@@ -518,6 +503,7 @@ namespace net.vieapps.Services.Portals
 				parentRole = await oldParentID.GetRoleByIDAsync(cancellationToken).ConfigureAwait(false);
 				if (parentRole != null)
 				{
+					response["OldParentID"] = parentRole.ID;
 					await parentRole.FindChildrenAsync(cancellationToken).ConfigureAwait(false);
 					parentRole._childrenIDs.Remove(role.ID);
 					await parentRole.SetAsync(true, cancellationToken).ConfigureAwait(false);
@@ -538,8 +524,24 @@ namespace net.vieapps.Services.Portals
 				}
 			}
 
-			// send notification & response
+			// send notifications
 			role.SendNotificationAsync("Update", role.Organization.Notifications, ApprovalStatus.Published, ApprovalStatus.Published, requestInfo, Utility.CancellationToken).Execute();
+
+			// response
+			new UpdateMessage
+			{
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = response,
+				DeviceID = "*"
+			}.Send();
+
+			new CommunicateMessage(requestInfo.ServiceName)
+			{
+				Type = $"{objectName}#Update",
+				Data = response,
+				ExcludedNodeID = Utility.NodeID
+			}.Send();
+
 			return response;
 		}
 

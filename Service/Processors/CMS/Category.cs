@@ -651,10 +651,19 @@ namespace net.vieapps.Services.Portals
 			// response
 			Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken).Execute();
 			var response = category.ToJson(true, false).UpdateVersions(await category.FindVersionsAsync(requestInfo.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false));
+			var objectName = category.GetObjectName();
+
+			if (isRefresh)
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = response,
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
 
 			new UpdateMessage
 			{
-				Type = $"{requestInfo.ServiceName}#{category.GetObjectName()}#Update",
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
 				Data = response,
 				DeviceID = "*",
 				ExcludedDeviceID = isRefresh ? "" : requestInfo.Session.DeviceID
@@ -786,11 +795,26 @@ namespace net.vieapps.Services.Portals
 				category.SendNotificationAsync("Update", category.ContentType.Notifications, oldStatus, category.Status, requestInfo, Utility.CancellationToken),
 				category.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
 				Utility.Cache.AddSetMemberAsync(category.ContentType.ObjectCacheKeys, category.GetCacheKey(), Utility.CancellationToken)
-			).Execute();
+			).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while working with cache/task when update [{category.Title}] => {ex.Message}", "Caches", requestInfo.CorrelationID));
 
 			// send update messages
-			var objectName = category.GetObjectName();
 			var response = category.ToJson(true, false).UpdateVersions(await category.FindVersionsAsync(requestInfo.IsCacheAvailable(), cancellationToken, false).ConfigureAwait(false));
+			var objectName = category.GetObjectName();
+			var oldParentCategory = !string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(category.ParentID)
+				? await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false)
+				: null;
+
+			if (oldParentCategory != null)
+			{
+				oldParentCategory = await oldParentCategory.RefreshAsync(false, cancellationToken, true, false, false, writeLogs, requestInfo.CorrelationID).ConfigureAwait(false);
+				response["OldParentID"] = oldParentCategory.ID;
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = oldParentCategory.Set(false, true).ToJson(true, false),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
 
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
@@ -799,22 +823,13 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
 
-			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(category.ParentID))
+			new UpdateMessage
 			{
-				response["OldParentID"] = oldParentID;
-				var oldParent = await oldParentID.GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
-				if (oldParent != null)
-				{
-					oldParent = await oldParent.RefreshAsync(false, cancellationToken, true, false, false, writeLogs, requestInfo.CorrelationID).ConfigureAwait(false);
-					new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{objectName}#Update",
-						Data = oldParent.Set(false, true).ToJson(true, false),
-						ExcludedNodeID = Utility.NodeID
-					}.Send();
-				}
-			}
-			
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = response,
+				DeviceID = "*"
+			}.Send();
+
 			return response;
 		}
 

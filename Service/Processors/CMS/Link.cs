@@ -585,13 +585,14 @@ namespace net.vieapps.Services.Portals
 				link.UpdateRelatedOnUpdatedAsync(requestInfo, oldParentID, Utility.CancellationToken),
 				link.SendNotificationAsync(@event ?? "Update", link.ContentType.Notifications, oldStatus, link.Status, requestInfo, Utility.CancellationToken),
 				link.Organization.GetSchedulingTasksAsync(Utility.CancellationToken)
-			).Execute();
+			).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while working with cache/task when update [{link.Title}] => {ex.Message}", "Caches", requestInfo.CorrelationID));
 
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(link.ID, link.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var versionsTask = link.FindVersionsAsync(Utility.IsCacheAvailable(), cancellationToken, false);
 			await Task.WhenAll(thumbnailsTask, attachmentsTask, versionsTask).ConfigureAwait(false);
 
+			// response
 			var response = link.ToJson(true, false, json =>
 			{
 				json.UpdateVersions(versionsTask.Result);
@@ -599,14 +600,23 @@ namespace net.vieapps.Services.Portals
 				json["Attachments"] = attachmentsTask.Result;
 			});
 
-			// send messages
 			var objectName = link.GetObjectName();
-			new UpdateMessage
+			var oldParentLink = !string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(link.ParentID)
+				? await Link.GetAsync(oldParentID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false)
+				: null;
+
+			if (oldParentLink != null)
 			{
-				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
-				Data = response,
-				DeviceID = "*"
-			}.Send();
+				response["OldParentID"] = oldParentLink.ID;
+				oldParentLink.ChildrenIDs.Remove(link.ID);
+				Utility.Cache.SetAsync(oldParentLink, Utility.CancellationToken).Execute();
+				new CommunicateMessage(requestInfo.ServiceName)
+				{
+					Type = $"{objectName}#Update",
+					Data = oldParentLink.ToJson(true, false),
+					ExcludedNodeID = Utility.NodeID
+				}.Send();
+			}
 
 			new CommunicateMessage(requestInfo.ServiceName)
 			{
@@ -615,22 +625,12 @@ namespace net.vieapps.Services.Portals
 				ExcludedNodeID = Utility.NodeID
 			}.Send();
 
-			if (!string.IsNullOrWhiteSpace(oldParentID) && !oldParentID.IsEquals(link.ParentID))
+			new UpdateMessage
 			{
-				response["OldParentID"] = oldParentID;
-				var oldParent = await Link.GetAsync(oldParentID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
-				if (oldParent != null)
-				{
-					oldParent.ChildrenIDs.Remove(link.ID);
-					Utility.Cache.SetAsync(oldParent, Utility.CancellationToken).Execute();
-					new CommunicateMessage(requestInfo.ServiceName)
-					{
-						Type = $"{objectName}#Update",
-						Data = oldParent.ToJson(true, false),
-						ExcludedNodeID = Utility.NodeID
-					}.Send();
-				}
-			}
+				Type = $"{requestInfo.ServiceName}#{objectName}#Update",
+				Data = response,
+				DeviceID = "*"
+			}.Send();
 
 			return response;
 		}

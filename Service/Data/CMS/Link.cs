@@ -142,7 +142,7 @@ namespace net.vieapps.Services.Portals
 		IPortalContentType IBusinessObject.ContentType => this.ContentType;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public Link ParentLink => string.IsNullOrWhiteSpace(this.ParentID) ? null : Link.Get(this.ParentID);
+		public Link ParentLink => string.IsNullOrWhiteSpace(this.ParentID) || this.ParentID.IsEquals(this.ID) ? null : Link.Get(this.ParentID);
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.ParentLink ?? this.ContentType as RepositoryBase;
@@ -177,7 +177,7 @@ namespace net.vieapps.Services.Portals
 			set => this._childrenIDs = value;
 		}
 
-		internal List<Link> FindChildren(bool notifyPropertyChanged = false, List<Link> links = null)
+		internal List<Link> FindChildren(bool notifyPropertyChanged = true, List<Link> links = null)
 		{
 			if (this.ChildrenMode.Equals(ChildrenMode.Normal))
 			{

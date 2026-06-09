@@ -157,7 +157,7 @@ namespace net.vieapps.Services.Portals
 		IPortalContentType IBusinessObject.ContentType => this.ContentType;
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
-		public Category ParentCategory => (this.ParentID ?? "").GetCategoryByID();
+		public Category ParentCategory => string.IsNullOrWhiteSpace(this.ParentID) || this.ParentID.IsEquals(this.ID) ? null : this.ParentID.GetCategoryByID();
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]
 		public override RepositoryBase Parent => this.ParentCategory ?? this.Module as RepositoryBase;
@@ -192,7 +192,7 @@ namespace net.vieapps.Services.Portals
 			set => this._childrenIDs = value;
 		}
 
-		internal List<Category> FindChildren(bool notifyPropertyChanged = false, List<Category> categories = null)
+		internal List<Category> FindChildren(bool notifyPropertyChanged = true, List<Category> categories = null)
 		{
 			if (this._childrenIDs == null)
 			{
@@ -209,7 +209,7 @@ namespace net.vieapps.Services.Portals
 			return this._children ?? (this._children = this._childrenIDs?.Select(id => id.GetCategoryByID()).Where(category => category != null).ToList() ?? []);
 		}
 
-		internal async Task<List<Category>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = false)
+		internal async Task<List<Category>> FindChildrenAsync(CancellationToken cancellationToken = default, bool notifyPropertyChanged = true)
 			=> this._childrenIDs == null
 				? this.FindChildren(notifyPropertyChanged, await (this.SystemID ?? "").FindCategoriesAsync(this.RepositoryID, this.RepositoryEntityID, this.ID, Utility.IsCacheAvailable(), cancellationToken).ConfigureAwait(false))
 				: this._children ?? (this._children = this._childrenIDs?.Select(id => id.GetCategoryByID()).Where(category => category != null).ToList() ?? []);
@@ -258,15 +258,7 @@ namespace net.vieapps.Services.Portals
 				this._json[name] = this.GetProperty(name)?.ToJson();
 			}
 			else if (name.IsEquals("Childrens") && !string.IsNullOrWhiteSpace(this.ID) && !string.IsNullOrWhiteSpace(this.Title))
-			{
-				new CommunicateMessage(Utility.ServiceName)
-				{
-					Type = $"{this.GetObjectName()}#Update",
-					Data = this.ToJson(false, false),
-					ExcludedNodeID = Utility.NodeID
-				}.Send();
 				this.Set(false, true);
-			}
 		}
 
 		public string GetURL(string desktop = null, bool addPageNumberHolder = false, string parentIdentity = null)

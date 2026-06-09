@@ -87,7 +87,7 @@ namespace net.vieapps.Services.Portals
 					? Utility.WriteLogAsync(correlationID, $"Clear related caches [{item.Title} - ID: {item.ID}]\n\rTotal: {cacheKeys.Count:###,###,##0} - Data-keys: {dataCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count():###,###,##0}  - Html-keys:  {htmlCacheKeys.Distinct(StringComparer.OrdinalIgnoreCase).Count():###,###,##0}", "Caches")
 					: Task.CompletedTask
 			).ConfigureAwait(false);
-			await item.RefreshAsync(false, Utility.CancellationToken, doRefresh, writeLogs, correlationID).ConfigureAwait(false);
+			await item.RefreshAsync(false, cancellationToken, doRefresh, writeLogs, correlationID).ConfigureAwait(false);
 		}
 
 		internal static async Task<(List<Item> Objects, long TotalRecords, JToken Thumbnails)> SearchAsync(this RequestInfo requestInfo, string query, IFilterBy<Item> filter, SortBy<Item> sort, int pageSize, int pageNumber, string contentTypeID = null, long totalRecords = -1, bool processCache = true, CancellationToken cancellationToken = default, bool searchThumbnails = true)
@@ -503,8 +503,20 @@ namespace net.vieapps.Services.Portals
 			var versionsTask = item.FindVersionsAsync(requestInfo.IsCacheAvailable(), cancellationToken, false);
 			var thumbnailsTask = requestInfo.GetThumbnailsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
 			var attachmentsTask = requestInfo.GetAttachmentsAsync(item.ID, item.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			await Task.WhenAll(versionsTask, thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 
+			var writeLogs = requestInfo.IsWriteCacheLogs();
+			if (writeLogs)
+				await requestInfo.WriteLogAsync($"Update successful [{item.Title} - ID: {item.ID}]", "Caches").ConfigureAwait(false);
+
+			Task.WhenAll
+			(
+				item.SendNotificationAsync(@event ?? "Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, Utility.CancellationToken),
+				item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, item.Status.Equals(ApprovalStatus.Published), writeLogs),
+				Utility.Cache.SetAsync(item.GetCacheKeyOfAlias(), item.ID, Utility.CancellationToken),
+				Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(),	Utility.CancellationToken)
+			).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while working with cache/task when update [{item.Title}] => {ex.Message}", "Caches", requestInfo.CorrelationID));
+
+			await Task.WhenAll(versionsTask, thumbnailsTask, attachmentsTask).ConfigureAwait(false);
 			var response = item.ToJson(json =>
 			{
 				json.UpdateVersions(versionsTask.Result);
@@ -518,18 +530,6 @@ namespace net.vieapps.Services.Portals
 				DeviceID = "*",
 				Data = response
 			}.Send();
-
-			var writeLogs = requestInfo.IsWriteCacheLogs();
-			if (writeLogs)
-				await requestInfo.WriteLogAsync($"Update successful [{item.Title} - ID: {item.ID}]", "Caches").ConfigureAwait(false);
-
-			Task.WhenAll
-			(
-				item.SendNotificationAsync(@event ?? "Update", item.ContentType.Notifications, oldStatus, item.Status, requestInfo, Utility.CancellationToken),
-				item.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, true, true, item.Status.Equals(ApprovalStatus.Published), writeLogs),
-				Utility.Cache.SetAsync(item.GetCacheKeyOfAlias(), item.ID, Utility.CancellationToken),
-				Utility.Cache.AddSetMemberAsync(item.ContentType.ObjectCacheKeys, item.GetCacheKey(),	Utility.CancellationToken)
-			).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while working with cache/task when update ['{item.Title}'] => {ex.Message}", "Caches", requestInfo.CorrelationID));
 
 			return response;
 		}
