@@ -79,9 +79,7 @@ namespace net.vieapps.Services.Portals
 		[Ignore, BsonIgnore, XmlIgnore]
 		public Settings.Email EmailSettings { get; set; } = new Settings.Email();
 
-		[MessagePackIgnore]
 		JObject _json;
-
 		string _exras;
 
 		[JsonIgnore, XmlIgnore]
