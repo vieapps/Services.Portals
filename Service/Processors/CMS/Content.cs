@@ -426,7 +426,7 @@ namespace net.vieapps.Services.Portals
 						json.Remove(ExcludedProperties);
 				})).ToJArray();
 
-		if (isRefresh && objects.Count > 0)
+			if (isRefresh && objects.Count > 0)
 			{
 				objectName = objects.First().GetObjectName();
 				objectsJson.ForEach(json => new UpdateMessage

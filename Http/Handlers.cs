@@ -421,4 +421,28 @@ namespace net.vieapps.Services.Portals
 				await Global.WriteLogsAsync(Global.Logger, "Http.Visits", $"Request finished in {stopwatch.GetElapsedTimes()}", null, Global.ServiceName, LogLevel.Information, correlationID).ConfigureAwait(false);
 		}
 	}
+
+	public class McpHandler
+	{
+		public McpHandler(RequestDelegate _) { }
+
+		public async Task Invoke(HttpContext context)
+		{
+			if (!context.Request.Method.IsEquals("OPTIONS"))
+			{
+				Global.Statistics.IncreaseRequest(false);
+				try
+				{
+					await context.ProcessMcpRequestAsync((_, cancellationToken) => context.IdentifySystemAsync(cancellationToken)).ConfigureAwait(false);
+				}
+				catch (Exception ex)
+				{
+					await context.WriteMcpErrorAsync(ex, context.GetItem<JObject>("RequestBody")?.Get<string>("id"), Global.CancellationToken).ConfigureAwait(false);
+				}
+				Global.Statistics.DecreaseRequest(false);
+				if (Global.IsVisitLogEnabled)
+					await context.WriteVisitFinishingLogAsync().ConfigureAwait(false);
+			}
+		}
+	}
 }

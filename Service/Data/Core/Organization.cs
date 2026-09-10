@@ -16,13 +16,14 @@ using Newtonsoft.Json.Converters;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
+using net.vieapps.Services.MCP;
 using net.vieapps.Services.Portals.Settings;
 #endregion
 
 namespace net.vieapps.Services.Portals
 {
 	[BsonIgnoreExtraElements, DebuggerDisplay("ID = {ID}, Title = {Title}")]
-	[Entity(CollectionName = "Organizations", TableName = "T_Portals_Organizations", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true)]
+	[Entity(CollectionName = "Organizations", TableName = "T_Portals_Organizations", CacheClass = typeof(Utility), CacheName = "Cache", Searchable = true, Title = "Organization", Description = "Organization in CMS Portals service"), McpResource(ExcludedTools = "Delete")]
 	public sealed class Organization : Repository<Organization>, IPortalObject
 	{
 		public Organization() : base()
@@ -88,7 +89,7 @@ namespace net.vieapps.Services.Portals
 
 		[JsonIgnore, XmlIgnore]
 		[Property(IsCLOB = true)]
-		[FormControl(Excluded = true)]
+		[FormControl(Excluded = true), McpResourceJsonSchema(Ignore = true)]
 		public string Extras
 		{
 			get => this._extras;
@@ -101,19 +102,19 @@ namespace net.vieapps.Services.Portals
 		}
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "Creation time", Description = "Creation time of the organization", IgnoreInput = true, IgnoreSearch = true)]
 		public DateTime Created { get; set; }
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "Creator", Description = "Identity that create the organization", IgnoreInput = true, IgnoreSearch = true)]
 		public string CreatedID { get; set; }
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "Last modification", Description = "Last modification time of the organization", IgnoreInput = true, IgnoreSearch = true)]
 		public DateTime LastModified { get; set; }
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "Modifier", Description = "Identity that last modified the organization", IgnoreInput = true, IgnoreSearch = true)]
 		public string LastModifiedID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore]

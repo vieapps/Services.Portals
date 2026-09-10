@@ -204,7 +204,7 @@ namespace net.vieapps.Services.Portals
 						if (mode.Equals(ExtendedPropertyMode.IntegralNumber))
 							options["MinValue"] = definition.MinValue.CastAs<long>();
 						else if (mode.Equals(ExtendedPropertyMode.FloatingPointNumber))
-							options["MinValue"] = definition.MinValue.CastAs<decimal>();
+							options["MinValue"] = definition.MinValue.CastAs<double>();
 						else
 							options["MinValue"] = definition.MinValue;
 					}
@@ -216,7 +216,7 @@ namespace net.vieapps.Services.Portals
 						if (mode.Equals(ExtendedPropertyMode.IntegralNumber))
 							options["MaxValue"] = definition.MaxValue.CastAs<long>();
 						else if (mode.Equals(ExtendedPropertyMode.FloatingPointNumber))
-							options["MaxValue"] = definition.MaxValue.CastAs<decimal>();
+							options["MaxValue"] = definition.MaxValue.CastAs<double>();
 						else
 							options["MaxValue"] = definition.MaxValue;
 					}

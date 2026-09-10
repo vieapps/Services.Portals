@@ -13,6 +13,7 @@ using Newtonsoft.Json.Converters;
 using net.vieapps.Components.Utility;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Repository;
+using net.vieapps.Services.MCP;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -27,6 +28,7 @@ namespace net.vieapps.Services.Portals
 		[JsonConverter(typeof(StringEnumConverter)), BsonRepresentation(MongoDB.Bson.BsonType.String)]
 		[Sortable(IndexName = "Management")]
 		[FormControl(Segment = "management", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
+		[McpResourceJsonSchema(EnumValues = "Draft;Pending;Rejected;Approved;Published;Archieved")]
 		public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
@@ -100,6 +102,7 @@ namespace net.vieapps.Services.Portals
 		[FormControl(Segment = "basic", DataType = "url", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string SourceURL { get; set; }
 
+		[Property(MaxLength = 1000)]
 		[Searchable]
 		[FormControl(Segment = "basic", ControlType = "TextArea", Label = "{{portals.cms.contents.controls.[name].label}}", PlaceHolder = "{{portals.cms.contents.controls.[name].placeholder}}", Description = "{{portals.cms.contents.controls.[name].description}}")]
 		public string Summary { get; set; }
@@ -120,34 +123,34 @@ namespace net.vieapps.Services.Portals
 		public List<ExternalRelated> ExternalRelateds { get; set; }
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "Creation time", Description = "Creation time of the content", IgnoreInput = true, IgnoreSearch = true)]
 		public DateTime Created { get; set; }
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "Creator", Description = "Identity that create the content", IgnoreInput = true, IgnoreSearch = true)]
 		public string CreatedID { get; set; }
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "Last modification", Description = "Last modification time of the content", IgnoreInput = true, IgnoreSearch = true)]
 		public DateTime LastModified { get; set; }
 
 		[Sortable(IndexName = "Audits")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "Modifier", Description = "Identity that last modified the content", IgnoreInput = true, IgnoreSearch = true)]
 		public string LastModifiedID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "System identifier", Description = "Identity of the system (means organization) that content is belong to")]
 		public override string SystemID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "Repository identifier", Description = "Identity of the repository (means business module) that content is belong to")]
 		public override string RepositoryID { get; set; }
 
 		[Property(MaxLength = 32, NotNull = true, NotEmpty = true)]
 		[Sortable(IndexName = "Management")]
-		[FormControl(Hidden = true)]
+		[FormControl(Hidden = true), McpResourceJsonSchema(Title = "Entity identifier", Description = "Identity of the repository entity (means business content-type) that content is belong to")]
 		public override string RepositoryEntityID { get; set; }
 
 		[Ignore, JsonIgnore, BsonIgnore, XmlIgnore, MessagePackIgnore]

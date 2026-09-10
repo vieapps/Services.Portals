@@ -209,7 +209,7 @@ namespace net.vieapps.Services.Portals
 	}
 
 	//  ------------------------------------------------------------------------
-
+	
 	/// <summary>
 	/// Presents the definition of a control for working with an extended property of a repository entity in a respository 
 	/// </summary>

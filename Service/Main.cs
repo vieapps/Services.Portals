@@ -37,6 +37,8 @@ namespace net.vieapps.Services.Portals
 
 		public override string ServiceName => "Portals";
 
+		public override string ServiceDescription => "CMS and portals management";
+
 		#region Definitions
 		public ModuleDefinition GetDefinition()
 			=> new ModuleDefinition(RepositoryMediator.GetEntityDefinition<Organization>().RepositoryDefinition);
@@ -1389,6 +1391,7 @@ namespace net.vieapps.Services.Portals
 				["ID"] = organization.ID,
 				["Alias"] = organization.Alias,
 				["Title"] = organization.Title,
+				["Description"] = organization.Description,
 				["HomeDesktopAlias"] = homeDesktopAlias,
 				["HomeDesktopAliases"] = $"{homeDesktopAlias}{(string.IsNullOrWhiteSpace(homeDesktopAliases) ? "" : $";{homeDesktopAliases}")}",
 				["SiteID"] = site?.ID,
@@ -7168,8 +7171,12 @@ namespace net.vieapps.Services.Portals
 		#endregion
 
 		#region Process MCP requests
-		public override async Task<JToken> ProcessMcpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+		public override Task<JToken> GetMcpSettingsAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
+			=> base.GetMcpSettingsAsync(requestInfo, cancellationToken);
+
+		public async Task<JToken> ProcessMcpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 		{
+			
 			var stopwatch = Stopwatch.StartNew();
 			var isDebugResultsEnabled = this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs");
 			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Begin process MCP request ({requestInfo.GetURI()})", null, this.ServiceName, "MCP").ConfigureAwait(false);

@@ -1952,8 +1952,8 @@ namespace net.vieapps.Services.Portals
 			if (message.Type.IsEquals("Service#RequestInfo"))
 				await Global.SendServiceInfoAsync().ConfigureAwait(false);
 
-			else if (message.Type.IsStartsWith("McpServer#"))
-				await message.ProcessGatewayMessageAsync().ConfigureAwait(false);
+			else if (message.Type.IsStartsWith("MCP#"))
+				message.UpdateMcpSettings();
 
 			else if (message.Type.IsStartsWith("Monitor#"))
 				message.UpdateMonitoringConfig(logPath => Handler.StartMonitor(logPath), () => Handler.StopMonitor());
@@ -2787,6 +2787,7 @@ namespace net.vieapps.Services.Portals
 					Global.Statistics.RpcEntered();
 					using (ticket.Value)
 					{
+						requestInfo.Header["x-host"] = requestHost;
 						systemIdentityJson = await context.CallServiceAsync(requestInfo, cancellationToken, Global.Logger, "Http.Process.Requests").ConfigureAwait(false) as JObject;
 					}
 				}
@@ -2814,6 +2815,12 @@ namespace net.vieapps.Services.Portals
 			}
 
 			return systemIdentityJson;
+		}
+
+		public static Task<JObject> IdentifySystemAsync(this HttpContext context, CancellationToken cancellationToken)
+		{
+			var (session, query, headers, _, correlationID) = context.GetRequestInfoParams();
+			return context.IdentifySystemAsync(new RequestInfo(session, Global.ServiceName, "Identify.System", "GET", query, headers, null, null, correlationID), cancellationToken);
 		}
 
 		public static Task WriteAsync(this HttpContext context, JToken json, Formatting format, Dictionary<string, string> headers, CancellationToken cancellationToken)
