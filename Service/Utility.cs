@@ -12,8 +12,6 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
-using SixLabors.ImageSharp.Memory;
-using SixLabors.ImageSharp.Processing;
 using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Repository;
 using net.vieapps.Components.Security;
@@ -1248,43 +1246,8 @@ namespace net.vieapps.Services.Portals
 		public static WebHookMessage Normalize(this WebHookMessage message, WebHookSetting settings, RequestInfo requestInfo, string organizationID)
 			=> message.Normalize(settings.SecretToken, settings.SecretTokenName, settings, requestInfo, organizationID);
 
-		static Utility()
-		{
-			SixLabors.ImageSharp.Configuration.Default.MemoryAllocator = MemoryAllocator.Create(new MemoryAllocatorOptions
-			{
-				MaximumPoolSizeMegabytes = 128
-			});
-		}
-
-		static SixLabors.ImageSharp.Formats.IImageEncoder WebpEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder();
-
-		static SixLabors.ImageSharp.Formats.IImageEncoder WebpAdvancedEncoder { get; } = new SixLabors.ImageSharp.Formats.Webp.WebpEncoder
-		{
-			FileFormat = SixLabors.ImageSharp.Formats.Webp.WebpFileFormatType.Lossy,
-			Method = Enum.TryParse<SixLabors.ImageSharp.Formats.Webp.WebpEncodingMethod>(UtilityService.GetAppSetting("Portals:WebP:Method", "Default"), out var method)
-				? method
-				: SixLabors.ImageSharp.Formats.Webp.WebpEncodingMethod.Default,
-			Quality = 70,
-			NearLosslessQuality = 60
-		};
-
-		internal static async Task<byte[]> ToWebPAsync(this byte[] data, bool useAdvancedSettings, CancellationToken cancellationToken)
-		{
-			using var imageStream = data.ToMemoryStream();
-			using var imageObject = await SixLabors.ImageSharp.Image.LoadAsync(imageStream, cancellationToken).ConfigureAwait(false);
-			if (useAdvancedSettings)
-			{
-				imageObject.Mutate(context => context.AutoOrient());
-				imageObject.Metadata.ExifProfile = null;
-				imageObject.Metadata.IccProfile = null;
-				imageObject.Metadata.XmpProfile = null;
-				imageObject.Metadata.IptcProfile = null;
-			}
-			using var outputStream = UtilityService.CreateMemoryStream();
-			await imageObject.SaveAsync(outputStream, useAdvancedSettings ? Utility.WebpAdvancedEncoder : Utility.WebpEncoder, cancellationToken).ConfigureAwait(false);
-			outputStream.Seek(0, SeekOrigin.Begin);
-			return outputStream.ToBytes();
-		}
+		internal static Task<byte[]> ToWebPAsync(this byte[] data, bool useAdvancedSettings, CancellationToken cancellationToken, string converter = null)
+			=> data.ConvertAsync("WebP", useAdvancedSettings, cancellationToken, converter);
 
 		internal static IEnumerable<string> GetPaginatingURLs(this string url, int totalPages, string suffix = "")
 		{

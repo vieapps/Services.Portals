@@ -1563,6 +1563,8 @@ namespace net.vieapps.Services.Portals
 			var body = indicator != null
 				? (name.IsEquals("favicon.ico") ? indicator.Content.ToList().Last().Base64ToBytes() : indicator.Content.ToBytes()).Compress(this.BodyEncoding).ToBase64()
 				: null;
+			if (body == null && name.IsEquals("robots.txt"))
+				body = "User-agent: *\r\nAllow: /\r\nDisallow: /_login".ToBytes().Compress(this.BodyEncoding).ToBase64();
 			var headers = new JObject
 			{
 				["Content-Type"] = contentType + (contentType.IsStartsWith("imagae/") ? "" : "; charset=utf-8"),
@@ -1571,7 +1573,7 @@ namespace net.vieapps.Services.Portals
 				["X-Node"] = this.NodeID,
 				["X-Correlation-ID"] = requestInfo.CorrelationID
 			};
-			return indicator != null
+			return body != null
 				? new JObject
 				{
 					["StatusCode"] = (int)HttpStatusCode.OK,
@@ -1854,7 +1856,7 @@ namespace net.vieapps.Services.Portals
 					try
 					{
 						stepwatch.Restart();
-						var webpImage = await data.ToWebPAsync(!fileInfo.Extension.IsEquals(".png"), cancellationToken).ConfigureAwait(false);
+						var webpImage = await data.ToWebPAsync(!fileInfo.Extension.IsEquals(".png"), cancellationToken, requestInfo.GetParameter("x-converter-engine")).ConfigureAwait(false);
 						stepwatch.Stop();
 						serverTiming += $", ngxConvert;dur={stepwatch.ElapsedMilliseconds}";
 						if (webpImage.Length > 0)
@@ -5865,12 +5867,12 @@ namespace net.vieapps.Services.Portals
 			async Task<byte[]> getTrackingImageAsync(string url)
 			{
 				var cacheKey = $"TrackingImage:{url.GenerateUUID()}";
-				var data = requestInfo.ContainsKey("x-force-cache") ? null : await Utility.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
+				var data = requestInfo.IsBypassCacheRequested() ? null : await Utility.Cache.GetAsync<byte[]>(cacheKey, cancellationToken).ConfigureAwait(false);
 				if (data == null)
 				{
 					using var image = await new Uri(url).SendHttpRequestAsync("GET", null, null, 120, cancellationToken).ConfigureAwait(false);
 					data = await image.ReadAsByteArrayAsync().ConfigureAwait(false);
-					data = await data.ToWebPAsync(true, cancellationToken).ConfigureAwait(false);
+					data = await data.ToWebPAsync(true, cancellationToken, requestInfo.GetParameter("x-converter-engine")).ConfigureAwait(false);
 					data = data.Compress(this.BodyEncoding);
 					await Utility.Cache.SetAsync(cacheKey, data, cancellationToken).ConfigureAwait(false);
 				}
@@ -7173,52 +7175,6 @@ namespace net.vieapps.Services.Portals
 		#region Process MCP requests
 		public override Task<JToken> GetMcpSettingsAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
 			=> base.GetMcpSettingsAsync(requestInfo, cancellationToken);
-
-		public async Task<JToken> ProcessMcpRequestAsync(RequestInfo requestInfo, CancellationToken cancellationToken = default)
-		{
-			
-			var stopwatch = Stopwatch.StartNew();
-			var isDebugResultsEnabled = this.IsDebugResultsEnabled || requestInfo.ContainsKey("x-logs");
-			await this.WriteLogsAsync(requestInfo.CorrelationID, $"Begin process MCP request ({requestInfo.GetURI()})", null, this.ServiceName, "MCP").ConfigureAwait(false);
-
-			JToken response = null;
-			try
-			{
-				using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
-				var organization = await (requestInfo.GetParameter("x-system-id") ?? "").GetOrganizationByIDAsync(cts.Token).ConfigureAwait(false);
-				if (organization?.McpSettings != null)
-				{
-					if (requestInfo.Verb.IsEquals("capabilities"))
-						response = organization.McpSettings.ToJSON(json => json["SystemID"] = organization.ID);
-					else
-					{
-						var isSystemAdministrator = await this.IsSystemAdministratorAsync(requestInfo, cts.Token).ConfigureAwait(false);
-						var mcpResource = organization.McpSettings.Resources.FirstOrDefault(resource => resource.Name.IsEquals(requestInfo.ObjectName));
-						var contentType = await (mcpResource?.ContentTypeID ?? "").GetContentTypeByIDAsync(cts.Token).ConfigureAwait(false);
-						response = contentType != null
-							? contentType.IsContent
-								? await requestInfo.ProcessContentMcpRequestAsync(contentType, isSystemAdministrator, cts.Token).ConfigureAwait(false)
-								: contentType.IsItem
-									? await requestInfo.ProcessItemMcpRequestAsync(contentType, isSystemAdministrator, cts.Token).ConfigureAwait(false)
-									: null
-							: null;
-					}
-				}
-				return response;
-			}
-			catch (RepositoryOperationException ex)
-			{
-				throw ex.InnerException is not OperationCanceledException ? this.GetRuntimeException(requestInfo, ex, stopwatch) : ex;
-			}
-			catch (Exception ex)
-			{
-				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
-			}
-			finally
-			{
-				await this.WriteLogsAsync(requestInfo.CorrelationID, $"Process MCP request completed - Execution times: {stopwatch.GetElapsedTimes()}" + (isDebugResultsEnabled ? $"\r\n\r\n- Request: {requestInfo?.ToString(this.JsonFormat)}\r\n\r\n- Response: {response?.ToString(this.JsonFormat)}" : ""), null, this.ServiceName, "MCP").ConfigureAwait(false);
-			}
-		}
 		#endregion
 
 	}
