@@ -906,10 +906,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.SearchOrganizationsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchOrganizationsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateOrganizationAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -930,10 +938,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.SearchSitesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetSiteAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetSiteAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchSitesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateSiteAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateSiteAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -954,10 +970,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.SearchRolesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetRoleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetRoleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchRolesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateRoleAsync(isSystemAdministrator, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, LogLevel.Error), cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateRoleAsync(isSystemAdministrator, (request, token) => this.CallServiceAsync(request, token), (request, msg, ex) => this.WriteLogs(request, msg, ex, LogLevel.Error), cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -978,10 +1002,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.SearchDesktopsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetDesktopAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetDesktopAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchDesktopsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateDesktopAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update"))
 						? await requestInfo.UpdateDesktopPortletsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.UpdateDesktopAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
@@ -1004,10 +1036,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.SearchPortletsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetPortletAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetPortletAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchPortletsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreatePortletAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdatePortletAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -1028,10 +1068,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.SearchModulesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetModuleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetModuleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchModulesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateModuleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateModuleAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -1052,10 +1100,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.SearchContentTypesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetContentTypeAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetContentTypeAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchContentTypesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateContentTypeAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateContentTypeAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -1076,10 +1132,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.SearchExpressionsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetExpressionAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetExpressionAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchExpressionsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateExpressionAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateExpressionAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -1111,10 +1175,18 @@ namespace net.vieapps.Services.Portals
 							return await requestInfo.GetSchedulingTaskAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 					}
 
+				case "READ":
+					return await requestInfo.GetSchedulingTaskAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchSchedulingTasksAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateSchedulingTaskAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateSchedulingTaskAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -1138,10 +1210,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.GetCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.SearchCategoriesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchCategoriesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update"))
 						? await requestInfo.UpdateCategoriesAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.UpdateCategoryAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
@@ -1165,10 +1245,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.GetContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.SearchContentsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchContentsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateContentAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -1190,10 +1278,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.GetItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.SearchItemsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchItemsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateItemAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -1215,10 +1311,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.GetLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.SearchLinksAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchLinksAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return "order-index".IsEquals(requestInfo.GetHeaderParameter("x-update"))
 						? await requestInfo.UpdateLinksAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.UpdateLinkAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
@@ -1242,10 +1346,18 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.GetFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.SearchFormsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchFormsAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return await requestInfo.CreateFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateFormAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -1266,7 +1378,14 @@ namespace net.vieapps.Services.Portals
 						? await requestInfo.SearchCrawlersAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false)
 						: await requestInfo.GetCrawlerAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
+				case "READ":
+					return await requestInfo.GetCrawlerAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
+				case "SEARCH":
+					return await requestInfo.SearchCrawlersAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
+
 				case "POST":
+				case "CREATE":
 					return "test".IsEquals(requestInfo.GetObjectIdentity())
 						? await requestInfo.TestCrawlerAsync(cancellationToken).ConfigureAwait(false)
 						: "categories".IsEquals(requestInfo.GetObjectIdentity())
@@ -1274,6 +1393,7 @@ namespace net.vieapps.Services.Portals
 							: await requestInfo.CreateCrawlerAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "PUT":
+				case "UPDATE":
 					return await requestInfo.UpdateCrawlerAsync(isSystemAdministrator, cancellationToken).ConfigureAwait(false);
 
 				case "DELETE":
@@ -1856,7 +1976,7 @@ namespace net.vieapps.Services.Portals
 					try
 					{
 						stepwatch.Restart();
-						var webpImage = await data.ToWebPAsync(!fileInfo.Extension.IsEquals(".png"), cancellationToken, requestInfo.GetParameter("x-converter-engine")).ConfigureAwait(false);
+						var webpImage = await data.ToWebPAsync(!fileInfo.Extension.IsEquals(".png"), cancellationToken).ConfigureAwait(false);
 						stepwatch.Stop();
 						serverTiming += $", ngxConvert;dur={stepwatch.ElapsedMilliseconds}";
 						if (webpImage.Length > 0)
@@ -5872,7 +5992,7 @@ namespace net.vieapps.Services.Portals
 				{
 					using var image = await new Uri(url).SendHttpRequestAsync("GET", null, null, 120, cancellationToken).ConfigureAwait(false);
 					data = await image.ReadAsByteArrayAsync().ConfigureAwait(false);
-					data = await data.ToWebPAsync(true, cancellationToken, requestInfo.GetParameter("x-converter-engine")).ConfigureAwait(false);
+					data = await data.ToWebPAsync(true, cancellationToken).ConfigureAwait(false);
 					data = data.Compress(this.BodyEncoding);
 					await Utility.Cache.SetAsync(cacheKey, data, cancellationToken).ConfigureAwait(false);
 				}

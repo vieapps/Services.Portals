@@ -1246,8 +1246,8 @@ namespace net.vieapps.Services.Portals
 		public static WebHookMessage Normalize(this WebHookMessage message, WebHookSetting settings, RequestInfo requestInfo, string organizationID)
 			=> message.Normalize(settings.SecretToken, settings.SecretTokenName, settings, requestInfo, organizationID);
 
-		internal static Task<byte[]> ToWebPAsync(this byte[] data, bool useAdvancedSettings, CancellationToken cancellationToken, string converter = null)
-			=> data.ConvertAsync("WebP", useAdvancedSettings, cancellationToken, converter);
+		internal static Task<byte[]> ToWebPAsync(this byte[] data, bool useAdvancedSettings, CancellationToken cancellationToken)
+			=> data.ConvertImageAsync("WebP", useAdvancedSettings, cancellationToken);
 
 		internal static IEnumerable<string> GetPaginatingURLs(this string url, int totalPages, string suffix = "")
 		{
