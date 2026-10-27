@@ -33,8 +33,6 @@ namespace net.vieapps.Services.Portals
 		/// </summary>
 		public static ILogger Logger { get; internal set; }
 
-		internal static ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)> Logs { get; } = new ConcurrentQueue<((DateTime Time, string CorrelationID, string DeveloperID, string AppID, string NodeID, string ServiceName, string ObjectName) Info, List<string> Logs, string Stack)>();
-
 		internal static bool IsDebugLogEnabled => Utility.Logger != null && Utility.Logger.IsEnabled(LogLevel.Debug);
 
 		internal static bool IsWriteDebugLogs(this RequestInfo requestInfo, string component = null) => Utility.IsDebugLogEnabled || (requestInfo != null && requestInfo.ContainsKey("x-logs")) || (component != null && "true".IsEquals(UtilityService.GetAppSetting($"Logs:Portals:{component}")));
@@ -1096,43 +1094,8 @@ namespace net.vieapps.Services.Portals
 			return (excluded != null && excluded.Any() ? recipientIDs.Except(excluded) : recipientIDs).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		}
 
-
-		internal static Task WriteLogsAsync(string developerID, string appID, string objectName, List<string> logs, Exception exception = null, string correlationID = null, string additional = null)
-		{
-			// prepare
-			correlationID = correlationID ?? UtilityService.NewUUID;
-			var wampDetails = exception != null && exception is WampException wampException
-				? wampException.GetDetails()
-				: (0, null, null, null, null, null);
-
-			logs = logs ?? new List<string>();
-			if (wampDetails.Code > 0)
-			{
-				logs.Add($"> Message: {wampDetails.Message}");
-				logs.Add($"> Type: {wampDetails.Type}");
-			}
-			else if (exception != null)
-			{
-				if (exception is AggregateException agg)
-					foreach (var inner in agg.Flatten().InnerExceptions)
-					{
-						logs.Add($"> Message: {inner.Message}");
-						logs.Add($"> Type: {inner.GetTypeName(true)}");
-					}
-				else
-				{
-					logs.Add($"> Message: {exception.Message}");
-					logs.Add($"> Type: {exception.GetTypeName(true)}");
-				}
-			}
-
-			if (!string.IsNullOrWhiteSpace(additional))
-				logs.Add(additional);
-
-			// update queue & write to centerlized logs
-			Utility.Logs.Enqueue(((DateTime.Now, correlationID, developerID, appID, ServiceBase.ServiceComponent.NodeID, Utility.ServiceName, objectName), logs, exception?.GetStack(false)));
-			return Utility.Logs.WriteLogsAsync(Utility.Logger);
-		}
+		internal static Task<bool> WriteLogsAsync(string developerID, string appID, string objectName, List<string> logs, Exception exception = null, string correlationID = null, string additional = null)
+			=> Task.FromResult(Extensions.WriteServiceLog(Utility.Logger, Utility.NodeID, correlationID, developerID, appID, logs, exception, Utility.ServiceName, objectName, additional, LogLevel.Information));
 
 		internal static Task WriteErrorAsync(this RequestInfo requestInfo, Exception exception, string message = null, string objectName = null, string additionnal = null)
 		{

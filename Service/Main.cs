@@ -504,6 +504,10 @@ namespace net.vieapps.Services.Portals
 			this.Statistics.RpcEntered();
 
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
+			var trace = requestInfo.StartTrace();
+			var status = "ok";
+			string statusDescription = null;
+
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, this.CancellationToken);
 			if (this.CancelAfter > 0)
 				cts.CancelAfter(this.CancelAfter);
@@ -798,14 +802,19 @@ namespace net.vieapps.Services.Portals
 			}
 			catch (RepositoryOperationException ex)
 			{
+				status = "error";
+				statusDescription = $"{ex.Message} [{ex.GetTypeName(true)}]";
 				throw ex.InnerException is not OperationCanceledException ? this.GetRuntimeException(requestInfo, ex, stopwatch) : ex;
 			}
 			catch (Exception ex)
 			{
+				status = "error";
+				statusDescription = $"{ex.Message} [{ex.GetTypeName(true)}]";
 				throw this.GetRuntimeException(requestInfo, ex, stopwatch);
 			}
 			finally
 			{
+				trace.Complete(status, statusDescription);
 				this.Statistics.RpcCompleted(stopwatch);
 			}
 		}

@@ -845,9 +845,12 @@ namespace net.vieapps.Services.Portals
 					Global.Statistics.RpcEntered();
 					using (ticket.Value)
 					{
+						var trace = context.StartTrace("PROCESS HttpRequest");
+						var status = "ok";
+						string statusDescription = null;
 						try
 						{
-							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" };
+							requestInfo = new RequestInfo(requestInfo) { ObjectName = "Process.Http.Request" }.SetParentTraceID(trace.ID);
 							if (isDebugLogEnabled)
 								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Request: {requestInfo.ToString(Formatting.Indented)}").ConfigureAwait(false);
 
@@ -912,8 +915,10 @@ namespace net.vieapps.Services.Portals
 							if (isDebugLogEnabled)
 								await context.WriteLogsAsync("Http.Process.Requests", $"Call the service to process the request was successed - Execution times: {stepwatch.GetElapsedTimes()}\r\n- App: {session.AppName} [{session.AppPlatform} @ {session.AppAgent}]\r\n- Response: {response.ToJson()}").ConfigureAwait(false);
 						}
-						catch (Exception)
+						catch (Exception ex)
 						{
+							status = "error";
+							statusDescription = $"{ex.Message} [{ex.GetTypeName(true)}]";
 							if ("~indicators".IsEquals(systemIdentity) && query.TryGetValue("x-indicator", out var indicator) && "favicon.ico".IsEquals(indicator))
 								await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
 							else
@@ -921,6 +926,7 @@ namespace net.vieapps.Services.Portals
 						}
 						finally
 						{
+							trace.Complete(status, statusDescription);
 							Global.Statistics.RpcCompleted(stepwatch);
 						}
 					}
@@ -1012,6 +1018,9 @@ namespace net.vieapps.Services.Portals
 							Global.Statistics.RpcEntered();							
 							using (ticket.Value)
 							{
+								var trace = context.StartTrace("PROCESS XmlFeed");
+								var status = "ok";
+								string statusDescription = null;
 								try
 								{
 									stepwatch.Restart();
@@ -1048,9 +1057,12 @@ namespace net.vieapps.Services.Portals
 								catch (OperationCanceledException) { }
 								catch (Exception ex)
 								{
+									status = "error";
+									statusDescription = $"{ex.Message} [{ex.GetTypeName(true)}]";
 									if (ex is WampException wampException)
 									{
 										var wampDetails = wampException.GetDetails(requestInfo);
+										statusDescription = $"{wampDetails.Message} [{wampDetails.Type}]";
 										context.ShowError(wampDetails.Code, wampDetails.Message, wampDetails.Type, correlationID, wampDetails.Stack + "\r\n\t" + ex.StackTrace, isDebugLogEnabled);
 									}
 									else
@@ -1059,6 +1071,7 @@ namespace net.vieapps.Services.Portals
 								}
 								finally
 								{
+									trace.Complete(status, statusDescription);
 									Global.Statistics.RpcCompleted(stepwatch);
 								}
 							}

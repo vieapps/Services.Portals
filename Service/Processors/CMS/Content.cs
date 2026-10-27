@@ -467,143 +467,171 @@ namespace net.vieapps.Services.Portals
 
 		internal static async Task<JObject> CreateContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
 		{
-			// prepare
-			var request = requestInfo.GetBodyExpando();
-
-			var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
-			var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationInvalidException("The organization is invalid");
-
-			var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id");
-			var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (module == null || !module.SystemID.IsEquals(organization.ID))
-				throw new InformationInvalidException("The module is invalid");
-
-			var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id");
-			var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
-				throw new InformationInvalidException("The content-type is invalid");
-
-			var categoryID = request.Get<string>("CategoryID") ?? requestInfo.GetParameter("CategoryID") ?? requestInfo.GetParameter("x-category-id");
-			var category = await (categoryID ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
-			if (category == null || !category.SystemID.IsEquals(organization.ID) || !category.RepositoryID.IsEquals(module.ID))
-				throw new InformationInvalidException("The category is invalid");
-
-			// check permission
-			var gotRights = isSystemAdministrator || requestInfo.Session.User.IsContributor(category.WorkingPrivileges, contentType.WorkingPrivileges, organization);
-			if (!gotRights)
-				throw new AccessDeniedException();
-
-			// source to copy from
-			var source = await Content.GetAsync(request.Get<string>("CopyFromID"), requestInfo.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
-
-			// get data
-			Dictionary<string, (string Identifier, string Filename)> inlineImages = null;
-			var content = source != null
-				? source.Copy("ID,CategoryID,OtherCategories,Alias,Relateds,Privileges,StartDate,EndDate,Created,CreatedID,LastModified,LastModifiedID".ToHashSet(), obj =>
-				{
-					obj.Alias = source.Title.NormalizeAlias();
-					obj.CategoryID = category.ID;
-					obj.OtherCategories = request.Get<List<string>>("OtherCategories");
-				})
-				: request.CreateContent("Privileges,StartDate,EndDate,Created,CreatedID,LastModified,LastModifiedID", out inlineImages);
-			content.SystemID = organization.ID;
-			content.RepositoryID = module.ID;
-			content.RepositoryEntityID = contentType.ID;
-			content.Created = content.LastModified = DateTime.Now;
-			content.CreatedID = content.LastModifiedID = requestInfo.Session.User.ID;
-			content.ID = source != null
-				? organization.ID.IsEquals(source.SystemID) ? UtilityService.NewUUID : $"{organization.ID}:{source.ID}".GenerateUUID()
-				: string.IsNullOrWhiteSpace(content.ID) || !content.ID.IsValidUUID() ? UtilityService.NewUUID : content.ID;
-
-			var existing = await Content.GetContentByAliasAsync(contentType, content.Alias, category.ID, cancellationToken).ConfigureAwait(false);
-			if (existing != null)
-				content.Alias = $"{content.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
-
-			var dateString = request.Get<string>("StartDate");
-			content.StartDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out var date)
-				? date.ToDTString(false, false)
-				: DateTime.Now.ToDTString(false, false);
-
-			dateString = request.Get<string>("EndDate");
-			content.EndDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date)
-				? date.ToDTString(false, false)
-				: null;
-
-			content.PublishedTime = null;
-			dateString = request.Get<string>("PublishedTime");
-			if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
-				content.PublishedTime = date;
-			if (content.PublishedTime == null && content.Status.Equals(ApprovalStatus.Published))
-				content.PublishedTime = DateTime.Now;
-
-			content.OtherCategories = content.OtherCategories?.Where(id => !content.CategoryID.IsEquals(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			content.OtherCategories = content.OtherCategories != null && content.OtherCategories.Count > 0 ? content.OtherCategories : null;
-
-			if (inlineImages == null || inlineImages.Count < 1)
-				content.Details = organization.NormalizeURLs(content.Details, false);
-
-			content.Relateds = content.Relateds?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-			content.Relateds = content.Relateds != null && content.Relateds.Count > 0 ? content.Relateds : null;
-
-			if (content.ExternalRelateds != null)
+			var trace = requestInfo.StartTrace("PreProcess");
+			try
 			{
-				var index = 0;
-				while (index < content.ExternalRelateds.Count)
+				// prepare
+				var request = requestInfo.GetBodyExpando();
+
+				var organizationID = request.Get<string>("SystemID") ?? requestInfo.GetParameter("SystemID") ?? requestInfo.GetParameter("x-system-id");
+				var organization = await (organizationID ?? "").GetOrganizationByIDAsync(cancellationToken).ConfigureAwait(false) ?? throw new InformationInvalidException("The organization is invalid");
+
+				var moduleID = request.Get<string>("RepositoryID") ?? requestInfo.GetParameter("RepositoryID") ?? requestInfo.GetParameter("x-module-id");
+				var module = await (moduleID ?? "").GetModuleByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (module == null || !module.SystemID.IsEquals(organization.ID))
+					throw new InformationInvalidException("The module is invalid");
+
+				var contentTypeID = request.Get<string>("RepositoryEntityID") ?? requestInfo.GetParameter("RepositoryEntityID") ?? requestInfo.GetParameter("x-content-type-id");
+				var contentType = await (contentTypeID ?? "").GetContentTypeByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (contentType == null || !contentType.SystemID.IsEquals(organization.ID) || !contentType.RepositoryID.IsEquals(module.ID))
+					throw new InformationInvalidException("The content-type is invalid");
+
+				var categoryID = request.Get<string>("CategoryID") ?? requestInfo.GetParameter("CategoryID") ?? requestInfo.GetParameter("x-category-id");
+				var category = await (categoryID ?? "").GetCategoryByIDAsync(cancellationToken).ConfigureAwait(false);
+				if (category == null || !category.SystemID.IsEquals(organization.ID) || !category.RepositoryID.IsEquals(module.ID))
+					throw new InformationInvalidException("The category is invalid");
+
+				// check permission
+				trace = requestInfo.StartTrace(trace, "Authorize");
+				var gotRights = isSystemAdministrator || requestInfo.Session.User.IsContributor(category.WorkingPrivileges, contentType.WorkingPrivileges, organization);
+				if (!gotRights)
+					throw new AccessDeniedException();
+
+				// source to copy from
+				trace = requestInfo.StartTrace(trace, "Duplicate");
+				var source = await Content.GetAsync(request.Get<string>("CopyFromID"), requestInfo.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
+
+				// prepare data
+				trace = source != null ? requestInfo.StartTrace(trace, "Prepare") : requestInfo.StartTrace("Prepare");
+				Dictionary<string, (string Identifier, string Filename)> inlineImages = null;
+				var content = source != null
+					? source.Copy("ID,CategoryID,OtherCategories,Alias,Relateds,Privileges,StartDate,EndDate,Created,CreatedID,LastModified,LastModifiedID".ToHashSet(), obj =>
+					{
+						obj.Alias = source.Title.NormalizeAlias();
+						obj.CategoryID = category.ID;
+						obj.OtherCategories = request.Get<List<string>>("OtherCategories");
+					})
+					: request.CreateContent("Privileges,StartDate,EndDate,Created,CreatedID,LastModified,LastModifiedID", out inlineImages);
+				content.SystemID = organization.ID;
+				content.RepositoryID = module.ID;
+				content.RepositoryEntityID = contentType.ID;
+				content.Created = content.LastModified = DateTime.Now;
+				content.CreatedID = content.LastModifiedID = requestInfo.Session.User.ID;
+				content.ID = source != null
+					? organization.ID.IsEquals(source.SystemID) ? UtilityService.NewUUID : $"{organization.ID}:{source.ID}".GenerateUUID()
+					: string.IsNullOrWhiteSpace(content.ID) || !content.ID.IsValidUUID() ? UtilityService.NewUUID : content.ID;
+
+				var dateString = request.Get<string>("StartDate");
+				content.StartDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out var date)
+					? date.ToDTString(false, false)
+					: DateTime.Now.ToDTString(false, false);
+
+				dateString = request.Get<string>("EndDate");
+				content.EndDate = !string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date)
+					? date.ToDTString(false, false)
+					: null;
+
+				content.PublishedTime = null;
+				dateString = request.Get<string>("PublishedTime");
+				if (!string.IsNullOrWhiteSpace(dateString) && DateTime.TryParse(dateString, out date))
+					content.PublishedTime = date;
+				if (content.PublishedTime == null && content.Status.Equals(ApprovalStatus.Published))
+					content.PublishedTime = DateTime.Now;
+
+				content.OtherCategories = content.OtherCategories?.Where(id => !content.CategoryID.IsEquals(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+				content.OtherCategories = content.OtherCategories != null && content.OtherCategories.Count > 0 ? content.OtherCategories : null;
+
+				if (inlineImages == null || inlineImages.Count < 1)
+					content.Details = organization.NormalizeURLs(content.Details, false);
+
+				content.Relateds = content.Relateds?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+				content.Relateds = content.Relateds != null && content.Relateds.Count > 0 ? content.Relateds : null;
+
+				if (content.ExternalRelateds != null)
 				{
-					if (content.ExternalRelateds[index] == null || string.IsNullOrWhiteSpace(content.ExternalRelateds[index].Title) || string.IsNullOrWhiteSpace(content.ExternalRelateds[index].URL))
-						content.ExternalRelateds.RemoveAt(index);
-					else
-						index++;
+					var index = 0;
+					while (index < content.ExternalRelateds.Count)
+					{
+						if (content.ExternalRelateds[index] == null || string.IsNullOrWhiteSpace(content.ExternalRelateds[index].Title) || string.IsNullOrWhiteSpace(content.ExternalRelateds[index].URL))
+							content.ExternalRelateds.RemoveAt(index);
+						else
+							index++;
+					}
 				}
+				content.ExternalRelateds = content.ExternalRelateds != null && content.ExternalRelateds.Count > 0 ? content.ExternalRelateds : null;
+
+				trace = requestInfo.StartTrace(trace, "CheckAlias");
+				var existing = await Content.GetContentByAliasAsync(contentType, content.Alias, category.ID, cancellationToken).ConfigureAwait(false);
+				if (existing != null)
+					content.Alias = $"{content.Alias}-{DateTime.Now.ToUnixTimestamp()}-{UtilityService.GetRandomNumber()}";
+
+				// create new
+				trace = requestInfo.StartTrace(trace, "Persist");
+				await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
+				Utility.NotRecognizedAliases.Remove(content.CategoryID.GetContentAliasKey(content.RepositoryEntityID, content.Alias));
+
+				// upload inline images
+				if (inlineImages != null && inlineImages.Count > 0)
+				{
+					trace = requestInfo.StartTrace(trace, "UploadInlineImages");
+					await requestInfo.UploadInlineImagesAsync(inlineImages, content, cancellationToken).ConfigureAwait(false);
+					trace = requestInfo.StartTrace(trace, "RePersist");
+					content.Details = organization.NormalizeURLs(content.Details, false);
+					await Content.UpdateAsync(content, true, requestInfo.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
+				}
+
+				// get files
+				trace = requestInfo.StartTrace(trace, "FetchFiles");
+				var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+				var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
+				await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
+
+				// send update message
+				trace = requestInfo.StartTrace(trace, "Broadcast");
+				var response = content.ToJson(json =>
+				{
+					json["Thumbnails"] = thumbnailsTask.Result;
+					json["Attachments"] = attachmentsTask.Result;
+					json["Details"] = organization.NormalizeURLs(content.Details);
+					json.UpdateVersions([]);
+				});
+				new UpdateMessage
+				{
+					Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Create",
+					DeviceID = "*",
+					Data = response
+				}.Send();
+
+				var writeLogs = requestInfo.IsWriteCacheLogs();
+				if (writeLogs)
+					await requestInfo.WriteLogAsync($"Create new successful [{content.Title} - ID: {content.ID}]", "Caches").ConfigureAwait(false);
+
+				trace = requestInfo.StartTrace(trace, "PostProcess");
+				Task.WhenAll
+				(
+					content.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
+					content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, Utility.CancellationToken),
+					content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, writeLogs),
+					Utility.Cache.SetAsync(content.GetCacheKeyOfAlias(), content.ID, Utility.CancellationToken),
+					Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
+					Utility.Cache.AddSetMemberAsync(content.ContentType.GetSetCacheKey(), content.GetCacheKeyOfAlias(), Utility.CancellationToken),
+					Utility.Cache.AddSetMemberAsync(content.Category.GetSetCacheKey(), content.GetCacheKeyOfAlias(), Utility.CancellationToken)
+				).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while working with cache/task when create new ['{content.Title}'] => {ex.Message}", "Caches", requestInfo.CorrelationID));
+
+				trace.Complete(new()
+				{
+					["ID"] = content.ID,
+					["Title"] = content.Title,
+					["CategoryID"] = content.CategoryID,
+					["SystemID"] = content.SystemID
+				});
+				return response;
 			}
-			content.ExternalRelateds = content.ExternalRelateds != null && content.ExternalRelateds.Count > 0 ? content.ExternalRelateds : null;
-
-			// create new
-			await Content.CreateAsync(content, cancellationToken).ConfigureAwait(false);
-			Utility.NotRecognizedAliases.Remove(content.CategoryID.GetContentAliasKey(content.RepositoryEntityID, content.Alias));
-
-			// upload inline images
-			if (inlineImages != null && inlineImages.Count > 0)
+			catch (Exception ex)
 			{
-				await requestInfo.UploadInlineImagesAsync(inlineImages, content, cancellationToken).ConfigureAwait(false);
-				content.Details = organization.NormalizeURLs(content.Details, false);
-				await Content.UpdateAsync(content, true, requestInfo.IsCacheAvailable(), cancellationToken).ConfigureAwait(false);
+				trace.Complete("error", $"{ex.Message} [{ex.GetTypeName(true)}]");
+				throw;
 			}
-
-			// send update message
-			var thumbnailsTask = requestInfo.GetThumbnailsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			var attachmentsTask = requestInfo.GetAttachmentsAsync(content.ID, content.Title.Url64Encode(), Utility.ValidationKey, cancellationToken);
-			await Task.WhenAll(thumbnailsTask, attachmentsTask).ConfigureAwait(false);
-
-			var response = content.ToJson(json =>
-			{
-				json["Thumbnails"] = thumbnailsTask.Result;
-				json["Attachments"] = attachmentsTask.Result;
-				json["Details"] = organization.NormalizeURLs(content.Details);
-				json.UpdateVersions([]);
-			});
-			new UpdateMessage
-			{
-				Type = $"{requestInfo.ServiceName}#{content.GetObjectName()}#Create",
-				DeviceID = "*",
-				Data = response
-			}.Send();
-
-			var writeLogs = requestInfo.IsWriteCacheLogs();
-			if (writeLogs)
-				await requestInfo.WriteLogAsync($"Create new successful [{content.Title} - ID: {content.ID}]", "Caches").ConfigureAwait(false);
-
-			Task.WhenAll
-			(
-				content.Organization.GetSchedulingTasksAsync(Utility.CancellationToken),
-				content.SendNotificationAsync("Create", content.Category.Notifications, ApprovalStatus.Draft, content.Status, requestInfo, Utility.CancellationToken),
-				content.ClearRelatedCacheAsync(Utility.CancellationToken, requestInfo.CorrelationID, writeLogs),
-				Utility.Cache.SetAsync(content.GetCacheKeyOfAlias(), content.ID, Utility.CancellationToken),
-				Utility.Cache.AddSetMemberAsync(content.ContentType.ObjectCacheKeys, content.GetCacheKey(), Utility.CancellationToken),
-				Utility.Cache.AddSetMemberAsync(content.ContentType.GetSetCacheKey(), content.GetCacheKeyOfAlias(), Utility.CancellationToken),
-				Utility.Cache.AddSetMemberAsync(content.Category.GetSetCacheKey(), content.GetCacheKeyOfAlias(), Utility.CancellationToken)
-			).Execute(ex => Utility.WriteErrorAsync(ex, $"Error occurred while working with cache/task when create new ['{content.Title}'] => {ex.Message}", "Caches", requestInfo.CorrelationID));			
-			return response;
 		}
 
 		internal static async Task<JObject> GetContentAsync(this RequestInfo requestInfo, bool isSystemAdministrator = false, CancellationToken cancellationToken = default)
