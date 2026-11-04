@@ -18,7 +18,6 @@ using WampSharp.V2.Core.Contracts;
 using net.vieapps.Components.Caching;
 using net.vieapps.Components.Security;
 using net.vieapps.Components.Utility;
-using Microsoft.IdentityModel.Tokens;
 #endregion
 
 namespace net.vieapps.Services.Portals
@@ -126,9 +125,9 @@ namespace net.vieapps.Services.Portals
 				if (requestPath.IsEquals("favicon.ico") && requestURI.Host.IsEquals(Handler.PortalsHttpHost))
 					await context.ProcessFavouritesIconFileRequestAsync().ConfigureAwait(false);
 
-				// robots.txt
+				// robots.txt of centralized portals
 				else if (requestURI.AbsoluteUri.IsContains($"://{Handler.PortalsHttpHost}/robots.txt"))
-					await context.WriteAsync("User-agent: *\r\nDisallow: *", "text/plain", null, 0, "public", TimeSpan.Zero, null, context.RequestAborted).ConfigureAwait(false);
+					await context.WriteAsync("User-agent: *\r\nDisallow: /", "text/plain", null, 0, "public", TimeSpan.Zero, null, context.RequestAborted).ConfigureAwait(false);
 
 				// portals
 				else
@@ -2594,18 +2593,18 @@ namespace net.vieapps.Services.Portals
 			}
 
 			context.UpdateServerTiming("ngxServe", stopwatch.ElapsedMilliseconds);
-			context.SetResponseHeaders(statusCode, info.Headers.ToDictionary());
 			if (body != null)
 				try
 				{
-					await context.WriteAsync(body, context.RequestAborted).ConfigureAwait(false);
+					await context.WriteAsync(body, statusCode, info.Headers.ToDictionary(), context.RequestAborted).ConfigureAwait(false);
 				}
-				catch (TaskCanceledException) { }
 				catch (OperationCanceledException) { }
 				catch (Exception ex)
 				{
 					await context.WriteLogsAsync("Caches", $"Error occurred while processing L1-Cache => {ex.Message}", ex).ConfigureAwait(false);
 				}
+			else
+				context.SetResponseHeaders(statusCode, info.Headers.ToDictionary());
 
 			stopwatch.Stop();
 			Task.WhenAll

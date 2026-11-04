@@ -394,7 +394,6 @@ namespace net.vieapps.Services.Portals
 			var objectsJson = objects.Select(@object => !string.IsNullOrWhiteSpace(expression?.SearchTransformScript)
 				? expression.SearchTransformScript.JsEvaluate(@object, requestInfo, new JObject
 				{
-					["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}",
 					["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL),
 					["Summary"] = @object.Summary?.NormalizeHTMLBreaks(),
 					["Details"] = organization.NormalizeURLs(@object.Details),
@@ -404,7 +403,6 @@ namespace net.vieapps.Services.Portals
 				}.ToExpandoObject())?.ToString().ToJson()
 				: @object.ToJson(json =>
 				{
-					json["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}";
 					json["Summary"] = @object.Summary?.NormalizeHTMLBreaks();
 					if (showDetails)
 						json["Details"] = organization.NormalizeURLs(@object.Details);
@@ -717,7 +715,6 @@ namespace net.vieapps.Services.Portals
 			var response = !string.IsNullOrWhiteSpace(expression?.GetTransformScript)
 				? expression.GetTransformScript.JsEvaluate(content, requestInfo, new JObject
 				{
-					["URI"] = $"apis://{Utility.ServiceName.ToLower()}/{content.GetObjectName().ToLower()}/{content.ID}/{(expression != null ? $"/{expression.ID}" : "")}",
 					["URL"] = content.GetURL(),
 					["Summary"] = content.Summary?.NormalizeHTMLBreaks(),
 					["Details"] = content.Organization.NormalizeURLs(content.Details),
@@ -732,7 +729,6 @@ namespace net.vieapps.Services.Portals
 				}.ToExpandoObject()).ToString().ToJson() as JObject
 				: content.ToJson(json =>
 				{
-					json["URI"] = $"apis://{Utility.ServiceName.ToLower()}/{content.GetObjectName().ToLower()}/{content.ID}/{(expression != null ? $"/{expression.ID}" : "")}";
 					json["URL"] = content.GetURL();
 					json["Summary"] = content.Summary?.NormalizeHTMLBreaks();
 					json["Details"] = content.Organization.NormalizeURLs(content.Details);

@@ -274,14 +274,12 @@ namespace net.vieapps.Services.Portals
 			var objectsJson = objects.Select(@object => !string.IsNullOrWhiteSpace(expression?.SearchTransformScript)
 				? expression.SearchTransformScript.JsEvaluate(@object, requestInfo, new JObject
 				{
-					["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}",
 					["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL),
 					["Thumbnails"] = thumbnails?.GetThumbnails(@object.ID)?.NormalizeURIs(organization.FakeFilesHttpURI),
 					["Attachments"] = (attachments == null ? null : objects.Count == 1 ? attachments : attachments[@object.ID])?.NormalizeURIs(organization.FakeFilesHttpURI)
 				}.ToExpandoObject())?.ToString().ToJson()
 				: @object.ToJson(false, json =>
 				{
-					json["URI"] = $"{Utility.ServiceName.ToLower()}://{objectName}/{@object.ID}";
 					if (showURLs)
 					{
 						json["URL"] = organization.NormalizeURLs(@object.GetURL(), true, siteURL);
@@ -471,7 +469,6 @@ namespace net.vieapps.Services.Portals
 			var response = !string.IsNullOrWhiteSpace(expression?.GetTransformScript)
 				? expression.GetTransformScript.JsEvaluate(item, requestInfo, new JObject
 				{
-					["URI"] = $"apis://{Utility.ServiceName.ToLower()}/{item.GetObjectName().ToLower()}/{item.ID}/{(expression != null ? $"/{expression.ID}" : "")}",
 					["URL"] = item.GetURL(),
 					["Thumbnails"] = thumbnailsTask.Result,
 					["Attachments"] = attachmentsTask.Result,

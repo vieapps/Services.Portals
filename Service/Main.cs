@@ -34,7 +34,6 @@ namespace net.vieapps.Services.Portals
 {
 	public class ServiceComponent : ServiceBase, ICmsPortalsService
 	{
-
 		public override string ServiceName => "Portals";
 
 		public override string ServiceDescription => "CMS and portals management";
@@ -504,7 +503,7 @@ namespace net.vieapps.Services.Portals
 			this.Statistics.RpcEntered();
 
 			await this.WriteLogsAsync(requestInfo, $"Begin request ({requestInfo.Verb} {requestInfo.GetURI()})").ConfigureAwait(false);
-			var trace = requestInfo.StartTrace();
+			var trace = requestInfo.StartTrace(_ => "Identify.System".IsEquals(requestInfo.ObjectName) ? "IDENTIFY SystemInfo" : "Process.Http.Request".IsEquals(requestInfo.ObjectName) ? "PROCESS HttpRequest" : "generate.feed".IsEquals(requestInfo.ObjectName) ? "GENERARTE Feed" : null);
 			var status = "ok";
 			string statusDescription = null;
 
@@ -1495,11 +1494,11 @@ namespace net.vieapps.Services.Portals
 				throw new SiteNotRecognizedException($"The requested site is not recognized ({(string.IsNullOrWhiteSpace(host) ? "unknown" : host)})");
 			}
 
-			var status = site != null
+			var publishStatus = site != null
 				? site.Status == ApprovalStatus.Published || site.Status == ApprovalStatus.Approved ? organization.Status : site.Status
 				: organization.Status;
 
-			if (((status != ApprovalStatus.Published && status != ApprovalStatus.Approved) || (DateTime.TryParse(organization.ExpiredDate, out var expiredDate) && expiredDate < DateTime.Now)) && !Utility.PortalsHttpURI.IsContains($"://{host}"))
+			if (((publishStatus != ApprovalStatus.Published && publishStatus != ApprovalStatus.Approved) || (DateTime.TryParse(organization.ExpiredDate, out var expiredDate) && expiredDate < DateTime.Now)) && !Utility.PortalsHttpURI.IsContains($"://{host}"))
 				throw new SiteFrozenException();
 
 			if (requestInfo.ContainsKey("x-force-refresh"))
@@ -1579,6 +1578,7 @@ namespace net.vieapps.Services.Portals
 						var content = category != null && cmsPaths.Length > 2
 							? await Content.GetAsync(Filters<Content>.And(Filters<Content>.Equals("SystemID", organization.ID), Filters<Content>.Equals("CategoryID", category.ID), Filters<Content>.Equals("Alias", cmsPaths[2].NormalizeAlias())), null, null, cancellationToken).ConfigureAwait(false)
 							: null;
+
 						if (content != null)
 						{
 							identityJson["ObjectID"] = content.ID;
@@ -1596,6 +1596,7 @@ namespace net.vieapps.Services.Portals
 			stopwatch.Stop();
 			if (requestInfo.IsWriteDesktopLogs())
 				await requestInfo.WriteLogAsync($"The system was identified - Execution times: {stopwatch.GetElapsedTimes()}\r\n- Request: {requestInfo.ToJson()}\r\n- Response: {identityJson}").ConfigureAwait(false);
+
 			return identityJson;
 		}
 
@@ -1689,27 +1690,32 @@ namespace net.vieapps.Services.Portals
 			var name = requestInfo.Query["x-indicator"];
 			var contentType = name.IsEquals("favicon.ico") ? "image/x-icon" : name.IsEndsWith(".json") ? "application/json" : name.IsEndsWith(".xml") ? "text/xml" : "text/plain";
 			var indicator = organization.HttpIndicators?.FirstOrDefault(httpIndicator => httpIndicator.Name.IsEquals(name));
+
 			var body = indicator != null
 				? (name.IsEquals("favicon.ico") ? indicator.Content.ToList().Last().Base64ToBytes() : indicator.Content.ToBytes()).Compress(this.BodyEncoding).ToBase64()
 				: null;
 			if (body == null && name.IsEquals("robots.txt"))
 				body = "User-agent: *\r\nAllow: /\r\nDisallow: /_login".ToBytes().Compress(this.BodyEncoding).ToBase64();
-			var headers = new JObject
-			{
-				["Content-Type"] = contentType + (contentType.IsStartsWith("imagae/") ? "" : "; charset=utf-8"),
-				["Cache-Control"] = "public",
-				["Server-Timing"] = $"ngxPrepare;dur={stopwatch.ElapsedMilliseconds}",
-				["X-Node"] = this.NodeID,
-				["X-Correlation-ID"] = requestInfo.CorrelationID
-			};
+
+			var headers = body != null
+				? new JObject
+					{
+						["Content-Type"] = contentType + (contentType.IsStartsWith("imagae/") ? "" : "; charset=utf-8"),
+						["Cache-Control"] = "public",
+						["Server-Timing"] = $"ngxPrepare;dur={stopwatch.ElapsedMilliseconds}",
+						["X-Node"] = this.NodeID,
+						["X-Correlation-ID"] = requestInfo.CorrelationID
+					}
+				: null;
+
 			return body != null
 				? new JObject
-				{
-					["StatusCode"] = (int)HttpStatusCode.OK,
-					["Headers"] = headers,
-					["Body"] = body,
-					["BodyEncoding"] = this.BodyEncoding
-				}
+					{
+						["StatusCode"] = (int)HttpStatusCode.OK,
+						["Headers"] = headers,
+						["Body"] = body,
+						["BodyEncoding"] = this.BodyEncoding
+					}
 				: throw new InformationNotFoundException();
 		}
 
@@ -2239,7 +2245,6 @@ namespace net.vieapps.Services.Portals
 			}
 
 			// response
-			headers["Server-Timing"] = serverTiming + $", ngxComplete;dur={stopwatch.ElapsedMilliseconds}";
 			return resources != null
 				? new JObject
 				{
@@ -5760,6 +5765,13 @@ namespace net.vieapps.Services.Portals
 					catch { }
 				}
 
+				var jsonParams = new JObject
+				{
+					["Organization"] = organization.ToJson(false, false, json => json.Remove(OrganizationProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]))),
+					["Module"] = contentType?.Module?.ToJson(json => json.Remove(ModuleProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]))),
+					["ContentType"] = contentType?.ToJson(json => json.Remove(ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"])))
+				};
+
 				Task sendEmailAsync(JToken jsonEmail)
 				{
 					var jsonSMTP = requestInfo.GetParameter("x-smtp")?.ToJson() ?? new JObject();
@@ -5782,13 +5794,6 @@ namespace net.vieapps.Services.Portals
 						cts.Token
 					);
 				}
-
-				var jsonParams = new JObject
-				{
-					["Organization"] = organization.ToJson(false, false, json => OrganizationProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name))),
-					["Module"] = contentType?.Module?.ToJson(json => ModuleProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges"]).ForEach(name => json.Remove(name))),
-					["ContentType"] = contentType?.ToJson(json => ContentTypeProcessor.ExtraProperties.Concat(["Privileges", "OriginalPrivileges", "ExtendedPropertyDefinitions", "ExtendedControlDefinitions", "StandardControlDefinitions"]).ForEach(name => json.Remove(name)))
-				};
 
 				async Task<string> prepareBodyAsync(JToken jsonBody)
 				{
@@ -5854,14 +5859,14 @@ namespace net.vieapps.Services.Portals
 
 				response = requestInfo.ContainsKey("x-no-update")
 					? await prepareBodyAsJsonAsync(bodyJson).ConfigureAwait(false)
-					:	await this.SyncObjectAsync(new RequestInfo(requestInfo)
-					{
-						Verb = "SYNC",
-						ObjectName = contentType != null
-							? contentType.ContentTypeDefinition.GetObjectName()
-							: requestInfo.GetParameter("x-webhook-object") ?? requestInfo.GetParameter("x-original-object-name") ?? requestInfo.ObjectName,
-						Body = requestInfo.ContainsKey("x-no-prepare") ? bodyJson.ToString(Formatting.None) : await prepareBodyAsync(bodyJson).ConfigureAwait(false)
-					}, cts.Token).ConfigureAwait(false);
+					: await this.SyncObjectAsync(new RequestInfo(requestInfo)
+						{
+							Verb = "SYNC",
+							ObjectName = contentType != null
+								? contentType.ContentTypeDefinition.GetObjectName()
+								: requestInfo.GetParameter("x-webhook-object") ?? requestInfo.GetParameter("x-original-object-name") ?? requestInfo.ObjectName,
+							Body = requestInfo.ContainsKey("x-no-prepare") ? bodyJson.ToString(Formatting.None) : await prepareBodyAsync(bodyJson).ConfigureAwait(false)
+						}, cts.Token).ConfigureAwait(false);
 
 				if (requestInfo.ContainsKey("x-no-prepare") && requestInfo.ContainsKey("x-post-prepare"))
 					response = await prepareBodyAsJsonAsync(bodyJson).ConfigureAwait(false);
@@ -6129,7 +6134,7 @@ namespace net.vieapps.Services.Portals
 				identityJson["Location"] = location;
 
 			if (!string.IsNullOrWhiteSpace(triggerURL))
-				requestInfo.ProcessWebHookTriggerAsync(triggerURL, form?.ToJson().ToString(Formatting.None)).Execute(ex => this.WriteLogsAsync(requestInfo.CorrelationID, $"Error in trigger URL [{triggerURL}] => {ex.Message}", ex, this.ServiceName, "WebHooks"));
+				requestInfo.ProcessWebHookTriggerAsync(triggerURL, form?.ToString(Formatting.None)).Execute(ex => this.WriteLogsAsync(requestInfo.CorrelationID, $"Error in trigger URL [{triggerURL}] => {ex.Message}", ex, this.ServiceName, "WebHooks"));
 		}
 		#endregion
 
