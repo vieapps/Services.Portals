@@ -898,7 +898,6 @@ namespace net.vieapps.Services.Portals
 							context.UpdateServerTiming("ngxServe", stepwatch.ElapsedMilliseconds);
 
 							// response
-							context.SetResponseHeaders(statusCode, headers);
 							if (body != null)
 							{
 								if (isHtml && Handler.TrackByJavascript)
@@ -907,8 +906,10 @@ namespace net.vieapps.Services.Portals
 									html = html.Insert(html.PositionOf("</body>"), "<script src=\"/~hits/js?l=svc&k=" + requestURI.AbsoluteUri.GenerateUUID() + "\"></script>");
 									body = html.ToBytes();
 								}
-								await context.WriteAsync(body, cts.Token).ConfigureAwait(false);
+								await context.WriteAsync(body, statusCode, headers, cts.Token).ConfigureAwait(false);
 							}
+							else
+								context.SetResponseHeaders(statusCode, headers);
 
 							stepwatch.Stop();
 							if (isDebugLogEnabled)
